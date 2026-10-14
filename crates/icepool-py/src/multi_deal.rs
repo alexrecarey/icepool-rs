@@ -56,6 +56,9 @@ pub fn multi_deal_new(
     Ok(RsMultiDeal { multi_deal })
 }
 
+/// One possibility of `pop`: `(popped source, counts, weight)`.
+type Popped<'py> = (RsMultiDealSource, Bound<'py, PyTuple>, Bound<'py, PyAny>);
+
 fn int_tuple<'py>(py: Python<'py>, xs: &[i64]) -> PyResult<Bound<'py, PyTuple>> {
     PyTuple::new(py, xs)
 }
@@ -135,7 +138,7 @@ impl RsMultiDealSource {
         py: Python<'py>,
         order: i64,
         outcome: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<(RsMultiDealSource, Bound<'py, PyTuple>, Bound<'py, PyAny>)>> {
+    ) -> PyResult<Vec<Popped<'py>>> {
         let order = if order > 0 {
             Order::Ascending
         } else {
