@@ -324,5 +324,14 @@
     "deps": [],
     "milestone": null,
     "details": "Found by the depth-4 fuzz at S4c (seed 14), pre-existing on main: {\"op\": \"cdf_distance\", \"a\": d6, \"b\": 3 @ (d12 / d12), \"stat\": \"kolmogorov_smirnov\"} takes ~47 s in icepool-run (release) against well under a second in Python, so the harness's 20 s port timeout reports it unimplemented. Profile it (likely the float-outcome matmul sums or the cdf over many float outcomes) and make it fast without changing results; add it as a fixture once it passes."
+  },
+  {
+    "id": "S4f",
+    "title": "Multiset expression gaps left by S4d",
+    "deps": [
+      "S4d"
+    ],
+    "milestone": null,
+    "details": "Cases where the port says unimplemented (icepool-run and the facade's core path) while Python answers, all outside what the S4d generators produce: (1) multiset operators over tuple counts: an operator applied to a MultisetTupleParameter or a MultiDeal (e.g. map_counts / + / & over a whole hand tuple) gets tuple counts, which Python reduces with min/max/+/its function (often TypeError, not always); the core's operators take i64 counts only (operator/mod.rs `int`), and program/expression.rs refuses tuple expressions as operands (`binary_op` 'no multiset operand', `the_expression`). (2) MultisetMixture inners compared by hash_key: program/expression.rs `same_expression` compares generators, parameters, tuple items, mixtures and MultisetKeep, but two operator expressions of another kind over equal children are unimplemented (needs operator equality as `_expression_key`, functions by identity). (3) Keyword-only parameters of a @multiset_function (`def f(x, *, target)`) in the program language: mf_def has no kwargs, mf_call passes only `star`. Add nodes/generators for each, fuzz clean through icepool-run and crates/icepool-py/run-facade.sh, with fixtures."
   }
 ]

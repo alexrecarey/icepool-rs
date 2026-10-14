@@ -5,6 +5,60 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **@multiset_function, tuple expressions, mixtures on the core (S4d).** Core `expression.rs` drives a `CallTree`
+  (`flats` + `calls`, = Python's Dungeonlet/QuestletCallTree) with two new dungeonlets: `Parameter{arg_index,
+  star_index}` (reads the *enclosing call's* output counts/sizes, `arg[star]` with Python subscript errors) and
+  `TupleItem{child, index: builtins::Index}` (= MultisetTupleIndex/Slice; a `None` child size is the TypeError of
+  unpacking Python's bare `None`). What a call tree produces is a `CountTree` (`Leaf(counts)` at a call without
+  calls, else one subtree per call); statelets of the whole tree stay one flat vector (pre-order). The driver
+  (`evaluate_call_tree`; `evaluate_expressions` wraps it) calls the new trait methods `initial_state_tree` /
+  `next_state_tree` / `final_outcome_tree`, whose defaults take `CountTree::Leaf` (a plain evaluator never sees a
+  tree). `evaluator/multiset_function.rs`: `MultisetFunction { call: Call, tupleize }` walks `Call::{Evaluator(Box<dyn
+  DynEvaluator>), Function(inner), Joint(inners)}` with the count tree: Function passes its inner's state through,
+  Joint's state is `CallState::Joint` (Python's tuple; any inner Reroll -> Restart, later inners not stepped),
+  finals of a joint are `tupleize`d by the caller's closure. Leaves are type-erased (`Erased { evaluator, map_final }`,
+  states as `AnyState`: the type's own Eq/Hash behind `dyn`); a constant result is just a leaf evaluator with no
+  inputs (`ConstantDungeon`). Tracing (calling the body with parameters) is never in the core.
+- Program layer `program/multiset_function.rs`: nodes `mf_def` (lazy `body`, special-cased in `program::eval` like
+  khepri; `params` positional + `var` = `*rest`), `mf_var` (thread-local stack of the innermost traced body's
+  arguments), `mf_call` (`f(*args)` / `star=`). Any evaluation whose inputs hold a parameter returns
+  `PValue::RawResult` (evaluate.rs `run` / catalogue `run` check `in_function` first; that is why `run` now takes
+  the evaluator by value: it is erased into an `Arc` leaf). `prepare_function` = `MultisetFunctionEvaluator._prepare`:
+  star inference (`params > len(inputs)`), `_make_param` (a tuple expression makes `MExpr::TupleParam`), the arity
+  TypeError, then single (`convert_die_to_raw_result`: an expression result is TypeError) or joint (anything else
+  iterated; `[]` is the ValueError of unpacking an empty `zip`). Nested functions re-trace per outer preparation, as
+  Python does. Python quirks copied: `MultisetTupleIndex.hash_key` leaves out the child (DIVERGENCES.md), `x[i]` with
+  a non-int i on a tuple expression returns `None`, evaluation methods on tuple expressions are AttributeError.
+- Mixtures: `MExpr::prepare` now returns every preparation (`Part` = dungeonlets, sources, weight;
+  `itertools.product` over children, and **child flats are concatenated with their absolute child positions
+  shifted** (`shifted`): forgetting that silently broke operators over operator children). `evaluate::mix` is the
+  `final_data[die] += weight; Die(final_data)` end of `evaluate`. `MExpr::Mixture` (node `mx_mixture`, list form
+  only): inners merged by `same_expression` (= hash_key equality as far as the port models it; other operator pairs
+  are unimplemented, task S4f). A `_static_keepable` mixture (all inners keep generators or such mixtures) maps
+  `keep` / `[]` / `lowest` / `highest` / `multiply_counts` / `*` / `-` over its inners (`map_mixture`); `keep(int)`
+  then raises AttributeError (the inner results are dice); a MultisetKeep result with a *list* index is unhashable
+  (TypeError) when put in the new mixture's dict.
+- Facade: `evaluator_rust.rust_call_tree` describes MultisetFunction(Joint)Dungeon/Quest trees as nested
+  `('function'|'joint'|'builtin'|'host', flats, ...)` (flats now also hold `('param', arg, star)` and
+  `(('tuple_item', index), child_indexes)` nodes); `icepool_rs.evaluate_tree` builds `CallTree` + `MultisetFunction`
+  (built-in leaves through `with_builtin` + `BuiltinVisitor`, shared with `evaluate_builtin`; other leaves and
+  ConstantQuest are `HostEvaluator`s with the function's `inner_kwargs`; with any MultiDeal source every leaf is
+  host, as before; joint finals go through `icepool.tupleize`). A builtin leaf is recognised from the quest's
+  `initial_state_main.__self__` (the dungeon may come from the evaluator's `_cache`). Mixtures need nothing in the
+  facade: Python's `_prepare` yields ordinary evaluations. In the upstream suite every evaluation but two
+  (`weightless()`, task S4e) now runs on the core (1797 plain, 49 call trees).
+- `CompoundKeepSource.outcomes()` is now lazy and fallible (`MultisetSource::outcomes() -> Result<&[O]>`): Python
+  sorts the inner outcomes only when asked, so an evaluation with an unresolvable source returns `Die([])` before
+  a mixed int/str union raises (was a TypeError in the port, found by S4d's fuzz, fixture in fixtures/s4d).
+- Fuzzing: the official fuzzer rarely reaches `mf_call` (leaves dominate the kinds). Generate the node directly
+  (harness `G.NODES['mf_call'].gen(g, depth)` in a loop against `tool.oracle` / `tool.Port`, `ICEPOOL_RUN` for the
+  facade): at S4d 8k mf_call, 4k mx_tuple_evaluate and 8k mixture-heavy mx_evaluate programs clean both ways;
+  fixtures in fixtures/s4d (92). The generators keep each function's arity and `star` consistent with the body's
+  view of its variables (a tuple variable is only indexed, never an operand): see `_call` in
+  harness/grammar/multiset_function.py. K6c's evaluators (argsort, comparisons, sum(map), wild largest_count, lexi)
+  were not done here: they already run on the core through host callbacks in the facade; K6c gives them native
+  evaluators and nodes.
+
 - **Multiset operators and CompoundKeepGenerator on the core (S4c).** Core `operator/` = operator/*.py, one file
   per icepool file (binary, adjust_counts, filter_outcomes, keep, pair, versus, debug): `Operator<O>` is both the
   `BodyDungeonlet` (`next_state`) and the `BodyQuestlet` (`initial_state`) of an operator node; its local state is
@@ -65,9 +119,8 @@ turns out wrong. Newest decisions at the top of each section.
   `evaluate_host` take `flats`. `CompoundKeepGenerator` holds `icepool_rs.CompoundKeep` as `_rs` (built from the
   inners' `_make_source()._rs`; `keep` (keep.py), `multiply_counts`, `_set_keep_tuple`, `hash_key`, `_make_source` on
   the core); `CompoundKeepSource._new_rust` pops / sizes / prefers order on the core, `inner_sources` and
-  `keep_tuple` lazily via `__getattr__`. In the upstream suite 1796 evaluations now run on the core, 52 on
-  upstream's driver: `@multiset_function` (S4d), a hand of a MultiDeal (`MultisetTupleIndex`, S4d), and
-  `weightless()` (task S4e).
+  `keep_tuple` lazily via `__getattr__`. In the upstream suite 1796 evaluations ran on the core at S4c; since S4d all
+  but `weightless()` (task S4e).
 - Facade gaps (NotImplementedError where Python answers): a `map_counts` function returning a non-int (a bool too:
   Python keeps bool counts, which can leak into results such as `all_counts`), operator constants that are not ints
   (`unique(1.5)`, `unique(True)`, `keep_counts('>', 0.5)`), `MultisetKeep` indices that are not a slice / list /
@@ -103,8 +156,8 @@ turns out wrong. Newest decisions at the top of each section.
   tuple, not a keys view, as for DealSource), resolvability and `hash_key` on the core. `is_rust_evaluable`
   accepts a `MultisetTupleGeneratorQuestlet` over a `MultiDealSource`; an evaluation with one always goes through
   `evaluate_host` (never `builtin_spec`), so built-ins given tuples behave as in Python (`sum_evaluator` repeats
-  tuples). A hand of a multi-deal (`deal[0]`, `MultisetTupleIndex`) is an expression: still upstream's driver
-  (S4c/S4d), over the core's `MultiDealSource`.
+  tuples). A hand of a multi-deal (`deal[0]`, `MultisetTupleIndex`) is an expression node on the core since
+  S4d (`Dungeonlet::TupleItem`).
 - Upstream bug copied: `MultiDeal.denominator()` for 3+ hands is not the multinomial (DIVERGENCES.md).
 
 - **Deck and Deal on the core (S4a).** Core `deck.rs` = population/deck.py: `Deck<O>` wraps its cards as a `Die`
@@ -301,8 +354,7 @@ turns out wrong. Newest decisions at the top of each section.
   subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
-- Still upstream's Python driver (by input kind, not a fallback): since S4c only `@multiset_function` dungeons,
-  hands of a MultiDeal and weightless sources (see S4c above for the counts).
+- Still upstream's Python driver (by input kind, not a fallback): since S4d only weightless sources (task S4e).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
   at top level and 20 frames deep). The oracle's real limit also depends on warm `_popped_max` and on the shared

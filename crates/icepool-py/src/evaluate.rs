@@ -1,17 +1,21 @@
-//! The evaluation driver of evaluator/multiset_evaluator_base.py (`Dungeon.evaluate`) on the core, for generator
-//! inputs: every input is a `Pool`, `Deal` or `MultiDeal` whose source is the core's. A `MultiDeal`'s counts and
+//! The evaluation driver of evaluator/multiset_evaluator_base.py (`Dungeon.evaluate`) on the core, for inputs over
+//! core sources: every free variable is a `Pool`, `Deal`, `MultiDeal` or compound keep whose source is the core's. A `MultiDeal`'s counts and
 //! size are tuples; only [`evaluate_host`] takes them (the facade never names a built-in for one).
 //!
 //! The facade's `MultisetEvaluatorBase.evaluate` keeps its argument conversion, `_prepare` and the outer
 //! `Die(final_data)`; for each prepared evaluation over core sources it calls in here instead of
 //! `dungeon.evaluate(quest, sources, kwargs)`, and builds `icepool.Die(final_outcomes, final_weights)` from what
-//! comes back (as `Quest.finalize_evaluation` does). Two ways in:
+//! comes back (as `Quest.finalize_evaluation` does). Three ways in:
 //!
 //! - [`evaluate_builtin`]: the built-in evaluators the core has (`sum_evaluator`, `size_evaluator`, poker, keep,
 //!   comparisons...), named by the facade with their parameters. Everything runs in Rust.
 //! - [`evaluate_host`]: any other `MultisetEvaluator` (user subclasses included). The core driver pops the sources
 //!   and memoises rooms; `next_state` / `initial_state` / `extra_outcomes` / `final_outcome` are host callbacks,
 //!   and states are Python objects (native `Value`s where the core models the type, `Value::Host` otherwise).
+//! - [`evaluate_tree`]: a `@multiset_function` evaluation, traced by the facade and described as a call tree
+//!   (evaluator_rust.py `rust_call_tree`): the core drives every call's expressions and the function's main state
+//!   (`icepool_core::evaluator::multiset_function`); the evaluators called in the body are built-ins (natively) or
+//!   host callbacks, constant results included.
 //!
 //! Rooms are cached per call (ANALYSIS.md decision 5), not on the dungeon across calls as Python does.
 
