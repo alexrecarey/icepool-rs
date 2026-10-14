@@ -29,13 +29,8 @@ const LN2HI: f64 = f64::from_bits(0x3fe62e42fefa3800); // 0x1.62e42fefa3800p-1
 const LN2LO: f64 = f64::from_bits(0x3d2ef35793c76730); // 0x1.ef35793c76730p-45
 /// log1p polynomial; coefficients are scaled to match the scaling during evaluation. A[0] = -0.5.
 const A: [u64; 7] = [
-    0xbfe0000000000000,
-    0xbfe5555555555560,
-    0x3fe0000000000006,
-    0x3fe999999959554e,
-    0xbfe555555529a47a,
-    0xbff2495b9b4845e9,
-    0x3ff0002b8b263fc3,
+    0xbfe0000000000000, 0xbfe5555555555560, 0x3fe0000000000006, 0x3fe999999959554e,
+    0xbfe555555529a47a, 0xbff2495b9b4845e9, 0x3ff0002b8b263fc3,
 ];
 const INV_LN2_N: f64 = f64::from_bits(0x40671547652b82fe); // N/ln2
 const NEG_LN2_HI_N: f64 = f64::from_bits(0xbf762e42fefa0000); // -ln2/N, high part
@@ -43,12 +38,7 @@ const NEG_LN2_LO_N: f64 = f64::from_bits(0xbd0cf79abc9e3b3a); // -ln2/N, low par
 /// Used for rounding (no TOINT_INTRINSICS): 0x1.8p52.
 const SHIFT: f64 = f64::from_bits(0x4338000000000000);
 /// exp polynomial, the last four coefficients C2..C5. ulp error: 0.509 (0.511 without fma).
-const C: [u64; 4] = [
-    0x3fdffffffffffdbd,
-    0x3fc555555555543c,
-    0x3fa55555cf172b91,
-    0x3f81111167a4d017,
-];
+const C: [u64; 4] = [0x3fdffffffffffdbd, 0x3fc555555555543c, 0x3fa55555cf172b91, 0x3f81111167a4d017];
 
 fn a(i: usize) -> f64 {
     f64::from_bits(A[i])
@@ -157,11 +147,7 @@ fn exp_inline(x: f64, xtail: f64, sign_bias: u64) -> f64 {
         }
         if abstop >= top12(1024.0) {
             // Note: inf and nan are already handled. Overflow to inf, underflow to 0 (__math_oflow/uflow).
-            return signed(if x.to_bits() >> 63 != 0 {
-                0.0
-            } else {
-                f64::INFINITY
-            });
+            return signed(if x.to_bits() >> 63 != 0 { 0.0 } else { f64::INFINITY });
         }
         // Large x is special cased below.
         abstop = 0;
@@ -175,7 +161,7 @@ fn exp_inline(x: f64, xtail: f64, sign_bias: u64) -> f64 {
     let ki = kd.to_bits();
     kd -= SHIFT;
     let mut r = kd.mul_add(NEG_LN2_LO_N, kd.mul_add(NEG_LN2_HI_N, x)); // contracted
-                                                                       // The code assumes 2^-200 < |xtail| < 2^-8/N.
+    // The code assumes 2^-200 < |xtail| < 2^-8/N.
     r += xtail;
     // 2^(k/N) ~= scale * (1 + tail).
     let idx = (2 * (ki % N)) as usize;
@@ -189,10 +175,7 @@ fn exp_inline(x: f64, xtail: f64, sign_bias: u64) -> f64 {
     // Without fma the worst case error is 0.25/N ulp larger.
     // Worst case error is less than 0.5+1.11/N+(abs poly error * 2^53) ulp.
     // contracted: tmp = tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5).
-    let tmp = (r2 * r2).mul_add(
-        r.mul_add(c(3), c(2)),
-        r2.mul_add(r.mul_add(c(1), c(0)), tail + r),
-    );
+    let tmp = (r2 * r2).mul_add(r.mul_add(c(3), c(2)), r2.mul_add(r.mul_add(c(1), c(0)), tail + r));
     if abstop == 0 {
         return specialcase(tmp, sbits, ki);
     }
@@ -236,9 +219,7 @@ fn arm_pow(x: f64, y: f64) -> f64 {
     let topy = top12(y);
     let one = 1.0f64.to_bits();
     let inf = f64::INFINITY.to_bits();
-    if topx.wrapping_sub(0x001) >= 0x7ff - 0x001
-        || (topy & 0x7ff).wrapping_sub(0x3be) >= 0x43e - 0x3be
-    {
+    if topx.wrapping_sub(0x001) >= 0x7ff - 0x001 || (topy & 0x7ff).wrapping_sub(0x3be) >= 0x43e - 0x3be {
         // Note: if |y| > 1075 * ln2 * 2^53 ~= 0x1.749p62 then pow(x,y) = inf/0 and if |y| < 2^-54 / 1075 ~=
         // 0x1.e7b6p-65 then pow(x,y) = +-1.
         // Special cases: (x < 0x1p-126 or inf or nan) or (|y| < 0x1p-65 or |y| >= 0x1p63 or nan).
@@ -290,11 +271,7 @@ fn arm_pow(x: f64, y: f64) -> f64 {
                 return if ix > one { 1.0 + y } else { 1.0 - y };
             }
             // __math_oflow(0) / __math_uflow(0).
-            return if (ix > one) == (topy < 0x800) {
-                f64::INFINITY
-            } else {
-                0.0
-            };
+            return if (ix > one) == (topy < 0x800) { f64::INFINITY } else { 0.0 };
         }
         if topx == 0 {
             // Normalize subnormal x so exponent becomes negative.
@@ -546,24 +523,8 @@ mod tests {
     #[test]
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     fn matches_platform_pow() {
-        let specials = [
-            0.0,
-            -0.0,
-            1.0,
-            -1.0,
-            0.5,
-            2.0,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::NAN,
-            5e-324,
-            f64::MIN_POSITIVE,
-            f64::MAX,
-            1e300,
-            -1e300,
-            1.0 + f64::EPSILON,
-            1.0 - f64::EPSILON / 2.0,
-        ];
+        let specials = [0.0, -0.0, 1.0, -1.0, 0.5, 2.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 5e-324,
+            f64::MIN_POSITIVE, f64::MAX, 1e300, -1e300, 1.0 + f64::EPSILON, 1.0 - f64::EPSILON / 2.0];
         for &x in &specials {
             for &y in &specials {
                 same(x, y);
