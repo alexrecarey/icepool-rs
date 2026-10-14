@@ -47,6 +47,9 @@
     },
     "S3a": {
       "status": "done"
+    },
+    "S3b": {
+      "attempts": 1
     }
   },
   "merges": 16,
