@@ -5,6 +5,32 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **S6: the JS facade (`crates/icepool-wasm/js`, npm package `icepool-wasm`).** Every JS method is one grammar
+  node run by the program layer (`program::call(op, args)`, the node dispatch `eval` uses, now public), so the JS
+  API computes what the oracle-checked nodes compute and needs no Rust per method. Layers: `src/facade.rs` (wasm
+  exports `call`, `evaluate`, `release`, `live_handles`, `wire_result`, `from_wire`; a handle table of `PValue`s; the
+  "JS-JSON" encoding documented at its top: ints as JSON or `{"$int"}` beyond 2**53, floats `{"float": repr}`, tuples
+  = arrays, lists `{"$list"}`, vectors with their truth value, Symbols as dict items in order) and `js/core.js`
+  (classes `Die`, `Pool`, `Deck`, `Deal`, `MultiDeal`, `MultisetExpression`, `AgainExpression`, value classes
+  `Float` (integral floats, so they stay floats), `Fraction`, `Vector`, `Symbols`, `List`; FinalizationRegistry
+  releases handles). Host hooks in the core: `program/host.rs` (`HostFunction` -> `Func::Host` in catalogue.rs;
+  `HostEvaluator` + `evaluate`, run like the catalogue evaluators, `catalogue_evaluators::run` is generic now). JS
+  callbacks go through the global `__icepool_wasm_host` (wasm-bindgen `js_namespace` imports, no snippets): a JS
+  exception is kept on the JS side and the core gets `Error::Host`, so the very same exception is rethrown; an
+  `UnsupportedOrder` thrown by a JS evaluator becomes the core's. A function's `f.length` is its required
+  positional count (star inference); kwargs reach callbacks as a trailing options object (give it a default, or
+  `length` counts it). JS evaluator states are values; plain objects become `JsonKey` host values (canonical JSON).
+- **JS tests** (not in the gate: gate.sh is protected; task S6c asks for it): `crates/icepool-wasm/js/build.sh
+  --test` = wasm-pack `--no-opt` builds into js/pkg-node + js/pkg-web, then `node --test "test/*.test.mjs"` and
+  `tsc --noEmit` on test/types-check.ts. test/fixtures.mjs runs **every fixture through the JS API** (6238 at S6, 0
+  failing, ~20 s): literals via `fromWire` (the core's decoder), nodes via the idiomatic method when the node's
+  argument names match (test/node-args.json, regenerate when adding nodes: the command is in fixtures.mjs) else
+  `call(op, args)`; catalogue functions and evaluators are the JS ports in test/catalogue.mjs (so fixtures exercise
+  JS callbacks/evaluators against the oracle; `mapping` stays the core's); results re-encoded by JS and compared as
+  compare.py does. `node test/fixtures.test.mjs fixtures/s4` runs a subset. When you add a node with a JS method,
+  add its route in fixtures.mjs `IDIOMATIC` and its declaration in icepool.d.ts (api.test.mjs checks every export
+  is declared). Hand-checked boundary cases: fixtures/s6/js-boundary. Left: S6b (@multiset_function from JS), S6c.
+
 - **S5: the check that nothing of Vector / Symbols / wallenius / function.py / `__init__` exports is left.** S5a/S5b
   covered the area; the open Python work is all in tasks (FACADE-AUDIT.md: S3c, S4e, S4f, K6c, S5c). S5 compared
   `__all__` with the grammar and added nodes for the exports that had none: `tupleize` (collection.py; Rust

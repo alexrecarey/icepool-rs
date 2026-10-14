@@ -350,5 +350,23 @@
     "deps": [],
     "milestone": null,
     "details": "Python gives a complex from `negative ** fractional` and then does arithmetic on it; the port returns Error::Unsupported (runner: unimplemented) for any arithmetic on Value::Complex (NOTES.md Gotchas). Found in S2: `die.standardized_moment(0.5)` with a negative deviation is `sum(p * complex) / sd**k`, a complex result in Python. Port CPython 3.13's complex add/sub/mul/truediv (`_Py_c_quot`, mixed float-complex arithmetic converts the float to complex first), comparisons (== only; < raises TypeError), abs, and repr (`(1+2j)`, `-0j`, `(nan+infj)`), bit for bit. Then let harness/grammar/die_extra.py `_moment_k` generate fractional k again (and any other generator that avoided complex), fuzz clean through icepool-run and crates/icepool-py/run-facade.sh, with edge-case fixtures."
+  },
+  {
+    "id": "S6b",
+    "title": "JS facade: @multiset_function from JS functions",
+    "deps": [
+      "S6"
+    ],
+    "milestone": null,
+    "details": "S6 built the JS API (crates/icepool-wasm/js) on the program layer: every method is a node called through program::call. Python's @multiset_function traces a function over multiset parameters; the JS API can only run one written as program JSON (MultisetFunction handles from mf_def). Add `multisetFunction(f)` to core.js: call `f` with parameter expressions (mf_var-like handles, tuple parameters for MultiDeal arguments, keyword-only parameters if S4f added them) and record the expression DAG and the evaluations the body returns (MultisetFunctionRawResult) in the core, as multiset_function.py's tracing does, nested calls included. Evaluations of JS MultisetEvaluator objects inside a body (program/host.rs evaluate() has no in_function/raw_result path yet) belong here too. Test: the JS fixture runner (js/test/fixtures.mjs) should route mf_def/mf_call through the JS API instead of program JSON; all fixtures/s4d multiset-function fixtures must pass that way, plus API tests against oracle values."
+  },
+  {
+    "id": "S6c",
+    "title": "JS facade: the rest of the Python surface, and the JS tests in the gate",
+    "deps": [
+      "S6"
+    ],
+    "milestone": null,
+    "details": "Left from S6 (crates/icepool-wasm/js): (1) `fromRv` with a JS random variable (an object with cdf(x): a host trait like program/host.rs HostFunction, mirroring harness/catalogue/rvs.py duck typing); (2) a `Wallenius` class (data -> deal(n) -> evaluations; node wallenius_deal runs it in one call today); (3) Die methods without a node: sequence(rolls), keep(rolls, index), mean_time_to_sum(target), stochastic_round as a method, map_to_pool / explode_to_pool / reroll_to_pool (after S3c); (4) a mapping (JS Map) as map/reroll/groupBy repl: today only the core's catalogue `mapping` (CoreFunction) works, a JS Map must become the program layer's Func::Mapping with Python dict semantics (key equality by Value, not JS SameValueZero). (5) The JS suite (`crates/icepool-wasm/js/build.sh --test`: every fixture through the JS API, API tests, tsc check) is not in harness/core/gate.sh, which the loop owns: ask in QUESTIONS.md / have the loop add it to the long gate next to 'fixtures through wasm'. Add fixtures for anything new, verify with build.sh --test."
   }
 ]
