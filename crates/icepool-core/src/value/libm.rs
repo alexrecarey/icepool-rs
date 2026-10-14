@@ -100,7 +100,9 @@ fn arm_log(x: f64) -> f64 {
             return x;
         }
         if (top & 0x8000) != 0 || (top & 0x7ff0) == 0x7ff0 {
-            return (x - x) / (x - x); // __math_invalid (x)
+            // __math_invalid (x): a NaN, keeping the payload of a NaN argument.
+            #[allow(clippy::eq_op)]
+            return (x - x) / (x - x);
         }
         // x is subnormal, normalize it.
         ix = (x * 4503599627370496.0).to_bits(); // 0x1p52

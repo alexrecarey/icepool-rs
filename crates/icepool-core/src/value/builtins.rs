@@ -344,7 +344,7 @@ pub fn py_len(x: &Value) -> Result<usize> {
     match x {
         Value::Tuple(t) => Ok(t.len()),
         Value::Str(s) => Ok(s.chars().count()),
-        Value::Host(h) => h.len(),
+        Value::Host(h) => h.py_len(),
         _ => type_error(format!("object of type '{}' has no len()", x.type_name())),
     }
 }

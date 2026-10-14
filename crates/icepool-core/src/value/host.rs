@@ -51,7 +51,7 @@ pub trait HostObject: Send + Sync + fmt::Debug {
         Err(Error::Unsupported("indexing a host object".into()))
     }
     /// Python's `len(self)`.
-    fn len(&self) -> Result<usize> {
+    fn py_len(&self) -> Result<usize> {
         Err(Error::Unsupported("len() of a host object".into()))
     }
 }
