@@ -1,7 +1,7 @@
 {
-  "d": "pending",
-  "die": "pending",
-  "weights": "pending",
+  "d": "ported",
+  "die": "ported",
+  "weights": "ported",
   "add": "pending",
   "sub": "pending",
   "mul": "pending",
@@ -9,5 +9,7 @@
   "lt": "pending",
   "ge": "pending",
   "matmul": "pending",
-  "khepri": "pending"
+  "khepri": "pending",
+  "die_typed": "ported",
+  "die_times": "ported"
 }
