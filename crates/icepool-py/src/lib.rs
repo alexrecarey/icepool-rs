@@ -495,7 +495,7 @@ fn simplify(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 /// `Die.cmp` once `other` is a die: -1, 0, 1 weighted by the `True` quantities of `<`, `==`, `>`.
 #[pyfunction]
 fn cmp(py: Python<'_>, die: &Bound<'_, RsDie>, other: &Bound<'_, RsDie>) -> PyResult<RsDie> {
-    RsDie::wrap(py, die.get().die.cmp(&other.get().die))
+    RsDie::wrap(py, die.get().die.cmp_die(&other.get().die))
 }
 
 /// `Die.sign`: 1, -1 or 0 by comparing each outcome with its own `x * 0`.

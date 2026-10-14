@@ -5,6 +5,16 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **S2: the check that nothing of population/base.py and die.py is left.** Every public method of `Population`,
+  `Die`, `DieWithTruth` and format.py now has a grammar node, and runs on the core under `ICEPOOL_BACKEND=rust`
+  except what FACADE-AUDIT.md assigns to S3c / S5c (`map_to_pool` and friends, `append` / `remove` /
+  `to_one_hot`, `mean_time_to_sum`). S2 itself: `Die.sign` (was a Python callback per outcome) and `Die.cmp` are
+  core methods (`Die<Value>::sign`, `cmp_die`: not `cmp`, clippy confuses it with `Ord::cmp`); nodes in
+  harness/grammar/die_extra.py: `zero_outcome`, `standardized_moment` (integral k only: fractional k on a negative
+  deviation is complex, task V1), `sign`, `die_cmp`, `is_in`, `die_count`, `if_else` (all three again modes),
+  `die_repr` (`DieWithTruth(...)` for `==` results). `is_in` / `count` / `if_else` stay compositions of `map` in
+  the facade (the container and `bool` are Python's), as upstream writes them. `map.rs` `contains` is the
+  program layer's `x in collection`; reuse it.
 - **function.py helpers, reduce/accumulate, from_rv, Wallenius (S5b).** Core `function.rs`: `z`, `pointwise(dice,
   max)` (= pointwise_max/min *after* `harmonize_denominators`), `weighted_lcm(denominators, weights: &[Value])`
   (math.py's, with Python's `w > 0`, `math.gcd` TypeError for non-ints, `lcm * w // d` as Value ops, `zip`

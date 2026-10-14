@@ -114,7 +114,7 @@ pub fn sign(die: PValue) -> Result<PValue, PErr> {
 /// `die.cmp(other)`: `other` goes through `implicit_convert_to_die` first.
 pub fn cmp(die: PValue, other: PValue) -> Result<PValue, PErr> {
     let die = the_die(die)?;
-    Ok(PValue::Die(die.cmp(&to_die(other)?)?))
+    Ok(PValue::Die(die.cmp_die(&to_die(other)?)?))
 }
 
 /// `die.is_in(outcomes)`: `self.map(lambda x: x in outcomes)`. `map` calls the lambda on every outcome in order

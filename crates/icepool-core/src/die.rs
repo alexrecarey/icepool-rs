@@ -590,18 +590,17 @@ impl Die<crate::Value> {
     /// respectively. As in icepool, the three comparison dice are made in the order `<`, `==`, `>` (so the first
     /// that raises decides the error), and each contributes the quantity of its `True` outcome if it has one
     /// (`if True in lt: data[-1] = lt[True]`, a dict lookup, so an outcome equal to `True` such as `1` counts).
-    pub fn cmp(&self, other: &Self) -> Result<Self> {
+    pub fn cmp_die(&self, other: &Self) -> Result<Self> {
         use crate::value::BinOp;
         use crate::Value;
         let truth = Value::Bool(true);
         let mut data = Vec::new();
-        let comparisons: [(i64, &dyn Fn(&Value, &Value) -> Result<Value>); 3] = [
-            (-1, &|a, b| a.binary(BinOp::Lt, b)),
-            (0, &|a, b| a.eq_op(b, false)),
-            (1, &|a, b| a.binary(BinOp::Gt, b)),
-        ];
-        for (sign, op) in comparisons {
-            let compared = self.binary_operator(other, op)?;
+        // `None` is `==`, which has no `BinOp`.
+        for (sign, op) in [(-1, Some(BinOp::Lt)), (0, None), (1, Some(BinOp::Gt))] {
+            let compared = self.binary_operator(other, |a, b| match op {
+                Some(op) => a.binary(op, b),
+                None => a.eq_op(b, false),
+            })?;
             if let Some(i) = compared.position(&truth) {
                 data.push((Value::from(sign), compared.items()[i].1.clone()));
             }
