@@ -5,6 +5,22 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **map and friends (K3).** Callables are named entries in `harness/catalogue/functions.py` (Python factories,
+  e.g. `add_k(k)` returns `lambda x: x + k`) mirrored by `program/catalogue.rs` `Func` variants with the same
+  params, evaluated lazily like the closure. Bodies use the program layer's Python operators (`ops::binary`,
+  `catalogue::truthy`, `py_eq`), so outcome types behave as in Python for free. To add a function: an `@entry` in
+  functions.py (with `params`/`args` generators, `pred=True` if it is a predicate) and a variant + name + arity in
+  catalogue.rs. `Func::positional()` is `count_positional_parameters` (drives `infer_star`); `None` = a mapping.
+- `PValue` grew `Reroll`, `Tuple(Vec<PValue>)` (only for tuples holding non-values: build with `PValue::tuple`)
+  and `Func`. `ops::die_arg` is `expand_arg`: `Reroll` -> `DieArg::Reroll`, `PValue::Tuple` -> `map::tupleize`
+  (Cartesian product into a die of tuples; a tuple holding Reroll raises, see DIVERGENCES.md).
+- `program/map.rs`: `map` (= `map_simple`, no repeat/Again/Break: S3), `_select_outcomes` (`select`) and
+  membership (`contains`) for reroll/filter/split; the core does `Die::{reroll, split, clip, truncate}` from a
+  per-outcome mask. `expand::iter_cartesian_product` is generic over `(item, quantity)` lists.
+- The `fn` node's `name` is lazy (raw JSON string); `program::eval` special-cases it. Add other lazy args there.
+- A die has no truth value in Python (`if die:` raises), so `catalogue::truthy(Die)` raises; `==` with a die
+  (DieWithTruth) is not modelled yet and returns Unimplemented.
+
 - **Operators (K2).** `value/ops.rs`: `Value::binary(BinOp, &Value)`, `Value::unary(UnOp)`, `Value::round(&ndigits)`
   are Python's `operator.*` on outcomes (numeric tower per CPython/fractions.py, str/tuple concat and repeat).
   `Die::binary_operator` / `unary_operator` (die.rs) are generic over a closure, merge results in an `OrderedMerge`
@@ -69,7 +85,9 @@ turns out wrong. Newest decisions at the top of each section.
 - Float NaN: the port treats NaN as unequal to everything, including itself, and sorts exactly like CPython
   (pysort.rs), so NaN outcomes from arithmetic match the oracle. Remaining gap: Python's `==` inside tuple
   comparison short-circuits on object *identity*, so the *same* NaN object in two tuple outcomes compares equal
-  there. Arithmetic never puts NaN in tuples and the generators never produce NaN literals.
+  there. Arithmetic never puts NaN in tuples and the generators never produce NaN literals. Same gap in `map`:
+  Python's result dict merges the *same* NaN object returned twice (`map(max2, Die([nan]), d2)` is `{nan: 2}`,
+  the port gives two NaN outcomes). Only reachable with NaN dice, which only arithmetic on inf makes.
 - `str % die` is NOT a die: `str.__mod__` runs first and a die is a Mapping, so it is printf formatting returning
   the str (when it has no `%`). `tuple % die`, `int % die` etc. do reach `Die.__rmod__`.
 - `float_repr` (K1) used Rust's shortest digits, which break exact ties upwards; Python's dtoa takes the even

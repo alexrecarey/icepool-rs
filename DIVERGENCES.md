@@ -14,3 +14,20 @@ next commit (reinstating `any()` evaluation), plus three fixes Alex is sending u
 Those three are bugs, not semantics, so the port follows the fixed behaviour. When upstream releases them, re-pin.
 
 ## Found during the port
+
+### A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3)
+
+`creation_args.expand_arg` sends a tuple through `cartesian_product(*arg)`, which returns `Reroll` itself if any
+element is `Reroll`. `expand_arg` then returns that `Reroll` as if it were a mapping (`if type(arg) == tuple: ...
+else: return arg`), and `merge_weights_lcm` raises `AttributeError: 'RerollType' object has no attribute 'values'`.
+The docs say "If any argument is `icepool.Reroll`, the result is `icepool.Reroll`", so the intent is surely that the
+outcome drops out. The port raises too (`program/map.rs` `tupleize`). It also means `map(lambda x: (x, Reroll) if
+... else ..., die)` raises whenever any branch builds such a tuple, whatever its weight.
+
+Drafted upstream test:
+
+```python
+def test_tuple_with_reroll_drops_out():
+    assert Die([(1, Reroll), 2]).equals(Die([2]))
+    assert d6.map(lambda x: (x, Reroll) if x == 6 else (x, x)).equals(d5.map(lambda x: (x, x)))
+```
