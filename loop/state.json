@@ -84,6 +84,9 @@
     },
     "S5": {
       "status": "done"
+    },
+    "S6": {
+      "status": "done"
     }
   },
   "merges": 28,
