@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 use super::{raise, Args, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
-use crate::value::Num;
+use crate::value::{BinOp, Num, UnOp};
 use crate::{Die, Quantity, Value};
 
 pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
@@ -30,7 +30,117 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [items] = args.exactly(["items"])?;
             weights(items)
         }
-        _ => Err(PErr::Unimplemented(op.into())),
+        "round" => {
+            let [a, ndigits] = args.exactly(["a", "ndigits"])?;
+            round(a, ndigits)
+        }
+        _ => {
+            if let Some(bin) = binary_op(op) {
+                let [a, b] = args.exactly(["a", "b"])?;
+                binary(bin, a, b)
+            } else if let Some(un) = unary_op(op) {
+                let [a] = args.exactly(["a"])?;
+                unary(un, a)
+            } else {
+                Err(PErr::Unimplemented(op.into()))
+            }
+        }
+    }
+}
+
+/// The binary operator nodes (harness/grammar/basic.py, operators.py), named after Python's `operator` module.
+fn binary_op(op: &str) -> Option<BinOp> {
+    use BinOp::*;
+    Some(match op {
+        "add" => Add,
+        "sub" => Sub,
+        "mul" => Mul,
+        "truediv" => TrueDiv,
+        "floordiv" => FloorDiv,
+        "mod" => Mod,
+        "pow" => Pow,
+        "lshift" => LShift,
+        "rshift" => RShift,
+        "and" => And,
+        "or" => Or,
+        "xor" => Xor,
+        "lt" => Lt,
+        "le" => Le,
+        "gt" => Gt,
+        "ge" => Ge,
+        _ => return None,
+    })
+}
+
+fn unary_op(op: &str) -> Option<UnOp> {
+    use UnOp::*;
+    Some(match op {
+        "neg" => Neg,
+        "pos" => Pos,
+        "invert" => Invert,
+        "abs" => Abs,
+        "trunc" => Trunc,
+        "floor" => Floor,
+        "ceil" => Ceil,
+        _ => return None,
+    })
+}
+
+/// `implicit_convert_to_die`: a die stays as it is, anything else becomes `Die([x])` (which raises for `None`, and
+/// for a list, which is unhashable).
+fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
+    match x {
+        PValue::Die(d) => Ok(d),
+        PValue::Value(v) => Ok(Die::new(vec![DieArg::Outcome(v)], vec![Quantity::ONE])?),
+        PValue::List(_) => type_error("unhashable type: 'list'"),
+    }
+}
+
+/// `a <op> b` in Python. With a die on the left, `Die.__op__` converts the right operand. With a die only on the
+/// right, the left operand's own `__op__` returns `NotImplemented` (no outcome type knows about dice), so Python
+/// calls the die's reflected method: `__radd__` and friends convert the left operand and keep the order
+/// (`3 - die` is `Die([3]) - die`), while a comparison reflects (`3 < die` is `die > 3`).
+fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
+    let apply = |x: &Die<Value>, op: BinOp, y: &Die<Value>| {
+        x.binary_operator(y, |p, q| p.binary(op, q))
+            .map(PValue::Die)
+            .map_err(PErr::from)
+    };
+    match (a, b) {
+        (PValue::Die(a), b) => apply(&a, op, &to_die(b)?),
+        // The exception: `str % die` is printf-style formatting with the die as the argument, and a die is a
+        // Mapping, which formatting accepts even when the format string never uses it.
+        (PValue::Value(Value::Str(s)), PValue::Die(_)) if op == BinOp::Mod => {
+            Ok(PValue::Value(crate::value::ops::str_format_mapping(&s)?))
+        }
+        (a, PValue::Die(b)) => match op.reflected_comparison() {
+            Some(reflected) => apply(&b, reflected, &to_die(a)?),
+            None => apply(&to_die(a)?, op, &b),
+        },
+        (PValue::Value(a), PValue::Value(b)) => Ok(PValue::Value(a.binary(op, &b)?)),
+        _ => Err(PErr::Unimplemented("operators on lists".into())),
+    }
+}
+
+/// `-a`, `+a`, `~a`, `abs(a)`, `math.trunc(a)`, `math.floor(a)`, `math.ceil(a)`: `Die.unary_operator` on a die.
+fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
+    match a {
+        PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
+        PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
+        PValue::List(_) => type_error("bad operand type for a unary operator: 'list'"),
+    }
+}
+
+/// `round(a, ndigits)`. For a die, `Die.round` rounds each outcome, so a bad `ndigits` only raises if there is an
+/// outcome to round.
+fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
+    let PValue::Value(nd) = ndigits else {
+        return type_error("ndigits must be an int or None");
+    };
+    match a {
+        PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.round(&nd))?)),
+        PValue::Value(v) => Ok(PValue::Value(v.round(&nd)?)),
+        PValue::List(_) => type_error("type list doesn't define __round__ method"),
     }
 }
 

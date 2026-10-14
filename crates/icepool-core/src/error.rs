@@ -13,6 +13,9 @@ pub enum Error {
     ZeroDivision(String),
     /// Python `OverflowError`, or a size the port cannot represent (Python would run out of memory or time).
     Overflow(String),
+    /// Not an exception: Python would answer, but the port does not cover this case yet (e.g. arithmetic on
+    /// complex numbers). The program runner reports it as unimplemented, never as a raise.
+    Unsupported(String),
 }
 
 impl Error {
@@ -23,12 +26,17 @@ impl Error {
             Error::Value(_) => "ValueError",
             Error::ZeroDivision(_) => "ZeroDivisionError",
             Error::Overflow(_) => "OverflowError",
+            Error::Unsupported(_) => "unimplemented",
         }
     }
 
     pub fn message(&self) -> &str {
         match self {
-            Error::Type(m) | Error::Value(m) | Error::ZeroDivision(m) | Error::Overflow(m) => m,
+            Error::Type(m)
+            | Error::Value(m)
+            | Error::ZeroDivision(m)
+            | Error::Overflow(m)
+            | Error::Unsupported(m) => m,
         }
     }
 }

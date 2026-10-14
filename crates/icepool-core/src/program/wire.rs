@@ -181,6 +181,8 @@ pub fn enc(v: &Value) -> Json {
         ),
         Value::Str(s) => tagged("str", Json::String(s.to_string())),
         Value::Tuple(t) => tagged("tuple", Json::Array(t.iter().map(enc).collect())),
+        // encode.py's fallback for types it does not know.
+        Value::Complex(..) => tagged("repr", Json::String(format!("complex: {v}"))),
     }
 }
 

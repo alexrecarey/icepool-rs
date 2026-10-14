@@ -17,7 +17,9 @@ fn main() {
                     serde_json::json!({"ok": false, "error": "unimplemented: panic in icepool-run"})
                 })
             }
-            Err(e) => serde_json::json!({"ok": false, "error": format!("unimplemented: bad JSON: {e}")}),
+            Err(e) => {
+                serde_json::json!({"ok": false, "error": format!("unimplemented: bad JSON: {e}")})
+            }
         };
         writeln!(out, "{result}").expect("stdout");
         out.flush().expect("stdout");

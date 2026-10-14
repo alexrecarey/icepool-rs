@@ -4,6 +4,7 @@ use rustc_hash::FxHashMap;
 
 use crate::error::Result;
 use crate::outcome::Outcome;
+pub use crate::pysort::py_sorted;
 use crate::Quantity;
 
 /// Sorted `(outcome, quantity)` items, exactly as icepool's `Counts` keeps them. Zero quantities are kept.
@@ -58,53 +59,6 @@ impl<O: Outcome> Counts<O> {
     pub fn has_zero_values(&self) -> bool {
         self.items.iter().any(|(_, q)| q.is_zero())
     }
-}
-
-/// Python's `sorted()`: a stable sort that uses only `<` and stops at the first comparison that raises.
-///
-/// Python's timsort and this merge sort compare different pairs, which can only matter for inputs that are not
-/// totally ordered (float NaN); for those the order may differ from Python's (see NOTES.md).
-pub fn py_sorted<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Result<Vec<T>> {
-    let n = items.len();
-    // Most inputs (d(n), results of arithmetic over sorted dice) are nearly or fully sorted already.
-    let mut already = true;
-    for i in 1..n {
-        if lt(&items[i], &items[i - 1])? {
-            already = false;
-            break;
-        }
-    }
-    if already {
-        return Ok(items);
-    }
-    // Bottom-up merge sort over indices; on ties the left run wins, which keeps it stable.
-    let mut idx: Vec<usize> = (0..n).collect();
-    let mut tmp = idx.clone();
-    let mut width = 1;
-    while width < n {
-        for start in (0..n).step_by(2 * width) {
-            let mid = (start + width).min(n);
-            let end = (start + 2 * width).min(n);
-            let (mut l, mut r) = (start, mid);
-            for slot in &mut tmp[start..end] {
-                let take_right = l >= mid || (r < end && lt(&items[idx[r]], &items[idx[l]])?);
-                if take_right {
-                    *slot = idx[r];
-                    r += 1;
-                } else {
-                    *slot = idx[l];
-                    l += 1;
-                }
-            }
-        }
-        std::mem::swap(&mut idx, &mut tmp);
-        width *= 2;
-    }
-    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
-    Ok(idx
-        .into_iter()
-        .map(|i| slots[i].take().expect("each index once"))
-        .collect())
 }
 
 /// A Python `defaultdict(int)` keyed by outcome: `add` is `data[outcome] += quantity`. Iteration is in insertion

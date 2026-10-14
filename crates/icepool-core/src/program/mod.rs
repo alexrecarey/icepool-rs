@@ -30,12 +30,15 @@ pub enum PErr {
 
 impl From<Error> for PErr {
     fn from(e: Error) -> Self {
-        PErr::Raise(e)
+        match e {
+            Error::Unsupported(what) => PErr::Unimplemented(what),
+            e => PErr::Raise(e),
+        }
     }
 }
 
 pub(crate) fn raise<T>(e: Error) -> Result<T, PErr> {
-    Err(PErr::Raise(e))
+    Err(e.into())
 }
 
 /// Run one program. Never panics on bad input: errors are results too (`{"ok": false, "error": ...}`).

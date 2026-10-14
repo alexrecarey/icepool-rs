@@ -15,6 +15,7 @@ pub mod function;
 pub mod math;
 pub mod outcome;
 pub mod program;
+pub mod pysort;
 pub mod value;
 
 pub use creation_args::DieArg;

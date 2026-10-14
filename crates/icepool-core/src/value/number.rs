@@ -109,3 +109,104 @@ impl PartialOrd for Num<'_> {
         }
     }
 }
+
+/// Python's `n / d` for two ints: the exact quotient correctly rounded to the nearest float (ties to even), as
+/// CPython's `long_true_divide` does. Also `float(int)` (with `d = 1`) and `float(Fraction)` (which is
+/// `numerator / denominator`). Raises `ZeroDivisionError` for `d == 0` and `OverflowError` beyond the float range.
+///
+/// The sign of a zero result is negative iff exactly one operand is negative: `0 / -3` is `-0.0`.
+pub fn ratio_to_f64(n: &IBig, d: &IBig) -> crate::Result<f64> {
+    if *d == IBig::ZERO {
+        return Err(crate::Error::ZeroDivision("division by zero".into()));
+    }
+    let negative = (*n < IBig::ZERO) != (*d < IBig::ZERO);
+    let (a, b) = (n.unsigned_abs(), d.unsigned_abs());
+    let magnitude = if a.is_zero() {
+        0.0
+    } else {
+        positive_ratio_to_f64(&a, &b)?
+    };
+    Ok(if negative { -magnitude } else { magnitude })
+}
+
+/// `float(i)` for an int: correctly rounded, `OverflowError` if too large.
+pub fn int_to_f64(i: &IBig) -> crate::Result<f64> {
+    ratio_to_f64(i, &IBig::ONE)
+        .map_err(|_| crate::Error::Overflow("int too large to convert to float".into()))
+}
+
+/// `a / b` for positive `a` and `b`, correctly rounded (ties to even), subnormals included.
+fn positive_ratio_to_f64(a: &UBig, b: &UBig) -> crate::Result<f64> {
+    use dashu_base::{BitTest, DivRem};
+    // Scale so the integer quotient has 55 or 56 bits: the 53 mantissa bits, a rounding bit and one more. The
+    // remainder then only matters as a "sticky" bit (is the value exactly on the quotient, or above it?).
+    let shift = 55 + b.bit_len() as i64 - a.bit_len() as i64;
+    let (q, r) = if shift >= 0 {
+        (a << shift as usize).div_rem(b)
+    } else {
+        a.div_rem(b << (-shift) as usize)
+    };
+    let q = u64::try_from(q).expect("the quotient has at most 56 bits");
+    let sticky = !r.is_zero();
+    let nbits = 64 - q.leading_zeros() as i64;
+    // The value is (q + something in [0, 1)) * 2**-shift; its leading bit has weight 2**e.
+    let e = nbits - 1 - shift;
+    if e > 1023 {
+        return Err(crate::Error::Overflow(
+            "integer division result too large for a float".into(),
+        ));
+    }
+    // Normal floats keep 53 bits; subnormals fewer, down to none (the value then rounds to 0 or the smallest one).
+    let keep = if e >= -1022 { 53 } else { 53 - (-1022 - e) };
+    if keep < 0 {
+        return Ok(0.0);
+    }
+    let drop = (nbits - keep) as u32;
+    let mut m = q >> drop;
+    let rem = q & ((1u64 << drop) - 1);
+    let half = 1u64 << (drop - 1);
+    if rem > half || (rem == half && (sticky || m & 1 == 1)) {
+        m += 1;
+    }
+    // m * 2**(weight of its lowest bit), exact unless it overflows (a carry out of 2**1024).
+    let exp = e - keep + 1;
+    let pow2 = if exp >= -1022 {
+        f64::from_bits(((exp + 1023) as u64) << 52)
+    } else {
+        f64::from_bits(1u64 << (exp + 1074))
+    };
+    let x = m as f64 * pow2;
+    if x.is_infinite() {
+        return Err(crate::Error::Overflow(
+            "integer division result too large for a float".into(),
+        ));
+    }
+    Ok(x)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn r(n: i64, d: i64) -> f64 {
+        ratio_to_f64(&IBig::from(n), &IBig::from(d)).unwrap()
+    }
+
+    #[test]
+    fn true_division_is_correctly_rounded() {
+        assert_eq!(r(1, 3), 1.0 / 3.0);
+        assert_eq!(r(-7, 2), -3.5);
+        assert_eq!(r(2, 3), 2.0 / 3.0);
+        assert!(r(0, -3).is_sign_negative());
+        // 2**53 + 1 is a tie between 2**53 and 2**53 + 2: to even.
+        assert_eq!(r((1 << 53) + 1, 1), (1u64 << 53) as f64);
+        assert_eq!(r((1 << 53) + 3, 1), ((1u64 << 53) + 4) as f64);
+        let big = IBig::from(1) << 1100;
+        assert_eq!(ratio_to_f64(&IBig::ONE, &big).unwrap(), 0.0);
+        assert_eq!(
+            ratio_to_f64(&IBig::ONE, &(IBig::from(1) << 1074)).unwrap(),
+            f64::from_bits(1)
+        );
+        assert!(ratio_to_f64(&big, &IBig::ONE).is_err());
+    }
+}

@@ -43,12 +43,9 @@ def weights(items):
 
 
 def _binary(op):
-    def gen(g, depth):
-        a, b = g.die(depth), g.die_or_int(depth)
-        if g.rng.random() < 0.5:
-            a, b = b, a
-        return {"op": op, "a": a, "b": b}
-    return gen
+    # Shared with operators.py: the other operand may be a die, an int, or a typed scalar (float, str, ...).
+    from harness.grammar.operators import binary
+    return binary(op)
 
 
 @node("add", "die", gen=_binary("add"))

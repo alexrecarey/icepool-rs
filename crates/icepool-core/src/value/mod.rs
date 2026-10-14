@@ -8,6 +8,7 @@
 //! Later kinds (Vector, Symbols, host objects) are added as new variants.
 
 mod number;
+pub mod ops;
 mod repr;
 
 use std::cmp::Ordering;
@@ -21,7 +22,8 @@ use dashu_ratio::RBig;
 use crate::error::{type_error, Result};
 use crate::outcome::Outcome;
 
-pub use number::Num;
+pub use number::{int_to_f64, ratio_to_f64, Num};
+pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;
 
 #[derive(Clone, Debug)]
@@ -35,6 +37,10 @@ pub enum Value {
     Fraction(RBig),
     Str(Arc<str>),
     Tuple(Arc<[Value]>),
+    /// Python's `complex`, which only arises from `**` (a negative number to a fractional power). It is not
+    /// orderable, so a die with a complex outcome raises when it sorts its outcomes (unless its quantity is zero
+    /// and it drops out first). Arithmetic on it is not ported.
+    Complex(f64, f64),
 }
 
 impl Value {
@@ -48,6 +54,7 @@ impl Value {
             Value::Fraction(_) => "Fraction",
             Value::Str(_) => "str",
             Value::Tuple(_) => "tuple",
+            Value::Complex(..) => "complex",
         }
     }
 
@@ -92,6 +99,11 @@ impl PartialEq for Value {
             (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
             }
+            (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi,
+            // A complex number equals a real one when its imaginary part is zero.
+            (Value::Complex(re, im), x) | (x, Value::Complex(re, im)) => {
+                *im == 0.0 && x.as_num().is_some_and(|n| n == Num::Float(*re))
+            }
             _ => match (self.as_num(), other.as_num()) {
                 (Some(a), Some(b)) => a.partial_cmp(&b) == Some(Ordering::Equal),
                 _ => false,
@@ -113,6 +125,14 @@ impl Hash for Value {
                 s.hash(state);
             }
             Value::None => state.write_u8(3),
+            // CPython: hash(real) + 1000003 * hash(imag), so a zero imaginary part hashes as the real number.
+            Value::Complex(re, im) => {
+                state.write_u8(0);
+                let h = Num::Float(*re)
+                    .py_hash()
+                    .wrapping_add(1000003i64.wrapping_mul(Num::Float(*im).py_hash()));
+                state.write_i64(if h == -1 { -2 } else { h });
+            }
             Value::Tuple(t) => {
                 state.write_u8(2);
                 state.write_usize(t.len());
@@ -167,6 +187,7 @@ impl fmt::Display for Value {
             Value::Float(x) => write!(f, "{}", float_repr(*x)),
             Value::Fraction(r) => write!(f, "Fraction({}, {})", r.numerator(), r.denominator()),
             Value::Str(s) => write!(f, "{s:?}"),
+            Value::Complex(re, im) => write!(f, "{}", ops::complex_repr(*re, *im)),
             Value::Tuple(t) => {
                 write!(f, "(")?;
                 for (i, x) in t.iter().enumerate() {
