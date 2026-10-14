@@ -158,8 +158,14 @@ function enc(x) {
   if (Array.isArray(x)) return `[${x.map(enc).join(",")}]`;
   if (x instanceof Float) return `{"float":"${pyFloatRepr(x.value)}"}`;
   if (x instanceof Fraction) return `{"frac":["${x.numerator}","${x.denominator}"]}`;
-  if (x instanceof Vector) return `{"vector":[${x.items.map(enc).join(",")}]}`;
-  if (x instanceof Symbols) return `{"symbols":${JSON.stringify(x.str)}}`;
+  if (x instanceof Vector) {
+    const data = x.items === null ? "null" : `[${x.items.map(enc).join(",")}]`;
+    return x.hasTruth ? `{"vector":${data},"truth":${enc(x.truthValue)}}` : `{"vector":${data}}`;
+  }
+  if (x instanceof Symbols) {
+    if (x._items === null) return `{"symbols":${JSON.stringify(x.str)}}`;
+    return `{"$symbols":[${x._items.map(([c, n]) => `[${JSON.stringify(c)},${enc(n)}]`).join(",")}],"str":null}`;
+  }
   if (x instanceof Special) return `{"$special":"${x.name}"}`;
   if (x instanceof Break) return `{"$break":${enc(x.outcome)}}`;
   if (x instanceof RawJSON) return x.text;
@@ -214,8 +220,8 @@ function dec(j) {
   if ("$special" in j) return SPECIALS[j.$special];
   if ("$break" in j) return new Break(dec(j.$break));
   if ("$json" in j) return JSON.parse(j.$json);
-  if ("vector" in j) return new Vector(j.vector.map(dec));
-  if ("symbols" in j) return new Symbols(j.symbols);
+  if ("vector" in j) return Vector._make(j.vector === null ? null : j.vector.map(dec), "truth" in j, dec(j.truth ?? null));
+  if ("$symbols" in j) return Symbols._make(j.$symbols.map(([c, n]) => [c, dec(n)]), j.str);
   if ("complex" in j) return new Opaque(`(${j.complex[0]}+${j.complex[1]}j)`);
   if ("repr" in j) return new Opaque(j.repr);
   throw new TypeError(`icepool: unexpected value from the core: ${JSON.stringify(j)}`);
@@ -248,9 +254,10 @@ export function call(op, args = {}) {
   return dec(unwrap(W.call(op, argsText(args))));
 }
 
-/** The harness's wire encoding of a handle's value (`{"ok": true, "die": ...}`), as JSON text. */
-export function wireResult(handle) {
-  return W.wire_result(handle._h);
+/** A literal of the harness's wire format (`{"float": "1.5"}`, `{"tuple": [...]}`, ...) as a JS value, read
+ * exactly as the program runner reads it (for the fixture tests). */
+export function fromWire(text) {
+  return dec(unwrap(W.from_wire(text)));
 }
 
 /** How many core objects JS holds (for leak checks). */
@@ -295,10 +302,13 @@ const HOST = {
   release(id) {
     functions.delete(id);
   },
-  evaluator(id, method, args) {
+  evaluator(id, method, args, kwargs) {
     return callback(() => {
       const ev = evaluators.get(id);
       const a = dec(JSON.parse(args));
+      // evaluate()'s keyword arguments go to initialState and finalOutcome, as a trailing options object.
+      const kw = Object.fromEntries(Object.entries(JSON.parse(kwargs)).map(([k, v]) => [k, dec(v)]));
+      if (Object.keys(kw).length && (method === "initialState" || method === "finalOutcome")) a.push(kw);
       switch (method) {
         case "initialState":
           return enc(stateValue(ev.initialState ? ev.initialState(...a) : null));
@@ -346,13 +356,12 @@ function adopt(self, made, cls) {
   return self;
 }
 
+/** A plain object: keyword arguments (no value the core takes is one). */
+const isOptions = (x) => x !== null && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype;
+
 /** Splits a trailing options object off a rest-parameter list. */
 function opts(args) {
-  const last = args[args.length - 1];
-  if (last !== null && typeof last === "object" && Object.getPrototypeOf(last) === Object.prototype) {
-    return [args.slice(0, -1), last];
-  }
-  return [args, {}];
+  return isOptions(args[args.length - 1]) ? [args.slice(0, -1), args[args.length - 1]] : [args, {}];
 }
 
 const list = (xs) => (xs instanceof List ? xs : Array.isArray(xs) ? List.from(xs) : xs);
@@ -404,9 +413,7 @@ export class Die extends Operand {
       return;
     }
     super(HANDLE, -1);
-    if (times !== null && typeof times === "object" && !Array.isArray(times) && !(times instanceof Handle)) {
-      [times, options] = [undefined, times];
-    }
+    if (isOptions(times)) [times, options] = [undefined, times];
     adopt(this, makeDie(outcomes, times, options ?? {}), Die);
   }
 
@@ -416,10 +423,11 @@ export class Die extends Operand {
   }
 
   // Selection and rerolls. `which` is a function, an array of outcomes, or null (Python's defaults).
-  reroll(which = null, { star = null, depth = "inf" } = {}) {
+  /** `depth` is required, as in Python: an int, or Infinity (Python's 'inf'). */
+  reroll(which = null, { star = null, depth } = {}) {
     return call("reroll", { die: this, which: list(which), star, depth: depth === Infinity ? "inf" : depth });
   }
-  filter(which, { star = null, depth = "inf" } = {}) {
+  filter(which, { star = null, depth } = {}) {
     return call("filter", { die: this, which: list(which), star, depth: depth === Infinity ? "inf" : depth });
   }
   truncate(min = null, max = null) {
@@ -1131,11 +1139,14 @@ export class AgainExpression extends Operand {}
  *
  * `evaluator.evaluate(...inputs)` takes pools, deals, expressions or arrays of outcomes, and returns a die. */
 export class MultisetEvaluator {
-  evaluate(...inputs) {
+  /** `evaluate(...inputs, { ...kwargs })`: keyword arguments reach initialState and finalOutcome. */
+  evaluate(...rest) {
+    const [inputs, kwargs] = opts(rest);
     const id = nextId++;
     evaluators.set(id, this);
     try {
-      return dec(unwrap(W.evaluate(id, `[${inputs.map((x) => enc(list(x))).join(",")}]`)));
+      const args = `[${inputs.map((x) => enc(list(x))).join(",")}]`;
+      return dec(unwrap(W.evaluate(id, args, argsText(kwargs))));
     } finally {
       evaluators.delete(id);
     }
@@ -1151,10 +1162,18 @@ export function evaluator(methods) {
 
 const COLL_BINARY = [...BINARY, ...COMPARE];
 
-/** `icepool.Vector`: elementwise arithmetic; comparisons give vectors with a truth value. */
+/** `icepool.Vector`: elementwise arithmetic; comparisons give vectors with a truth value (`truth(v)`). */
 export class Vector {
   constructor(items) {
     this.items = Array.from(items);
+    this.hasTruth = false;
+    this.truthValue = null;
+  }
+  /** A vector from the core: `items` null for a `VectorWithTruthOnly` (a comparison of different lengths). */
+  static _make(items, hasTruth, truthValue) {
+    const v = new Vector([]);
+    Object.assign(v, { items, hasTruth, truthValue });
+    return v;
   }
   get length() {
     return this.items.length;
@@ -1179,7 +1198,13 @@ export class Vector {
 /** `icepool.Symbols`: a multiset of characters, from a string such as "aab-c". */
 export class Symbols {
   constructor(str) {
-    this.str = str;
+    this.str = String(str);
+    this._items = null; // the dict's [char, count] items, in its order, once the core made it
+  }
+  static _make(items, str) {
+    const s = new Symbols("");
+    Object.assign(s, { _items: items, str });
+    return s;
   }
   static from(x) {
     return call("symbols", { x: x instanceof Map ? new RawMapping(x) : x });

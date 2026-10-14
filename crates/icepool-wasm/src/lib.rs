@@ -11,7 +11,7 @@
 
 mod facade;
 
-pub use facade::{call, evaluate, live_handles, release, wire_result};
+pub use facade::{call, evaluate, from_wire, live_handles, release, wire_result};
 
 use serde_json::Value as Json;
 use wasm_bindgen::prelude::*;

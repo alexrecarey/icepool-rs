@@ -23,7 +23,7 @@ echo '{"type": "commonjs"}' > "$HERE/pkg-node/package.json"
 case "${1:-}" in
   --test)
     cd "$HERE"
-    node --test test/
+    node --test "test/*.test.mjs"
     if command -v tsc > /dev/null; then tsc --noEmit --strict --target es2022 --module nodenext test/types-check.ts; fi
     ;;
   --pack) cd "$HERE" && exec npm pack ;;

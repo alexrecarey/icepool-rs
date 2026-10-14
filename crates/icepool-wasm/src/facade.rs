@@ -14,7 +14,9 @@
 //! | `None`, `bool`, `str` | `null`, `true` / `false`, `"..."` |
 //! | `int` | a JSON integer, or `{"$int": "<digits>"}` beyond 2**53 (JS may also send any JSON integer) |
 //! | `float` | `{"float": "<repr>"}` (JS has no int/float distinction of its own) |
-//! | `Fraction`, `Vector`, `Symbols` | `{"frac": [n, d]}`, `{"vector": [...]}`, `{"symbols": "<str>"}` |
+//! | `Fraction` | `{"frac": [n, d]}` |
+//! | `Vector` | `{"vector": [...] \| null, "truth": x}` (`truth` only if it has one; `null` data: `VectorWithTruthOnly`) |
+//! | `Symbols` | `{"$symbols": [[char, count], ...], "str": "<str>"}` in dict order; JS may send `{"symbols": "<str>"}` |
 //! | `tuple` | a JSON array |
 //! | `list` | `{"$list": [...]}` |
 //! | `Reroll`, `Restart`, `...` | `{"$special": "Reroll" \| "Restart" \| "Ellipsis"}` |
@@ -35,7 +37,7 @@ use icepool_core::evaluator::Final;
 use icepool_core::order::Order;
 use icepool_core::program::host::{HostEvaluator, HostFunction};
 use icepool_core::program::{self, PErr, PValue};
-use icepool_core::value::{float_repr, HostError, HostObject, HostRef, Vector};
+use icepool_core::value::{float_repr, HostError, HostObject, HostRef, Symbols, Vector};
 use icepool_core::Value;
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
@@ -50,9 +52,10 @@ extern "C" {
     /// Forgets the JS function registered as `id`: the core dropped its last reference.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = release)]
     fn host_release(id: u32);
-    /// A method of the JS evaluator registered as `id`.
+    /// A method of the JS evaluator registered as `id`; `kwargs` are `evaluate()`'s keyword arguments, which
+    /// Python passes on to `initial_state` and `final_outcome`.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = evaluator)]
-    fn host_evaluator(id: u32, method: &str, args: &str) -> String;
+    fn host_evaluator(id: u32, method: &str, args: &str, kwargs: &str) -> String;
 }
 
 // --- The handle table ---------------------------------------------------------------------------------------------
@@ -127,15 +130,26 @@ pub fn call(op: &str, args: &str) -> String {
     envelope(result.and_then(|v| to_js(&v)))
 }
 
-/// `evaluator.evaluate(*args)` for the JS evaluator registered as `id` (args: a JSON array of JS-JSON).
+/// `evaluator.evaluate(*args, **kwargs)` for the JS evaluator registered as `id` (args: a JSON array of JS-JSON;
+/// kwargs: a JSON object, handed back to JS as it is).
 #[wasm_bindgen]
-pub fn evaluate(id: u32, args: &str) -> String {
+pub fn evaluate(id: u32, args: &str, kwargs: &str) -> String {
     let result = (|| {
         let args = from_js(&json!({ "$list": parse(args)? }))?;
-        let evaluator: Arc<dyn HostEvaluator> = Arc::new(JsEvaluator(id));
+        let evaluator: Arc<dyn HostEvaluator> = Arc::new(JsEvaluator {
+            id,
+            kwargs: kwargs.to_string(),
+        });
         program::host::evaluate(&evaluator, args)
     })();
     envelope(result.and_then(|v| to_js(&v)))
+}
+
+/// A literal of the harness's wire format (encode.py `dec`) as JS-JSON: lets the fixture-driven JS tests read
+/// program literals exactly as `icepool-run` does, then pass them back through the JS API.
+#[wasm_bindgen]
+pub fn from_wire(literal: &str) -> String {
+    envelope(parse(literal).and_then(|j| program::wire::dec(&j)).and_then(|v| to_js(&v)))
 }
 
 /// The harness's wire encoding of a handle's value (`encode.result_of`: `{"ok": true, "die" | "value": ...}`),
@@ -159,7 +173,7 @@ fn envelope(result: Result<Json, PErr>) -> String {
         Err(PErr::Raise(Error::Host(_))) => json!({"host": true}),
         Err(PErr::Raise(e)) => json!({"error": e.python_type(), "message": e.message()}),
         Err(PErr::Unimplemented(what)) => {
-            json!({"error": "NotImplementedError", "message": format!("not ported yet: {what}")})
+            json!({"error": "NotImplementedError", "message": format!("not ported yet: {what}"), "unimplemented": true})
         }
     }
     .to_string()
@@ -188,10 +202,28 @@ fn value_js(v: &Value) -> Result<Json, PErr> {
         }
         Value::Str(s) => Json::String(s.to_string()),
         Value::Tuple(t) => Json::Array(t.iter().map(value_js).collect::<Result<_, _>>()?),
+        // The truth value of a comparison's vector, and a `VectorWithTruthOnly` (no data), survive the trip.
         Value::Vector(x) => {
-            json!({ "vector": x.data()?.iter().map(value_js).collect::<Result<Vec<_>, _>>()? })
+            let data = if x.is_truth_only() {
+                Json::Null
+            } else {
+                Json::Array(x.data()?.iter().map(value_js).collect::<Result<_, _>>()?)
+            };
+            let mut j = json!({ "vector": data });
+            if let Some(truth) = x.truth() {
+                j["truth"] = value_js(truth)?;
+            }
+            j
         }
-        Value::Symbols(x) => json!({ "symbols": x.py_str()? }),
+        // The dict's items in its own order, zero counts included (`str()` shows neither), and `str()` itself.
+        Value::Symbols(x) => json!({
+            "$symbols": x
+                .items()
+                .iter()
+                .map(|(c, n)| Ok(json!([c.to_string(), value_js(n)?])))
+                .collect::<Result<Vec<_>, PErr>>()?,
+            "str": x.py_str().ok(),
+        }),
         Value::Complex(re, im) => json!({ "complex": [float_repr(*re), float_repr(*im)] }),
         Value::Host(h) => match h.as_any().downcast_ref::<JsonKey>() {
             Some(k) => json!({ "$json": &*k.0 }),
@@ -248,21 +280,57 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
         Json::String(s) => PValue::Value(Value::str(s)),
         Json::Number(_) => program::wire::dec(j)?,
         Json::Array(items) => PValue::tuple(items.iter().map(from_js).collect::<Result<_, _>>()?),
-        Json::Object(m) if m.len() <= 2 => {
-            let (k, x) = m.iter().next().ok_or_else(|| bad("{}"))?;
+        // The two-key forms first (a vector's truth value, a symbols' str, a function's length).
+        Json::Object(m) if m.contains_key("vector") => {
+            let values = |items: &[Json]| -> Result<Vec<Value>, PErr> {
+                items.iter().map(|x| value_of(from_js(x)?).map_err(PErr::from)).collect()
+            };
+            let truth = m.get("truth").map(|t| value_of(from_js(t)?).map_err(PErr::from)).transpose()?;
+            PValue::Value(Value::Vector(match (&m["vector"], truth) {
+                (Json::Array(items), truth) => Vector::from_parts(values(items)?, truth),
+                (Json::Null, Some(truth)) => Vector::truth_only(truth),
+                _ => return Err(bad("vector")),
+            }))
+        }
+        Json::Object(m) if m.contains_key("$symbols") => {
+            let Some(Json::Array(items)) = m.get("$symbols") else {
+                return Err(bad("$symbols"));
+            };
+            let mut data = Vec::with_capacity(items.len());
+            for item in items {
+                let (Some(Json::String(c)), Some(n)) = (item.get(0), item.get(1)) else {
+                    return Err(bad("$symbols item"));
+                };
+                let mut chars = c.chars();
+                let (Some(c), None) = (chars.next(), chars.next()) else {
+                    return Err(bad("$symbols key"));
+                };
+                data.push((c, value_of(from_js(n)?)?));
+            }
+            PValue::Value(Value::Symbols(Symbols::raw(data)))
+        }
+        Json::Object(m) if m.contains_key("$fn") => {
+            let id = m["$fn"].as_u64().ok_or_else(|| bad("function id"))? as u32;
+            let length = m.get("n").and_then(Json::as_u64).unwrap_or(0) as usize;
+            program::host::function(Arc::new(JsFunction { id, length }))
+        }
+        Json::Object(m) if m.len() == 1 => {
+            let (k, x) = m.iter().next().expect("one entry");
             match (k.as_str(), x) {
                 ("$h", Json::Number(n)) => get(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?,
-                ("$fn", Json::Number(n)) => {
-                    let id = n.as_u64().ok_or_else(|| bad("function id"))? as u32;
-                    let length = m.get("n").and_then(Json::as_u64).unwrap_or(0) as usize;
-                    program::host::function(Arc::new(JsFunction { id, length }))
-                }
                 ("$int", Json::String(s)) => {
                     PValue::Value(Value::Int(s.parse().map_err(|_| bad("$int digits"))?))
                 }
-                ("$list", Json::Array(items)) => {
-                    PValue::List(items.iter().map(from_js).collect::<Result<_, _>>()?)
-                }
+                ("$list", Json::Array(items)) => PValue::List(
+                    items
+                        .iter()
+                        .map(|x| match from_js(x)? {
+                            // As `program::eval` evaluates a list: only `bool()` may use this die.
+                            PValue::DieWithTruthError(e, _) => Err(PErr::from(e)),
+                            x => Ok(x),
+                        })
+                        .collect::<Result<_, _>>()?,
+                ),
                 ("$break", x) => PValue::Break(Box::new(from_js(x)?)),
                 ("$special", Json::String(s)) => match s.as_str() {
                     "Reroll" => PValue::Reroll,
@@ -271,16 +339,6 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                     _ => return Err(bad(s)),
                 },
                 ("$json", Json::String(s)) => PValue::Value(JsonKey::value(s)),
-                ("vector", Json::Array(items)) => {
-                    let items = items
-                        .iter()
-                        .map(|x| match from_js(x)? {
-                            PValue::Value(v) => Ok(v),
-                            _ => Err(bad("a vector element that is not a value")),
-                        })
-                        .collect::<Result<_, PErr>>()?;
-                    PValue::Value(Value::Vector(Vector::new(items)))
-                }
                 ("frac", Json::Array(parts)) => {
                     // Parts may come as strings (the way they went out) or JSON integers.
                     let parts = parts
@@ -294,6 +352,7 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                         .collect::<Result<Vec<_>, _>>()?;
                     program::wire::dec(&json!({ "frac": parts }))?
                 }
+                // A float's repr; a Symbols from a str (`Symbols("aab")`), an iterable or a mapping.
                 ("float" | "symbols", _) => program::wire::dec(j)?,
                 _ => return Err(bad(k)),
             }
@@ -381,12 +440,15 @@ impl HostFunction for JsFunction {
 /// A JS `MultisetEvaluator` (registered as `id` on the JS side). States are values: JS turns its states into
 /// JS-JSON, objects into `$json` keys, so the driver can hash and merge them.
 #[derive(Debug)]
-struct JsEvaluator(u32);
+struct JsEvaluator {
+    id: u32,
+    kwargs: String,
+}
 
 impl JsEvaluator {
     fn method(&self, name: &str, args: Vec<PValue>) -> CoreResult<PValue> {
         let args = js_args(&args).map_err(core_error)?;
-        callback_result(&host_evaluator(self.0, name, &args)).map_err(core_error)
+        callback_result(&host_evaluator(self.id, name, &args, &self.kwargs)).map_err(core_error)
     }
 }
 
