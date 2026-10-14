@@ -3,7 +3,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
@@ -25,13 +25,19 @@ pub struct Die<O> {
 
 /// A die's items plus what Python caches on the die object: its hash, and the dice left after popping the min or
 /// max outcome (`_popped_min` / `_popped_max` are `cached_property`s). The evaluator hashes and pops the same dice
-/// over and over.
+/// over and over. `index` stands in for Python's dict lookup (`outcome in self`) and `cumulative` for the
+/// `_cumulative_quantities` `cached_property`: without them `quantity('<=', x)` over every outcome of a die with
+/// tens of thousands of outcomes (`cdf_distance`) is quadratic. `denominator` is `_denominator`, cached for the
+/// same reason.
 #[derive(Debug)]
 struct DieData<O> {
     counts: Counts<O>,
     hash: OnceLock<u64>,
     popped_min: OnceLock<(Die<O>, Quantity)>,
     popped_max: OnceLock<(Die<O>, Quantity)>,
+    index: OnceLock<FxHashMap<O, usize>>,
+    cumulative: OnceLock<Vec<Quantity>>,
+    denominator: OnceLock<Quantity>,
 }
 
 impl<O: PartialEq> PartialEq for Die<O> {
@@ -83,6 +89,9 @@ impl<O: Outcome> Die<O> {
                 hash: OnceLock::new(),
                 popped_min: OnceLock::new(),
                 popped_max: OnceLock::new(),
+                index: OnceLock::new(),
+                cumulative: OnceLock::new(),
+                denominator: OnceLock::new(),
             }),
         }
     }
@@ -157,7 +166,11 @@ impl<O: Outcome> Die<O> {
 
     /// The sum of all quantities.
     pub fn denominator(&self) -> Quantity {
-        self.data.counts.items().iter().map(|(_, q)| q).sum()
+        // `_denominator` is a `cached_property` in Python too.
+        self.data
+            .denominator
+            .get_or_init(|| self.data.counts.items().iter().map(|(_, q)| q).sum())
+            .clone()
     }
 
     /// The least outcome (`IndexError` for an empty die).
@@ -213,14 +226,34 @@ impl<O: Outcome> Die<O> {
 
     /// `quantities('<=')`: the cumulative quantities in sorted order (the CDF).
     pub fn quantities_le(&self) -> Vec<Quantity> {
-        let mut total = Quantity::ZERO;
-        self.items()
-            .iter()
-            .map(|(_, q)| {
-                total += q;
-                total.clone()
-            })
-            .collect()
+        self.cumulative_quantities().to_vec()
+    }
+
+    /// The cumulative quantities in sorted order, computed once per die (`_cumulative_quantities`).
+    pub fn cumulative_quantities(&self) -> &[Quantity] {
+        self.data.cumulative.get_or_init(|| {
+            let mut total = Quantity::ZERO;
+            self.items()
+                .iter()
+                .map(|(_, q)| {
+                    total += q;
+                    total.clone()
+                })
+                .collect()
+        })
+    }
+
+    /// `outcome in self`: the position of an equal outcome (by `==`, which `Hash` agrees with), through a map built
+    /// once per die. The first of equal outcomes wins, as a linear search would.
+    pub fn position(&self, outcome: &O) -> Option<usize> {
+        let index = self.data.index.get_or_init(|| {
+            let mut index = FxHashMap::default();
+            for (i, (o, _)) in self.items().iter().enumerate() {
+                index.entry(o.clone()).or_insert(i);
+            }
+            index
+        });
+        index.get(outcome).copied()
     }
 
     /// `quantities('>=')`: the quantities at or above each outcome in sorted order (the survival function).

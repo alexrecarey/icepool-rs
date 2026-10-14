@@ -101,11 +101,6 @@ impl<O: Outcome> Die<O> {
         }
     }
 
-    /// `outcome in self`: the position of an equal outcome.
-    fn position(&self, outcome: &O) -> Option<usize> {
-        self.outcomes().position(|o| o == outcome)
-    }
-
     /// The index of the nearest outcome fitting the comparison (`nearest`), or `None`; `Ok(Some((i, true)))` if
     /// `outcome in self` answered (Python then returns `outcome` itself).
     fn nearest_index(&self, comparison: Comparison, outcome: &O) -> Result<Option<(usize, bool)>> {
@@ -152,7 +147,7 @@ impl<O: Outcome> Die<O> {
             Comparison::Le | Comparison::Lt => match self.nearest_index(comparison, outcome)? {
                 None => Quantity::ZERO,
                 // `_cumulative_quantities[threshold]`.
-                Some((i, _)) => self.items()[..=i].iter().map(|(_, q)| q).sum(),
+                Some((i, _)) => self.cumulative_quantities()[i].clone(),
             },
             Comparison::Ge => self.denominator() - self.quantity(Comparison::Lt, outcome)?,
             Comparison::Gt => self.denominator() - self.quantity(Comparison::Le, outcome)?,
