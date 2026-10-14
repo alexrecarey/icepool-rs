@@ -465,7 +465,10 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         | PValue::Restart
         | PValue::Break(_)
         | PValue::Func(_)
-        | PValue::Ellipsis => true,
+        | PValue::Ellipsis
+        // A `MultisetFunctionEvaluator` is a plain object; a raw result a 3-tuple.
+        | PValue::MultisetFunction(_)
+        | PValue::RawResult(_) => true,
         // A deck is a mapping: truthy unless empty.
         PValue::Deck(d) => !d.is_empty(),
         PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {

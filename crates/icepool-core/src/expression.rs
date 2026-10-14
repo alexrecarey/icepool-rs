@@ -1,6 +1,7 @@
 //! Port of the evaluation side of icepool `expression/multiset_expression_base.py`: the dungeonlets and questlets
-//! a multiset expression is prepared into, and how one evaluation input's flat list of them is driven
-//! (`DungeonletCallTree.next_state`, `QuestletCallTree.initial_state` without multiset function calls).
+//! a multiset expression is prepared into, and how they are driven (`DungeonletCallTree.next_state`,
+//! `QuestletCallTree.initial_state`), plus the nodes of `expression/multiset_parameter.py` and
+//! `expression/multiset_tuple_expression.py`.
 //!
 //! Preparing an expression (`_prepare`) flattens its tree in postfix order: each node after its children, the
 //! input's own count produced by the last node. A generator leaves a [`Dungeonlet::FreeVariable`] in place of the
@@ -8,9 +9,14 @@
 //! hands their counts to the free variables in traversal order. An operator node computes its count from its
 //! children's (`crate::operator`).
 //!
-//! The local states ("statelets") of all operator nodes of all inputs form one [`Statelets`] vector, part of the
-//! driver's room key. Python keeps a `None` statelet for every free variable too; leaving them out changes no
-//! equality.
+//! Inside a `@multiset_function` the evaluation is a [`CallTree`]: the flats of the function's arguments, then
+//! one call per evaluation in its body, whose own flats read the arguments' counts through
+//! [`Dungeonlet::Parameter`]s. What the tree produces per outcome is a [`CountTree`]: at a call without calls the
+//! counts of its flats, else one subtree per call.
+//!
+//! The local states ("statelets") of all operator nodes of the whole tree form one [`Statelets`] vector (pre-order:
+//! a call's flats, then its calls), part of the driver's room key. Python keeps a `None` statelet for every other
+//! node too, and nests them like the call tree; neither changes any equality, the tree's shape being fixed.
 
 use std::sync::Arc;
 
@@ -18,6 +24,8 @@ use crate::error::{Error, Result};
 use crate::operator::{Operator, Statelet};
 use crate::order::Order;
 use crate::pool::Count;
+use crate::value::builtins::{getitem, Index};
+use crate::Value;
 
 /// One node of a prepared expression.
 #[derive(Clone)]
@@ -31,6 +39,14 @@ pub enum Dungeonlet<O> {
         operator: Operator<O>,
         children: Vec<usize>,
     },
+    /// `MultisetParameterDungeonlet` / `MultisetParameterQuestlet`: the count (size) of argument `arg_index` of
+    /// the enclosing `@multiset_function` call, subscripted by `star_index` if the argument was starred.
+    Parameter {
+        arg_index: usize,
+        star_index: Option<usize>,
+    },
+    /// `MultisetTupleIndex` (an `int` index) and `MultisetTupleSlice` (a slice): `child[index]` of a tuple count.
+    TupleItem { child: usize, index: Index },
 }
 
 /// The prepared nodes of one evaluation input, in postfix order.
@@ -38,6 +54,51 @@ pub type Flat<O> = Arc<[Dungeonlet<O>]>;
 
 /// The statelets of every operator node of every input, in traversal order.
 pub type Statelets = Arc<[Statelet]>;
+
+/// `DungeonletCallTree` and `QuestletCallTree` in one: the flats of one call and the calls inside it.
+#[derive(Clone)]
+pub struct CallTree<O> {
+    pub flats: Vec<Flat<O>>,
+    pub calls: Vec<CallTree<O>>,
+}
+
+impl<O> CallTree<O> {
+    /// The tree of a plain evaluation: its inputs' flats, no calls.
+    pub fn leaf(flats: Vec<Flat<O>>) -> Self {
+        CallTree {
+            flats,
+            calls: Vec::new(),
+        }
+    }
+}
+
+/// What a call tree produces: at a call without calls, the count (or size) of each of its flats; otherwise one
+/// subtree per call (Python's nested tuples).
+#[derive(Clone, Debug)]
+pub enum CountTree<C> {
+    Leaf(Vec<C>),
+    Calls(Vec<CountTree<C>>),
+}
+
+impl<C> CountTree<C> {
+    /// The counts of a call without calls (a plain evaluator's arguments).
+    pub fn leaf(&self) -> Result<&[C]> {
+        match self {
+            CountTree::Leaf(c) => Ok(c),
+            CountTree::Calls(_) => Err(Error::Unsupported(
+                "multiset function calls given to a plain evaluator".into(),
+            )),
+        }
+    }
+
+    /// The subtrees of a call with calls.
+    pub fn calls(&self) -> &[CountTree<C>] {
+        match self {
+            CountTree::Calls(c) => c,
+            CountTree::Leaf(_) => &[],
+        }
+    }
+}
 
 /// The flat of an input that is a generator: one free variable.
 pub fn free_variable<O>() -> Flat<O> {
@@ -52,17 +113,66 @@ fn no_source() -> Error {
     Error::Unsupported("an expression with more free variables than sources".into())
 }
 
-/// `QuestletCallTree.initial_state`: the initial statelets and the size of each input (the size its last node
-/// produces). `source_sizes` yields the size of each source, consumed in traversal order (Python's generator
-/// computes them lazily, so a size is only computed when its free variable is reached).
-pub fn initial_state<O: PartialEq>(
-    flats: &[Flat<O>],
+fn count_value(c: &Count) -> Value {
+    match c {
+        Count::Int(c) => Value::from(*c),
+        Count::Tuple(cs) => Value::tuple(cs.iter().map(|&c| Value::from(c)).collect()),
+    }
+}
+
+/// `count[index]` with Python's subscript semantics: a tuple count is indexed or sliced, anything else raises
+/// `TypeError` ('int' / 'NoneType' object is not subscriptable).
+fn subscript(c: Option<&Count>, index: &Index) -> Result<Count> {
+    let v = c.map_or(Value::None, count_value);
+    match getitem(&v, index)? {
+        Value::Int(i) => i64::try_from(&i)
+            .map(Count::Int)
+            .map_err(|_| Error::Unsupported("multiset counts beyond 64 bits".into())),
+        Value::Tuple(t) => t
+            .iter()
+            .map(|x| match x {
+                Value::Int(i) => i64::try_from(i).ok(),
+                _ => None,
+            })
+            .collect::<Option<Vec<i64>>>()
+            .map(|t| Count::Tuple(t.into()))
+            .ok_or_else(|| Error::Unsupported("a tuple count that is not ints".into())),
+        _ => Err(Error::Unsupported("a count that is not an int".into())),
+    }
+}
+
+/// `arg_sizes[arg_index]` / `arg_counts[arg_index][star_index]`.
+fn parameter<C: Clone>(
+    args: &[C],
+    arg_index: usize,
+    star_index: Option<usize>,
+    as_count: impl Fn(&C) -> Option<&Count>,
+    from_count: impl Fn(Count) -> C,
+) -> Result<C> {
+    let arg = args
+        .get(arg_index)
+        .ok_or_else(|| Error::Index("tuple index out of range".into()))?;
+    match star_index {
+        None => Ok(arg.clone()),
+        Some(i) => Ok(from_count(subscript(
+            as_count(arg),
+            &Index::Item(Value::from(i as i64)),
+        )?)),
+    }
+}
+
+/// `QuestletCallTree.initial_state`: the initial statelets and the size tree. `source_sizes` yields the size of
+/// each source, consumed in traversal order (Python's generator computes them lazily, so a size is only computed
+/// when its free variable is reached); `arg_sizes` are the sizes of the enclosing call's arguments.
+fn initial_tree<O: PartialEq>(
+    tree: &CallTree<O>,
     order: Order,
-    mut source_sizes: impl Iterator<Item = Result<Option<Count>>>,
-) -> Result<(Statelets, Vec<Option<Count>>)> {
-    let mut statelets = Vec::new();
-    let mut output_sizes = Vec::with_capacity(flats.len());
-    for flat in flats {
+    source_sizes: &mut impl Iterator<Item = Result<Option<Count>>>,
+    arg_sizes: &[Option<Count>],
+    statelets: &mut Vec<Statelet>,
+) -> Result<CountTree<Option<Count>>> {
+    let mut output_sizes = Vec::with_capacity(tree.flats.len());
+    for flat in &tree.flats {
         let mut sizes: Vec<Option<Count>> = Vec::with_capacity(flat.len());
         for dungeonlet in flat.iter() {
             let size = match dungeonlet {
@@ -73,29 +183,60 @@ pub fn initial_state<O: PartialEq>(
                     statelets.push(statelet);
                     size
                 }
+                Dungeonlet::Parameter {
+                    arg_index,
+                    star_index,
+                } => parameter(arg_sizes, *arg_index, *star_index, Option::as_ref, Some)?,
+                Dungeonlet::TupleItem { child, index } => match &sizes[*child] {
+                    // `MultisetTupleIndex._initial_state` returns a bare `None` here, which the caller fails to
+                    // unpack.
+                    None => {
+                        return Err(Error::Type(
+                            "cannot unpack non-iterable NoneType object".into(),
+                        ))
+                    }
+                    Some(c) => Some(subscript(Some(c), index)?),
+                },
             };
             sizes.push(size);
         }
-        output_sizes.push(sizes.pop().flatten());
+        output_sizes.push(sizes.pop().expect("a flat is never empty"));
     }
-    Ok((Arc::from(statelets), output_sizes))
+    if tree.calls.is_empty() {
+        return Ok(CountTree::Leaf(output_sizes));
+    }
+    let calls = tree
+        .calls
+        .iter()
+        .map(|call| initial_tree(call, order, source_sizes, &output_sizes, statelets))
+        .collect::<Result<_>>()?;
+    Ok(CountTree::Calls(calls))
 }
 
-/// `DungeonletCallTree.next_state`: advances the statelets for one outcome. `source_counts` are the counts the
-/// sources produced for it, consumed by the free variables in traversal order. Returns the next statelets and
-/// each input's count.
-pub fn next_state<O: PartialEq>(
-    flats: &[Flat<O>],
-    statelets: &Statelets,
+/// The initial statelets and size tree of a call tree (see [`initial_tree`]).
+pub fn initial_state<O: PartialEq>(
+    tree: &CallTree<O>,
+    order: Order,
+    mut source_sizes: impl Iterator<Item = Result<Option<Count>>>,
+) -> Result<(Statelets, CountTree<Option<Count>>)> {
+    let mut statelets = Vec::new();
+    let sizes = initial_tree(tree, order, &mut source_sizes, &[], &mut statelets)?;
+    Ok((Arc::from(statelets), sizes))
+}
+
+/// `DungeonletCallTree.next_state` for one call: advances its statelets (read from and written to the shared
+/// iterators) and returns its count tree.
+fn next_tree<'s, O: PartialEq>(
+    tree: &CallTree<O>,
+    statelets_in: &mut impl Iterator<Item = &'s Statelet>,
+    next_statelets: &mut Vec<Statelet>,
     order: Order,
     outcome: &O,
-    source_counts: &[Count],
-) -> Result<(Statelets, Vec<Count>)> {
-    let mut source_counts = source_counts.iter();
-    let mut statelets_in = statelets.iter();
-    let mut next_statelets = Vec::with_capacity(statelets.len());
-    let mut output_counts = Vec::with_capacity(flats.len());
-    for flat in flats {
+    source_counts: &mut std::slice::Iter<'_, Count>,
+    arg_counts: &[Count],
+) -> Result<CountTree<Count>> {
+    let mut output_counts = Vec::with_capacity(tree.flats.len());
+    for flat in &tree.flats {
         let mut counts: Vec<Count> = Vec::with_capacity(flat.len());
         for dungeonlet in flat.iter() {
             let count = match dungeonlet {
@@ -111,10 +252,57 @@ pub fn next_state<O: PartialEq>(
                     next_statelets.push(next);
                     count
                 }
+                Dungeonlet::Parameter {
+                    arg_index,
+                    star_index,
+                } => parameter(arg_counts, *arg_index, *star_index, |c| Some(c), |c| c)?,
+                Dungeonlet::TupleItem { child, index } => subscript(Some(&counts[*child]), index)?,
             };
             counts.push(count);
         }
         output_counts.push(counts.pop().expect("a flat is never empty"));
     }
-    Ok((Arc::from(next_statelets), output_counts))
+    if tree.calls.is_empty() {
+        return Ok(CountTree::Leaf(output_counts));
+    }
+    let calls = tree
+        .calls
+        .iter()
+        .map(|call| {
+            next_tree(
+                call,
+                statelets_in,
+                next_statelets,
+                order,
+                outcome,
+                source_counts,
+                &output_counts,
+            )
+        })
+        .collect::<Result<_>>()?;
+    Ok(CountTree::Calls(calls))
+}
+
+/// `DungeonletCallTree.next_state`: advances the statelets for one outcome. `source_counts` are the counts the
+/// sources produced for it, consumed by the free variables in traversal order. Returns the next statelets and the
+/// count tree.
+pub fn next_state<O: PartialEq>(
+    tree: &CallTree<O>,
+    statelets: &Statelets,
+    order: Order,
+    outcome: &O,
+    source_counts: &[Count],
+) -> Result<(Statelets, CountTree<Count>)> {
+    let mut statelets_in = statelets.iter();
+    let mut next_statelets = Vec::with_capacity(statelets.len());
+    let counts = next_tree(
+        tree,
+        &mut statelets_in,
+        &mut next_statelets,
+        order,
+        outcome,
+        &mut source_counts.iter(),
+        &[],
+    )?;
+    Ok((Arc::from(next_statelets), counts))
 }

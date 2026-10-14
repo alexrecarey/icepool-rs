@@ -25,7 +25,7 @@ use crate::{Deal, Die, Pool, Value};
 
 /// `pool.sum()`.
 fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
-    run(&SumEvaluator, &[MExpr::Gen(KeepGen::Pool(pool))]).map(PValue::Die)
+    run(SumEvaluator, &[MExpr::Gen(KeepGen::Pool(pool))])
 }
 
 /// A Python int (or bool) argument, exactly. `None` for anything else.
@@ -353,7 +353,7 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
             let i = i64::try_from(i).unwrap_or(i64::MAX);
             // The keep tuple (or its IndexError) first; then Python evaluates it into a Die.
             let kept = g.keep(&KeepIndex::Int(i))?;
-            run(&KeepEvaluator { index: None }, &[MExpr::Gen(kept)]).map(PValue::Die)
+            run(KeepEvaluator { index: None }, &[MExpr::Gen(kept)])
         }
         (MExpr::Gen(g), None) if !g.has_negative_keeps() => {
             Ok(into_pvalue(MExpr::Gen(g.keep(&sequence_index(index)?)?)))
@@ -361,7 +361,7 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         (_, Some(i)) => {
             let index = i64::try_from(i)
                 .map_err(|_| PErr::Unimplemented("a keep index beyond 64 bits".into()))?;
-            run(&KeepEvaluator { index: Some(index) }, &[e]).map(PValue::Die)
+            run(KeepEvaluator { index: Some(index) }, &[e])
         }
         (_, None) => Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?))),
     }

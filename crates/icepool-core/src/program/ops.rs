@@ -235,7 +235,23 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [e, order] = args.exactly(["expr", "order"])?;
             expression::force_order(e, order)
         }
-        "mx_evaluate" => {
+        "mx_tuple_index" => {
+            let [e, index] = args.exactly(["expr", "index"])?;
+            expression::tuple_index(e, index)
+        }
+        "mx_tuple_slice" => {
+            let [e, start, stop, step] = args.exactly(["expr", "start", "stop", "step"])?;
+            expression::tuple_slice(e, start, stop, step)
+        }
+        "mf_var" => {
+            let [i] = args.exactly(["i"])?;
+            super::multiset_function::mf_var(i)
+        }
+        "mf_call" => {
+            let [f, a, star] = args.exactly(["f", "args", "star"])?;
+            super::multiset_function::mf_call(f, a, star)
+        }
+        "mx_evaluate" | "mx_tuple_evaluate" => {
             let [e, method] = args.exactly(["expr", "method"])?;
             evaluate::method_evaluation(&str_arg(&method)?, e)
         }
@@ -853,6 +869,9 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
             return Err(PErr::Unimplemented("iterating a multiset generator".into()))
         }
+        PValue::MultisetFunction(_) | PValue::RawResult(_) => {
+            return Err(PErr::Unimplemented("iterating a multiset function result".into()))
+        }
     })
 }
 
@@ -879,8 +898,10 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         | PValue::Pool(_)
         | PValue::Deal(_)
         | PValue::MultiDeal(_)
-        | PValue::Expr(_) => Err(PErr::Unimplemented(
-            "Ellipsis or a pool as an outcome".into(),
+        | PValue::Expr(_)
+        | PValue::MultisetFunction(_)
+        | PValue::RawResult(_) => Err(PErr::Unimplemented(
+            "Ellipsis, a pool or a multiset function as an outcome".into(),
         )),
     }
 }

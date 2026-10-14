@@ -3,7 +3,8 @@
 //! final outcomes into a die.
 
 use super::catalogue_evaluators::CatalogueEvaluator;
-use super::expression::{as_expression, prepare, the_expression, MExpr};
+use super::multiset_function::{in_function, raw_result};
+use super::expression::{as_expression, as_tuple_expression, prepare, the_expression, MExpr};
 use super::ops::{die_arg, py_iter, type_error};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
@@ -24,12 +25,11 @@ use crate::{Die, Value};
 /// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
 /// die is a mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
 pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
-    if let Some(e) = as_expression(&arg) {
+    if let Some(e) = as_expression(&arg).or_else(|| as_tuple_expression(&arg)) {
+        // A multiset tuple expression is an expression too (of another kind).
         return Ok(e);
     }
     match arg {
-        // A multiset tuple generator is an expression too (of another kind).
-        PValue::MultiDeal(md) => Ok(MExpr::MultiDeal(md)),
         // A deck is a mapping, but `Pool(deck)` refuses it.
         PValue::Deck(_) => raise(Error::Value(
             "A Pool cannot be constructed with a Deck argument.".into(),
@@ -71,42 +71,48 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
 }
 
 /// `evaluator.evaluate(*expressions)`: each prepared (`_prepare`), and `Die(final_outcomes, final_weights)` (the
-/// outer `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself).
-pub fn run<E>(evaluator: &E, exprs: &[MExpr]) -> Result<Die<Value>, PErr>
+/// outer `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself). Inside a
+/// `@multiset_function` body, the raw result recording the evaluation instead.
+pub fn run<E>(evaluator: E, exprs: &[MExpr]) -> Result<PValue, PErr>
 where
-    E: MultisetEvaluator<Value, Final = Value>,
+    E: MultisetEvaluator<Value, Final = Value> + Send + Sync + 'static,
+    E::State: 'static,
 {
+    if in_function(exprs) {
+        return Ok(raw_result(evaluator, exprs));
+    }
     let (flats, sources) = prepare(exprs)?;
-    let finals = evaluate_expressions(evaluator, &flats, &sources, check_recursion)?;
+    let finals = evaluate_expressions(&evaluator, &flats, &sources, check_recursion)?;
     let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
     let outcomes = outcomes
         .into_iter()
         .map(|o| die_arg(PValue::Value(o)))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Die::new(outcomes, weights)?)
+    Ok(PValue::Die(Die::new(outcomes, weights)?))
 }
 
-fn die(
-    evaluator: &impl MultisetEvaluator<Value, Final = Value>,
-    pools: &[MExpr],
-) -> Result<PValue, PErr> {
-    run(evaluator, pools).map(PValue::Die)
+fn die<E>(evaluator: E, pools: &[MExpr]) -> Result<PValue, PErr>
+where
+    E: MultisetEvaluator<Value, Final = Value> + Send + Sync + 'static,
+    E::State: 'static,
+{
+    run(evaluator, pools)
 }
 
 /// The one-pool evaluation methods of `MultisetExpression` (`pool.sum()` is node `pool_sum`, and so on).
 pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
     let pools = [the_expression(p)?];
     match op {
-        "pool_sum" => die(&SumEvaluator, &pools),
-        "pool_size" => die(&SizeEvaluator, &pools),
-        "pool_empty" => die(&EmptyEvaluator { any: false }, &pools),
-        "pool_any" => die(&EmptyEvaluator { any: true }, &pools),
-        "pool_product_of_counts" => die(&ProductOfCountsEvaluator, &pools),
-        "pool_highest_outcome_and_count" => die(&HighestOutcomeAndCountEvaluator, &pools),
-        "pool_largest_count" => die(&LargestCountEvaluator, &pools),
-        "pool_largest_count_and_outcome" => die(&LargestCountAndOutcomeEvaluator, &pools),
-        "pool_largest_straight" => die(&LargestStraightEvaluator, &pools),
-        "pool_all_straights" => die(&AllStraightsEvaluator, &pools),
+        "pool_sum" => die(SumEvaluator, &pools),
+        "pool_size" => die(SizeEvaluator, &pools),
+        "pool_empty" => die(EmptyEvaluator { any: false }, &pools),
+        "pool_any" => die(EmptyEvaluator { any: true }, &pools),
+        "pool_product_of_counts" => die(ProductOfCountsEvaluator, &pools),
+        "pool_highest_outcome_and_count" => die(HighestOutcomeAndCountEvaluator, &pools),
+        "pool_largest_count" => die(LargestCountEvaluator, &pools),
+        "pool_largest_count_and_outcome" => die(LargestCountAndOutcomeEvaluator, &pools),
+        "pool_largest_straight" => die(LargestStraightEvaluator, &pools),
+        "pool_all_straights" => die(AllStraightsEvaluator, &pools),
         _ => Err(PErr::Unimplemented(op.into())),
     }
 }
@@ -123,8 +129,7 @@ fn value(x: PValue) -> Result<Value, PErr> {
 /// `pool.all_counts(filter=filter)`.
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
     let pools = [the_expression(p)?];
-    die(
-        &AllCountsEvaluator {
+    die(AllCountsEvaluator {
             filter: value(filter)?,
         },
         &pools,
@@ -136,7 +141,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
     let pools = [the_expression(p)?];
     // `order != Order.Ascending` (an `IntEnum`, so `1` and `True` are ascending too).
     let ascending = value(order)? == Value::from(1);
-    die(&ExpandEvaluator { ascending }, &pools)
+    die(ExpandEvaluator { ascending }, &pools)
 }
 
 /// `pool.largest_straight_and_outcome(priority)`.
@@ -147,8 +152,7 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
         v if v == Value::str("low") => false,
         _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
     };
-    die(
-        &LargestStraightAndOutcomeEvaluator { prioritize_highest },
+    die(LargestStraightAndOutcomeEvaluator { prioritize_highest },
         &pools,
     )
 }
@@ -168,15 +172,14 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
             ))
         }
     };
-    die(&KeepEvaluator { index }, &pools)
+    die(KeepEvaluator { index }, &pools)
 }
 
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
     let left = the_expression(p)?;
     let right = implicit_convert(divisor)?;
-    die(
-        &CountSubsetEvaluator {
+    die(CountSubsetEvaluator {
             empty_divisor: value(empty_divisor)?,
         },
         &[left, right],
@@ -198,7 +201,7 @@ pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
         "not_equal_set" => Comparison::IsNotEqualSet,
         _ => return Err(PErr::Unimplemented(op.into())),
     };
-    die(&ComparisonEvaluator(comparison), &[left, right])
+    die(ComparisonEvaluator(comparison), &[left, right])
 }
 
 /// `EVALUATORS[name](*params).evaluate(*args, **kwargs)` (harness/catalogue/evaluators.py).
@@ -216,6 +219,9 @@ pub fn catalogue(
         .into_iter()
         .map(implicit_convert)
         .collect::<Result<Vec<_>, _>>()?;
+    if in_function(&exprs) {
+        return Ok(raw_result(evaluator, &exprs));
+    }
     super::catalogue_evaluators::run(&evaluator, &exprs)
 }
 

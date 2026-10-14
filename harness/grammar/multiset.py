@@ -114,31 +114,32 @@ def _outcomes(g):
     return [g.outcome() for _ in range(g.rng.randint(0, 3))]
 
 
-def _other(g, depth, budget):
+def _other(g, depth, budget, leaf=None):
     """The other operand of a binary operation: an expression, or (now and then) a list of outcomes."""
     if g.rng.random() < 0.2:
         return _outcomes(g)
-    return gen_expression(g, depth, budget)
+    return gen_expression(g, depth, budget, leaf)
 
 
 def _comparison(g, choices):
     return {"str": g.rng.choice(choices) if g.rng.random() < 0.95 else "<>"}
 
 
-def gen_expression(g, depth, budget=None):
-    """A small multiset expression: a pool or deal, under up to `budget` operators (each operand counts)."""
+def gen_expression(g, depth, budget=None, leaf=None):
+    """A small multiset expression: a pool or deal (or what `leaf(g, depth)` makes, e.g. a @multiset_function
+    parameter), under up to `budget` operators (each operand counts)."""
     from harness.catalogue.functions import fn_node
     if budget is None:
         budget = g.rng.choice([1, 1, 2, 2, 3])
     if budget <= 0 or g.rng.random() < 0.15:
-        return _leaf(g, depth)
+        return (leaf or _leaf)(g, depth)
     r = g.rng
     budget -= 1
-    sub = lambda: gen_expression(g, depth, budget // 2)
+    sub = lambda: gen_expression(g, depth, budget // 2, leaf)
     k = r.random()
     if k < 0.2:
         op = r.choice(list(_BINARY))
-        a, b = sub(), _other(g, depth, budget // 2)
+        a, b = sub(), _other(g, depth, budget // 2, leaf)
         if r.random() < 0.1:
             a, b = _outcomes(g), sub()  # the reflected operator
         return _binary(a, op, b)
@@ -178,16 +179,16 @@ def gen_expression(g, depth, budget=None):
         extras = ["early", "late", "low", "high", "equal"] + (
             ["keep", "drop"] if method == "sort_pair" else ["continue", "break"])
         return {"op": "mx_sort_pair", "expr": sub(), "method": {"str": method},
-                "comparison": _comparison(g, ["==", "!=", "<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2),
+                "comparison": _comparison(g, ["==", "!=", "<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2, leaf),
                 "order": r.choice([1, -1, -1, 0]), "extra": {"str": r.choice(extras) if r.random() < 0.95 else "x"}}
     if k < 0.94:
         priority = r.choice([None, None, {"str": "low"}, {"str": "high"}, {"str": "mid"} if r.random() < 0.1 else None])
         return {"op": "mx_max_pair", "expr": sub(), "keep": {"bool": r.random() < 0.5},
-                "comparison": _comparison(g, ["==", "<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2),
+                "comparison": _comparison(g, ["==", "<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2, leaf),
                 "priority": priority}
     if k < 0.98:
         return {"op": "mx_versus", "expr": sub(), "all": {"bool": r.random() < 0.5},
-                "comparison": _comparison(g, ["<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2)}
+                "comparison": _comparison(g, ["<=", "<", ">=", ">"]), "other": _other(g, depth, budget // 2, leaf)}
     return {"op": "mx_force_order", "expr": sub(), "order": r.choice([1, -1, 0])}
 
 

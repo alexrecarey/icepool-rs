@@ -224,7 +224,9 @@ fn enc_object(v: &PValue) -> Option<Json> {
         | PValue::Again(_)
         | PValue::Pool(_)
         | PValue::Expr(_)
-        | PValue::Break(_) => return None,
+        | PValue::Break(_)
+        | PValue::MultisetFunction(_)
+        | PValue::RawResult(_) => return None,
     })
 }
 

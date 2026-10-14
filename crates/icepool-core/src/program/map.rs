@@ -233,9 +233,14 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
         PValue::Ellipsis => type_error("argument of type 'ellipsis' is not iterable"),
         // A mapping: its keys.
         PValue::Deck(d) => Ok(d.outcomes().any(|o| o == x)),
-        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
-            Err(PErr::Unimplemented("membership in a pool".into()))
-        }
+        PValue::Pool(_)
+        | PValue::Deal(_)
+        | PValue::MultiDeal(_)
+        | PValue::Expr(_)
+        | PValue::MultisetFunction(_)
+        | PValue::RawResult(_) => Err(PErr::Unimplemented(
+            "membership in a pool or a multiset function".into(),
+        )),
     }
 }
 

@@ -10,11 +10,13 @@
 //! whose source's count is passed straight through; operators between generators compute the input's count from
 //! theirs, with their own local states ("statelets") carried alongside the evaluator's state. A multiset tuple
 //! generator (`MultiDeal`) produces a tuple of counts per outcome and a tuple size ([`Count::Tuple`]).
-//! `@multiset_function` calls (nested call trees) belong to a later task.
+//! A `@multiset_function` evaluation is a call tree (`crate::expression::CallTree`) whose counts and sizes reach
+//! the evaluator as trees ([`multiset_function`]).
 
 pub mod basic;
 pub mod comparison;
 pub mod keep;
+pub mod multiset_function;
 pub mod poker;
 
 use std::hash::Hash;
@@ -23,7 +25,7 @@ use std::rc::Rc;
 use rustc_hash::FxHashMap;
 
 use crate::error::{Error, Result};
-use crate::expression::{self, Flat, Statelets};
+use crate::expression::{self, CallTree, CountTree, Flat, Statelets};
 use crate::function::sorted_union;
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
@@ -129,6 +131,39 @@ pub trait MultisetEvaluator<O> {
     ) -> Result<Final<Self::Final>> {
         self.final_outcome(final_state, order, outcomes, &int_sizes(sizes)?)
     }
+
+    /// What the driver calls: [`Self::initial_state_counts`] with the size tree of the evaluation's call tree. Only
+    /// a `@multiset_function` evaluation has calls; a plain evaluator gets the sizes of its inputs.
+    fn initial_state_tree(
+        &self,
+        order: Order,
+        outcomes: &[O],
+        sizes: &CountTree<Option<Count>>,
+    ) -> Result<Self::State> {
+        self.initial_state_counts(order, outcomes, sizes.leaf()?)
+    }
+
+    /// What the driver calls: [`Self::next_state_counts`] with the count tree (see [`Self::initial_state_tree`]).
+    fn next_state_tree(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &O,
+        counts: &CountTree<Count>,
+    ) -> Result<Option<Self::State>> {
+        self.next_state_counts(state, order, outcome, counts.leaf()?)
+    }
+
+    /// What the driver calls: [`Self::final_outcome_counts`] with the size tree (see [`Self::initial_state_tree`]).
+    fn final_outcome_tree(
+        &self,
+        final_state: &Self::State,
+        order: Order,
+        outcomes: &[O],
+        sizes: &CountTree<Option<Count>>,
+    ) -> Result<Final<Self::Final>> {
+        self.final_outcome_counts(final_state, order, outcomes, sizes.leaf()?)
+    }
 }
 
 fn tuple_unsupported() -> Error {
@@ -208,7 +243,7 @@ type RoomKey<O, S> = (usize, usize, Vec<MultisetSource<O>>, Statelets, S);
 /// The room memo: room -> final states.
 type RoomCache<O, S> = FxHashMap<RoomKey<O, S>, Rc<FinalStates<S>>>;
 
-/// One evaluation's `Dungeon`: the evaluator, the prepared inputs (one flat of dungeonlets each) plus its room
+/// One evaluation's `Dungeon`: the evaluator, the prepared inputs (the call tree of dungeonlets) plus its room
 /// cache.
 ///
 /// Python keeps two caches (by the order `next_state` sees outcomes) on a dungeon that may outlive one
@@ -218,7 +253,7 @@ type RoomCache<O, S> = FxHashMap<RoomKey<O, S>, Rc<FinalStates<S>>>;
 /// several `==` spellings a state keeps; the harness evaluates each program with fresh evaluators.)
 struct Dungeon<'a, O, E: MultisetEvaluator<O>> {
     evaluator: &'a E,
-    flats: &'a [Flat<O>],
+    tree: &'a CallTree<O>,
     outcomes: &'a [O],
     initial_statelets: Statelets,
     initial_state: E::State,
@@ -231,14 +266,14 @@ type RoomPop<O> = (Vec<MultisetSource<O>>, Vec<Count>, Quantity);
 impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     fn new(
         evaluator: &'a E,
-        flats: &'a [Flat<O>],
+        tree: &'a CallTree<O>,
         outcomes: &'a [O],
         initial_statelets: Statelets,
         initial_state: E::State,
     ) -> Self {
         Dungeon {
             evaluator,
-            flats,
+            tree,
             outcomes,
             initial_statelets,
             initial_state,
@@ -320,7 +355,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
                 let prev = self.evaluate_backward(pop_order, prev_lo, prev_hi, prev_sources)?;
                 for (prev_statelets, prev_main) in prev.items() {
                     let (statelets, counts) = expression::next_state(
-                        self.flats,
+                        self.tree,
                         prev_statelets,
                         eval_order,
                         outcome,
@@ -330,7 +365,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
                     for (prev_state, prev_weight) in prev_main.items() {
                         let state = self
                             .evaluator
-                            .next_state_counts(prev_state, eval_order, outcome, &counts)?;
+                            .next_state_tree(prev_state, eval_order, outcome, &counts)?;
                         if let Some(state) = state {
                             subresult.add(state, prev_weight * &weight);
                         }
@@ -367,10 +402,10 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
             let (outcome, next_lo, next_hi, pops) = self.pop(pop_order, lo, hi, &key.2)?;
             for (next_sources, source_counts, weight) in pops {
                 let (next_statelets, counts) =
-                    expression::next_state(self.flats, &key.3, pop_order, outcome, &source_counts)?;
+                    expression::next_state(self.tree, &key.3, pop_order, outcome, &source_counts)?;
                 let next_state = self
                     .evaluator
-                    .next_state_counts(&key.4, pop_order, outcome, &counts)?;
+                    .next_state_tree(&key.4, pop_order, outcome, &counts)?;
                 if let Some(next_state) = next_state {
                     let fin = self.evaluate_forward(
                         pop_order,
@@ -438,6 +473,22 @@ pub fn evaluate_expressions<O: Outcome, E: MultisetEvaluator<O>>(
     sources: &[MultisetSource<O>],
     check_depth: impl Fn(usize) -> Result<()>,
 ) -> Result<Vec<(E::Final, Quantity)>> {
+    evaluate_call_tree(
+        evaluator,
+        &CallTree::leaf(flats.to_vec()),
+        sources,
+        check_depth,
+    )
+}
+
+/// [`evaluate_expressions`] for a call tree (a `@multiset_function` evaluation, see [`multiset_function`]):
+/// `sources` are the sources of the free variables of the whole tree, in traversal order.
+pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
+    evaluator: &E,
+    tree: &CallTree<O>,
+    sources: &[MultisetSource<O>],
+    check_depth: impl Fn(usize) -> Result<()>,
+) -> Result<Vec<(E::Final, Quantity)>> {
     if !sources.iter().all(MultisetSource::is_resolvable) {
         return Ok(Vec::new());
     }
@@ -459,12 +510,11 @@ pub fn evaluate_expressions<O: Outcome, E: MultisetEvaluator<O>>(
         };
         // `initial_room`: the statelets (and so the sizes of the inputs), then the main state.
         let (initial_statelets, arg_sizes) =
-            expression::initial_state(flats, eval_order, sources.iter().map(MultisetSource::size))?;
-        let initial_state =
-            evaluator.initial_state_counts(eval_order, &all_outcomes, &arg_sizes)?;
+            expression::initial_state(tree, eval_order, sources.iter().map(MultisetSource::size))?;
+        let initial_state = evaluator.initial_state_tree(eval_order, &all_outcomes, &arg_sizes)?;
         let mut dungeon = Dungeon::new(
             evaluator,
-            flats,
+            tree,
             &all_outcomes,
             initial_statelets.clone(),
             initial_state.clone(),
@@ -522,12 +572,12 @@ fn finalize_evaluation<O, E: MultisetEvaluator<O>>(
     final_states: &FinalStates<E::State>,
     order: Order,
     outcomes: &[O],
-    sizes: &[Option<Count>],
+    sizes: &CountTree<Option<Count>>,
 ) -> Result<Vec<(E::Final, Quantity)>> {
     let mut result = Vec::new();
     for (_, main_states) in final_states.items() {
         for (state, weight) in main_states.items() {
-            match evaluator.final_outcome_counts(state, order, outcomes, sizes)? {
+            match evaluator.final_outcome_tree(state, order, outcomes, sizes)? {
                 Final::None => {
                     return Err(Error::Type(
                         "None is not a valid final outcome.\nThis may have been a result of not supplying \

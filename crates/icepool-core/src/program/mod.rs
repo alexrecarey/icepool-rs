@@ -15,6 +15,7 @@ mod format;
 mod map;
 mod map_tools;
 mod multi_deal;
+mod multiset_function;
 mod ops;
 mod pool;
 mod statistics;
@@ -66,6 +67,16 @@ pub enum PValue {
     /// that it has a truth value and its type name is `DieWithTruth`. Python computes both lazily; the port
     /// eagerly, which only differs if computing one raises, and neither does.
     DieWithTruth(Die<Value>, bool),
+    /// A `@multiset_function` (node `mf_def`).
+    MultisetFunction(Arc<multiset_function::FunctionDef>),
+    /// A `MultisetFunctionRawResult`: an evaluation inside a `@multiset_function` body.
+    RawResult(Arc<multiset_function::RawResult>),
+}
+
+impl From<Value> for PValue {
+    fn from(v: Value) -> Self {
+        PValue::Value(v)
+    }
 }
 
 impl PValue {
@@ -129,6 +140,10 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                 .ok_or_else(|| PErr::Unimplemented("non-string op".into()))?;
             if op == "khepri" {
                 return khepri(m);
+            }
+            if op == "mf_def" {
+                // Its `body` is lazy: traced when the function is called.
+                return multiset_function::mf_def(m);
             }
             let mut values = Vec::new();
             for (k, v) in m.iter().filter(|(k, _)| *k != "op") {

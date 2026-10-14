@@ -151,5 +151,11 @@
   "mx_max_pair": "ported",
   "mx_versus": "ported",
   "mx_force_order": "ported",
-  "mx_evaluate": "ported"
+  "mx_evaluate": "ported",
+  "mf_def": "pending",
+  "mf_var": "pending",
+  "mf_call": "pending",
+  "mx_tuple_index": "pending",
+  "mx_tuple_slice": "pending",
+  "mx_tuple_evaluate": "pending"
 }

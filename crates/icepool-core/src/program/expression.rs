@@ -24,6 +24,7 @@ use crate::operator::{
     OutcomeFilter, OutcomePredicate,
 };
 use crate::pool::{MultisetSource, Pool};
+use crate::value::builtins::{getitem, Index};
 use crate::{MultiDeal, Value};
 
 /// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
@@ -35,6 +36,17 @@ pub enum MExpr {
     MultiDeal(MultiDeal<Value>),
     /// A `MultisetOperator` and its children.
     Op(Arc<(Operator<Value>, Vec<MExpr>)>),
+    /// `MultisetParameter`: argument `arg_index` of a `@multiset_function` (its `star_index` element if starred).
+    Param {
+        arg_index: usize,
+        star_index: Option<usize>,
+    },
+    /// `MultisetTupleParameter`: a multiset tuple argument (a `MultiDeal`) of a `@multiset_function`, not starred.
+    TupleParam { arg_index: usize, len: usize },
+    /// `MultisetTupleIndex`: `child[index]` of a multiset tuple expression, a multiset expression.
+    TupleIndex(Arc<(MExpr, i64)>),
+    /// `MultisetTupleSlice`: `child[start:stop:step]`, a multiset tuple expression.
+    TupleSlice(Arc<(MExpr, [Value; 3])>),
 }
 
 impl fmt::Debug for MExpr {
@@ -43,6 +55,11 @@ impl fmt::Debug for MExpr {
             MExpr::Gen(g) => write!(f, "{g:?}"),
             MExpr::MultiDeal(_) => write!(f, "MultiDeal"),
             MExpr::Op(node) => write!(f, "MultisetOperator({:?})", node.1),
+            MExpr::Param { arg_index, .. } | MExpr::TupleParam { arg_index, .. } => {
+                write!(f, "MultisetParameter({arg_index})")
+            }
+            MExpr::TupleIndex(node) => write!(f, "MultisetTupleIndex({:?})", node.0),
+            MExpr::TupleSlice(node) => write!(f, "MultisetTupleSlice({:?})", node.0),
         }
     }
 }
@@ -81,8 +98,68 @@ impl MExpr {
                     children: positions,
                 });
             }
+            MExpr::Param {
+                arg_index,
+                star_index,
+            } => flat.push(Dungeonlet::Parameter {
+                arg_index: *arg_index,
+                star_index: *star_index,
+            }),
+            MExpr::TupleParam { arg_index, .. } => flat.push(Dungeonlet::Parameter {
+                arg_index: *arg_index,
+                star_index: None,
+            }),
+            MExpr::TupleIndex(node) => {
+                node.0.prepare(flat, sources)?;
+                flat.push(Dungeonlet::TupleItem {
+                    child: flat.len() - 1,
+                    index: Index::Item(Value::from(node.1)),
+                });
+            }
+            MExpr::TupleSlice(node) => {
+                node.0.prepare(flat, sources)?;
+                let [start, stop, step] = node.1.clone();
+                flat.push(Dungeonlet::TupleItem {
+                    child: flat.len() - 1,
+                    index: Index::Slice(start, stop, step),
+                });
+            }
         }
         Ok(())
+    }
+
+    /// `_has_parameter`: whether this expression contains a `@multiset_function` parameter (then evaluating it
+    /// only records the evaluation for the function).
+    pub fn has_parameter(&self) -> bool {
+        match self {
+            MExpr::Gen(_) | MExpr::MultiDeal(_) => false,
+            MExpr::Param { .. } | MExpr::TupleParam { .. } => true,
+            MExpr::Op(node) => node.1.iter().any(MExpr::has_parameter),
+            MExpr::TupleIndex(node) => node.0.has_parameter(),
+            MExpr::TupleSlice(node) => node.0.has_parameter(),
+        }
+    }
+
+    /// `len()` of a multiset tuple expression (a `MultiDeal`, a tuple parameter or a slice of one); `None` for a
+    /// multiset expression, which has no `len`.
+    pub fn tuple_len(&self) -> Result<Option<usize>, PErr> {
+        Ok(match self {
+            MExpr::MultiDeal(md) => Some(md.len()),
+            MExpr::TupleParam { len, .. } => Some(*len),
+            // `len([None] * len(child)[index])`
+            MExpr::TupleSlice(node) => {
+                let n = node.0.tuple_len()?.expect("a slice of a tuple expression");
+                let [start, stop, step] = node.1.clone();
+                match getitem(
+                    &Value::tuple(vec![Value::None; n]),
+                    &Index::Slice(start, stop, step),
+                )? {
+                    Value::Tuple(t) => Some(t.len()),
+                    _ => unreachable!("a slice of a tuple is a tuple"),
+                }
+            }
+            _ => None,
+        })
     }
 
     /// Whether this is a keep generator without negative keeps (closed under keep-like operations).
@@ -109,14 +186,60 @@ pub fn prepare(exprs: &[MExpr]) -> Result<Prepared, PErr> {
     Ok((flats, sources))
 }
 
-/// A program value that is a multiset expression, as one.
+/// A program value that is a multiset expression, as one (a multiset tuple expression is not one).
 pub fn as_expression(x: &PValue) -> Option<MExpr> {
     match x {
         PValue::Pool(p) => Some(MExpr::Gen(KeepGen::Pool(p.clone()))),
         PValue::Deal(d) => Some(MExpr::Gen(KeepGen::Deal(d.clone()))),
+        PValue::Expr(MExpr::TupleParam { .. } | MExpr::TupleSlice(_)) => None,
         PValue::Expr(e) => Some(e.clone()),
         _ => None,
     }
+}
+
+/// A program value that is a multiset tuple expression (`MultisetTupleExpression`), as one.
+pub fn as_tuple_expression(x: &PValue) -> Option<MExpr> {
+    match x {
+        PValue::MultiDeal(md) => Some(MExpr::MultiDeal(md.clone())),
+        PValue::Expr(e @ (MExpr::TupleParam { .. } | MExpr::TupleSlice(_))) => Some(e.clone()),
+        _ => None,
+    }
+}
+
+/// `x[index]` (node `mx_tuple_index`). For a multiset tuple expression an `int` (or bool) index makes a
+/// `MultisetTupleIndex`, anything else makes `__getitem__` fall off its end, returning `None`; for a multiset
+/// expression it is `x.keep(index)`.
+pub fn tuple_index(x: PValue, index: PValue) -> Result<PValue, PErr> {
+    let Some(e) = as_tuple_expression(&x) else {
+        return match &x {
+            // `MultisetExpression.__getitem__` is `keep`.
+            x if as_expression(x).is_some() => super::pool::pool_keep(x.clone(), index),
+            PValue::Value(Value::None) => type_error("'NoneType' object is not subscriptable"),
+            _ => Err(PErr::Unimplemented("indexing this object".into())),
+        };
+    };
+    Ok(match int_arg(&index) {
+        Some(i) => PValue::Expr(MExpr::TupleIndex(Arc::new((e, i?)))),
+        None => PValue::Value(Value::None),
+    })
+}
+
+/// `x[start:stop:step]` (node `mx_tuple_slice`): for a multiset tuple expression a `MultisetTupleSlice`, whose
+/// bounds are only looked at when it is evaluated or its `len()` taken; for a multiset expression a keep.
+pub fn tuple_slice(x: PValue, start: PValue, stop: PValue, step: PValue) -> Result<PValue, PErr> {
+    let Some(e) = as_tuple_expression(&x) else {
+        return match &x {
+            x if as_expression(x).is_some() => super::pool::pool_slice(x.clone(), start, stop, step),
+            PValue::Value(Value::None) => type_error("'NoneType' object is not subscriptable"),
+            _ => Err(PErr::Unimplemented("slicing this object".into())),
+        };
+    };
+    let bound = |b: PValue| match b {
+        PValue::Value(v) => Ok(v),
+        _ => Err(PErr::Unimplemented("a slice bound that is not a value".into())),
+    };
+    let index = [bound(start)?, bound(stop)?, bound(step)?];
+    Ok(PValue::Expr(MExpr::TupleSlice(Arc::new((e, index)))))
 }
 
 /// A multiset expression method's `self`: anything else lacks the method (AttributeError).
@@ -124,8 +247,8 @@ pub fn the_expression(x: PValue) -> Result<MExpr, PErr> {
     match as_expression(&x) {
         Some(e) => Ok(e),
         None => match x {
-            PValue::MultiDeal(_) => Err(PErr::Unimplemented(
-                "expression methods of a MultiDeal".into(),
+            PValue::MultiDeal(_) | PValue::Expr(_) => Err(PErr::Unimplemented(
+                "expression methods of a multiset tuple expression".into(),
             )),
             _ => type_error("AttributeError: not a multiset expression"),
         },
