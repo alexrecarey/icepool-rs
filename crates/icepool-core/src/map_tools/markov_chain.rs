@@ -10,6 +10,13 @@
 //!   kept in the result;
 //! - which exception is raised when several states raise (only the type would differ; the port raises the first
 //!   it finds).
+//!
+//! The port explores breadth first (a FIFO frontier): every state at a finite distance is stepped eventually.
+//! When the chain has infinitely many states, Python's set order may reach a state that raises while a depth-first
+//! search would wander off forever (e.g. a walk unbounded below that raises at its upper end); breadth first, the
+//! port raises whenever Python can.
+
+use std::collections::VecDeque;
 
 use dashu_base::UnsignedAbs;
 use dashu_int::IBig;
@@ -146,17 +153,12 @@ where
     // The die representing the next distribution of each transient state; its outcomes are `(transition_type,
     // state)`.
     let mut transitions: Vec<Die<Value>> = Vec::new();
-    let mut frontier: Vec<Value> = initial_transient
-        .items()
-        .iter()
-        .rev()
-        .map(|(o, _)| o.clone())
-        .collect();
+    let mut frontier: VecDeque<Value> = initial_transient.items().iter().map(|(o, _)| o.clone()).collect();
     let mut in_frontier: FxHashMap<Value, ()> = frontier.iter().map(|s| (s.clone(), ())).collect();
     for s in &frontier {
         spellings.check(s)?;
     }
-    while let Some(curr_state) = frontier.pop() {
+    while let Some(curr_state) = frontier.pop_front() {
         in_frontier.remove(&curr_state);
         let transition = transition_cache.step_state(&curr_state)?;
         index.insert(curr_state.clone(), states.len());
@@ -172,7 +174,7 @@ where
                 && !in_frontier.contains_key(&p[1])
             {
                 in_frontier.insert(p[1].clone(), ());
-                frontier.push(p[1].clone());
+                frontier.push_back(p[1].clone());
             }
         }
         transitions.push(transition);

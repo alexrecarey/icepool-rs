@@ -9,7 +9,8 @@ import math
 
 import icepool
 
-from harness.core.grammar_api import evaluate, node
+from harness.core.grammar_api import node
+from harness.grammar import peek
 from harness.grammar.maps import _star, _which
 
 
@@ -140,7 +141,7 @@ def _finite_die(g):
     for _ in range(10):
         p = g.die(0)
         try:
-            die = evaluate(p)
+            die = peek(p)
             if isinstance(die, icepool.Die) and any(_has_inf_or_nan(o) for o in die.outcomes()):
                 continue
         except Exception:  # noqa: BLE001 - a die that raises is a fine program too

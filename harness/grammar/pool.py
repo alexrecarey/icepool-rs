@@ -12,7 +12,8 @@ A pool's keep tuple only goes negative in its last operation (keeping on a negat
 import icepool
 
 from harness.core.encode import enc
-from harness.core.grammar_api import evaluate, node
+from harness.core.grammar_api import node
+from harness.grammar import peek
 
 
 @node("Ellipsis", "ellipsis")
@@ -134,7 +135,7 @@ def _die_without_nan(g, depth):
     for _ in range(10):
         p = g.die(depth)
         try:
-            die = evaluate(p)
+            die = peek(p)
             if isinstance(die, icepool.Die) and any(_has_nan(o) for o in die.outcomes()):
                 continue
         except Exception:  # noqa: BLE001 - a die that raises is a fine program too
@@ -269,7 +270,7 @@ def _gen_pool_pop(g, depth):
     outcome = g.outcome()
     # Mostly pop the outcome the source pops (otherwise it yields itself unchanged): find it by asking the oracle.
     try:
-        outcomes = evaluate(p).outcomes()
+        outcomes = peek(p).outcomes()
         if outcomes and g.rng.random() < 0.85:
             outcome = enc(outcomes[0] if order > 0 else outcomes[-1])
     except Exception:  # noqa: BLE001 - a pool that raises is a fine program too

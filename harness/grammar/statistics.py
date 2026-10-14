@@ -8,7 +8,8 @@ icepool returns as views or dicts are made tuples here so they encode (`quantiti
 import icepool
 
 from harness.catalogue.functions import fn_node
-from harness.core.grammar_api import evaluate, node
+from harness.core.grammar_api import node
+from harness.grammar import peek
 from harness.grammar.construction import _typed_outcome
 from harness.grammar.pool import _die_without_nan, _has_nan
 
@@ -57,7 +58,7 @@ def _stat_die_without_nan(g, depth):
     for _ in range(10):
         p = _stat_die(g, depth)
         try:
-            die = evaluate(p)
+            die = peek(p)
             if isinstance(die, icepool.Die) and any(_has_nan(o) for o in die.outcomes()):
                 continue
         except Exception:  # noqa: BLE001 - a die that raises is a fine program too

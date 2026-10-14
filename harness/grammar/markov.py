@@ -33,19 +33,22 @@ def _start(g, name):
 
 
 # Processes whose states can grow without bound: an absorbing chain over them never finishes exploring (in Python
-# either), so the repeat='inf' / mean_time_to_absorb generators rarely pick them.
+# either), so the repeat='inf' / mean_time_to_absorb generators never pick them. (Such a program is not only a
+# wasted test: a generator that peeks at a die program, like pool.py's _die_without_nan, would have to wait for it.)
 _UNBOUNDED = {"add2", "max2", "break_eq", "add_k"}
+# Processes that stay bounded whatever the steps: the rest of _PROCESSES need non-negative steps (they sum the
+# steps until a cap; negative steps walk off to -inf).
+_ANY_STEPS = {"walk"}
 
 
 def _process(g, finite=False):
-    """(f, start, extra args) for a process. `finite`: mostly processes with finitely many states."""
+    """(f, start, extra args) for a process. `finite`: a process with finitely many states."""
     names = sorted(_PROCESSES)
-    if finite and g.rng.random() < 0.95:
+    if finite:
         names = [n for n in names if n not in _UNBOUNDED]
     name = g.rng.choice(names)
     f, _ = fn_node(g, name=name)
-    # Non-negative steps, so that sums reach their cap.
-    steps = (lambda: {"op": "d", "sides": g.rng.randint(1, 3)}) if finite and g.rng.random() < 0.8 else (
+    steps = (lambda: {"op": "d", "sides": g.rng.randint(1, 3)}) if finite and name not in _ANY_STEPS else (
         lambda: step_die(g))
     extra = [steps() for _ in range(_PROCESSES[name])]
     if g.rng.random() < 0.05:
