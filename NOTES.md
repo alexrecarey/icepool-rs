@@ -5,6 +5,27 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Die methods on the core (S1b).** Switched under `ICEPOOL_BACKEND=rust`: `Die.reroll` (and so `filter`),
+  `Population.split` and `zero` for a die (`isinstance(self, Die)` in base.py), `truncate`, `clip`, `simplify`,
+  `_popped_min/_popped_max`, `__matmul__` (so `__rmatmul__`, `count`), `Die._lowest_single/_highest_single`, and
+  keep.py's `_lowest_single/_highest_single`. Pattern for a selection: the facade runs `_select_outcomes` (Python
+  callables and `in` stay Python's, identity semantics included) and passes `[o in outcome_set for o in
+  self.outcomes()]`; `icepool_rs` takes the flags. `@` goes through `icepool_core::program::matmul_dice` (shared
+  with icepool-run: float/Fraction counts, the `_sum_all` recursion check; a core `Error::Value("RecursionError:
+  ...")` is re-raised as `RecursionError`); an `int`-subclass count (IntEnum) is converted to the int first. The
+  core's sum cache is per call: the facade die's `_sum_cache` is no longer filled (`_sum_all` itself stays
+  upstream's Python, now unused by `@`). Non-int `depth`/`rolls` (`icepool_rs` `exponent`): an int-valued
+  non-negative Fraction acts as the int; a float or other Fraction makes Python's `**` give floats, so the result
+  is the raise Python ends in (OverflowError / ZeroDivisionError / TypeError, see `reroll` and `die_keep_single`).
+  icepool-run still says unimplemented for a float reroll depth (`program/map.rs depth_arg`); port the same
+  logic there if a generator ever produces one.
+- Left in Python on purpose: `explode` (it is `map` + Again: S1c/S3a), public `icepool.from_cumulative` (its
+  outcomes may be dice/Reroll mixed by `Die()`, which is the core's; only the subtraction loop is Python), the
+  `Deck` paths of `split`/`zero`/pops (S4a). Grammar nodes added: `zero`, `simplify`, `die_pop` (`(die, quantity)`,
+  kind "value"), `from_cumulative` (int cumulative only; cumulative dice are unimplemented in icepool-run).
+- Facade gaps (both sides raise, only the type or the empty-die case differ): `truncate`/`clip` hash their bounds
+  on entry, so an unhashable bound raises TypeError even on an empty die (Python returns the empty die).
+
 - **Python facade (S1).** `python/icepool` is a copy of the oracle's `src/icepool` (git ls-files, so no caches)
   plus `backend.py`: `ICEPOOL_BACKEND=python` (default) or `rust`; `icepool.backend.RUST` is the `icepool_rs`
   module or `None`, and switched code tests `if icepool.backend.RUST:`. No silent fallback: with `rust`, a failed
