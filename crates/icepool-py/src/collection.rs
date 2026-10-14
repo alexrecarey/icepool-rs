@@ -176,7 +176,7 @@ pub fn symbols_op<'py>(
         "xor" => op(BinOp::Xor)?,
         "rsub" => match s.reverse_binary(BinOp::Sub, &bv) {
             Some(r) => core(r)?,
-            None => unreachable!("Symbols defines __rsub__"),
+            None => return Err(PyTypeError::new_err("icepool_rs: not a Symbols operation")),
         },
         // `count * other`, `count % other`, `count // other` for every count.
         "mul" => core(s.map_counts(|n| n.binary(BinOp::Mul, &bv)))?,
@@ -188,7 +188,8 @@ pub fn symbols_op<'py>(
         "ge" => bool_value(core(s.all_counts(other()?, BinOp::Ge))?),
         "eq" | "ne" => match s.eq_op(&bv, name == "ne") {
             Some(r) => bool_value(core(r)?),
-            None => unreachable!("the facade converted the other operand"),
+            // The facade converts the other operand first, so this is only a direct call with another type.
+            None => return Err(PyTypeError::new_err("icepool_rs: not a Symbols")),
         },
         "isdisjoint" => bool_value(core(s.isdisjoint(&bv))?),
         _ => return Err(to_py_err(Error::Unsupported(format!("Symbols.{name}")))),
