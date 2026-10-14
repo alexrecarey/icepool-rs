@@ -333,5 +333,15 @@
     ],
     "milestone": null,
     "details": "Cases where the port says unimplemented (icepool-run and the facade's core path) while Python answers, all outside what the S4d generators produce: (1) multiset operators over tuple counts: an operator applied to a MultisetTupleParameter or a MultiDeal (e.g. map_counts / + / & over a whole hand tuple) gets tuple counts, which Python reduces with min/max/+/its function (often TypeError, not always); the core's operators take i64 counts only (operator/mod.rs `int`), and program/expression.rs refuses tuple expressions as operands (`binary_op` 'no multiset operand', `the_expression`). (2) MultisetMixture inners compared by hash_key: program/expression.rs `same_expression` compares generators, parameters, tuple items, mixtures and MultisetKeep, but two operator expressions of another kind over equal children are unimplemented (needs operator equality as `_expression_key`, functions by identity). (3) Keyword-only parameters of a @multiset_function (`def f(x, *, target)`) in the program language: mf_def has no kwargs, mf_call passes only `star`. Add nodes/generators for each, fuzz clean through icepool-run and crates/icepool-py/run-facade.sh, with fixtures."
+  },
+  {
+    "id": "S5c",
+    "title": "Strangler: the facade's leftover Python work (audit of S5b)",
+    "deps": [
+      "S5b",
+      "S3c"
+    ],
+    "milestone": null,
+    "details": "docs/FACADE-AUDIT.md lists what still runs in Python under ICEPOOL_BACKEND=rust with no task covering it: (1) expand.iter_cartesian_product (public) and cartesian_product / tupleize / vectorize over Decks, expressions or other outcome types (Python itertools.product loops); (2) Population.append / remove (Counter arithmetic) and to_one_hot; (3) Die.mean_time_to_sum (a Python recursion over core reroll/map/mean); (4) the Deck paths of zero / split and Deck.map's per-outcome loop; (5) evaluations whose sources the core does not recognise (user MultisetGenerator subclasses, operator subclasses without a spec) silently use upstream's Python driver: make that an explicit, documented host path or raise; (6) built-in evaluators over MultiDeal sources always go through host callbacks (tuple counts). Also tidy: dead module-level helpers in collection/vector.py, backend.py's out-of-date docstring. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, any new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
   }
 ]
