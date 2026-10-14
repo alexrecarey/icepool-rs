@@ -134,8 +134,11 @@ fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
 /// `round(a, ndigits)`. For a die, `Die.round` rounds each outcome, so a bad `ndigits` only raises if there is an
 /// outcome to round.
 fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
-    let PValue::Value(nd) = ndigits else {
-        return type_error("ndigits must be an int or None");
+    // A die or a list as ndigits is not an int, so rounding any outcome with it raises; but `Die.round` on an
+    // empty die rounds nothing and returns it. A str stands in: `Value::round` raises for any non-int ndigits.
+    let nd = match &ndigits {
+        PValue::Value(v) => v.clone(),
+        _ => Value::str(""),
     };
     match a {
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.round(&nd))?)),

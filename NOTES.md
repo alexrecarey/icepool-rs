@@ -5,6 +5,27 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Operators (K2).** `value/ops.rs`: `Value::binary(BinOp, &Value)`, `Value::unary(UnOp)`, `Value::round(&ndigits)`
+  are Python's `operator.*` on outcomes (numeric tower per CPython/fractions.py, str/tuple concat and repeat).
+  `Die::binary_operator` / `unary_operator` (die.rs) are generic over a closure, merge results in an `OrderedMerge`
+  (dict order, first key spelling kept), drop zero quantities (what `Die(dict)` does) and sort with `Counts::new`.
+  The program layer (`program/ops.rs` `binary`) does Python's dispatch: die on the left -> `Die.__op__`; die only
+  on the right -> `__rop__` with the order kept (`3 - die` = `Die([3]) - die`), but comparisons reflect
+  (`3 < die` = `die > 3`); scalar with scalar -> plain value result.
+- **`pysort.rs` is a faithful port of CPython 3.13 `list.sort`** (count_run, binary insertion, powersort merges,
+  galloping). `counts::py_sorted` re-exports it. Needed because NaN outcomes (`inf * 0`, `inf - inf`, `inf // x`)
+  are unordered and land wherever the exact comparison sequence puts them. Keep it exact; do not "optimise" it.
+- `Value::Complex(re, im)`: only from `negative ** fractional` (CPython `_Py_c_pow`). Never survives in a die
+  (unorderable: `Counts` raises), unless its quantity is 0 and it drops out first, which is why it is a value and
+  not an immediate error. Arithmetic on it returns `Error::Unsupported`.
+- `Error::Unsupported(what)`: Python would answer but the port does not cover it yet (complex arithmetic, `str %`
+  with `%` conversion specifiers). The runner reports it as `unimplemented`, never as a raise.
+- Size limits where Python would compute for minutes or hit MemoryError: `**` and `<<` results above 2**32 bits
+  and sequence repetition above 2**28 elements raise `OverflowError` (`MAX_INT_BITS`, `MAX_REPEAT` in ops.rs).
+  `0`, `1`, `-1` to any power and `0 << n` stay exact.
+- `number.rs` `ratio_to_f64` / `int_to_f64`: correctly rounded int/int -> float (CPython `long_true_divide`),
+  `0 / -3` is `-0.0`. Also used for `float(int)` and `float(Fraction)`.
+
 - **Module layout (K1)** of `crates/icepool-core/src/`, mirroring icepool's own files so ports stay findable:
   - `outcome.rs`: `trait Outcome` (Clone + Hash + Eq + `py_lt -> Result<bool>` + `check_key`). `Eq`/`Hash` are
     Python's `==`/`hash`. The core is generic over it; `i64` implements it too (typed fast path later).
@@ -45,10 +66,18 @@ turns out wrong. Newest decisions at the top of each section.
   - `{o: q}` with repeated keys (`True`, then `1`) keeps the first key and the last quantity.
   - Tuples may contain `None` (`Die([(None, 1)])` works); a bare `None` outcome raises.
   - Merged numeric outcomes keep the first spelling: `Die([True, 1])` is `{True: 2}`, `Die([1, True])` `{1: 2}`.
-- Float NaN: the port treats NaN as unequal to everything, including itself. Python's dict and tuple comparison
-  short-circuit on object *identity*, and timsort compares different pairs than `py_sorted`, so dice with NaN
-  outcomes may order or merge differently from Python. The generators never produce NaN; fixtures with a few NaNs
-  pass. If a later task needs NaN parity, port CPython's binary insertion sort / count_run for small lists.
+- Float NaN: the port treats NaN as unequal to everything, including itself, and sorts exactly like CPython
+  (pysort.rs), so NaN outcomes from arithmetic match the oracle. Remaining gap: Python's `==` inside tuple
+  comparison short-circuits on object *identity*, so the *same* NaN object in two tuple outcomes compares equal
+  there. Arithmetic never puts NaN in tuples and the generators never produce NaN literals.
+- `str % die` is NOT a die: `str.__mod__` runs first and a die is a Mapping, so it is printf formatting returning
+  the str (when it has no `%`). `tuple % die`, `int % die` etc. do reach `Die.__rmod__`.
+- `float_repr` (K1) used Rust's shortest digits, which break exact ties upwards; Python's dtoa takes the even
+  digit (`714285714285714.2`, `2.9802322387695312e-08`). `repr.rs` `break_tie_to_even` fixes it; checked against
+  Python on 100k random floats.
+- Operator generators: `operators.py` `operand(g, depth)` / `scalar(g)` (die, int node, or typed scalar incl.
+  float/Fraction/bool/str/tuple/None) are shared with basic.py's `_binary`. `pow`/`lshift`/`rshift` use a small
+  right operand (`_small`) so programs stay cheap.
 - Vector and Symbols literals decode to `unimplemented` (task S5).
 - The oracle drops zero quantities passed to `Die({...})` at construction: `Die({1: 0, 3: 5})` has one outcome.
   Zero quantities still survive when mixing a die that has them (`Die([X, 3])` keeps X's zeros; `Die([X])` is X).
