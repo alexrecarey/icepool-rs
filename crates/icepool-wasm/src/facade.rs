@@ -149,7 +149,11 @@ pub fn evaluate(id: u32, args: &str, kwargs: &str) -> String {
 /// program literals exactly as `icepool-run` does, then pass them back through the JS API.
 #[wasm_bindgen]
 pub fn from_wire(literal: &str) -> String {
-    envelope(parse(literal).and_then(|j| program::wire::dec(&j)).and_then(|v| to_js(&v)))
+    envelope(
+        parse(literal)
+            .and_then(|j| program::wire::dec(&j))
+            .and_then(|v| to_js(&v)),
+    )
 }
 
 /// The harness's wire encoding of a handle's value (`encode.result_of`: `{"ok": true, "die" | "value": ...}`),
@@ -283,9 +287,15 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
         // The two-key forms first (a vector's truth value, a symbols' str, a function's length).
         Json::Object(m) if m.contains_key("vector") => {
             let values = |items: &[Json]| -> Result<Vec<Value>, PErr> {
-                items.iter().map(|x| value_of(from_js(x)?).map_err(PErr::from)).collect()
+                items
+                    .iter()
+                    .map(|x| value_of(from_js(x)?).map_err(PErr::from))
+                    .collect()
             };
-            let truth = m.get("truth").map(|t| value_of(from_js(t)?).map_err(PErr::from)).transpose()?;
+            let truth = m
+                .get("truth")
+                .map(|t| value_of(from_js(t)?).map_err(PErr::from))
+                .transpose()?;
             PValue::Value(Value::Vector(match (&m["vector"], truth) {
                 (Json::Array(items), truth) => Vector::from_parts(values(items)?, truth),
                 (Json::Null, Some(truth)) => Vector::truth_only(truth),
@@ -591,6 +601,11 @@ mod tests {
             json!({"frac": ["1", "3"]}),
             json!([1, [2, "x"], {"float": "0.5"}]),
             json!({"vector": [1, 2]}),
+            // A comparison's vector keeps its truth value; a VectorWithTruthOnly has no data.
+            json!({"vector": [true, false], "truth": false}),
+            json!({"vector": null, "truth": true}),
+            // Dict order and zero counts survive (str() shows neither).
+            json!({"$symbols": [["b", 1], ["a", 0]], "str": "b"}),
             json!({"$list": [1, {"$special": "Reroll"}]}),
             json!({"$break": null}),
             json!({"$json": "{\"a\":1}"}),

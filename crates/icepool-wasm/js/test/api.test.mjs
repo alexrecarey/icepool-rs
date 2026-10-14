@@ -3,6 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import v8 from "node:v8";
 import vm from "node:vm";
 import * as ip from "../node.js";
@@ -184,6 +185,14 @@ test("DieWithTruth: eq/ne give a die and a truth value", () => {
   assert.equal(eq.truth(), true);
   assert.deepEqual(eq.items(), [[false, 30n], [true, 6n]]);
   assert.equal(d(6).ne(d(6)).truth(), false);
+});
+
+test("every export is declared in icepool.d.ts", () => {
+  const dts = fs.readFileSync(new URL("../icepool.d.ts", import.meta.url), "utf8");
+  const declared = new Set(
+    [...dts.matchAll(/^export (?:declare )?(?:class|function|const|type|interface) (\w+)/gm)].map((m) => m[1]),
+  );
+  assert.deepEqual(Object.keys(ip).filter((name) => !declared.has(name)), []);
 });
 
 test("handles are released when their JS objects are collected", async () => {
