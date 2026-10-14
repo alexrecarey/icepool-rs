@@ -32,11 +32,22 @@ def _start(g, name):
     return {"op": "die", "outcomes": [g.rng.randint(-2, 4) for _ in range(g.rng.randint(1, 3))]}
 
 
-def _process(g):
-    """(f, start, extra args) for a process."""
-    name = g.rng.choice(sorted(_PROCESSES))
+# Processes whose states can grow without bound: an absorbing chain over them never finishes exploring (in Python
+# either), so the repeat='inf' / mean_time_to_absorb generators rarely pick them.
+_UNBOUNDED = {"add2", "max2", "break_eq", "add_k"}
+
+
+def _process(g, finite=False):
+    """(f, start, extra args) for a process. `finite`: mostly processes with finitely many states."""
+    names = sorted(_PROCESSES)
+    if finite and g.rng.random() < 0.95:
+        names = [n for n in names if n not in _UNBOUNDED]
+    name = g.rng.choice(names)
     f, _ = fn_node(g, name=name)
-    extra = [step_die(g) for _ in range(_PROCESSES[name])]
+    # Non-negative steps, so that sums reach their cap.
+    steps = (lambda: {"op": "d", "sides": g.rng.randint(1, 3)}) if finite and g.rng.random() < 0.8 else (
+        lambda: step_die(g))
+    extra = [steps() for _ in range(_PROCESSES[name])]
     if g.rng.random() < 0.05:
         # A mapping with an extra argument raises; a single-argument function given one is a TypeError.
         extra.append(step_die(g))
@@ -53,9 +64,10 @@ def _repeat(g):
 
 
 def _gen_map_repeat(g, depth):
-    f, start, extra = _process(g)
+    repeat = _repeat(g)
+    f, start, extra = _process(g, finite=repeat == {"str": "inf"})
     args = [start] + extra if g.rng.random() < 0.97 else []
-    return {"op": "map_repeat", "f": f, "args": args, "star": _star(g), "repeat": _repeat(g)}
+    return {"op": "map_repeat", "f": f, "args": args, "star": _star(g), "repeat": repeat}
 
 
 @node("map_repeat", "die", gen=_gen_map_repeat)
@@ -78,7 +90,7 @@ def map_and_time(f, initial, args, star, repeat):
 
 
 def _gen_mean_time_to_absorb(g, depth):
-    f, start, extra = _process(g)
+    f, start, extra = _process(g, finite=True)
     return {"op": "mean_time_to_absorb", "f": f, "initial": start, "args": extra, "star": _star(g)}
 
 

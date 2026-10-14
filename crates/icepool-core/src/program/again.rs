@@ -49,7 +49,10 @@ pub fn apply(op: AgainOp, args: Vec<PValue>) -> Result<PValue, PErr> {
         // `Again @ x` is `AgainExpression.__matmul__`: not additive.
         (AgainOp::MatMul, [PValue::Again(_), _]) => false,
         (AgainOp::MatMul, [PValue::Die(d) | PValue::DieWithTruth(d, _), e]) => {
-            let non_negative = d.min_outcome()?.binary(BinOp::Ge, &Value::from(0))?.truthy();
+            let non_negative = d
+                .min_outcome()?
+                .binary(BinOp::Ge, &Value::from(0))?
+                .truthy();
             additive(e) && non_negative
         }
         (AgainOp::MatMul, [_, e]) => additive(e),

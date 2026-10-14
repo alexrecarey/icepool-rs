@@ -189,7 +189,10 @@ fn int(i: i64) -> Value {
 fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<Step> {
     let unpack = |v: &Value, n: usize| match v {
         Value::Tuple(items) if items.len() == n => Ok(items.clone()),
-        _ => Err(Error::Type(format!("cannot unpack {} into {n} values", v.type_name()))),
+        _ => Err(Error::Type(format!(
+            "cannot unpack {} into {n} values",
+            v.type_name()
+        ))),
     };
     let s = unpack(state, 4)?;
     let (flat, not_again, again, index) = (&s[0], &s[1], &s[2], &s[3]);
@@ -210,7 +213,9 @@ fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<St
         {
             return Ok(Step::Restart);
         }
-        return Ok(Step::State(Value::tuple(vec![flat, not_again, again, index])));
+        return Ok(Step::State(Value::tuple(vec![
+            flat, not_again, again, index,
+        ])));
     }
     Ok(Step::State(state.clone()))
 }

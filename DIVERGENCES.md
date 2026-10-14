@@ -189,3 +189,30 @@ def test_again_count_reroll_outcome():
     result = Die([Reroll, 2, Again + 1], again_count=2)
     assert result == Die([2, Again + 1], again_count=2)
 ```
+
+### `Break(Reroll)` in `map(repeat)` raises; `mean_time_to_absorb` does not expand multiset arguments (S3b)
+
+Two small inconsistencies in map_tools, both copied:
+
+- `TransitionCache.step_state` turns `Break(Reroll)` into the tuple `(TransitionType.BREAK, Reroll)`, which hits
+  the tuple-holding-`Reroll` problem above (`AttributeError`), while `is_self_loop` unwraps it and treats `Reroll`
+  as a state different from the current one (so the state counts as transient). Without `repeat`, `map_simple`
+  unwraps `Break(Reroll)` to `Reroll` and the outcome drops out. The port raises (`map_tools/core_impl.rs`,
+  `Target::Reroll`).
+- `map` and `map_and_time` replace a `MultisetExpression` among the extra arguments by `arg.expand()`;
+  `mean_time_to_absorb` passes them to `TransitionCache` unexpanded (the facade keeps that Python code as is).
+
+Drafted upstream tests:
+
+```python
+def test_break_reroll_repeat():
+    # Like map without repeat, the Break(Reroll) branch should drop out rather than raise AttributeError:
+    # 0 -> 1 -> Break(Reroll) is conditioned away, leaving nothing.
+    result = icepool.map(lambda x: icepool.Break(icepool.Reroll) if x == 1 else x + 1, 0, repeat=3)
+    assert result.is_empty()
+
+def test_mean_time_to_absorb_expands_multisets():
+    f = lambda s, t: min(s + sum(t), 6)
+    assert icepool.mean_time_to_absorb(f, 0, icepool.d(2).pool(2)) == \
+        icepool.mean_time_to_absorb(f, 0, icepool.d(2).pool(2).expand())
+```

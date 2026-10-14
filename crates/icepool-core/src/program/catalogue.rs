@@ -343,7 +343,11 @@ impl Func {
             }
             PairWalk(k) => {
                 let (a, b, roll) = (x(), x(), x());
-                if truthy(&binary(BinOp::Ge, binary(BinOp::Add, a.clone(), b.clone())?, k.clone())?)? {
+                if truthy(&binary(
+                    BinOp::Ge,
+                    binary(BinOp::Add, a.clone(), b.clone())?,
+                    k.clone(),
+                )?)? {
                     PValue::tuple(vec![a, b])
                 } else {
                     let next = binary(BinOp::Add, a, roll)?;

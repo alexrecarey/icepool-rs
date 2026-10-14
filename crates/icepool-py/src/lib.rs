@@ -362,7 +362,11 @@ fn matmul(py: Python<'_>, n: &Bound<'_, RsDie>, die: &Bound<'_, RsDie>) -> PyRes
 }
 
 /// `matmul` on core dice (also count mode's `n @ die`).
-fn matmul_core(py: Python<'_>, mut n: CoreDie<Value>, die: &CoreDie<Value>) -> PyResult<CoreDie<Value>> {
+fn matmul_core(
+    py: Python<'_>,
+    mut n: CoreDie<Value>,
+    die: &CoreDie<Value>,
+) -> PyResult<CoreDie<Value>> {
     // A count of an `int` subclass (an `IntEnum`) is a host object to the core, but `_sum_all` and the scaling
     // only do int arithmetic and comparisons with it, as with the equal int; counts never appear in the result.
     if n.outcomes().any(|o| matches!(o, Value::Host(_))) {

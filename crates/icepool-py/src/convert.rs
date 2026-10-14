@@ -13,8 +13,8 @@ use dashu_int::{IBig, UBig};
 use icepool_core::value::{BinOp, HostError, HostObject, HostRef, UnOp};
 use icepool_core::{Error, Value};
 use pyo3::exceptions::{
-    PyIndexError, PyKeyError, PyNotImplementedError, PyOverflowError, PyRecursionError,
-    PyTypeError, PyValueError, PyZeroDivisionError,
+    PyAttributeError, PyIndexError, PyKeyError, PyNotImplementedError, PyOverflowError,
+    PyRecursionError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
@@ -235,6 +235,8 @@ pub fn to_py_err(e: Error) -> PyErr {
             Some(err) => Python::attach(|py| err.clone_ref(py)),
             None => PyTypeError::new_err("a host error from another host"),
         },
+        // Where Python raises AttributeError (`Reroll` expanded as a mapping), the core raises this.
+        Error::Type(m) if m.starts_with("AttributeError:") => PyAttributeError::new_err(m),
         Error::Type(m) => PyTypeError::new_err(m),
         // Where Python would exceed its recursion limit (`_sum_all` of a big count), the core raises this.
         Error::Value(m) if m.starts_with("RecursionError:") => PyRecursionError::new_err(m),

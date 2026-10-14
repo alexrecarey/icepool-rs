@@ -155,7 +155,7 @@ where
     /// Returns a die whose outcomes are `(transition_type, outcome)` according to whether the states are
     /// self-loops.
     pub fn self_loop_die(&mut self, die: &Die<Value>) -> std::result::Result<Die<Value>, E> {
-        self.self_loop_die_with(die, |t, o| transition(t, o))
+        self.self_loop_die_with(die, transition)
     }
 
     /// As `self_loop_die`, but also appends a zero time.

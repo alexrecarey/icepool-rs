@@ -139,7 +139,10 @@ pub fn evaluate_agains_using_count<'py>(
     let cls = AGAIN_EXPRESSION.import(py, "icepool.population.again", "AgainExpression")?;
     for x in &outcomes {
         // The core's bare `Again` is always additive; one made as `AgainExpression()` is not.
-        if x.is_instance(cls)? && x.getattr("_func")?.is_none() && !x.getattr("is_additive")?.is_truthy()? {
+        if x.is_instance(cls)?
+            && x.getattr("_func")?.is_none()
+            && !x.getattr("is_additive")?.is_truthy()?
+        {
             return Err(PyNotImplementedError::new_err(
                 "icepool_rs: again_count with a bare AgainExpression that is not additive",
             ));

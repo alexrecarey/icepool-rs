@@ -98,11 +98,13 @@ fn range_count(repeat: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
         return Ok(None);
     };
     let i = crate::convert::int_from_py(&index)?;
-    Ok(Some(u64::try_from(&i).unwrap_or(if i < dashu_int::IBig::ZERO {
-        0
-    } else {
-        u64::MAX
-    })))
+    Ok(Some(u64::try_from(&i).unwrap_or(
+        if i < dashu_int::IBig::ZERO {
+            0
+        } else {
+            u64::MAX
+        },
+    )))
 }
 
 /// The `else` branch of `map(repeat=repeat)` (a `repeat` that is not `'inf'`, negative or zero), from

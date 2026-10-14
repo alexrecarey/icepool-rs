@@ -5,6 +5,36 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **map(repeat), Markov chains, map_and_time on the core (S3b).** Core `map_tools/` = map_tools/: `core_impl.rs`
+  `TransitionCache<F>` (F = `FnMut(&Value, usize) -> Result<Next, E>`: the state and an index into the joint
+  outcomes of the extra args, so the *caller* keeps the outcome objects and does `star`; the core only gets their
+  quantities). `Next::{Reroll, Restart, Break(Option<Target>), Go(Target)}`, `Target::{Outcome, Die, Reroll}`
+  (`Break(Reroll)` -> AttributeError, see DIVERGENCES). Callbacks are lazy exactly where Python's are
+  (`is_self_loop` stops at the first leaving transition; a state is stepped only when reached), states are
+  discovered incrementally. `mod.rs`: `map_repeat` / `map_and_time` (`repeat: Option<u64>`, `None` = `range()`
+  TypeError raised *after* the first self-loop die), `final_map`. `markov_chain.rs` `absorbing_markov_chain` ->
+  `(die, Option<Fraction>)` (`None` = Restart possible). Count mode's chain (again.rs) now runs on the same cache.
+- Order of transient states: Python pops a `set`; the port uses a stack. Results don't depend on it (exact
+  solution, simplified die, Fraction), so the elimination skips Python's zero-multiplier row ops (they only scale).
+  What could depend on it is refused as `Unsupported`: equal states spelled differently (`1`/`True`/`1.0`, `0.0`/
+  `-0.0`) anywhere in an 'inf' chain (`Spellings`). NaN states are `Unsupported` in every mode (Python finds the
+  same NaN object again by identity). A process with infinitely many states never finishes, in Python too (the
+  fuzzer skips it as "oracle slow"): the generators avoid them for 'inf' (`markov.py _UNBOUNDED`).
+- New `Error::NotImplemented` (Python `NotImplementedError` raised by icepool itself; `mean_time_to_absorb` with
+  Restart). icepool-py maps a core `Error::Type("AttributeError: ...")` to `AttributeError`.
+- Program layer `program/map_tools.rs`: nodes `map_repeat` (`f, args, star, repeat`; `repeat` int or 'inf'),
+  `map_and_time` (`f, initial, args, star, repeat`), `mean_time_to_absorb` (kind "value", a Fraction),
+  `time_to_sum` (`die, target, max_time, dnf`; the step closure is native). A pool among the args is unimplemented
+  (Python expands it). New catalogue processes: `cap_sum`, `break_at`, `restart_on`, `walk`, `walk_die`, `collatz`,
+  `pair_walk` (a tuple state, star inferred). Fuzz: `--ops map_repeat,map_and_time,mean_time_to_absorb,time_to_sum`
+  (self-contained: the generators build their own small int dice).
+- Facade: `TransitionCache.__init__` stays Python (`transition_and_star`); `TransitionCache._rust_args()` hands
+  `(transition, star, [arg_items(a)...], kwargs)` to `icepool_rs.map_repeat` / `map_and_time` /
+  `absorbing_markov_chain` (crates/icepool-py/src/map_tools.rs). The checks on `repeat`, `Die([first_arg])`, the
+  early `repeat == 0` and `NotImplementedError` stay in function.py / markov_chain.py. `Die.time_to_sum`,
+  `map_function(repeat=)`, and die.py's pool `map(..., repeat=depth - 1)` go through these unchanged. A `repeat`
+  beyond u64 saturates (the loop stops at convergence anyway); a non-int with `__index__` works like `range`.
+
 - **Again in both modes (S3a).** Core `again.rs`: `Again::Apply { function, args, is_additive }` (the flag is
   stored, not derived: Python sets it per dunder, and `AgainExpression(operator.add, ...)` made by hand is not
   additive), `Again::again_count` (= `_again_count`: every non-Again argument becomes `0`, so *any* `@` in count
@@ -172,7 +202,7 @@ turns out wrong. Newest decisions at the top of each section.
   lifted out of `iter_cartesian_product` (unchanged) to share it. `cartesian_product(outcome_type=tuple)` over
   dice and plain outcomes (no other expandable, e.g. a multiset expression) is `icepool_rs.tupleize` = core
   `expand::tupleize_dice` (also used by icepool-run's `tupleize`); Deck/Vector/`iter_cartesian_product` itself
-  stay Python (S4a/S5, S3b uses it in TransitionCache). `map_and_time` is all repeat: S3b. The zero-args `map(f)`
+  stay Python (S4a/S5, S3b uses it in TransitionCache). `map_and_time` is all repeat: on the core since S3b. The zero-args `map(f)`
   and `MultisetExpression.expand()` of args are untouched Python.
 - `creation_args.expand_args_for_die_rust` now expands every arg first and raises AttributeError for a non-Mapping
   subdata (a tuple holding Reroll expands to Reroll itself), as `merge_weights_lcm` does; it was TypeError.

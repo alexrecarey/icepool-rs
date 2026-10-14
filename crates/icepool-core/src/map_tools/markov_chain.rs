@@ -146,7 +146,12 @@ where
     // The die representing the next distribution of each transient state; its outcomes are `(transition_type,
     // state)`.
     let mut transitions: Vec<Die<Value>> = Vec::new();
-    let mut frontier: Vec<Value> = initial_transient.items().iter().rev().map(|(o, _)| o.clone()).collect();
+    let mut frontier: Vec<Value> = initial_transient
+        .items()
+        .iter()
+        .rev()
+        .map(|(o, _)| o.clone())
+        .collect();
     let mut in_frontier: FxHashMap<Value, ()> = frontier.iter().map(|s| (s.clone(), ())).collect();
     for s in &frontier {
         spellings.check(s)?;
@@ -162,7 +167,10 @@ where
                 continue;
             }
             spellings.check(&p[1])?;
-            if p[0] == int(DEFAULT) && !index.contains_key(&p[1]) && !in_frontier.contains_key(&p[1]) {
+            if p[0] == int(DEFAULT)
+                && !index.contains_key(&p[1])
+                && !in_frontier.contains_key(&p[1])
+            {
                 in_frontier.insert(p[1].clone(), ());
                 frontier.push(p[1].clone());
             }
@@ -239,7 +247,8 @@ where
 
     // Put into upper triangular form.
     for pivot_index in 0..t {
-        let Some(i) = (pivot_index..t).find(|&i| fundamental_solve[i].contains_key(&pivot_index)) else {
+        let Some(i) = (pivot_index..t).find(|&i| fundamental_solve[i].contains_key(&pivot_index))
+        else {
             return Err(Error::Value(
                 "Matrix has deficient rank. This likely indicates that the Markov process has a chance of not terminating."
                     .into(),
@@ -314,8 +323,14 @@ where
 
     let transient_absorb = Die::from_dict(normalized_results)?.simplify()?;
     let result = Die::new(
-        vec![DieArg::Die(initial_absorb.clone()), DieArg::Die(transient_absorb)],
-        vec![initial_absorb.denominator(), initial_transient.denominator()],
+        vec![
+            DieArg::Die(initial_absorb.clone()),
+            DieArg::Die(transient_absorb),
+        ],
+        vec![
+            initial_absorb.denominator(),
+            initial_transient.denominator(),
+        ],
     )?
     .simplify()?;
 

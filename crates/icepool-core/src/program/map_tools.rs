@@ -57,9 +57,10 @@ fn transition_cache<'a>(
 ) -> Result<Transition<'a>, PErr> {
     let star = star_arg(star)?;
     let (f, star) = match f {
-        PValue::Func(f) if f.positional().is_some() => {
-            (&**f, star.unwrap_or_else(|| f.infer_star(extra_args.len() + 1)))
-        }
+        PValue::Func(f) if f.positional().is_some() => (
+            &**f,
+            star.unwrap_or_else(|| f.infer_star(extra_args.len() + 1)),
+        ),
         PValue::Func(_) if !extra_args.is_empty() => {
             return raise(Error::Value(
                 "If a mapping is provided for repl, len(args) must be 1.".into(),
@@ -71,7 +72,9 @@ fn transition_cache<'a>(
     };
     if extra_args.iter().any(|a| matches!(a, PValue::Pool(_))) {
         // Python expands a multiset expression into its sorted tuples (`arg.expand()`).
-        return Err(PErr::Unimplemented("a pool as a map(repeat) argument".into()));
+        return Err(PErr::Unimplemented(
+            "a pool as a map(repeat) argument".into(),
+        ));
     }
     let items: Vec<_> = extra_args.into_iter().map(arg_items).collect();
     Ok((f, star, iter_cartesian_product(&items).collect()))
@@ -104,11 +107,13 @@ fn die_of_one(x: PValue) -> Result<Die<Value>, PErr> {
 /// beyond `u64` would run until the process converges either way.
 fn range_count(repeat: &PValue) -> Option<u64> {
     match repeat {
-        PValue::Value(Value::Int(i)) => Some(u64::try_from(i.clone()).unwrap_or(if *i < dashu_int::IBig::ZERO {
-            0
-        } else {
-            u64::MAX
-        })),
+        PValue::Value(Value::Int(i)) => Some(u64::try_from(i.clone()).unwrap_or(
+            if *i < dashu_int::IBig::ZERO {
+                0
+            } else {
+                u64::MAX
+            },
+        )),
         PValue::Value(Value::Bool(b)) => Some(*b as u64),
         _ => None,
     }
@@ -117,7 +122,9 @@ fn range_count(repeat: &PValue) -> Option<u64> {
 /// `icepool.map(repl, *args, star=star, repeat=repeat)` with a `repeat` that is not `None`.
 pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Result<PValue, PErr> {
     let PValue::List(mut args) = args else {
-        return Err(PErr::Unimplemented("map arguments not given as a list".into()));
+        return Err(PErr::Unimplemented(
+            "map arguments not given as a list".into(),
+        ));
     };
     if args.is_empty() {
         return raise(Error::Value(
@@ -125,7 +132,9 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
         ));
     }
     if matches!(args[0], PValue::Pool(_)) {
-        return Err(PErr::Unimplemented("a pool as a map(repeat) argument".into()));
+        return Err(PErr::Unimplemented(
+            "a pool as a map(repeat) argument".into(),
+        ));
     }
     let extra_args = args.split_off(1);
     let first_arg = args.pop().expect("one argument left");
@@ -165,7 +174,9 @@ pub fn map_and_time(
     repeat: PValue,
 ) -> Result<PValue, PErr> {
     let PValue::List(extra_args) = extra_args else {
-        return Err(PErr::Unimplemented("map arguments not given as a list".into()));
+        return Err(PErr::Unimplemented(
+            "map arguments not given as a list".into(),
+        ));
     };
     let transition = transition_cache(&f, extra_args, &star)?;
     let initial_die = die_of_one(initial_state)?;
@@ -183,7 +194,9 @@ pub fn mean_time_to_absorb(
     star: PValue,
 ) -> Result<PValue, PErr> {
     let PValue::List(extra_args) = extra_args else {
-        return Err(PErr::Unimplemented("map arguments not given as a list".into()));
+        return Err(PErr::Unimplemented(
+            "map arguments not given as a list".into(),
+        ));
     };
     let transition = transition_cache(&f, extra_args, &star)?;
     // `absorbing_markov_chain_impl` makes `Die([initial_state])` itself.
@@ -202,7 +215,12 @@ pub fn mean_time_to_absorb(
 /// `die.time_to_sum(target, max_time, dnf)`: the number of rolls until the cumulative sum is greater or equal to
 /// the target. If the sum is not reached in `max_time` rolls, the time is `dnf` (default `max_time`;
 /// `Reroll` removes those cases).
-pub fn time_to_sum(die: PValue, target: PValue, max_time: PValue, dnf: PValue) -> Result<PValue, PErr> {
+pub fn time_to_sum(
+    die: PValue,
+    target: PValue,
+    max_time: PValue,
+    dnf: PValue,
+) -> Result<PValue, PErr> {
     let die = the_die(die)?;
     let PValue::Value(target) = target else {
         return Err(PErr::Unimplemented("a target that is not a value".into()));
@@ -237,7 +255,10 @@ pub fn time_to_sum(die: PValue, target: PValue, max_time: PValue, dnf: PValue) -
     let rolls = die.items();
     let mut step = |total: &Value, i: usize| -> Result<Next, PErr> {
         let sum = total.binary(BinOp::Add, &rolls[i].0)?;
-        Ok(Next::Go(Target::Outcome(Value::py_min(sum, target.clone())?)))
+        Ok(Next::Go(Target::Outcome(Value::py_min(
+            sum,
+            target.clone(),
+        )?)))
     };
     let step: &mut dyn FnMut(&Value, usize) -> Result<Next, PErr> = &mut step;
     let mut cache = TransitionCache::new(step, rolls.iter().map(|(_, q)| q.clone()).collect());
