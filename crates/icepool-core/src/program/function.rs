@@ -168,7 +168,7 @@ fn harmonize(dice: PValue, weights: PValue) -> Result<Vec<Die<Value>>, PErr> {
         w => values(py_iter(w)?)?,
     };
     let denominators: Vec<Quantity> = dice.iter().map(Die::denominator).collect();
-    let scale_factors = function::weighted_lcm(&denominators, &weights)?;
+    let scale_factors = function::weighted_lcm(&denominators, &weights, &weights)?;
     dice.into_iter()
         .zip(scale_factors)
         .map(|(die, scale)| {
@@ -601,8 +601,7 @@ fn wallenius_weights(
                 let Value::Tuple(x) = x else {
                     unreachable!("tuples")
                 };
-                let sorted =
-                    crate::counts::py_sorted(x.to_vec(), crate::Outcome::py_lt)?;
+                let sorted = crate::counts::py_sorted(x.to_vec(), crate::Outcome::py_lt)?;
                 Ok((PValue::Value(Value::tuple(sorted)), q.clone()))
             })
             .collect::<Result<Vec<_>, Error>>()?

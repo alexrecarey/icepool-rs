@@ -433,9 +433,14 @@ def harmonize_denominators(dice: 'Sequence[T | icepool.Die[T]]',
         weights = [1] * len(dice)
     converted_dice = [icepool.implicit_convert_to_die(die) for die in dice]
     # icepool-rs: the scale factors are computed in the Rust core.
+    # weighted_lcm zips the weights with the denominators twice: pass what
+    # each zip takes (an iterator's second pass gets what the first left).
     if icepool.backend.RUST:
+        denominators = [d.denominator() for d in converted_dice]
+        weights_first = [w for _, w in zip(denominators, weights)]
+        weights_again = [w for _, w in zip(denominators, weights)]
         scale_factors = icepool.backend.RUST.weighted_lcm(
-            [d.denominator() for d in converted_dice], list(weights))
+            denominators, weights_first, weights_again)
     else:
         scale_factors = weighted_lcm(
             [d.denominator() for d in converted_dice], weights)

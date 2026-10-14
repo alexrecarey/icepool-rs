@@ -102,7 +102,15 @@ fn index_arg(x: &Value) -> Result<IBig> {
 /// the ratio given by the weights. If a denominator or its corresponding weight is 0, the corresponding result is
 /// 0. The weights are any Python objects (`harmonize_denominators` takes them from the caller): they are compared
 /// with `0`, given to `math.gcd` and multiplied as Python would, and `zip` stops at the shorter sequence.
-pub fn weighted_lcm(denominators: &[Quantity], weights: &[Value]) -> Result<Vec<Value>> {
+///
+/// Python zips the weights with the denominators twice, once for the lcm and once for the results: `weights` is
+/// what the first `zip` takes, `weights_again` what the second does (the same for a sequence; for an iterator the
+/// second pass gets what the first left, often nothing).
+pub fn weighted_lcm(
+    denominators: &[Quantity],
+    weights: &[Value],
+    weights_again: &[Value],
+) -> Result<Vec<Value>> {
     let zero = Value::from(0);
     // math.lcm() of nothing is 1.
     let mut denominator_lcm = Quantity::ONE;
@@ -116,7 +124,7 @@ pub fn weighted_lcm(denominators: &[Quantity], weights: &[Value]) -> Result<Vec<
     let denominator_lcm = Value::Int(denominator_lcm.into());
     denominators
         .iter()
-        .zip(weights)
+        .zip(weights_again)
         .map(|(d, w)| {
             if d.is_zero() {
                 Ok(zero.clone())

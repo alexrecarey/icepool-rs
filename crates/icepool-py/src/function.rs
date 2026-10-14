@@ -14,18 +14,22 @@ fn values(xs: &[Bound<'_, PyAny>]) -> PyResult<Vec<Value>> {
     xs.iter().map(from_py).collect()
 }
 
-/// math.py `weighted_lcm(denominators, weights)`: the scale factor for each die (`harmonize_denominators`).
+/// math.py `weighted_lcm(denominators, weights)`: the scale factor for each die (`harmonize_denominators`), given
+/// what each of Python's two `zip(denominators, weights)` passes takes from the weights.
 #[pyfunction]
 pub fn weighted_lcm<'py>(
     py: Python<'py>,
     denominators: Vec<Bound<'py, PyAny>>,
     weights: Vec<Bound<'py, PyAny>>,
+    weights_again: Vec<Bound<'py, PyAny>>,
 ) -> PyResult<Bound<'py, PyList>> {
     let denominators = denominators
         .iter()
         .map(|d| Ok(UBig::try_from(int_from_py(d)?).expect("a denominator is not negative")))
         .collect::<PyResult<Vec<Quantity>>>()?;
-    let scales = function::weighted_lcm(&denominators, &values(&weights)?).map_err(to_py_err)?;
+    let scales =
+        function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?)
+            .map_err(to_py_err)?;
     PyList::new(
         py,
         scales
