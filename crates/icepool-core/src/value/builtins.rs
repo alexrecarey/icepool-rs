@@ -333,7 +333,7 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
 pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
     match (x, key) {
         // `Vector.__getitem__`: an int index gives the element, anything else `Vector(self._data[index])`.
-        (Value::Vector(v), Index::Item(i)) if matches!(i, Value::Int(_) | Value::Bool(_)) => {
+        (Value::Vector(v), Index::Item(Value::Int(_) | Value::Bool(_))) => {
             return getitem(&Value::Tuple(v.data()?.clone()), key)
         }
         (Value::Vector(v), Index::Slice(..)) => {

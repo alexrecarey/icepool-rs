@@ -97,9 +97,11 @@ fn symbols(v: &Json) -> Result<Symbols, PErr> {
             _ => return raise(Error::Type("unhashable type".into())),
         })
     };
-    Ok(match v {
+    match v {
         Json::String(s) => Symbols::parse(s),
-        Json::Array(a) => Symbols::from_iter(&a.iter().map(scalar).collect::<Result<Vec<_>, _>>()?),
+        Json::Array(a) => {
+            Symbols::from_elements(&a.iter().map(scalar).collect::<Result<Vec<_>, _>>()?)
+        }
         Json::Object(o) => {
             let mut items = Vec::with_capacity(o.len());
             for (k, n) in o {
@@ -125,7 +127,7 @@ fn symbols(v: &Json) -> Result<Symbols, PErr> {
             return raise(Error::Type(format!("'{name}' object is not iterable")));
         }
     }
-    .map_err(PErr::Raise)?)
+    .map_err(PErr::Raise)
 }
 
 /// Python's `bool(x)` of a raw JSON value.

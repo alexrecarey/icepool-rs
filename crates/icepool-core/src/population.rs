@@ -272,7 +272,7 @@ impl Die<Value> {
             .binary(BinOp::Add, d)?
             .binary(BinOp::Sub, &Value::from(1))?
             .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| Ok(int(q).binary(BinOp::Lt, &target)?.truthy()?))?;
+        let index = bisect(&cdf, |q| int(q).binary(BinOp::Lt, &target)?.truthy())?;
         self.outcome_at(index)
     }
 

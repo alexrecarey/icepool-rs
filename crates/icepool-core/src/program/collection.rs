@@ -79,7 +79,7 @@ pub fn vector(items: PValue) -> Result<PValue, PErr> {
 pub fn symbols(x: PValue) -> Result<PValue, PErr> {
     let s = match x {
         PValue::Value(v) => Symbols::convert(&v)?,
-        x @ PValue::List(_) => Symbols::from_iter(&values(py_iter(x)?)?)?,
+        x @ PValue::List(_) => Symbols::from_elements(&values(py_iter(x)?)?)?,
         _ => {
             return Err(PErr::Unimplemented(
                 "Symbols() of a die or a function".into(),

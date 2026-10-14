@@ -130,7 +130,7 @@ pub fn symbols_from_iter<'py>(
     elements: Vec<Bound<'py, PyAny>>,
 ) -> PyResult<Bound<'py, PyList>> {
     let elements = elements.iter().map(from_py).collect::<PyResult<Vec<_>>>()?;
-    items(py, &core(Symbols::from_iter(&elements))?)
+    items(py, &core(Symbols::from_elements(&elements))?)
 }
 
 /// `Symbols(symbols)` for a mapping (given as its items).

@@ -130,15 +130,15 @@ impl Symbols {
         match x {
             Value::Str(s) => Self::parse(s),
             Value::Symbols(s) => Self::validated_sorted(s.data.to_vec()),
-            Value::Tuple(items) => Self::from_iter(items),
-            Value::Vector(v) => Self::from_iter(v.data()?),
+            Value::Tuple(items) => Self::from_elements(items),
+            Value::Vector(v) => Self::from_elements(v.data()?),
             Value::Host(_) => Err(Error::Unsupported("Symbols() of a host object".into())),
             _ => type_error(format!("'{}' object is not iterable", x.type_name())),
         }
     }
 
     /// The constructor's iterable branch: `data[s] += 1` for each element, then the keys are checked.
-    pub fn from_iter(items: &[Value]) -> Result<Symbols> {
+    pub fn from_elements(items: &[Value]) -> Result<Symbols> {
         Self::from_mapping(counter(items.iter().cloned())?)
     }
 
@@ -525,5 +525,55 @@ impl PartialEq for Symbols {
             .iter()
             .chain(other.items())
             .all(|(c, _)| self.count(*c) == other.count(*c))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(x: &str) -> Value {
+        Value::Symbols(Symbols::parse(x).unwrap())
+    }
+
+    fn keys(v: &Value) -> String {
+        match v {
+            Value::Symbols(s) => s.items().iter().map(|(c, _)| *c).collect(),
+            _ => panic!("not a Symbols"),
+        }
+    }
+
+    #[test]
+    fn parses_sorts_and_keeps_operator_order() {
+        assert_eq!(s("ba - c").to_string(), "Symbols('ab - c')");
+        assert!(Symbols::parse("a-b-c").is_err() && Symbols::parse("a b").is_err());
+        // The constructor sorts; `+` keeps the left operand's keys first.
+        let sum = s("b").binary(BinOp::Add, &Value::str("a")).unwrap();
+        assert_eq!(keys(&sum), "ba");
+        // A count reaching zero stays a key: truthy, but equal to the empty Symbols.
+        let zero = s("a").binary(BinOp::Sub, &Value::str("a")).unwrap();
+        assert!(zero.truthy().unwrap());
+        assert_eq!(zero, s(""));
+        assert!(!s("").truthy().unwrap());
+    }
+
+    #[test]
+    fn comparisons() {
+        // Lexicographic `<`, subset `<=`, and `==` with a convertible str.
+        assert_eq!(s("a").binary(BinOp::Gt, &s("bb")), Ok(Value::Bool(true)));
+        assert_eq!(
+            s("a").binary(BinOp::Le, &Value::str("ab")),
+            Ok(Value::Bool(true))
+        );
+        assert!(s("a").binary(BinOp::Lt, &Value::str("a")).is_err());
+        assert_eq!(
+            s("ab").eq_op(&Value::str("ba"), false),
+            Ok(Value::Bool(true))
+        );
+        assert_eq!(
+            s("ab").eq_op(&Value::from(1), false),
+            Ok(Value::Bool(false))
+        );
+        assert_ne!(s("ab"), Value::str("ab"));
     }
 }

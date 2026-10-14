@@ -178,7 +178,7 @@ fn has_host(v: &Value) -> bool {
         Value::Host(_) => true,
         Value::Tuple(t) => t.iter().any(has_host),
         Value::Vector(x) => {
-            x.data().map_or(false, |d| d.iter().any(has_host)) || x.truth().is_some_and(has_host)
+            x.data().is_ok_and(|d| d.iter().any(has_host)) || x.truth().is_some_and(has_host)
         }
         Value::Symbols(s) => s.items().iter().any(|(_, n)| has_host(n)),
         _ => false,

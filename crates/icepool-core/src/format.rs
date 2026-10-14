@@ -44,8 +44,7 @@ impl Token {
 /// Every step is Python's operator on the given objects (`Value::binary`), so any number type behaves as there.
 pub fn format_probability_inverse(probability: &Value, int_start: &Value) -> Result<String> {
     let max_precision = float_ceil(math_log10(int_start)?)?;
-    let cmp =
-        |op, x: &Value, y: i64| -> Result<bool> { Ok(x.binary(op, &Value::from(y))?.truthy()?) };
+    let cmp = |op, x: &Value, y: i64| -> Result<bool> { x.binary(op, &Value::from(y))?.truthy() };
     if cmp(BinOp::Le, probability, 0)? || cmp(BinOp::Gt, probability, 1)? {
         return Ok("n/a".into());
     }
@@ -79,7 +78,7 @@ pub fn format_probability_inverse(probability: &Value, int_start: &Value) -> Res
 }
 
 fn cmp_values(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
-    Ok(a.binary(op, b)?.truthy()?)
+    a.binary(op, b)?.truthy()
 }
 
 /// `f'{x:<.{precision}{kind}}'` for the float `x` (no width, so `<` changes nothing). A negative precision makes

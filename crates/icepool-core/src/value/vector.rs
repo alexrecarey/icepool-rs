@@ -264,3 +264,34 @@ impl PartialEq for Vector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(xs: &[i64]) -> Value {
+        Value::Vector(Vector::new(xs.iter().map(|&x| Value::from(x)).collect()))
+    }
+
+    #[test]
+    fn elementwise_with_truth_values() {
+        assert_eq!(
+            v(&[1, 2]).binary(BinOp::Add, &Value::from(1)).unwrap(),
+            v(&[2, 3])
+        );
+        let lt = v(&[1, 5]).binary(BinOp::Lt, &v(&[2, 0])).unwrap();
+        assert_eq!(lt.to_string(), "Vector((True, False))");
+        assert!(lt.truthy().unwrap());
+        // Different lengths: only a truth value; without a comparison, no truth value at all.
+        let short = v(&[1]).binary(BinOp::Lt, &v(&[1, 0])).unwrap();
+        assert_eq!(short.to_string(), "VectorWithTruthOnly(True)");
+        assert!(short.check_hashable().is_err());
+        assert!(v(&[1]).binary(BinOp::Add, &v(&[1, 0])).is_err());
+        assert!(v(&[1]).truthy().is_err());
+        assert!(!v(&[1])
+            .eq_op(&Value::from(1), false)
+            .unwrap()
+            .truthy()
+            .unwrap());
+    }
+}
