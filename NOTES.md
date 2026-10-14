@@ -5,6 +5,33 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Again in both modes (S3a).** Core `again.rs`: `Again::Apply { function, args, is_additive }` (the flag is
+  stored, not derived: Python sets it per dunder, and `AgainExpression(operator.add, ...)` made by hand is not
+  additive), `Again::again_count` (= `_again_count`: every non-Again argument becomes `0`, so *any* `@` in count
+  mode is `int @ int`, a TypeError, even `d6 @ Again`, which upstream's `is_additive` test calls additive),
+  generic `step_outcomes` (= `[make_step_outcome(o) ...]`, the facade tupleizes) and `evaluate_agains_using_count`
+  on `Die<Value>`: the `map(step, step_die, star=True, repeat=again_count + 1)` chain done the way `TransitionCache`
+  does it (transition die of `(TransitionType int, state)` tuples, `is_self_loop` per next state, `(2, None)` for
+  Restart, early stop when nothing is DEFAULT, `final_map` -> Reroll), then `finalize` (`n @ die` is the facade's,
+  passed as a closure: program `matmul_dice`). Every intermediate die is built with `Die::new` so quantities match.
+  Quirk copied: `Reroll` and dice among the outcomes are *non-Again rolls* in the step die (`(zero, 1, -1)`) but are
+  left out of `not_again_die`. NaN anywhere in a state is `Unsupported`: Python's tuples holding the same NaN object
+  (the zero of a die with inf, shared by every `(zero, 1, -1)`) compare equal by identity; the generator uses
+  finite dice (`_finite_die`).
+- Program layer: `again::apply` computes `is_additive` like the dunders (`+`: all expression operands additive;
+  `x @ expr`: `__rmatmul__`, a die `x` needs `min_outcome() >= 0`, evaluated, so an empty die raises IndexError at
+  construction; `expr @ x` and everything else: not additive). `die_with_agains(outcomes, times, again_count,
+  again_depth, end)`; both given -> ValueError; depth mode with `Restart` -> ValueError. Nodes: `again_count`
+  (`outcomes, count, depth, end`; depth is normally None) and `Restart` (no generator; used by again.py gens).
+- Facade (`python/icepool/population/again.py`): `AgainExpression` and both functions' argument juggling stay
+  Python (depth check, default end, Restart check, `compute_not_again_die`, `Die([again_end])`); then
+  `icepool_rs.evaluate_agains_using_depth/_count` (crates/icepool-py/src/again.rs) read `_func`/`_args`/
+  `is_additive` into the core tree over `Arc<Py<PyAny>>` (pyo3 0.29's `Py` is not `Clone`); the expression
+  functions, `icepool.Die(objects, times)` and `icepool.tupleize` are host callbacks. A non-int depth/count raises
+  TypeError where `range()` would. Gap: a bare `AgainExpression()` (no function, `is_additive=False`) in count mode
+  raises NotImplementedError (the core's bare `Again` is always additive). `Die.explode` now runs on the core too
+  (map_final is a host callback of `map_simple`). `explode_to_pool` needs Vector + `map_to_pool`: task S3c.
+
 - **Formatting, sampling, `==` on the core (S2b).** Core `format.rs` = population/format.py (`format(die,
   type_name, spec, csv_table)` does `Population.format`'s spec parsing and default columns; `table` = headers +
   rows; `csv` writes the `'excel'` dialect itself), over `value/pystr.rs`: exact `py_str` / `py_repr` (Fraction
@@ -170,7 +197,7 @@ turns out wrong. Newest decisions at the top of each section.
   is the raise Python ends in (OverflowError / ZeroDivisionError / TypeError, see `reroll` and `die_keep_single`).
   icepool-run still says unimplemented for a float reroll depth (`program/map.rs depth_arg`); port the same
   logic there if a generator ever produces one.
-- Left in Python on purpose: `explode` (it is `map` + Again: S1c/S3a), public `icepool.from_cumulative` (its
+- Left in Python on purpose: `explode` (it is `map` + Again: on the core since S3a), public `icepool.from_cumulative` (its
   outcomes may be dice/Reroll mixed by `Die()`, which is the core's; only the subtraction loop is Python), the
   `Deck` paths of `split`/`zero`/pops (S4a). Grammar nodes added: `zero`, `simplify`, `die_pop` (`(die, quantity)`,
   kind "value"), `from_cumulative` (int cumulative only; cumulative dice are unimplemented in icepool-run).
@@ -331,7 +358,7 @@ turns out wrong. Newest decisions at the top of each section.
   0 is needed). `Die::zero`, `Die::simplify` live there too. `again.rs`: `Again<F, L>` (closed enum: `Again` or
   `Apply(f, args)`) and generic `evaluate_agains_using_depth`; the program layer instantiates it with
   `AgainOp {Binary, Unary, MatMul}` and `PValue` (`PValue::Again`), so evaluating an expression goes back through
-  `ops::binary` / `ops::matmul` and Python's dispatch. Count mode (`again_count`, `is_additive`) is not ported.
+  `ops::binary` / `ops::matmul` and Python's dispatch. Count mode: S3a (above).
 - Every operator with a `PValue::Again` operand builds an expression (dice return NotImplemented for it; a
   comparison with the expression on the right reflects; `str % Again` is printf formatting). `ops::die_with_agains`
   is `Die(outcomes, times, again_depth=, again_end=)`: `itemize` now returns `PValue`s and `new_die` converts

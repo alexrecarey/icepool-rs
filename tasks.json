@@ -290,5 +290,16 @@
     ],
     "milestone": null,
     "details": "K6 ported the evaluation driver and sum, size, empty/any, product_of_counts, expand, keep, highest_outcome_and_count, all_counts, largest_count, largest_count_and_outcome, count_subset, largest_straight(_and_outcome), all_straights, issubset/issuperset/isdisjoint (crates/icepool-core/src/evaluator/, nodes in harness/grammar/evaluate.py). Left: pool.sum(map=...) (callable or mapping from the catalogue; SumEvaluator with next_state_key None), largest_count(wild=, wild_low=, wild_high=) (LargestCountWithWildEvaluator, make_select_function), all_straights_reduce_counts(reducer), argsort / argsort_grouped (evaluator/argsort.py: ArgsortEvaluatorDrop/Left/Right, limit, limit_pad, tie), the comparison operators pool < > <= >= other (try/except TypeError -> NotImplemented, then the reflected operator) and == / != (DieWithTruth with truth_value_callback = equals), `other // pool` (__rfloordiv__ -> count_subset), leximin/leximax (evaluator/lexi.py). Same pattern: Value-based evaluator in the core, a node per method, fresh_caches() first on the Python side."
+  },
+  {
+    "id": "S3c",
+    "title": "Strangler: explode_to_pool, reroll_to_pool, map_to_pool",
+    "deps": [
+      "S3a",
+      "S5a",
+      "S4d"
+    ],
+    "milestone": null,
+    "details": "S3a switched Again (both modes) and so Die.explode (map_final is a host callback, Die(..., again_depth) runs in icepool_rs). Left from its scope: Die.explode_to_pool, which builds a die of icepool.Vector (i, 1) / (depth + 1, 0) counts (S5a makes Vector a native Value and decodes it in the program language) and ends in map_to_pool (a MixtureGenerator of pools: S4d mixtures). Port explode_to_pool / reroll_to_pool / map_to_pool on the core once those exist, with grammar nodes evaluating the resulting generator (e.g. .sum(), .highest(k)). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
   }
 ]
