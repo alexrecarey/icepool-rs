@@ -76,6 +76,38 @@ impl Value {
     pub fn tuple(items: Vec<Value>) -> Value {
         Value::Tuple(Arc::from(items))
     }
+
+    /// Python's `bool(x)`.
+    pub fn truthy(&self) -> bool {
+        match self {
+            Value::None => false,
+            Value::Bool(b) => *b,
+            Value::Int(i) => *i != IBig::ZERO,
+            Value::Float(f) => *f != 0.0,
+            Value::Fraction(r) => *r != dashu_ratio::RBig::ZERO,
+            Value::Str(s) => !s.is_empty(),
+            Value::Tuple(t) => !t.is_empty(),
+            Value::Complex(re, im) => *re != 0.0 || *im != 0.0,
+        }
+    }
+
+    /// Python's `max(a, b)`: `b` only if `b > a`, so the first of equal values wins.
+    pub fn py_max(a: Value, b: Value) -> crate::Result<Value> {
+        Ok(if ops::compare(BinOp::Gt, &b, &a)? {
+            b
+        } else {
+            a
+        })
+    }
+
+    /// Python's `min(a, b)`: `b` only if `b < a`.
+    pub fn py_min(a: Value, b: Value) -> crate::Result<Value> {
+        Ok(if ops::compare(BinOp::Lt, &b, &a)? {
+            b
+        } else {
+            a
+        })
+    }
 }
 
 impl From<i64> for Value {

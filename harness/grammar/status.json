@@ -59,5 +59,22 @@
   "die_highest": "ported",
   "die_lowest": "ported",
   "highest": "ported",
-  "lowest": "ported"
+  "lowest": "ported",
+  "pool_sum": "ported",
+  "pool_size": "ported",
+  "pool_empty": "ported",
+  "pool_any": "ported",
+  "pool_product_of_counts": "ported",
+  "pool_highest_outcome_and_count": "ported",
+  "pool_largest_count": "ported",
+  "pool_largest_count_and_outcome": "ported",
+  "pool_largest_straight": "ported",
+  "pool_all_straights": "ported",
+  "pool_all_counts": "ported",
+  "pool_expand": "ported",
+  "pool_largest_straight_and_outcome": "ported",
+  "pool_count_subset": "ported",
+  "pool_issubset": "ported",
+  "pool_issuperset": "ported",
+  "pool_isdisjoint": "ported"
 }

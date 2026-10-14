@@ -12,6 +12,7 @@ pub mod counts;
 pub mod creation_args;
 pub mod die;
 pub mod error;
+pub mod evaluator;
 pub mod expand;
 pub mod function;
 pub mod keep;

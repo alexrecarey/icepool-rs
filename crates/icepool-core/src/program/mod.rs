@@ -6,6 +6,7 @@
 
 mod again;
 mod catalogue;
+mod evaluate;
 mod map;
 mod ops;
 mod pool;

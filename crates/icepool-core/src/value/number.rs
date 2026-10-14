@@ -36,9 +36,20 @@ impl Num<'_> {
     /// Python (sums of dice with NaN outcomes make many NaN outcomes, which a constant made quadratic).
     pub fn py_hash(&self) -> i64 {
         let h = match self {
+            // Fast path for machine-sized ints: `hash(n)` is `n` reduced modulo P, keeping the sign.
+            Num::Int(i) if i64::try_from(&**i).is_ok() => {
+                let n = i64::try_from(&**i).expect("checked");
+                let r = (n.unsigned_abs() % P) as i64;
+                if n < 0 {
+                    -r
+                } else {
+                    r
+                }
+            }
             Num::Int(i) => hash_rational(i, &UBig::ONE),
             Num::Float(f) if f.is_nan() => {
-                static NAN_IDENTITY: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+                static NAN_IDENTITY: std::sync::atomic::AtomicI64 =
+                    std::sync::atomic::AtomicI64::new(0);
                 NAN_IDENTITY
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                     .wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as i64)

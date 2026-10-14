@@ -1,0 +1,2 @@
+# A Die caches its hash and popped dice in OnceLocks; they never change its Eq/Hash, so dice are fine as keys.
+ignore-interior-mutability = ["icepool_core::die::Die"]

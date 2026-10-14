@@ -17,6 +17,11 @@ pub enum Error {
     ZeroDivision(String),
     /// Python `OverflowError`, or a size the port cannot represent (Python would run out of memory or time).
     Overflow(String),
+    /// icepool `OrderError` (`ConflictingOrderError`): no pop order is compatible with the evaluation.
+    Order(String),
+    /// icepool `UnsupportedOrder`: an evaluator does not support the order it was given. The evaluation driver
+    /// catches it and retries in the opposite order; it only escapes from places the driver does not guard.
+    UnsupportedOrder(String),
     /// Not an exception: Python would answer, but the port does not cover this case yet (e.g. arithmetic on
     /// complex numbers). The program runner reports it as unimplemented, never as a raise.
     Unsupported(String),
@@ -32,6 +37,8 @@ impl Error {
             Error::Key(_) => "KeyError",
             Error::ZeroDivision(_) => "ZeroDivisionError",
             Error::Overflow(_) => "OverflowError",
+            Error::Order(_) => "ConflictingOrderError",
+            Error::UnsupportedOrder(_) => "UnsupportedOrder",
             Error::Unsupported(_) => "unimplemented",
         }
     }
@@ -44,6 +51,8 @@ impl Error {
             | Error::Key(m)
             | Error::ZeroDivision(m)
             | Error::Overflow(m)
+            | Error::Order(m)
+            | Error::UnsupportedOrder(m)
             | Error::Unsupported(m) => m,
         }
     }

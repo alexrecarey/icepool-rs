@@ -1,6 +1,9 @@
 //! Port of icepool `population/die.py`: sampling with replacement, quantities are weights.
 
-use std::sync::Arc;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, OnceLock};
+
+use rustc_hash::FxHasher;
 
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
@@ -15,9 +18,39 @@ use crate::Quantity;
 ///
 /// Equality and hashing are structural, as icepool's `Die.equals` / `hash_key`: the same outcomes (by `==`) with
 /// the same quantities. A 2:2 coin is not equal to a 1:1 coin.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct Die<O> {
-    data: Arc<Counts<O>>,
+    data: Arc<DieData<O>>,
+}
+
+/// A die's items plus what Python caches on the die object: its hash, and the dice left after popping the min or
+/// max outcome (`_popped_min` / `_popped_max` are `cached_property`s). The evaluator hashes and pops the same dice
+/// over and over.
+#[derive(Debug)]
+struct DieData<O> {
+    counts: Counts<O>,
+    hash: OnceLock<u64>,
+    popped_min: OnceLock<(Die<O>, Quantity)>,
+    popped_max: OnceLock<(Die<O>, Quantity)>,
+}
+
+impl<O: PartialEq> PartialEq for Die<O> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.data, &other.data) || self.data.counts == other.data.counts
+    }
+}
+
+impl<O: Eq> Eq for Die<O> {}
+
+impl<O: Hash> Hash for Die<O> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let h = *self.data.hash.get_or_init(|| {
+            let mut hasher = FxHasher::default();
+            self.data.counts.hash(&mut hasher);
+            hasher.finish()
+        });
+        state.write_u64(h);
+    }
 }
 
 impl<O: Outcome> Die<O> {
@@ -45,26 +78,31 @@ impl<O: Outcome> Die<O> {
     /// `Die._new_raw`: wraps already-processed data.
     pub fn from_counts(data: Counts<O>) -> Self {
         Die {
-            data: Arc::new(data),
+            data: Arc::new(DieData {
+                counts: data,
+                hash: OnceLock::new(),
+                popped_min: OnceLock::new(),
+                popped_max: OnceLock::new(),
+            }),
         }
     }
 
     /// Every `(outcome, quantity)` in sorted order, zero quantities included.
     pub fn items(&self) -> &[(O, Quantity)] {
-        self.data.items()
+        self.data.counts.items()
     }
 
     pub fn outcomes(&self) -> impl ExactSizeIterator<Item = &O> {
-        self.data.items().iter().map(|(o, _)| o)
+        self.data.counts.items().iter().map(|(o, _)| o)
     }
 
     /// The number of outcomes.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.data.counts.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.data.counts.is_empty()
     }
 
     /// Performs the unary operation on the outcomes (`Population._unary_operator`).
@@ -119,7 +157,7 @@ impl<O: Outcome> Die<O> {
 
     /// The sum of all quantities.
     pub fn denominator(&self) -> Quantity {
-        self.data.items().iter().map(|(_, q)| q).sum()
+        self.data.counts.items().iter().map(|(_, q)| q).sum()
     }
 
     /// The least outcome (`IndexError` for an empty die).
@@ -142,10 +180,16 @@ impl<O: Outcome> Die<O> {
     /// outcome. Raises `IndexError` if this die has no outcome to pop.
     pub fn pop_min(&self) -> Result<(Self, Quantity)> {
         match self.items().split_first() {
-            Some(((_, q), rest)) => Ok((
-                Self::from_counts(Counts::from_sorted(rest.to_vec())),
-                q.clone(),
-            )),
+            Some(((_, q), rest)) => Ok(self
+                .data
+                .popped_min
+                .get_or_init(|| {
+                    (
+                        Self::from_counts(Counts::from_sorted(rest.to_vec())),
+                        q.clone(),
+                    )
+                })
+                .clone()),
             None => Err(Error::Index("tuple index out of range".into())),
         }
     }
@@ -153,10 +197,16 @@ impl<O: Outcome> Die<O> {
     /// `Die._pop_max`: a die with the max outcome removed, and the quantity of the removed outcome.
     pub fn pop_max(&self) -> Result<(Self, Quantity)> {
         match self.items().split_last() {
-            Some(((_, q), rest)) => Ok((
-                Self::from_counts(Counts::from_sorted(rest.to_vec())),
-                q.clone(),
-            )),
+            Some(((_, q), rest)) => Ok(self
+                .data
+                .popped_max
+                .get_or_init(|| {
+                    (
+                        Self::from_counts(Counts::from_sorted(rest.to_vec())),
+                        q.clone(),
+                    )
+                })
+                .clone()),
             None => Err(Error::Index("tuple index out of range".into())),
         }
     }

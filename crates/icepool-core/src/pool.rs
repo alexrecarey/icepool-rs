@@ -18,7 +18,7 @@ use crate::keep_tuple::{
     sum_counts, KeepIndex,
 };
 use crate::math::comb_row;
-use crate::order::Order;
+use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::Quantity;
 
@@ -240,6 +240,29 @@ impl<O: Outcome> MultisetSource<O> {
         }
     }
 
+    /// The total number of elements output by this source, if only non-negative counts are output (else `None`).
+    pub fn size(&self) -> Result<Option<i64>> {
+        match self {
+            MultisetSource::Pool(s) => s.size(),
+        }
+    }
+
+    /// Whether this source contains any probability.
+    pub fn is_resolvable(&self) -> bool {
+        match self {
+            MultisetSource::Pool(s) => s.is_resolvable(),
+        }
+    }
+
+    /// The preferred pop order of this source and a reason why the order is preferred.
+    pub fn order_preference(&self) -> (Order, OrderReason) {
+        match self {
+            MultisetSource::Pool(s) => s.order_preference(),
+        }
+    }
+
+    /// Yields `(this source with the outcome popped, count of that outcome, weight)` for each possibility. If
+    /// `outcome` is not the one this source pops in `order`, the only possibility is `(self, 0, 1)`.
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
         match self {
             MultisetSource::Pool(s) => Ok(s
@@ -307,6 +330,29 @@ impl<O: Outcome> PoolSource<O> {
 
     pub fn is_resolvable(&self) -> bool {
         self.dice.iter().all(|(die, _)| !die.is_empty())
+    }
+
+    /// `PoolSource.order_preference`. Note the `KeepSkip` directions: a keep tuple that skips more dice at the low
+    /// end prefers popping descending, the opposite of `order.pool_pop_order` (copied as is).
+    pub fn order_preference(&self) -> (Order, OrderReason) {
+        // `unique_dice()` is a set; `can_truncate` does not depend on its iteration order.
+        let (can_truncate_min, can_truncate_max) = can_truncate(self.dice.iter().map(|(d, _)| d));
+        if can_truncate_min && !can_truncate_max {
+            return (Order::Ascending, OrderReason::PoolComposition);
+        }
+        if can_truncate_max && !can_truncate_min {
+            return (Order::Descending, OrderReason::PoolComposition);
+        }
+
+        let (lo_skip, hi_skip) = lo_hi_skip(&self.keep_tuple);
+        if lo_skip > hi_skip {
+            return (Order::Descending, OrderReason::KeepSkip);
+        }
+        if hi_skip > lo_skip {
+            return (Order::Ascending, OrderReason::KeepSkip);
+        }
+
+        (Order::Any, OrderReason::NoPreference)
     }
 
     /// Pops the lowest outcome (`order > 0`) or the highest (otherwise), if it is `outcome`: every way the dice

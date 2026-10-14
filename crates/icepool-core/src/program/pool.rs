@@ -1,22 +1,24 @@
 //! Pool nodes (harness/grammar/pool.py): building pools, keeping, popping, and the lowest / highest of dice.
 //!
-//! Evaluating a pool (`.sum()`, `pool[int]`, ...) is the evaluator's job (task K6). Until then the cases that need
-//! it say `Unimplemented`, after doing everything Python does before it gets there (so the raises still match).
+//! Evaluating a pool (`pool[int]`, the pool path of `highest` / `lowest`) goes through the evaluators
+//! (program/evaluate.rs).
 
 use dashu_int::IBig;
 
+use super::evaluate::run;
 use super::ops::{binary, itemize, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
+use crate::evaluator::basic::SumEvaluator;
+use crate::evaluator::keep::KeepEvaluator;
 use crate::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
 use crate::order::Order;
 use crate::value::{BinOp, UnOp};
 use crate::{Die, Pool, Value};
 
-fn evaluation_needed<T>(what: &str) -> Result<T, PErr> {
-    Err(PErr::Unimplemented(format!(
-        "{what} (multiset evaluation, task K6)"
-    )))
+/// `pool.sum()`.
+fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
+    run(&SumEvaluator, &[pool]).map(PValue::Die)
 }
 
 /// A Python int (or bool) argument, exactly. `None` for anything else.
@@ -53,7 +55,7 @@ fn exact_int(x: &PValue, what: &str) -> Result<i64, PErr> {
         .ok_or_else(|| PErr::Unimplemented(format!("{what} that is not a 64-bit int")))
 }
 
-fn the_pool(x: PValue) -> Result<Pool<Value>, PErr> {
+pub(super) fn the_pool(x: PValue) -> Result<Pool<Value>, PErr> {
     match x {
         PValue::Pool(p) => Ok(p),
         // Anything else lacks the pool's methods: AttributeError in Python.
@@ -155,8 +157,8 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         Some(i) => {
             let i = i64::try_from(i).unwrap_or(i64::MAX);
             // The keep tuple (or its IndexError) first; then Python evaluates it into a Die.
-            pool.keep(&KeepIndex::Int(i))?;
-            evaluation_needed("pool[int]")
+            let kept = pool.keep(&KeepIndex::Int(i))?;
+            run(&KeepEvaluator { index: None }, &[kept]).map(PValue::Die)
         }
         None => Ok(PValue::Pool(pool.keep(&sequence_index(index)?)?)),
     }
@@ -362,11 +364,10 @@ pub fn die_highest_lowest(
         return Ok(PValue::Die(result));
     }
     // `self.pool(rolls)[index].sum()`.
-    new_die_pool(&die, rolls_int)?.keep(&KeepIndex::Slice {
+    pool_sum(new_die_pool(&die, rolls_int)?.keep(&KeepIndex::Slice {
         slice: index,
         step: false,
-    })?;
-    evaluation_needed("pool.sum()")
+    })?)
 }
 
 /// `icepool.highest(args, keep=, drop=, default=)` / `icepool.lowest(...)` with the dice in one iterable.
@@ -441,9 +442,10 @@ fn sum_slice(args: Vec<PValue>, index: Slice) -> Result<PValue, PErr> {
         return Ok(PValue::Die(crate::keep::highest_single(&dice)?));
     }
     // Use pool.
-    Pool::new(dice.into_iter().map(|d| (d, 1)).collect())?.keep(&KeepIndex::Slice {
-        slice: index,
-        step: false,
-    })?;
-    evaluation_needed("pool.sum()")
+    pool_sum(
+        Pool::new(dice.into_iter().map(|d| (d, 1)).collect())?.keep(&KeepIndex::Slice {
+            slice: index,
+            step: false,
+        })?,
+    )
 }

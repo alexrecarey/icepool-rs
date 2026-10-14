@@ -38,7 +38,9 @@ def die_pool(die, rolls):
 
 @node("pool_keep", "pool")
 def pool_keep(pool, index):
-    """pool.keep(index): index is a sequence of counts (at most one ..., see make_keep_tuple) or an int."""
+    """pool.keep(index): index is a sequence of counts (at most one ..., see make_keep_tuple) or an int (which
+    evaluates the kept roll into a Die)."""
+    fresh_caches()
     return pool.keep(index)
 
 
@@ -82,6 +84,18 @@ def pool_neg(pool):
 def pool_add(a, b):
     """a + b for pools whose sorted positions all count the same: one merged pool."""
     return a + b
+
+
+def fresh_caches():
+    """Clear icepool's caches that outlive one call: PoolSource._new_raw (@cache) and the room caches the shared
+    evaluator instances (icepool.evaluator.sum_evaluator, keep_evaluator, ...) keep between evaluate() calls. Both
+    are keyed by ==, so in a long-lived oracle process a result can come back with another program's spellings
+    (1 for True). Called at the start of every node that evaluates a pool; the port caches within one evaluation
+    only (see NOTES.md)."""
+    icepool.Pool.clear_cache()
+    for ev in vars(icepool.evaluator).values():
+        if isinstance(ev, icepool.MultisetEvaluator) and hasattr(ev, "_cache"):
+            del ev._cache
 
 
 # --- Pool generators --------------------------------------------------------------------------------------------
@@ -197,7 +211,7 @@ def pool_pop(pool, order, outcome):
     PoolSource._new_raw is @cache'd on (dice, outcomes, keep_tuple) compared with ==, so in a long-lived process a
     pop can return a source cached earlier with other spellings (1 for True). Clearing the cache (public API)
     gives what a fresh process gives, which is what the port does (see DIVERGENCES.md)."""
-    icepool.Pool.clear_cache()
+    fresh_caches()
     return tuple((s.dice, s.outcomes(), s.keep_tuple, count, weight)
                  for s, count, weight in pool._make_source().pop(icepool.Order(order), outcome))
 
@@ -238,12 +252,14 @@ def _gen_die_keep(op):
 @node("die_highest", "die", gen=_gen_die_keep("die_highest"), weight=0.5)
 def die_highest(die, rolls, keep, drop):
     """die.highest(rolls, keep, drop): roll rolls of die, sum the keep highest after dropping the drop highest."""
+    fresh_caches()
     return die.highest(rolls, keep, drop)
 
 
 @node("die_lowest", "die", gen=_gen_die_keep("die_lowest"), weight=0.5)
 def die_lowest(die, rolls, keep, drop):
     """die.lowest(rolls, keep, drop)"""
+    fresh_caches()
     return die.lowest(rolls, keep, drop)
 
 
@@ -260,10 +276,12 @@ def _gen_free_keep(op):
 @node("highest", "die", gen=_gen_free_keep("highest"), weight=0.5)
 def highest(args, keep, drop, default):
     """icepool.highest(args, keep=keep, drop=drop, default=default): the dice (or outcomes) in one list."""
+    fresh_caches()
     return icepool.highest(args, keep=keep, drop=drop, default=default)
 
 
 @node("lowest", "die", gen=_gen_free_keep("lowest"), weight=0.5)
 def lowest(args, keep, drop, default):
     """icepool.lowest(args, keep=keep, drop=drop, default=default)"""
+    fresh_caches()
     return icepool.lowest(args, keep=keep, drop=drop, default=default)

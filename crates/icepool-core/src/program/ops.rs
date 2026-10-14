@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 
 use super::again::{self, AgainOp};
 use super::catalogue::Func;
+use super::evaluate;
 use super::map;
 use super::pool;
 use super::{raise, Args, PErr, PValue};
@@ -141,6 +142,39 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "highest" | "lowest" => {
             let [a, keep, drop, default] = args.exactly(["args", "keep", "drop", "default"])?;
             pool::highest_lowest(op == "highest", a, keep, drop, default)
+        }
+        "pool_sum"
+        | "pool_size"
+        | "pool_empty"
+        | "pool_any"
+        | "pool_product_of_counts"
+        | "pool_highest_outcome_and_count"
+        | "pool_largest_count"
+        | "pool_largest_count_and_outcome"
+        | "pool_largest_straight"
+        | "pool_all_straights" => {
+            let [p] = args.exactly(["pool"])?;
+            evaluate::evaluation(op, p)
+        }
+        "pool_all_counts" => {
+            let [p, filter] = args.exactly(["pool", "filter"])?;
+            evaluate::all_counts(p, filter)
+        }
+        "pool_expand" => {
+            let [p, order] = args.exactly(["pool", "order"])?;
+            evaluate::expand(p, order)
+        }
+        "pool_largest_straight_and_outcome" => {
+            let [p, priority] = args.exactly(["pool", "priority"])?;
+            evaluate::largest_straight_and_outcome(p, priority)
+        }
+        "pool_count_subset" => {
+            let [p, divisor, empty_divisor] = args.exactly(["pool", "divisor", "empty_divisor"])?;
+            evaluate::count_subset(p, divisor, empty_divisor)
+        }
+        "pool_issubset" | "pool_issuperset" | "pool_isdisjoint" => {
+            let [p, other] = args.exactly(["pool", "other"])?;
+            evaluate::compare(op, p, other)
         }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
