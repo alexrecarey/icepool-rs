@@ -100,7 +100,16 @@ impl<O: Outcome> Deck<O> {
     /// Each builds a `Counter` (`self`'s cards first, except for `other - self`), combines the counts, and
     /// returns `Deck(+data)`: only positive counts are kept. Keys merge as in a dict, so a key keeps the spelling
     /// of whichever side put it in first.
+    ///
+    /// `Deck(+data)` expands each key as `Deck(...)` expands an outcome; keys made of plain outcomes are outcomes
+    /// as they are. (The Python facade, whose `other` may hold dice or `Reroll`, gets [`Deck::counter_items`] and
+    /// calls `Deck(...)` itself.)
     pub fn counter_op(&self, op: CounterOp, other: &Counter<O>) -> Result<Self> {
+        Self::from_dict(self.counter_items(op, other))
+    }
+
+    /// The items of `+data` in [`Deck::counter_op`].
+    pub fn counter_items(&self, op: CounterOp, other: &Counter<O>) -> Vec<(O, Quantity)> {
         let combine = |data: &mut Counter<O>, f: &dyn Fn(IBig, &IBig) -> IBig| {
             for (outcome, count) in other.items() {
                 let current = data.get(outcome);
@@ -147,7 +156,7 @@ impl<O: Outcome> Deck<O> {
                 data
             }
         };
-        Self::from_dict(data.positive())
+        data.positive()
     }
 }
 

@@ -2,14 +2,14 @@
 
 Not part of upstream icepool. `MultisetEvaluatorBase.evaluate` keeps its argument conversion, `_prepare`, the
 `_cache` of dungeons and the final `Die(final_data)`; for each prepared evaluation whose inputs are all generators
-backed by core sources (a `Pool`, or a sequence / mapping converted to one), `Dungeon.evaluate` runs in Rust:
+backed by core sources (a `Pool` or a `Deal`, or a sequence / mapping converted to a pool), `Dungeon.evaluate` runs in Rust:
 
 * A built-in evaluator the core has (`builtin_spec`) runs entirely in Rust.
 * Any other `MultisetEvaluator`, user subclasses included, runs on the core driver with its `next_state`,
   `initial_state`, `extra_outcomes` and `final_outcome` called back in Python.
 
 Inputs that are multiset expressions (operators between multisets, `unique`, `keep` of an expression...), other
-generators (`Deal`, mixtures...) and `@multiset_function`s are not ported yet (Phase S4): their evaluation is still
+generators (`MultiDeal`, mixtures...) and `@multiset_function`s are not ported yet (Phase S4): their evaluation is still
 upstream's `Dungeon.evaluate`.
 
 Rooms are cached per call in the core (ANALYSIS.md decision 5); a dungeon's `ascending_cache` /
@@ -59,7 +59,8 @@ def is_rust_evaluable(dungeon, quest, sources) -> bool:
     return all(
         len(d) == 1 and type(d[0]) is MultisetFreeVariable and len(q) == 1
         and type(q[0]) is MultisetGeneratorQuestlet
-        and isinstance(source, icepool.generator.pool.PoolSource)
+        and isinstance(source, (icepool.generator.pool.PoolSource,
+                                icepool.generator.deal.DealSource))
         and '_rs' in source.__dict__ for d, q, source in zip(
             dungeon.dungeonlet_flats, quest.questlet_flats, sources))
 

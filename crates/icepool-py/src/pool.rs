@@ -60,7 +60,7 @@ pub fn pool_new(dice: Vec<Bound<'_, RsDie>>, times: Vec<Bound<'_, PyAny>>) -> Py
 }
 
 /// A Python int as an `i64` count; Python ints are unbounded, the core's keep tuples are not.
-fn exact_count(x: &Bound<'_, PyAny>) -> PyResult<i64> {
+pub(crate) fn exact_count(x: &Bound<'_, PyAny>) -> PyResult<i64> {
     if !x.is_instance_of::<PyInt>() {
         return Err(PyNotImplementedError::new_err(format!(
             "icepool_rs: a keep count of type '{}'",
@@ -80,7 +80,7 @@ fn saturating_index(x: &Bound<'_, PyAny>) -> PyResult<i64> {
 
 /// The argument of `KeepGenerator.keep` (`pool[index]`) as `make_keep_tuple` reads it: an `int`, a `slice`, or a
 /// sequence of counts with at most one `...`.
-fn keep_index(index: &Bound<'_, PyAny>) -> PyResult<KeepIndex> {
+pub(crate) fn keep_index(index: &Bound<'_, PyAny>) -> PyResult<KeepIndex> {
     if index.is_instance_of::<PyInt>() {
         return saturating_index(index).map(KeepIndex::Int);
     }
@@ -120,7 +120,7 @@ fn int_tuple<'py>(py: Python<'py>, xs: &[i64]) -> PyResult<Bound<'py, PyTuple>> 
     PyTuple::new(py, xs)
 }
 
-fn outcome_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
+pub(crate) fn outcome_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
     PyTuple::new(
         py,
         xs.iter()

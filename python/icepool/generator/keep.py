@@ -145,9 +145,12 @@ class KeepGenerator(MultisetGenerator[T]):
             return icepool.MultisetExpression.keep(self, index)  # type: ignore
 
         convert_to_die = isinstance(index, int)
-        # icepool-rs: a pool's keep tuple is made and composed in the Rust core.
+        # icepool-rs: a pool's or deal's keep tuple is made and composed in the
+        # Rust core.
         if icepool.backend.RUST and isinstance(self, icepool.Pool):
             result = icepool.Pool._new_rust(self._rs.keep(index))
+        elif icepool.backend.RUST and isinstance(self, icepool.Deal):
+            result = icepool.Deal._new_rust(self._deck, self._rs.keep(index))
         else:
             relative_keep_tuple = make_keep_tuple(self.keep_size(), index)
 

@@ -36,6 +36,7 @@ use pyo3::types::{PyDict, PyList, PyTuple, PyType};
 use pyo3::IntoPyObjectExt;
 
 use crate::convert::{from_py, host_error, quantity_to_py, to_py, to_py_err};
+use crate::deck::RsDealSource;
 use crate::pool::RsPoolSource;
 
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`), so it raises
@@ -54,10 +55,18 @@ fn depth_check(depth_budget: isize) -> impl Fn(usize) -> icepool_core::Result<()
     }
 }
 
-fn sources(sources: &[Bound<'_, RsPoolSource>]) -> Vec<MultisetSource<Value>> {
+/// The core sources of the facade's `PoolSource`s and `DealSource`s (their `_rs`).
+fn sources(sources: &[Bound<'_, PyAny>]) -> PyResult<Vec<MultisetSource<Value>>> {
     sources
         .iter()
-        .map(|s| MultisetSource::Pool(s.get().source.clone()))
+        .map(|s| {
+            if let Ok(s) = s.cast::<RsPoolSource>() {
+                return Ok(MultisetSource::Pool(s.get().source.clone()));
+            }
+            Ok(MultisetSource::Deal(
+                s.cast::<RsDealSource>()?.get().source.clone(),
+            ))
+        })
         .collect()
 }
 
@@ -81,10 +90,10 @@ fn finals<'py, F>(
 fn run<'py, E: MultisetEvaluator<Value, Final = Value>>(
     py: Python<'py>,
     evaluator: &E,
-    srcs: &[Bound<'py, RsPoolSource>],
+    srcs: &[Bound<'py, PyAny>],
     depth_budget: isize,
 ) -> PyResult<Finals<'py>> {
-    let result = evaluate_with_depth_check(evaluator, &sources(srcs), depth_check(depth_budget))
+    let result = evaluate_with_depth_check(evaluator, &sources(srcs)?, depth_check(depth_budget))
         .map_err(to_py_err)?;
     finals(py, result, |o| to_py(py, &o))
 }
@@ -97,7 +106,7 @@ pub fn evaluate_builtin<'py>(
     py: Python<'py>,
     name: &str,
     params: Vec<Bound<'py, PyAny>>,
-    sources: Vec<Bound<'py, RsPoolSource>>,
+    sources: Vec<Bound<'py, PyAny>>,
     depth_budget: isize,
 ) -> PyResult<Finals<'py>> {
     let param = |i: usize| -> PyResult<&Bound<'py, PyAny>> {
@@ -338,7 +347,7 @@ pub fn evaluate_host<'py>(
     extra_outcomes: Bound<'py, PyAny>,
     final_outcome: Bound<'py, PyAny>,
     kwargs: Option<Bound<'py, PyDict>>,
-    sources: Vec<Bound<'py, RsPoolSource>>,
+    sources: Vec<Bound<'py, PyAny>>,
     depth_budget: isize,
 ) -> PyResult<Finals<'py>> {
     let icepool = py.import("icepool")?;
@@ -355,7 +364,7 @@ pub fn evaluate_host<'py>(
     };
     let result = evaluate_with_depth_check(
         &evaluator,
-        &self::sources(&sources),
+        &self::sources(&sources)?,
         depth_check(depth_budget),
     )
     .map_err(to_py_err)?;

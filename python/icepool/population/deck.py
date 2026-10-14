@@ -64,6 +64,12 @@ class Deck(Population[T_co], MaybeHashKeyed):
                 outcomes[0], Deck):
             return outcomes[0]
 
+        # icepool-rs: merge_duplicates and the sort run in the Rust core.
+        if icepool.backend.RUST:
+            return Deck._new_rust(
+                icepool.creation_args.expand_args_for_deck_rust(
+                    outcomes, times))
+
         counts: Counts[T_co] = icepool.creation_args.expand_args_for_deck(
             outcomes, times)
 
@@ -79,6 +85,39 @@ class Deck(Population[T_co], MaybeHashKeyed):
         self = super(Population, cls).__new__(cls)
         self._data = data
         return self
+
+    @classmethod
+    def _new_rust(cls, rs) -> 'Deck[T_co]':
+        """icepool-rs: wraps a deck of the Rust core (`icepool_rs.Deck`).
+
+        The facade's `Counts` is made from its items; the Rust deck is kept as
+        `_rs`, so further switched operations on this deck need no conversion.
+        """
+        self = cls._new_raw(Counts._from_sorted_items(rs.items()))
+        self._rs = rs
+        return self
+
+    def _rust_deck(self):
+        """icepool-rs: this deck in the Rust core, converted once if it was made in Python."""
+        try:
+            return self._rs
+        except AttributeError:
+            self._rs = icepool.backend.RUST.deck_from_counts_items(
+                list(self._data.items()))
+            return self._rs
+
+    def _rust_die(self):
+        """icepool-rs: the cards as a die of the Rust core: the `Population` methods (base.py) and `Die(deck)`
+        treat both alike."""
+        return self._rust_deck().population()
+
+    def _counter_op(self, op: str, other) -> 'Deck[T_co]':
+        """icepool-rs: a binary operator with `Counter(other)` (counted by Python, so any iterable or mapping
+        counts as it does) on the Rust core, which returns the items of `+data`; `Deck(...)` of them expands the
+        keys as Python's `Deck(+data)` does."""
+        items = icepool.backend.RUST.deck_counter_op(self._rust_deck(), op,
+                                                     list(Counter(other).items()))
+        return Deck(dict(items))
 
     def keys(self) -> CountsKeysView[T_co]:
         return self._data.keys()
@@ -102,6 +141,10 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     @cached_property
     def _popped_min(self) -> tuple['Deck[T_co]', int]:
+        # icepool-rs: popped in the Rust core.
+        if icepool.backend.RUST:
+            rs, quantity = self._rust_deck().pop_min()
+            return Deck._new_rust(rs), quantity
         return self._new_raw(self._data.remove_min()), self.quantities()[0]
 
     def _pop_min(self) -> tuple['Deck[T_co]', int]:
@@ -110,6 +153,10 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     @cached_property
     def _popped_max(self) -> tuple['Deck[T_co]', int]:
+        # icepool-rs: popped in the Rust core.
+        if icepool.backend.RUST:
+            rs, quantity = self._rust_deck().pop_max()
+            return Deck._new_rust(rs), quantity
         return self._new_raw(self._data.remove_max()), self.quantities()[-1]
 
     def _pop_max(self) -> tuple['Deck[T_co]', int]:
@@ -169,6 +216,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __add__(self,
                 other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('add', other)
         data = Counter(self._data)
         for outcome, count in Counter(other).items():
             data[outcome] += count
@@ -184,6 +234,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __sub__(self,
                 other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('sub', other)
         data = Counter(self._data)
         for outcome, count in Counter(other).items():
             data[outcome] -= count
@@ -191,6 +244,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __rsub__(self,
                  other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('rsub', other)
         data = Counter(other)
         for outcome, count in self.items():
             data[outcome] -= count
@@ -204,6 +260,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __and__(self,
                 other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('and', other)
         data: Counter[T_co] = Counter()
         for outcome, count in Counter(other).items():
             data[outcome] = min(self.get(outcome, 0), count)
@@ -219,6 +278,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __or__(self,
                other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('or', other)
         data = Counter(self._data)
         for outcome, count in Counter(other).items():
             data[outcome] = max(data[outcome], count)
@@ -233,6 +295,9 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     def __xor__(self,
                 other: Iterable[T_co] | Mapping[T_co, int]) -> 'Deck[T_co]':
+        # icepool-rs: the counts are combined in the Rust core.
+        if icepool.backend.RUST:
+            return self._counter_op('xor', other)
         data = Counter(self._data)
         for outcome, count in Counter(other).items():
             data[outcome] = abs(data[outcome] - count)
@@ -327,6 +392,10 @@ class Deck(Population[T_co], MaybeHashKeyed):
 
     @cached_property
     def hash_key(self) -> tuple:
+        # icepool-rs: the Rust deck hashes and compares its items, as this
+        # tuple does.
+        if icepool.backend.RUST:
+            return Deck, self._rust_deck()
         return Deck, tuple(self.items())
 
     def __repr__(self) -> str:

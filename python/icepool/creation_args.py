@@ -84,6 +84,38 @@ def expand_args_for_die_rust(
     return icepool.backend.RUST.expand_args_for_die(subdatas, times)
 
 
+def expand_args_for_deck_rust(
+        args: 'Sequence[T | icepool.Deck[T] | icepool.RerollType]',
+        times: Sequence[int]):
+    """icepool-rs: `expand_args_for_deck` on the Rust core. Returns an `icepool_rs.Deck`.
+
+    `expand_arg` stays here; each subdata goes to Rust tagged as in `expand_args_for_die_rust` (a die or deck as
+    its cards: `_rust_die()`), and `merge_duplicates` runs in Rust.
+    """
+    subdatas = []
+    # As in Python, every argument is expanded before any is merged.
+    for subdata, subdup in zip([expand_arg(arg) for arg in args], times):
+        if not isinstance(subdata, Mapping):
+            # A tuple holding `Reroll` expands to `Reroll` itself (see
+            # `cartesian_product`), which `merge_duplicates` only reads if
+            # its dup is not zero.
+            if subdup == 0:
+                subdatas.append((2, None))
+                continue
+            raise AttributeError(
+                f"'{type(subdata).__name__}' object has no attribute 'items'")
+        if isinstance(subdata, (icepool.Die, icepool.Deck)):
+            subdatas.append((1, subdata._rust_die()))
+        elif isinstance(subdata, icepool.Population):
+            subdatas.append((3, list(subdata.items())))
+        elif len(subdata) == 0:
+            subdatas.append((2, None))
+        else:
+            # `{arg: 1}`
+            subdatas.append((0, next(iter(subdata))))
+    return icepool.backend.RUST.expand_args_for_deck(subdatas, times)
+
+
 def expand_args_for_deck(
         args: 'Sequence[T | icepool.Deck[T] | icepool.RerollType]',
         times: Sequence[int]) -> Counts[T]:

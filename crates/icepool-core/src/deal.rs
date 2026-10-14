@@ -85,7 +85,7 @@ impl<O: Outcome> Deal<O> {
     }
 
     /// `_set_keep_tuple`: a copy with a modified keep tuple.
-    fn set_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
+    pub fn with_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
         Deal {
             deck: self.deck.clone(),
             keep_tuple: keep_tuple.into(),
@@ -94,12 +94,12 @@ impl<O: Outcome> Deal<O> {
 
     /// `KeepGenerator.keep` (see `Pool::keep`).
     pub fn keep(&self, index: &KeepIndex) -> Result<Self> {
-        Ok(self.set_keep_tuple(keep_tuple::keep(&self.keep_tuple, index)?))
+        Ok(self.with_keep_tuple(keep_tuple::keep(&self.keep_tuple, index)?))
     }
 
     /// `KeepGenerator.multiply_counts`.
     pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
-        Ok(self.set_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
+        Ok(self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
     }
 
     /// `_make_source`.

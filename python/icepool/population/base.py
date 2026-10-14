@@ -25,6 +25,12 @@ C = TypeVar('C', bound='Population')
 
 
 # This typing is a compromise due to Mapping not support covariant key type.
+def _rust_population(x) -> bool:
+    """icepool-rs: whether `x` is a population whose `Population` methods run in the Rust core: a `Die`, or a
+    `Deck` (its cards are a die's `Counts` to the core, see `Deck._rust_die`)."""
+    return isinstance(x, (icepool.Die, icepool.Deck))
+
+
 class Population(ABC, Expandable[T_co], Mapping[Any, int]):
     """A mapping from outcomes to `int` quantities.
 
@@ -76,7 +82,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
     @cached_property
     def _common_outcome_length(self) -> int | None:
         # icepool-rs: a die's runs in the Rust core (format.rs).
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.common_outcome_length(
                 self._rust_die())
         result = None
@@ -101,19 +107,19 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         """`True` iff this population has no outcomes. """
         # icepool-rs: for a die, the statistics in this file run in the Rust
         # core (population.rs); a Deck stays Python until S4a.
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.is_empty(self._rust_die())
         return len(self) == 0
 
     def min_outcome(self) -> T_co:
         """The least outcome."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.min_outcome(self._rust_die())
         return self.outcomes()[0]
 
     def max_outcome(self) -> T_co:
         """The greatest outcome."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.max_outcome(self._rust_die())
         return self.outcomes()[-1]
 
@@ -131,7 +137,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             The nearest outcome fitting the comparison, or `None` if there is
             no such outcome.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.nearest(self._rust_die(), comparison,
                                                 outcome)
         match comparison:
@@ -225,7 +231,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             comparison = cast(Literal['==', '!=', '<=', '<', '>=', '>'],
                               comparison)
 
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.quantity(self._rust_die(), comparison,
                                                  outcome)
         match comparison:
@@ -254,7 +260,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         if star is None:
             star = infer_star(which)
         # icepool-rs: `which` is called here, the sum is the core's.
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             if star:
                 selected = [bool(which(*outcome)) for outcome in self.outcomes()]
             else:
@@ -304,7 +310,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             comparison = '=='
 
         # icepool-rs: '==' is the values view itself.
-        if icepool.backend.RUST and isinstance(self, icepool.Die) and comparison != '==':
+        if icepool.backend.RUST and _rust_population(self) and comparison != '==':
             return icepool.backend.RUST.quantities(self._rust_die(),
                                                    comparison)
         match comparison:
@@ -339,7 +345,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     @cached_property
     def _denominator(self) -> int:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.denominator(self._rust_die())
         return sum(self.values())
 
@@ -352,7 +358,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def multiply_quantities(self: C, scale: int, /) -> C:
         """Multiplies all quantities by an integer."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return self._from_rust_data(
                 icepool.backend.RUST.quantities_op(self._rust_die(),
                                                    'multiply', scale))
@@ -369,7 +375,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         
         Resulting zero quantities are dropped.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return self._from_rust_data(
                 icepool.backend.RUST.quantities_op(self._rust_die(), 'divide',
                                                    divisor))
@@ -383,7 +389,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def modulo_quantities(self: C, divisor: int, /) -> C:
         """Modulus of all quantities with an integer."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return self._from_rust_data(
                 icepool.backend.RUST.quantities_op(self._rust_die(), 'modulo',
                                                    divisor))
@@ -410,7 +416,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             `ValueError` if this would require the quantity of the specified
             outcome to be negative.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return self._from_rust_data(
                 icepool.backend.RUST.pad_to_denominator(
                     self._rust_die(), denominator, outcome))
@@ -433,7 +439,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         Raises:
             ValueError if this cannot be achieved using an integer scaling.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return self._from_rust_data(
                 icepool.backend.RUST.multiply_to_denominator(
                     self._rust_die(), denominator))
@@ -534,7 +540,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         else:
             comparison = cast(Literal['==', '!=', '<=', '<', '>=', '>'],
                               comparison)
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.probability(self._rust_die(),
                                                     comparison, outcome,
                                                     bool(percent))
@@ -566,7 +572,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
                           percent: bool = False) -> Fraction | float:
         """The probability fulfilling a boolean condition."""
         # icepool-rs: `which` is called here, the rest is the core's.
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             if star is None:
                 star = infer_star(which)
             if star:
@@ -640,7 +646,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         if comparison is None:
             comparison = '=='
 
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.probabilities(self._rust_die(),
                                                       comparison,
                                                       bool(percent))
@@ -660,20 +666,20 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
         These are sorted from lowest to highest.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.mode(self._rust_die())
         return tuple(outcome for outcome, quantity in self.items()
                      if quantity == self.modal_quantity())
 
     def modal_quantity(self) -> int:
         """The highest quantity of any single outcome. """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.modal_quantity(self._rust_die())
         return max(self.quantities())
 
     def kolmogorov_smirnov(self, other: 'Population') -> Fraction:
         """Kolmogorov–Smirnov statistic. The maximum absolute difference between CDFs. """
-        if icepool.backend.RUST and isinstance(self, icepool.Die) and isinstance(other, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self) and _rust_population(other):
             return icepool.backend.RUST.cdf_distance(self._rust_die(),
                                                      other._rust_die(), False)
         outcomes = icepool.sorted_union(self, other)
@@ -684,7 +690,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def cramer_von_mises(self, other: 'Population') -> Fraction:
         """Cramér-von Mises statistic. The sum-of-squares difference between CDFs. """
-        if icepool.backend.RUST and isinstance(self, icepool.Die) and isinstance(other, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self) and _rust_population(other):
             return icepool.backend.RUST.cdf_distance(self._rust_die(),
                                                      other._rust_die(), True)
         outcomes = icepool.sorted_union(self, other)
@@ -715,7 +721,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         This will fail if the outcomes do not support addition and division;
         in this case, use `quantile_low` or `quantile_high` instead.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.quantile(self._rust_die(), n, d,
                                                  'mean')
         # Should support addition and division.
@@ -724,7 +730,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def quantile_low(self, n: int, d: int = 100) -> T_co:
         """The outcome `n / d` of the way through the CDF, taking the lesser in case of a tie."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.quantile(self._rust_die(), n, d, 'low')
         index = bisect.bisect_left(self.quantities('<='),
                                    (n * self.denominator() + d - 1) // d)
@@ -734,7 +740,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def quantile_high(self, n: int, d: int = 100) -> T_co:
         """The outcome `n / d` of the way through the CDF, taking the greater in case of a tie."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.quantile(self._rust_die(), n, d,
                                                  'high')
         index = bisect.bisect_right(self.quantities('<='),
@@ -754,7 +760,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
     def mean(
         self: 'Population[numbers.Rational] | Population[float]'
     ) -> Fraction | float:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.statistic(self._rust_die(), 'mean')
         return try_fraction(
             sum(outcome * quantity for outcome, quantity in self.items()),
@@ -772,7 +778,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         self: 'Population[numbers.Rational] | Population[float]'
     ) -> Fraction | float:
         """This is the population variance, not the sample variance."""
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.statistic(self._rust_die(),
                                                   'variance')
         mean = self.mean()
@@ -783,7 +789,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     def standard_deviation(
             self: 'Population[numbers.Rational] | Population[float]') -> float:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.statistic(self._rust_die(),
                                                   'standard_deviation')
         return math.sqrt(self.variance())
@@ -793,7 +799,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
     def standardized_moment(
             self: 'Population[numbers.Rational] | Population[float]',
             k: int) -> float:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.standardized_moment(
                 self._rust_die(), k)
         sd = self.standard_deviation()
@@ -817,7 +823,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             base: The logarithm base to use. Default is 2.0, which gives the 
                 entropy in bits.
         """
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.entropy(self._rust_die(), base)
         return -sum(p * math.log(p, base)
                     for p in self.probabilities() if p > 0.0)
@@ -882,7 +888,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             self:
         'Population[tuple[numbers.Rational, ...]] | Population[tuple[float, ...]]',
             i: int, j: int) -> Fraction | float:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.joint(self._rust_die(), i, j, False)
         mean_i = self.marginals[i].mean()
         mean_j = self.marginals[j].mean()
@@ -894,7 +900,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             self:
         'Population[tuple[numbers.Rational, ...]] | Population[tuple[float, ...]]',
             i: int, j: int) -> float:
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.joint(self._rust_die(), i, j, True)
         sd_i = self.marginals[i].standard_deviation()
         sd_j = self.marginals[j].standard_deviation()
@@ -1111,7 +1117,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         r = random.randrange(self.denominator())
         # icepool-rs: the draw stays with Python's `random` (the user seeds
         # it); the bisect over the CDF runs in the Rust core.
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             return icepool.backend.RUST.sample_at(self._rust_die(), r)
         index = bisect.bisect_right(self.quantities('<='), r)
         return self.outcomes()[index]
@@ -1146,7 +1152,7 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         # icepool-rs: a die's spec parsing and table run in the Rust core
         # (format.rs). Given csv writer arguments, the core makes the table and
         # Python's csv module writes it with them.
-        if icepool.backend.RUST and isinstance(self, icepool.Die):
+        if icepool.backend.RUST and _rust_population(self):
             result = icepool.backend.RUST.format(self._rust_die(),
                                                  type(self).__name__,
                                                  format_spec, bool(kwargs))
