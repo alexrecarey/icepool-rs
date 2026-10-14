@@ -110,3 +110,33 @@ def test_opposite_keep_skip_preferences():
             expected[Counter(sorted(x)[1:]) <= Counter(sorted(y)[:2])] += 1
     assert a.issubset(b).equals(Die(expected), simplify=True)
 ```
+
+### `quantities('>=')` of an empty population is `(0,)`, so `probabilities('>=')` raises (S2a)
+
+`Population.quantities('>=')` (population/base.py) is `itertools.accumulate(self.values()[:-1], operator.sub,
+initial=self.denominator())`: with no outcomes that still yields the initial `0`, so an empty die has one `'>='`
+(and one `'<'`) quantity but zero outcomes, and `probabilities('>=')` divides it by the zero denominator
+(`ZeroDivisionError`) where `probabilities('==')` and `probabilities('<=')` return `()`. The port copies it
+(`population.rs` `quantities`, fixtures in fixtures/s2a/statistics.jsonl). One element per outcome looks intended.
+
+Drafted upstream test:
+
+```python
+def test_empty_quantities_ge():
+    assert Die([]).quantities('>=') == ()
+    assert Die([]).quantities('<') == ()
+    assert Die([]).probabilities('>=') == ()
+```
+
+### `pad_to_denominator` raises `KeyError` for an absent outcome when nothing needs padding (S2a)
+
+`Population.pad_to_denominator(denominator, outcome)` deletes the outcome when its new quantity is zero (`del
+data[outcome]`), even when it was never there: `d6.pad_to_denominator(6, 7)` raises `KeyError: 7` instead of
+returning `d6` unchanged. The port copies it (`population.rs` `pad_to_denominator`).
+
+Drafted upstream test:
+
+```python
+def test_pad_to_same_denominator_absent_outcome():
+    assert d6.pad_to_denominator(6, 7).equals(d6)
+```
