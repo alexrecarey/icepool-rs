@@ -3,7 +3,12 @@
 # build under node. The harness uses it as ICEPOOL_RUN (see harness/core/gate.sh long).
 #
 # Builds the node package with wasm-pack first if any source is newer than it, before reading stdin, so the
-# harness's per-program timeout never counts a build. A lock keeps parallel starts from building at once.
+# harness's per-program timeout never counts a build (about 6 s once cargo has built the wasm target; the long gate
+# builds it just before). A lock keeps parallel starts from building at once.
+#
+#   run-wasm.sh           the protocol, for ICEPOOL_RUN
+#   run-wasm.sh --test    calculate() against f2f.calculate's recorded outputs (test-calculate.mjs)
+#   run-wasm.sh --bench   khepri timings (bench.mjs)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -28,4 +33,8 @@ if stale; then
   ) 9> "$CARGO_TARGET_DIR/icepool-wasm.lock"
 fi
 
-exec node "$HERE/run-wasm.mjs" "$PKG"
+case "${1:-}" in
+  --test) exec node "$HERE/test-calculate.mjs" "$PKG" ;;
+  --bench) exec node "$HERE/bench.mjs" "$PKG" ;;
+  *) exec node "$HERE/run-wasm.mjs" "$PKG" ;;
+esac
