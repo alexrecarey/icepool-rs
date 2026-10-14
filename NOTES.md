@@ -5,6 +5,48 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Python facade (S1).** `python/icepool` is a copy of the oracle's `src/icepool` (git ls-files, so no caches)
+  plus `backend.py`: `ICEPOOL_BACKEND=python` (default) or `rust`; `icepool.backend.RUST` is the `icepool_rs`
+  module or `None`, and switched code tests `if icepool.backend.RUST:`. No silent fallback: with `rust`, a failed
+  import of the extension fails `import icepool`. Mark every facade edit (`icepool-rs:` in a docstring/comment).
+  Switched so far: `Die.__new__` after `itemize` / Again / the single-die shortcut (`creation_args.
+  expand_args_for_die_rust`: `expand_arg` stays Python, each subdata is passed tagged by kind), `Die.
+  _unary_operator` and `Die.binary_operator`. A die made by the core keeps it as `_rs` (`Die._new_rust`);
+  `Die._rust_die()` converts a Python-made die once (`from_counts_items`, trusting its order). The facade's
+  `Counts` is built with `Counts._from_sorted_items` (no re-sort). Everything else still runs upstream's Python
+  code over those Counts: that is the queue S1b-S5b in tasks.json.
+- **`Value::Host`** (core `value/host.rs`): an outcome the core has no variant for. Any operator, comparison or
+  `==` with a host object on either side goes to `HostObject` with *both* operands (Python: the real
+  `operator.<op>(a, b)`, so reflected operators and `NotImplemented` work); a tuple holding one compares natively
+  until the differing element. `Error::Host(HostError)` carries the Python exception through the core unchanged
+  (a custom exception class survives). Hash: the host's own hash fed like a number's, so an `IntEnum` merges with
+  an equal int; a `StrEnum` / namedtuple does NOT merge with an equal str / plain tuple as Python's dict would
+  (Rust hashes str/tuple its own way). Program results never contain a host value.
+- **`icepool_rs` (crates/icepool-py)**, pyo3 0.29 (no `extension-module` feature: workspace build/test/clippy
+  link fine). `convert.rs`: exact `bool/int/float/Fraction/str/tuple/None` become native values, everything else
+  (subclasses, `complex`, Vector, Symbols, user classes) a `PyHost` (hash taken on entry: unhashable raises
+  TypeError like the dict insertion). Big ints cross as hex (exempt from Python's int/str digit limit). `ops.rs`:
+  the callable the facade passes is matched by identity against `operator.*`, `math.trunc/floor/ceil`, `round`;
+  `operator.eq/ne` use `Value ==` unless a host object is inside (then Python's `==`); anything else, or any
+  extra args/kwargs, is a host callback per outcome. A core `Error::Unsupported` for a native op (complex
+  arithmetic, printf `str %`) calls the Python operator for that outcome, as for host objects; elsewhere
+  Unsupported raises `NotImplementedError("icepool_rs: ...")`. Results containing `Reroll`/`Restart` as a key
+  raise TypeError like `Counts`.
+- **Checking the facade.** `harness/core/upstream_suite.sh` (in the gate) builds with `maturin develop --release`
+  into `.venv` and runs upstream's tests with `ICEPOOL_BACKEND=rust`; it needs `harness/upstream_shims/conftest.py`,
+  which imports the facade before pytest's `pythonpath = src` (oracle pytest.ini) and harness/__init__.py could
+  put the oracle first, and refuses to run otherwise. Not in the gate, run them yourself after touching the
+  facade: `ICEPOOL_RUN=$PWD/crates/icepool-py/run-facade.sh uv run python -m harness.core.tool fuzz ...` /
+  `fixtures verify` (programs evaluated by the harness's Python grammar with `icepool` = the facade; rebuilds the
+  extension when a source is newer), and `uv run python -m pytest crates/icepool-py/tests -q -p no:cacheprovider`
+  (host outcomes, custom exceptions, big ints, callables with args: oracle vs facade in two subprocesses; add a
+  case there for anything the program language cannot express). At S1: all 2654 fixtures, 26k fuzz programs
+  (seeds 11-13, depth 4) and 500 khepri inputs clean through the facade; the upstream suite takes 15 s on rust
+  vs 17 s on python.
+- Known facade gaps: Python's dict merges the *same* NaN object twice (identity), the core never merges NaNs
+  (same gap as the port, see Gotchas); non-int weights with `__index__` (numpy ints) raise TypeError where Python
+  raises ValueError later.
+
 - **WASM facade (K8).** `crates/icepool-wasm` (wasm-bindgen only; JSON/BigInt/Reflect are declared as externs
   rather than pulling in js-sys): `run(programJson) -> string` = one icepool-run line; `calculate(engineInput)` =
   `f2f.calculate` (input object in, `{rolls, outcomes:[{player, wounds, chance}]}` out, throws where Python raises;
@@ -194,6 +236,10 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Gotchas
 
+- Files copied from the oracle checkout are read-only on disk (`chmod -R u+w python` once; git ignores the mode).
+  Never run Python with the cwd inside `python/icepool`: its `operator/` package shadows the stdlib's.
+- The upstream suite passing is not proof a switched path is used: check with `ICEPOOL_BACKEND=rust` that dice
+  carry `_rs` (e.g. `type((d(6) + 1)._rs)`).
 - **`cargo fmt --all` reformats the protected `crates/icepool-core/tests/fixtures.rs`.** Run it, then
   `git checkout crates/icepool-core/tests/fixtures.rs` (the guard rejects any change there).
 - A shell-safety hook sometimes blocks long `python3 - <<'EOF' ... EOF` heredocs that it misparses as `rm -r`.

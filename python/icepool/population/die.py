@@ -158,6 +158,7 @@ class Die(Population[T_co], MaybeHashKeyed):
                 outcomes[0], Die):
             return outcomes[0]
 
+        # icepool-rs: merge and sort in the Rust core.
         if icepool.backend.RUST:
             return Die._new_rust(
                 icepool.creation_args.expand_args_for_die_rust(
@@ -223,6 +224,7 @@ class Die(Population[T_co], MaybeHashKeyed):
         return self._unary_operator(op, *args, **kwargs)
 
     def _unary_operator(self, op: Callable, *args, **kwargs):
+        # icepool-rs: the operation runs in the Rust core (Python callables are called back per outcome).
         if icepool.backend.RUST:
             return Die._new_rust(
                 icepool.backend.RUST.unary_operator(self._rust_die(), op,
@@ -255,6 +257,8 @@ class Die(Population[T_co], MaybeHashKeyed):
             ValueError: If tuples are of mismatched length within one of the
                 dice or between the dice.
         """
+        # icepool-rs: the product, merge and sort run in the Rust core (Python callables are called back per
+        # pair of outcomes).
         if icepool.backend.RUST:
             return Die._new_rust(
                 icepool.backend.RUST.binary_operator(self._rust_die(),
