@@ -310,6 +310,14 @@ CASES = [
     'Die([1, 2 * Again], again_count=1)',
     'Die([1, d(2) @ Again], again_count=1)',
     'Die([1, 3 + Again], again_count=1.0)',
+    # S3: a bare `AgainExpression()` is not additive (only `Again` is): count mode raises ValueError at it, after
+    # the expressions before it have been evaluated; nested in an additive one, its own flag is never checked.
+    'Die([1, AgainExpression()], again_count=1)',
+    'Die([1, AgainExpression()], again_depth=2)',
+    'Die([1, 2 + AgainExpression(is_additive=True)], again_count=2)',
+    'Die([1, AgainExpression(operator.add, AgainExpression(), 3, is_additive=True)], again_count=2)',
+    'Die([1, AgainExpression(lambda x: 1 / 0, Again, is_additive=True), AgainExpression()], again_count=1)',
+    'Die([1, AgainExpression(), AgainExpression(lambda x: 1 / 0, Again, is_additive=True)], again_count=1)',
     'Die([1, 3 + Again], again_depth=1.5)',
     'Die([1, 3 + Again], again_count=-1)',
     'Die([1, 3 + Again], again_count=1, again_depth=1)',

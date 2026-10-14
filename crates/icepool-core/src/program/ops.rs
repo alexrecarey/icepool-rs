@@ -54,8 +54,9 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         }
         "Again" => {
             let [] = args.exactly([])?;
+            // `icepool.Again = AgainExpression(is_additive=True)`.
             Ok(PValue::Again(std::sync::Arc::new(
-                crate::again::Again::Again,
+                crate::again::Again::Again { is_additive: true },
             )))
         }
         "again" => {

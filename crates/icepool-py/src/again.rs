@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use icepool_core::again::{self, Again, AgainArg, StepOutcome};
 use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
-use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyInt, PyList, PyTuple, PyType};
@@ -48,9 +48,10 @@ fn arg(x: &Bound<'_, PyAny>, cls: &Bound<'_, PyType>) -> PyResult<Arg> {
         return Ok(AgainArg::Other(Arc::new(x.clone().unbind())));
     }
     let function = x.getattr("_func")?;
+    let is_additive = x.getattr("is_additive")?.is_truthy()?;
     // No function: the expression represents the again roll directly.
     if function.is_none() {
-        return Ok(AgainArg::Again(Arc::new(Again::Again)));
+        return Ok(AgainArg::Again(Arc::new(Again::Again { is_additive })));
     }
     let args = x
         .getattr("_args")?
@@ -60,7 +61,7 @@ fn arg(x: &Bound<'_, PyAny>, cls: &Bound<'_, PyType>) -> PyResult<Arg> {
     Ok(AgainArg::Again(Arc::new(Again::Apply {
         function: function.unbind(),
         args,
-        is_additive: x.getattr("is_additive")?.is_truthy()?,
+        is_additive,
     })))
 }
 
@@ -136,18 +137,6 @@ pub fn evaluate_agains_using_count<'py>(
     not_again_die: &Bound<'py, RsDie>,
     again_end_die: Option<&Bound<'py, RsDie>>,
 ) -> PyResult<RsDie> {
-    let cls = AGAIN_EXPRESSION.import(py, "icepool.population.again", "AgainExpression")?;
-    for x in &outcomes {
-        // The core's bare `Again` is always additive; one made as `AgainExpression()` is not.
-        if x.is_instance(cls)?
-            && x.getattr("_func")?.is_none()
-            && !x.getattr("is_additive")?.is_truthy()?
-        {
-            return Err(PyNotImplementedError::new_err(
-                "icepool_rs: again_count with a bare AgainExpression that is not additive",
-            ));
-        }
-    }
     let outcomes = args(py, &outcomes)?;
     let icepool = py.import("icepool")?;
     let tupleize = icepool.getattr("tupleize")?;

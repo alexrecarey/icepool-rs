@@ -457,7 +457,7 @@ fn explode(die: &Die<i64>, which: i64, depth: u64, end: i64) -> Result<Die<i64>>
     if depth == 0 {
         return Ok(die.clone());
     }
-    let again = Arc::new(Again::<AddOp, DieArg<i64>>::Again);
+    let again = Arc::new(Again::<AddOp, DieArg<i64>>::Again { is_additive: true });
     let (objects, times): (Vec<_>, Vec<_>) = die
         .items()
         .iter()

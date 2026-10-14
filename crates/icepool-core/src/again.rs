@@ -22,8 +22,10 @@ use crate::{Die, Quantity, Value};
 /// An expression indicating that the die should be rolled again (`AgainExpression`).
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Again<F, L> {
-    /// The `Again` symbol itself: represents the again roll directly.
-    Again,
+    /// An expression without a function: represents the again roll directly. The `Again` symbol is
+    /// `AgainExpression(is_additive=True)`; one made by hand as `AgainExpression()` is not additive, and count mode
+    /// rejects it like any other non-additive expression (only the top-level flag is ever checked).
+    Again { is_additive: bool },
     /// `function(*args)`, where any args that are themselves `Again` expressions resolve first. These are
     /// considered to be at the same level for purposes of `again_depth`. `is_additive`: whether the expression is
     /// compatible with `again_count`; the facade sets it as the Python dunder that built the expression would
@@ -51,7 +53,7 @@ impl<F, L: Clone> Again<F, L> {
         apply: &impl Fn(&F, Vec<L>) -> std::result::Result<L, E>,
     ) -> std::result::Result<L, E> {
         match self {
-            Again::Again => Ok(die.clone()),
+            Again::Again { .. } => Ok(die.clone()),
             Again::Apply { function, args, .. } => {
                 let args = args
                     .iter()
@@ -65,11 +67,10 @@ impl<F, L: Clone> Again<F, L> {
         }
     }
 
-    /// `is_additive`: the bare `Again` is (`Again = AgainExpression(is_additive=True)`).
+    /// `is_additive`: as the facade (or the dunder that built the expression) set it.
     pub fn is_additive(&self) -> bool {
         match self {
-            Again::Again => true,
-            Again::Apply { is_additive, .. } => *is_additive,
+            Again::Again { is_additive } | Again::Apply { is_additive, .. } => *is_additive,
         }
     }
 
@@ -83,7 +84,7 @@ impl<F, L: Clone> Again<F, L> {
         apply: &impl Fn(&F, Vec<L>) -> std::result::Result<L, E>,
     ) -> std::result::Result<L, E> {
         match self {
-            Again::Again => Ok(one.clone()),
+            Again::Again { .. } => Ok(one.clone()),
             Again::Apply { function, args, .. } => {
                 let args = args
                     .iter()
