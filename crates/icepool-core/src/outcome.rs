@@ -16,6 +16,16 @@ pub trait Outcome: Clone + Debug + Hash + Eq {
     /// it. (Like Python, `Value`'s float NaN is not equal to itself; see NOTES.md.)
     fn py_lt(&self, other: &Self) -> Result<bool>;
 
+    /// Python's `self <= other` (`Die.clip`). The default suits types whose `<` is a total order.
+    fn py_le(&self, other: &Self) -> Result<bool> {
+        Ok(self == other || self.py_lt(other)?)
+    }
+
+    /// Python's `self >= other`.
+    fn py_ge(&self, other: &Self) -> Result<bool> {
+        other.py_le(self)
+    }
+
     /// `Counts` rejects some keys outright (`None`, `Reroll`) with `TypeError`. Most types accept everything.
     fn check_key(&self) -> Result<()> {
         Ok(())

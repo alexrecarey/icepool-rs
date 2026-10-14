@@ -9,6 +9,7 @@ use serde_json::{json, Map, Number, Value as Json};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::value::{float_repr, Value};
+use crate::Die;
 
 /// A JSON number: Python's `json` makes it an `int` unless it has a fraction or exponent. Returns `None` for floats.
 pub fn json_int(n: &Number) -> Option<IBig> {
@@ -186,20 +187,33 @@ pub fn enc(v: &Value) -> Json {
     }
 }
 
+fn die_items(d: &Die<Value>) -> Vec<Json> {
+    d.items()
+        .iter()
+        .map(|(o, q)| Json::Array(vec![enc(o), int_json(q.to_string())]))
+        .collect()
+}
+
+/// `encode.enc` for any program value: `None` for the ones the port cannot spell as Python does (lists, functions).
+fn enc_object(v: &PValue) -> Option<Json> {
+    Some(match v {
+        PValue::Value(x) => enc(x),
+        PValue::Die(d) => json!({"die": die_items(d)}),
+        PValue::Tuple(items) => {
+            json!({"tuple": items.iter().map(enc_object).collect::<Option<Vec<_>>>()?})
+        }
+        PValue::Reroll => json!({"repr": "RerollType: <RerollType.Reroll: 'Reroll'>"}),
+        PValue::List(_) | PValue::Func(_) => return None,
+    })
+}
+
 /// `encode.result_of`.
 pub fn result_of(v: &PValue) -> Json {
     match v {
-        PValue::Die(d) => {
-            let items: Vec<Json> = d
-                .items()
-                .iter()
-                .map(|(o, q)| Json::Array(vec![enc(o), int_json(q.to_string())]))
-                .collect();
-            json!({"ok": true, "die": items})
-        }
-        PValue::Value(x) => json!({"ok": true, "value": enc(x)}),
-        PValue::List(_) => {
-            json!({"ok": false, "error": "unimplemented: a list as a program result"})
-        }
+        PValue::Die(d) => json!({"ok": true, "die": die_items(d)}),
+        other => match enc_object(other) {
+            Some(value) => json!({"ok": true, "value": value}),
+            None => json!({"ok": false, "error": "unimplemented: this kind of program result"}),
+        },
     }
 }

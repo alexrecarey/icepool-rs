@@ -9,13 +9,16 @@ use crate::Quantity;
 
 /// One element of the `outcomes` passed to `Die(...)`, after the facade has unpacked Python's dynamic arguments.
 ///
-/// (icepool's `Reroll`, `Again` and tuples containing dice are later additions: they become variants here.)
+/// Tuples containing dice are `tupleize`d into a `Die` by the facade before they get here (the core does not know
+/// about tuple outcomes). (`Again` is a later addition: it becomes a variant here.)
 #[derive(Clone, Debug)]
 pub enum DieArg<O> {
     /// A plain outcome: `expand_arg` makes it `{outcome: 1}`.
     Outcome(O),
     /// A die, which will be flattened into the result. The quantity assigned to it is shared among its outcomes.
     Die(Die<O>),
+    /// `icepool.Reroll` (or `Restart`): `expand_arg` makes it `{}`, so it drops itself from consideration.
+    Reroll,
 }
 
 impl<O: Outcome> DieArg<O> {
@@ -23,6 +26,7 @@ impl<O: Outcome> DieArg<O> {
         match self {
             DieArg::Outcome(_) => Quantity::ONE,
             DieArg::Die(d) => d.denominator(),
+            DieArg::Reroll => Quantity::ZERO,
         }
     }
 }
@@ -58,6 +62,7 @@ pub fn merge_weights_lcm<O: Outcome>(
                     data.add(outcome.clone(), weight * &scale_factor);
                 }
             }
+            DieArg::Reroll => {}
         }
     }
     data.into_items()

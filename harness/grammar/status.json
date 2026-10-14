@@ -29,5 +29,15 @@
   "round": "ported",
   "trunc": "ported",
   "floor": "ported",
-  "ceil": "ported"
+  "ceil": "ported",
+  "fn": "ported",
+  "Reroll": "ported",
+  "tuple": "ported",
+  "map": "ported",
+  "reroll": "ported",
+  "filter": "ported",
+  "split": "ported",
+  "clip": "ported",
+  "truncate": "ported",
+  "mixture": "ported"
 }

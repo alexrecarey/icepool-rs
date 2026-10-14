@@ -9,6 +9,10 @@ pub enum Error {
     Type(String),
     /// Python `ValueError`: e.g. negative quantities, `d(0)`.
     Value(String),
+    /// Python `IndexError`: e.g. `min_outcome()` of an empty die, `()[0]`.
+    Index(String),
+    /// Python `KeyError`.
+    Key(String),
     /// Python `ZeroDivisionError`.
     ZeroDivision(String),
     /// Python `OverflowError`, or a size the port cannot represent (Python would run out of memory or time).
@@ -24,6 +28,8 @@ impl Error {
         match self {
             Error::Type(_) => "TypeError",
             Error::Value(_) => "ValueError",
+            Error::Index(_) => "IndexError",
+            Error::Key(_) => "KeyError",
             Error::ZeroDivision(_) => "ZeroDivisionError",
             Error::Overflow(_) => "OverflowError",
             Error::Unsupported(_) => "unimplemented",
@@ -34,6 +40,8 @@ impl Error {
         match self {
             Error::Type(m)
             | Error::Value(m)
+            | Error::Index(m)
+            | Error::Key(m)
             | Error::ZeroDivision(m)
             | Error::Overflow(m)
             | Error::Unsupported(m) => m,

@@ -685,7 +685,7 @@ pub fn str_format_mapping(s: &str) -> Result<Value> {
 }
 
 /// Python's rich comparison `<`, `<=`, `>`, `>=` between two outcomes.
-fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
+pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
     let by_ord = |o: Ordering| match op {
         BinOp::Lt => o == Ordering::Less,
         BinOp::Le => o != Ordering::Greater,

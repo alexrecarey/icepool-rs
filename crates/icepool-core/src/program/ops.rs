@@ -6,6 +6,8 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 use rustc_hash::FxHashMap;
 
+use super::catalogue::Func;
+use super::map;
 use super::{raise, Args, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
@@ -22,13 +24,41 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [outcomes] = args.exactly(["outcomes"])?;
             die(outcomes, None)
         }
-        "die_times" => {
+        "die_times" | "mixture" => {
             let [outcomes, times] = args.exactly(["outcomes", "times"])?;
             die(outcomes, Some(times))
         }
         "weights" => {
             let [items] = args.exactly(["items"])?;
             weights(items)
+        }
+        "fn" => {
+            let [name, params] = args.exactly(["name", "params"])?;
+            Ok(PValue::Func(Func::new(name, py_iter(params)?)?.into()))
+        }
+        "Reroll" => {
+            let [] = args.exactly([])?;
+            Ok(PValue::Reroll)
+        }
+        "tuple" => {
+            let [items] = args.exactly(["items"])?;
+            Ok(PValue::tuple(py_iter(items)?))
+        }
+        "map" => {
+            let [f, args, star] = args.exactly(["f", "args", "star"])?;
+            map::map(f, args, star)
+        }
+        "reroll" | "filter" => {
+            let [die, which, star, depth] = args.exactly(["die", "which", "star", "depth"])?;
+            map::reroll(op == "filter", die, which, star, depth)
+        }
+        "split" => {
+            let [die, which, star] = args.exactly(["die", "which", "star"])?;
+            map::split(die, which, star)
+        }
+        "clip" | "truncate" => {
+            let [die, min, max] = args.exactly(["die", "min", "max"])?;
+            map::clip_or_truncate(op == "clip", die, min, max)
         }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
@@ -87,12 +117,11 @@ fn unary_op(op: &str) -> Option<UnOp> {
 }
 
 /// `implicit_convert_to_die`: a die stays as it is, anything else becomes `Die([x])` (which raises for `None`, and
-/// for a list, which is unhashable).
+/// for a list, which is unhashable; `Reroll` gives the empty die).
 fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
     match x {
         PValue::Die(d) => Ok(d),
-        PValue::Value(v) => Ok(Die::new(vec![DieArg::Outcome(v)], vec![Quantity::ONE])?),
-        PValue::List(_) => type_error("unhashable type: 'list'"),
+        x => Ok(Die::new(vec![die_arg(x)?], vec![Quantity::ONE])?),
     }
 }
 
@@ -100,7 +129,7 @@ fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
 /// right, the left operand's own `__op__` returns `NotImplemented` (no outcome type knows about dice), so Python
 /// calls the die's reflected method: `__radd__` and friends convert the left operand and keep the order
 /// (`3 - die` is `Die([3]) - die`), while a comparison reflects (`3 < die` is `die > 3`).
-fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
+pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
     let apply = |x: &Die<Value>, op: BinOp, y: &Die<Value>| {
         x.binary_operator(y, |p, q| p.binary(op, q))
             .map(PValue::Die)
@@ -118,7 +147,9 @@ fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             None => apply(&to_die(a)?, op, &b),
         },
         (PValue::Value(a), PValue::Value(b)) => Ok(PValue::Value(a.binary(op, &b)?)),
-        _ => Err(PErr::Unimplemented("operators on lists".into())),
+        _ => Err(PErr::Unimplemented(
+            "operators on lists, Reroll, tuples of dice, functions".into(),
+        )),
     }
 }
 
@@ -127,7 +158,7 @@ fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
     match a {
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
         PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
-        PValue::List(_) => type_error("bad operand type for a unary operator: 'list'"),
+        _ => type_error("bad operand type for a unary operator"),
     }
 }
 
@@ -143,11 +174,11 @@ fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
     match a {
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.round(&nd))?)),
         PValue::Value(v) => Ok(PValue::Value(v.round(&nd)?)),
-        PValue::List(_) => type_error("type list doesn't define __round__ method"),
+        _ => type_error("type doesn't define __round__ method"),
     }
 }
 
-fn type_error<T>(msg: impl Into<String>) -> Result<T, PErr> {
+pub(super) fn type_error<T>(msg: impl Into<String>) -> Result<T, PErr> {
     raise(Error::Type(msg.into()))
 }
 
@@ -160,7 +191,7 @@ fn zero() -> Num<'static> {
 }
 
 /// `icepool.d(sides)`: `sides` must be an `int` (a `bool` is one).
-fn d(sides: PValue) -> Result<PValue, PErr> {
+pub(super) fn d(sides: PValue) -> Result<PValue, PErr> {
     let sides = match sides {
         PValue::Value(Value::Int(i)) => i,
         PValue::Value(Value::Bool(b)) => IBig::from(b as u8),
@@ -173,9 +204,9 @@ fn d(sides: PValue) -> Result<PValue, PErr> {
 }
 
 /// Python's `iter(x)` over a program value: a list, a tuple's elements, a str's characters, a die's outcomes.
-fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
+pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
     Ok(match x {
-        PValue::List(xs) => xs,
+        PValue::List(xs) | PValue::Tuple(xs) => xs,
         PValue::Value(Value::Tuple(t)) => t.iter().cloned().map(PValue::Value).collect(),
         PValue::Value(Value::Str(s)) => s
             .chars()
@@ -185,15 +216,21 @@ fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Value(v) => {
             return type_error(format!("'{}' object is not iterable", v.type_name()))
         }
+        PValue::Reroll => return type_error("'RerollType' object is not iterable"),
+        PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
     })
 }
 
-/// `expand_arg`'s view of one outcome: a die is mixed in, a hashable value is an outcome, a list is unhashable.
-fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
+/// `expand_arg`'s view of one outcome: a die is mixed in, a hashable value is an outcome, `Reroll` drops out, a
+/// tuple holding dice is `tupleize`d, a list is unhashable.
+pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
     match x {
         PValue::Value(v) => Ok(DieArg::Outcome(v)),
         PValue::Die(d) => Ok(DieArg::Die(d)),
+        PValue::Reroll => Ok(DieArg::Reroll),
+        PValue::Tuple(items) => map::tupleize(items),
         PValue::List(_) => type_error("unhashable type: 'list'"),
+        PValue::Func(_) => Err(PErr::Unimplemented("a function as an outcome".into())),
     }
 }
 
@@ -237,14 +274,17 @@ fn itemize(keys: PValue, times: Option<PValue>) -> Result<(Vec<DieArg<Value>>, V
             (a, Some(q))
         }
         // Any other sequence: each element once. `len()` of an int, float, None... raises TypeError.
-        x @ (PValue::List(_) | PValue::Value(Value::Str(_) | Value::Tuple(_))) => (
+        x @ (PValue::List(_)
+        | PValue::Tuple(_)
+        | PValue::Value(Value::Str(_) | Value::Tuple(_))) => (
             py_iter(x)?
                 .into_iter()
                 .map(die_arg)
                 .collect::<Result<_, _>>()?,
             None,
         ),
-        PValue::Value(_) => return type_error("Argument appears not to be a mapping or sequence."),
+        PValue::Func(_) => return Err(PErr::Unimplemented("Die(mapping)".into())),
+        _ => return type_error("Argument appears not to be a mapping or sequence."),
     };
     let times: Vec<Value> = match times {
         None => vec![Value::from(1); args.len()],
@@ -340,18 +380,16 @@ fn weight(arg: &DieArg<Value>, t: &Value) -> Result<Quantity, PErr> {
 }
 
 /// A Python dict key: a value or a die (dice hash by their items).
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum Key {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Key {
     Value(Value),
     Die(Die<Value>),
 }
 
-/// `icepool.Die({outcome: quantity for outcome, quantity in items})`.
-fn weights(items: PValue) -> Result<PValue, PErr> {
-    // The dict comprehension: each item unpacks into exactly two; a repeated key (by ==, e.g. True and 1) keeps its
-    // first spelling and its last quantity.
-    let mut keys: Vec<Key> = Vec::new();
-    let mut values: Vec<PValue> = Vec::new();
+/// `{k: v for k, v in items}`: each item unpacks into exactly two; a repeated key (by ==, e.g. True and 1) keeps
+/// its first spelling and its last value. Returned in insertion order.
+pub(super) fn dict_items(items: PValue) -> Result<Vec<(Key, PValue)>, PErr> {
+    let mut entries: Vec<(Key, PValue)> = Vec::new();
     let mut index: FxHashMap<Key, usize> = FxHashMap::default();
     for item in py_iter(items)? {
         let Ok([k, v]) = <[PValue; 2]>::try_from(py_iter(item)?) else {
@@ -363,16 +401,22 @@ fn weights(items: PValue) -> Result<PValue, PErr> {
             PValue::Value(v) => Key::Value(v),
             PValue::Die(d) => Key::Die(d),
             PValue::List(_) => return type_error("unhashable type: 'list'"),
+            _ => return Err(PErr::Unimplemented("this dict key".into())),
         };
         match index.get(&k) {
-            Some(&i) => values[i] = v,
+            Some(&i) => entries[i].1 = v,
             None => {
-                index.insert(k.clone(), keys.len());
-                keys.push(k);
-                values.push(v);
+                index.insert(k.clone(), entries.len());
+                entries.push((k, v));
             }
         }
     }
+    Ok(entries)
+}
+
+/// `icepool.Die({outcome: quantity for outcome, quantity in items})`.
+fn weights(items: PValue) -> Result<PValue, PErr> {
+    let (keys, values): (Vec<Key>, Vec<PValue>) = dict_items(items)?.into_iter().unzip();
     let args: Vec<DieArg<Value>> = keys
         .into_iter()
         .map(|k| match k {

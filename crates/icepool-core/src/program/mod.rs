@@ -4,8 +4,12 @@
 //! harness/core/grammar_api.py `evaluate` does, unpacks Python-style arguments (lists, typed literals, dice) and
 //! calls the static core. Node implementations live in `ops.rs`, one per grammar node in harness/grammar/.
 
+mod catalogue;
+mod map;
 mod ops;
 mod wire;
+
+use std::sync::Arc;
 
 use serde_json::{json, Value as Json};
 
@@ -19,6 +23,31 @@ pub enum PValue {
     Die(Die<Value>),
     /// A JSON list argument, evaluated element by element.
     List(Vec<PValue>),
+    /// `icepool.Reroll`.
+    Reroll,
+    /// A Python tuple holding something that is not a plain value (a die, `Reroll`, ...). Tuples of plain values
+    /// are `Value::Tuple`; build tuples with `PValue::tuple`, which picks the right one.
+    Tuple(Vec<PValue>),
+    /// A callable or mapping from harness/catalogue.
+    Func(Arc<catalogue::Func>),
+}
+
+impl PValue {
+    /// Python's `tuple(items)`.
+    pub fn tuple(items: Vec<PValue>) -> PValue {
+        if items.iter().all(|x| matches!(x, PValue::Value(_))) {
+            let values = items
+                .into_iter()
+                .map(|x| match x {
+                    PValue::Value(v) => v,
+                    _ => unreachable!("checked above"),
+                })
+                .collect();
+            PValue::Value(Value::tuple(values))
+        } else {
+            PValue::Tuple(items)
+        }
+    }
 }
 
 /// Why evaluation stopped: Python raised (a valid answer, matched by any oracle raise), or the port lacks something.
@@ -64,7 +93,12 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                 .ok_or_else(|| PErr::Unimplemented("non-string op".into()))?;
             let mut values = Vec::new();
             for (k, v) in m.iter().filter(|(k, _)| *k != "op") {
-                values.push((k.as_str(), eval(v)?));
+                // A node's `lazy` arguments (grammar_api.Node.lazy) arrive unevaluated: here, the catalogue name.
+                let v = match (op, k.as_str(), v) {
+                    ("fn", "name", Json::String(name)) => PValue::Value(Value::str(name)),
+                    _ => eval(v)?,
+                };
+                values.push((k.as_str(), v));
             }
             ops::call(op, Args(values))
         }
