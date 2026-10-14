@@ -1,0 +1,13 @@
+{
+  "d": "pending",
+  "die": "pending",
+  "weights": "pending",
+  "add": "pending",
+  "sub": "pending",
+  "mul": "pending",
+  "neg": "pending",
+  "lt": "pending",
+  "ge": "pending",
+  "matmul": "pending",
+  "khepri": "pending"
+}

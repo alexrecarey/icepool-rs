@@ -1,0 +1,138 @@
+[
+  {
+    "id": "K1",
+    "title": "Core types: outcome values, big-int quantities, Die construction",
+    "deps": [],
+    "milestone": null,
+    "details": "The foundation. An outcome value type following Python's rules (docs/semantics.md: bool is an int and merges with 1, str, tuple, float, Fraction; Python's ordering, raising on incomparable types). Big-integer quantities (pick the crate, note why in NOTES.md). A Die: sorted (outcome, quantity) items exactly as icepool's Counts keeps them (population/base.py, population/die.py __new__, collection/counts.py, creation_args.py). Wire encoding/decoding (harness/core/encode.py) in program/. Make the grammar nodes d, die, weights fuzz clean and mark them ported. Design the core so later tasks (arithmetic, map, pools, evaluators, PyO3, WASM) fit: read docs/ANALYSIS.md first and write the module layout you chose into NOTES.md."
+  },
+  {
+    "id": "K2",
+    "title": "Arithmetic and comparison operators",
+    "deps": [
+      "K1"
+    ],
+    "milestone": null,
+    "details": "Die-die and die-scalar binary operators (+ - * / // % ** << >> & | ^, < <= > >=) and unary ones (- + ~ abs, round/trunc/floor/ceil), with Python's mixed-type semantics, bool-as-int, tuple concatenation, int/int -> float for /. Port binary_operator / unary_operator from population/die.py and base.py. Existing nodes add, sub, mul, neg, lt, ge: make them fuzz clean and ported. Add grammar nodes for every other operator, including scalar-on-the-left forms (3 - die), division by zero (raises), and float outcomes."
+  },
+  {
+    "id": "K3",
+    "title": "map, mixtures, Reroll; reroll/filter/split/clip/truncate",
+    "deps": [
+      "K2"
+    ],
+    "milestone": null,
+    "details": "Die.map / icepool.map without repeat (map_tools/function.py, core_impl.py): callables come from harness/catalogue (named functions with a Python and a Rust side; start with ~15: add_k, clamp, read_roll from khepri, is_even, swap/tuple ops, ones that return a Die, ones that return Reroll, star-style multi-argument ones). Results that are Dice are mixed with weighted_lcm exactly (creation_args.py, math.py). Extra Die arguments to map (cartesian product). Then reroll (with depth and 'inf'), filter, split, clip, truncate, and the Die([die1, die2]) / weighted mixture constructors. Grammar nodes for all of it."
+  },
+  {
+    "id": "K4",
+    "title": "Repeated sums (@), explode, Again in depth mode",
+    "deps": [
+      "K3"
+    ],
+    "milestone": null,
+    "details": "n @ die with int and Die n, _sum_all caching, the den**(max|n|-|n|) scaling (die.py). explode (which outcomes, depth, end) via the Again expression in depth mode (population/again.py evaluate_agains_using_depth): port Again as a closed Rust enum, depth mode only for now (count mode is a Phase S task). matmul node to ported; add explode and again nodes."
+  },
+  {
+    "id": "K5",
+    "title": "Pool, keep tuples, popping",
+    "deps": [
+      "K4"
+    ],
+    "milestone": null,
+    "details": "Pool of mixed dice (generator/pool.py), keep tuples and their composition (generator/keep.py, highest/lowest/middle/slices/Ellipsis index forms), binomial popping with comb_row (math.py), skip collapse. Die.pool(), Die.highest/lowest single-die forms (die.py, population/keep.py). Sources should be enums with tiny hashable keys (see ANALYSIS.md). Grammar nodes for building pools and reading them through the basic evaluators once K6 lands (you can add the pool nodes now and port the evaluation in K6; nodes are only ported when they fuzz clean)."
+  },
+  {
+    "id": "K6",
+    "title": "Multiset evaluation driver and built-in evaluators",
+    "deps": [
+      "K5"
+    ],
+    "milestone": null,
+    "details": "The DP (evaluator/multiset_evaluator_base.py): backward algorithm preferred, forward fallback, order negotiation exactly as icepool does it (order.py merge_order_preferences, PoolSource.order_preference, UnsupportedOrder flips), room memo, multiple sources aligned on one outcome list, extra_outcomes, final_outcome returning a Die or Reroll. Built-in evaluators from evaluator/basic.py, keep.py, poker.py, comparison.py, argsort.py: start with sum, size, count, keep-index, highest/lowest outcome, largest_count, all_straights; add the rest as tasks if needed. Evaluators defined in harness/catalogue as named evaluators (Python subclass + Rust impl) for custom ones. Grammar nodes: pool.sum(), pool.size(), etc."
+  },
+  {
+    "id": "K7",
+    "title": "khepri engine in Rust (FaceToFace)",
+    "deps": [
+      "K6"
+    ],
+    "milestone": "khepri core matches Python icepool exactly",
+    "details": "Port harness/core/khepri/f2f.py (khepri-f2f's engine, verbatim copy) to Rust on top of the core: FaceToFace as a native evaluator, infinity_die, template rolls, wounds (explode for Continuous Damage, @ for saves), the result map. Wire the khepri grammar node and mark it ported: the khepri sweep (gate) must be clean, and fixtures/v0/khepri-seed.jsonl must pass. Add a Rust function with the same input/output shape as f2f.calculate (floats derived from the exact die) for the WASM build."
+  },
+  {
+    "id": "K8",
+    "title": "WASM build and JS entry point for khepri",
+    "deps": [
+      "K7"
+    ],
+    "milestone": "khepri engine runs in WASM, identical to Python",
+    "details": "crates/icepool-wasm (wasm-bindgen): exports run(programJson) and calculate(engineInput) (same output as khepri's worker expects from f2f.calculate). wasm-pack build for the web and for node. crates/icepool-wasm/run-wasm.sh: a node wrapper that speaks the icepool-run protocol (one JSON program per stdin line, one result per stdout line) through the WASM build, so the long gate runs every fixture and a fuzz run through WASM. Record wasm size and khepri timings (typical/mid/heavy as in ANALYSIS.md) in NOTES.md."
+  },
+  {
+    "id": "S1",
+    "title": "PyO3 crate and the Python facade (strangler harness)",
+    "deps": [
+      "K8"
+    ],
+    "milestone": "Python facade running upstream's test suite",
+    "details": "crates/icepool-py (PyO3 + maturin, module icepool_rs). python/icepool: a copy of the oracle's src/icepool with a backend switch (ICEPOOL_BACKEND=python|rust). With nothing switched yet, harness/core/upstream_suite.sh (the gate runs it once crates/icepool-py exists) must pass the whole upstream suite; then switch the first module (Die construction + arithmetic) to Rust behind the unchanged API. Then split Phase S into iteration-sized tasks in tasks.json, in dependency order, each switching one module and adding its grammar nodes."
+  },
+  {
+    "id": "S2",
+    "title": "Strangler: remaining Population/Die surface and statistics",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "Coarse task: split it before starting. Everything in population/base.py and die.py not yet in Rust: quantities/probabilities with comparators, marginals, group_by, statistics (mean/variance/sd/skewness/kurtosis/entropy/KS/CvM), nearest/quantile/median, format (md/csv/bbcode/html), sample (seeded), DieWithTruth via the facade. Grammar nodes for each."
+  },
+  {
+    "id": "S3",
+    "title": "Strangler: Again count mode, map(repeat), Markov chains",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "Coarse task: split it before starting. population/again.py count mode, map(repeat=n) and repeat='inf' (map_tools/markov_chain.py absorbing chain with exact integer elimination), map_and_time, mean_time_to_absorb, time_to_sum, Break/Restart sentinels. Host callbacks for map functions from Python (PyO3) and JS."
+  },
+  {
+    "id": "S4",
+    "title": "Strangler: Deck, Deal, MultiDeal, multiset operators and expressions",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "Coarse task: split it before starting. population/deck.py, generator/deal.py, multi_deal.py, operator/*.py (binary, adjust_counts, filter_outcomes, keep incl. the generic MultisetKeep, pair, versus), expression/* (mixtures, tuple expressions, parameters), evaluator/multiset_function.py (@multiset_function: tracing stays in the Python facade, Rust executes the DAG), lexi.py, user-defined MultisetEvaluator subclasses via host callbacks."
+  },
+  {
+    "id": "S5",
+    "title": "Strangler: Vector, Symbols, wallenius, remaining exports",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "Coarse task: split it before starting. collection/vector.py, symbols.py, wallenius.py, function.py helpers, everything left in __init__.py's exports. When this and S2-S4 are done, every upstream test passes with the rust backend and no facade module falls back to Python."
+  },
+  {
+    "id": "S6",
+    "title": "JS facade over the full surface, npm package",
+    "deps": [
+      "S2",
+      "S3",
+      "S4",
+      "S5"
+    ],
+    "milestone": "full parity: Python facade + JS facade over the Rust core",
+    "details": "Idiomatic method-based JS API (ANALYSIS.md 'JS API shape'), BigInt quantities, JS callbacks for map, evaluator state as serialisable keys, TypeScript types, a JS test suite driven by the fixtures."
+  },
+  {
+    "id": "T1",
+    "title": "Grammar coverage report against the oracle",
+    "deps": [
+      "K3"
+    ],
+    "milestone": null,
+    "details": "Write harness/tools/oracle_coverage.py (not protected): run the fuzzer's programs plus all fixtures through the oracle under coverage.py and list oracle functions/branches never reached. Commit the report to docs-free location harness-reports/coverage.md. Then add todo tasks for grammar nodes that would reach the biggest uncovered areas of already-ported features."
+  }
+]
