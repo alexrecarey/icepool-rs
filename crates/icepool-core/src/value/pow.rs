@@ -121,9 +121,9 @@ fn specialcase(tmp: f64, mut sbits: u64, ki: u64) -> f64 {
         // can cause 0.5+E/2 ulp error where E is the worst-case ulp error outside the subnormal range. So this is
         // only useful if the goal is better than 1 ulp worst-case error.
         let one = if y < 0.0 { -1.0 } else { 1.0 };
-        let mut lo = scale - y + scaled_tmp;
+        let lo = scale - y + scaled_tmp;
         let hi = one + y;
-        lo = one - hi + y + lo;
+        let lo = one - hi + y + lo;
         y = (hi + lo) - one;
         // Fix the sign of 0.
         if y == 0.0 {
