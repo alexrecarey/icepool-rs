@@ -242,15 +242,27 @@ mod tests {
     #[test]
     fn attribute_errors_name_the_type_and_the_attribute() {
         // `getattr(3, 'values')`: the attribute asked for, not "getattr".
-        let (_, msg) = raised(r#"{"op":"symbols_method","s":3,"name":{"str":"getattr"},"arg":{"str":"values"}}"#);
-        assert_eq!(msg, "AttributeError: 'int' object has no attribute 'values'");
-        let (_, msg) = raised(r#"{"op":"symbols_method","s":{"float":"1.5"},"name":{"str":"size"},"arg":null}"#);
-        assert_eq!(msg, "AttributeError: 'float' object has no attribute 'size'");
+        let (_, msg) = raised(
+            r#"{"op":"symbols_method","s":3,"name":{"str":"getattr"},"arg":{"str":"values"}}"#,
+        );
+        assert_eq!(
+            msg,
+            "AttributeError: 'int' object has no attribute 'values'"
+        );
+        let (_, msg) = raised(
+            r#"{"op":"symbols_method","s":{"float":"1.5"},"name":{"str":"size"},"arg":null}"#,
+        );
+        assert_eq!(
+            msg,
+            "AttributeError: 'float' object has no attribute 'size'"
+        );
     }
 
     #[test]
     fn missing_die_key_is_a_key_error_naming_the_key() {
-        let (ty, msg) = raised(r#"{"op":"die_method","die":{"op":"d","sides":4},"name":{"str":"getitem"},"arg":0}"#);
+        let (ty, msg) = raised(
+            r#"{"op":"die_method","die":{"op":"d","sides":4},"name":{"str":"getitem"},"arg":0}"#,
+        );
         assert_eq!((ty.as_str(), msg.as_str()), ("KeyError", "0"));
     }
 
@@ -266,8 +278,14 @@ mod tests {
         let (ty, msg) = raised(&again(r#"{"op":"die","outcomes":[-1,2]}"#));
         assert_eq!(ty, "ValueError");
         assert!(msg.contains("non-additive"), "{msg}");
-        assert_eq!(raised(&again(r#"{"op":"die","outcomes":[0,2]}"#)).0, "TypeError");
+        assert_eq!(
+            raised(&again(r#"{"op":"die","outcomes":[0,2]}"#)).0,
+            "TypeError"
+        );
         // `min_outcome()` of an empty die raises first.
-        assert_eq!(raised(&again(r#"{"op":"die","outcomes":[]}"#)).0, "IndexError");
+        assert_eq!(
+            raised(&again(r#"{"op":"die","outcomes":[]}"#)).0,
+            "IndexError"
+        );
     }
 }

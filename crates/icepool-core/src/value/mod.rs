@@ -409,7 +409,8 @@ mod tests {
     fn collections_hash_by_their_contents() {
         // Not needed for correctness (unequal values may collide), but dice of vectors or symbols would degrade
         // to linear lookups if every one hashed alike.
-        let v = |xs: &[i64]| Value::Vector(Vector::new(xs.iter().map(|&x| Value::from(x)).collect()));
+        let v =
+            |xs: &[i64]| Value::Vector(Vector::new(xs.iter().map(|&x| Value::from(x)).collect()));
         assert_eq!(h(&v(&[1, 2])), h(&v(&[1, 2])));
         assert_ne!(h(&v(&[1, 2])), h(&v(&[2, 1])));
         assert_ne!(h(&v(&[0])), h(&Value::from(0)));

@@ -512,7 +512,10 @@ mod tests {
             (1, Some(2))
         }
         fn call(&self, args: Vec<PValue>, _: Vec<(String, PValue)>) -> Result<PValue, PErr> {
-            Ok(args.into_iter().next().unwrap_or(PValue::Value(Value::None)))
+            Ok(args
+                .into_iter()
+                .next()
+                .unwrap_or(PValue::Value(Value::None)))
         }
     }
 
