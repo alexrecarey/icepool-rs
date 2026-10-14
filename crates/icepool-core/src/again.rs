@@ -13,10 +13,9 @@
 
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
-
 use crate::creation_args::DieArg;
 use crate::error::{Error, Result};
+use crate::map_tools::{map_repeat, Next, Target, TransitionCache};
 use crate::value::BinOp;
 use crate::{Die, Quantity, Value};
 
@@ -176,144 +175,44 @@ pub fn step_outcomes<F, L: Clone, E: From<Error>>(
         .collect()
 }
 
-/// map_tools `TransitionType` (an `IntEnum`, so its members sort and hash as these ints). `Reroll` gets pruned
-/// immediately, so doesn't get a transition type.
-const DEFAULT: i64 = 0;
-const BREAK: i64 = 1;
-const RESTART: i64 = 2;
-
 /// What `step` returns: a state `(flat, not_again, again, index)` or `Restart`.
 enum Step {
     State(Value),
     Restart,
 }
 
-/// The Markov chain of count mode: `map(step, step_die, star=True, repeat=again_count + 1)` from the state
-/// `(zero, 0, 1, 0)`, done as `map(repeat=n)` does it (`TransitionCache`), so every intermediate `Die` (and so
-/// every quantity) is Python's: a transition die of `(transition_type, state)` tuples, stepped `n` times (stopping
-/// early once no state is `DEFAULT`), then `final_map` (`Restart`ed states become `Reroll`).
-struct CountChain<'a> {
-    step_die: &'a Die<Value>,
-    /// `again_count + 1`.
-    repeat: Value,
-    restart: bool,
-    /// `TransitionCache._self_loop_cache`.
-    self_loop: FxHashMap<Value, i64>,
-}
-
 fn int(i: i64) -> Value {
     Value::from(dashu_int::IBig::from(i))
 }
 
-/// Whether a NaN is in `v`. Python's `==` inside a tuple short-circuits on object identity, so the same NaN object
-/// (the zero of a die holding inf is `inf * 0`, shared by every `(zero, 1, -1)` step outcome) makes equal tuples
-/// that merge in a die, and new NaN objects do not: the port cannot know which is which.
-fn has_nan(v: &Value) -> bool {
-    match v {
-        Value::Float(f) => f.is_nan(),
-        Value::Complex(re, im) => re.is_nan() || im.is_nan(),
-        Value::Tuple(items) => items.iter().any(has_nan),
-        _ => false,
+/// `step(flat, not_again, again, index, roll)` of count mode's Markov chain; `repeat` is `again_count + 1`.
+fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<Step> {
+    let unpack = |v: &Value, n: usize| match v {
+        Value::Tuple(items) if items.len() == n => Ok(items.clone()),
+        _ => Err(Error::Type(format!("cannot unpack {} into {n} values", v.type_name()))),
+    };
+    let s = unpack(state, 4)?;
+    let (flat, not_again, again, index) = (&s[0], &s[1], &s[2], &s[3]);
+    if *again == int(0) {
+        return Ok(Step::State(state.clone()));
     }
-}
-
-fn check_nan(v: &Value) -> Result<()> {
-    if has_nan(v) {
-        return Err(Error::Unsupported(
-            "NaN in again_count states (Python merges the same NaN object by identity)".into(),
-        ));
+    if index.binary(BinOp::Lt, repeat)?.truthy() {
+        let r = unpack(roll, 3)?;
+        let flat = flat.binary(BinOp::Add, &r[0])?;
+        let not_again = not_again.binary(BinOp::Add, &r[1])?;
+        let again = again.binary(BinOp::Add, &r[2])?;
+        let index = index.binary(BinOp::Add, &int(1))?;
+        if restart
+            && index
+                .binary(BinOp::Add, &again)?
+                .binary(BinOp::Gt, repeat)?
+                .truthy()
+        {
+            return Ok(Step::Restart);
+        }
+        return Ok(Step::State(Value::tuple(vec![flat, not_again, again, index])));
     }
-    Ok(())
-}
-
-impl CountChain<'_> {
-    /// `step(flat, not_again, again, index, roll)`.
-    fn step(&self, state: &Value, roll: &Value) -> Result<Step> {
-        let unpack = |v: &Value, n: usize| match v {
-            Value::Tuple(items) if items.len() == n => Ok(items.clone()),
-            _ => Err(Error::Type(format!("cannot unpack {} into {n} values", v.type_name()))),
-        };
-        let s = unpack(state, 4)?;
-        let (flat, not_again, again, index) = (&s[0], &s[1], &s[2], &s[3]);
-        if *again == int(0) {
-            return Ok(Step::State(state.clone()));
-        }
-        if index.binary(BinOp::Lt, &self.repeat)?.truthy() {
-            let r = unpack(roll, 3)?;
-            let flat = flat.binary(BinOp::Add, &r[0])?;
-            check_nan(&flat)?;
-            let not_again = not_again.binary(BinOp::Add, &r[1])?;
-            let again = again.binary(BinOp::Add, &r[2])?;
-            let index = index.binary(BinOp::Add, &int(1))?;
-            if self.restart
-                && index
-                    .binary(BinOp::Add, &again)?
-                    .binary(BinOp::Gt, &self.repeat)?
-                    .truthy()
-            {
-                return Ok(Step::Restart);
-            }
-            return Ok(Step::State(Value::tuple(vec![flat, not_again, again, index])));
-        }
-        Ok(Step::State(state.clone()))
-    }
-
-    /// `is_self_loop`: `BREAK` if no roll of the step die moves the state (or could restart), else `DEFAULT`.
-    fn is_self_loop(&mut self, state: &Value) -> Result<i64> {
-        if let Some(t) = self.self_loop.get(state) {
-            return Ok(*t);
-        }
-        let mut result = BREAK;
-        for (roll, _) in self.step_die.items() {
-            match self.step(state, roll)? {
-                // Might restart, therefore not a self-loop.
-                Step::Restart => {
-                    result = DEFAULT;
-                    break;
-                }
-                Step::State(next) if next == *state => continue,
-                Step::State(_) => {
-                    result = DEFAULT;
-                    break;
-                }
-            }
-        }
-        self.self_loop.insert(state.clone(), result);
-        Ok(result)
-    }
-
-    /// `step_state`: one step from one state, a die of `(transition_type, next_state)`.
-    fn step_state(&mut self, state: &Value) -> Result<Die<Value>> {
-        let mut next_states = Vec::with_capacity(self.step_die.len());
-        let mut next_quantities = Vec::with_capacity(self.step_die.len());
-        for (roll, quantity) in self.step_die.items() {
-            next_states.push(DieArg::Outcome(match self.step(state, roll)? {
-                // Will prune at end.
-                Step::Restart => Value::tuple(vec![int(RESTART), Value::None]),
-                Step::State(next) => Value::tuple(vec![int(self.is_self_loop(&next)?), next]),
-            }));
-            next_quantities.push(quantity.clone());
-        }
-        Die::new(next_states, next_quantities)
-    }
-
-    /// `step_transition_die`: advances every `DEFAULT` state by one step.
-    fn step_transition_die(&mut self, die: &Die<Value>) -> Result<Die<Value>> {
-        let mut next_states = Vec::with_capacity(die.len());
-        let mut quantities = Vec::with_capacity(die.len());
-        for (outcome, quantity) in die.items() {
-            let Value::Tuple(t) = outcome else {
-                unreachable!("transition outcomes are (type, state)")
-            };
-            next_states.push(if t[0] == int(DEFAULT) {
-                DieArg::Die(self.step_state(&t[1])?)
-            } else {
-                DieArg::Outcome(outcome.clone())
-            });
-            quantities.push(quantity.clone());
-        }
-        Die::new(next_states, quantities)
-    }
+    Ok(Step::State(state.clone()))
 }
 
 /// `evaluate_agains_using_count` once the facade has checked `again_count`, built `not_again_die` (the outcomes
@@ -332,50 +231,26 @@ pub fn evaluate_agains_using_count<E: From<Error>>(
     again_end_die: Option<&Die<Value>>,
     matmul: impl Fn(&Value, &Die<Value>) -> std::result::Result<Die<Value>, E>,
 ) -> std::result::Result<Die<Value>, E> {
-    let repeat = again_count + 1;
-    check_nan(zero)?;
-    for (roll, _) in step_die.items() {
-        check_nan(roll)?;
-    }
-    let mut chain = CountChain {
-        step_die,
-        repeat: Value::from(dashu_int::IBig::from(repeat)),
-        restart: again_end_die.is_none(),
-        self_loop: FxHashMap::default(),
-    };
+    let repeat = Value::from(dashu_int::IBig::from(again_count + 1));
+    let restart = again_end_die.is_none();
+    // `map(step, step_die, star=True, repeat=again_count + 1)` from the state `(zero, 0, 1, 0)`, done as
+    // `map(repeat=n)` does it (`TransitionCache`), so every intermediate `Die` (and so every quantity) is
+    // Python's. NaN states are refused there: Python's tuples holding the same NaN object (the zero of a die
+    // holding inf is `inf * 0`, shared by every `(zero, 1, -1)` step outcome) compare equal by identity.
+    let rolls = step_die.items();
+    let mut cache = TransitionCache::new(
+        |state: &Value, i: usize| -> Result<Next> {
+            Ok(match step(state, &rolls[i].0, &repeat, restart)? {
+                Step::Restart => Next::Restart,
+                Step::State(next) => Next::Go(Target::Outcome(next)),
+            })
+        },
+        rolls.iter().map(|(_, q)| q.clone()).collect(),
+    );
     let initial = Value::tuple(vec![zero.clone(), int(0), int(1), int(0)]);
-    // `transition_cache.self_loop_die(Die([initial_state]))`.
-    let t = chain.is_self_loop(&initial)?;
-    let mut transition_die = Die::new(
-        vec![DieArg::Outcome(Value::tuple(vec![int(t), initial]))],
-        vec![Quantity::ONE],
-    )?;
-    for _ in 0..repeat {
-        transition_die = chain.step_transition_die(&transition_die)?;
-        let any_default = transition_die
-            .outcomes()
-            .any(|o| matches!(o, Value::Tuple(t) if t[0] == int(DEFAULT)));
-        if !any_default {
-            break;
-        }
-    }
-    // `transition_die.map(final_map, star=True)`: `Restart` becomes `Reroll`.
-    let (states, quantities): (Vec<_>, Vec<_>) = transition_die
-        .items()
-        .iter()
-        .map(|(o, q)| {
-            let Value::Tuple(t) = o else {
-                unreachable!("transition outcomes are (type, state)")
-            };
-            let arg = if t[0] == int(RESTART) {
-                DieArg::Reroll
-            } else {
-                DieArg::Outcome(t[1].clone())
-            };
-            (arg, q.clone())
-        })
-        .unzip();
-    let final_state = Die::new(states, quantities)?;
+    let initial = Die::new(vec![DieArg::Outcome(initial)], vec![Quantity::ONE])?;
+    // `final_map` makes `Restart`ed states `Reroll`.
+    let final_state = map_repeat(&mut cache, &initial, Some(again_count + 1))?;
     // `final_state.map(finalize, star=True)`: `flat + terminal @ not_again_die (+ again @ again_end_die)`.
     let add = |a: &Die<Value>, b: &Die<Value>| a.binary_operator(b, |x, y| x.binary(BinOp::Add, y));
     let mut results = Vec::with_capacity(final_state.len());
