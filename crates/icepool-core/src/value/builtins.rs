@@ -1,0 +1,405 @@
+//! Python builtins and `math` functions over `Value`, as CPython 3.13 computes them: `sum`, `float()`,
+//! `fractions.Fraction(n, d)`, `math.sqrt`, `math.log`, `len` and `x[key]`. population/base.py's statistics are
+//! written in terms of these, so the port gets their exact rounding and their exceptions.
+
+use dashu_int::IBig;
+use dashu_ratio::RBig;
+
+use super::{int_to_f64, ratio_to_f64, BinOp, Value};
+use crate::error::{type_error, Error, Result};
+
+/// `sum(items, start)` (CPython 3.13 `builtin_sum_impl`), with its two fast paths, because they round differently
+/// from adding one item at a time.
+///
+/// While the running total is an exact `int` it accumulates in a C `long` as long as the items are `int`s (or
+/// `bool`s) and nothing overflows. If the total is a `float`, `float` items are added with Neumaier's compensated
+/// summation and small `int`s are added directly *without* compensation; any other item first folds the
+/// compensation into the total and then adds normally. Once the total leaves a fast path it never returns to one.
+/// `items` is consumed lazily, so an error from computing an item surfaces at the same point as in Python.
+pub fn py_sum(items: impl IntoIterator<Item = Result<Value>>, start: Value) -> Result<Value> {
+    let mut iter = items.into_iter();
+    let mut result = start;
+    if let Value::Int(i) = &result {
+        if let Ok(mut acc) = i64::try_from(i) {
+            result = loop {
+                let Some(item) = iter.next() else {
+                    return Ok(Value::from(acc));
+                };
+                let item = item?;
+                let small = match &item {
+                    Value::Int(x) => i64::try_from(x).ok(),
+                    Value::Bool(b) => Some(*b as i64),
+                    _ => None,
+                };
+                if let Some(sum) = small.and_then(|b| acc.checked_add(b)) {
+                    acc = sum;
+                    continue;
+                }
+                // Either overflowed or is not an int. Restore real objects and process normally.
+                break Value::from(acc).binary(BinOp::Add, &item)?;
+            };
+        }
+    }
+    if let Value::Float(f) = result {
+        let (mut f_result, mut c) = (f, 0.0f64);
+        result = loop {
+            let Some(item) = iter.next() else {
+                // Avoid losing the sign on a negative result, and don't let adding the compensation convert an
+                // infinite or overflowed sum to a NaN.
+                if c != 0.0 && c.is_finite() {
+                    f_result += c;
+                }
+                return Ok(Value::Float(f_result));
+            };
+            let item = item?;
+            match &item {
+                // Improved Kahan–Babuška algorithm by Arnold Neumaier.
+                Value::Float(x) => {
+                    let t = f_result + x;
+                    if f_result.abs() >= x.abs() {
+                        c += (f_result - t) + x;
+                    } else {
+                        c += (x - t) + f_result;
+                    }
+                    f_result = t;
+                    continue;
+                }
+                Value::Bool(b) => {
+                    f_result += *b as i64 as f64;
+                    continue;
+                }
+                Value::Int(x) => {
+                    if let Ok(v) = i64::try_from(x) {
+                        f_result += v as f64;
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+            if c != 0.0 && c.is_finite() {
+                f_result += c;
+            }
+            break Value::Float(f_result).binary(BinOp::Add, &item)?;
+        };
+    }
+    for item in iter {
+        result = result.binary(BinOp::Add, &item?)?;
+    }
+    Ok(result)
+}
+
+/// `PyFloat_AsDouble(x)`, which `math` functions apply to their arguments: `float(x)` for numbers (a `Fraction`
+/// is `numerator / denominator`, correctly rounded), `TypeError` for anything else.
+pub fn to_float(x: &Value) -> Result<f64> {
+    match x {
+        Value::Float(f) => Ok(*f),
+        Value::Bool(b) => Ok(*b as u8 as f64),
+        Value::Int(i) => int_to_f64(i),
+        Value::Fraction(r) => ratio_to_f64(r.numerator(), &IBig::from(r.denominator().clone())),
+        Value::Host(h) => h.to_float(),
+        _ => type_error(format!("must be real number, not {}", x.type_name())),
+    }
+}
+
+/// `fractions.Fraction(numerator, denominator)` for an `int` denominator, falling back to `numerator /
+/// denominator` where Python's constructor raises `TypeError` (icepool's `math.try_fraction`). A rational
+/// numerator (`int`, `bool`, `Fraction`, or a host object that is a `numbers.Rational`) makes a `Fraction`, even an
+/// integral one; anything else is divided (`float / int` is a `float`).
+pub fn try_fraction(numerator: &Value, denominator: &IBig) -> Result<Value> {
+    let rational = match numerator {
+        Value::Int(i) => Some(RBig::from(i.clone())),
+        Value::Bool(b) => Some(RBig::from(*b as u8)),
+        Value::Fraction(r) => Some(r.clone()),
+        Value::Host(h) => h.as_rational()?,
+        _ => None,
+    };
+    match rational {
+        Some(_) if *denominator == IBig::ZERO => Err(Error::ZeroDivision(format!(
+            "Fraction({numerator}, 0)"
+        ))),
+        Some(r) => Ok(Value::Fraction(r / RBig::from(denominator.clone()))),
+        None => numerator.binary(BinOp::TrueDiv, &Value::Int(denominator.clone())),
+    }
+}
+
+fn domain_error<T>() -> Result<T> {
+    Err(Error::Value("math domain error".into()))
+}
+
+/// CPython's `math_1(x, func, can_overflow=0)`: a NaN from a non-NaN argument, or an infinity from a finite
+/// one, is a `ValueError`.
+fn math_1(x: &Value, func: fn(f64) -> f64) -> Result<f64> {
+    let x = to_float(x)?;
+    let r = func(x);
+    if (r.is_nan() && !x.is_nan()) || (r.is_infinite() && x.is_finite()) {
+        return domain_error();
+    }
+    Ok(r)
+}
+
+/// `math.sqrt(x)`. `sqrt` is correctly rounded everywhere (IEEE 754), so no libm port is needed.
+pub fn math_sqrt(x: &Value) -> Result<Value> {
+    math_1(x, f64::sqrt).map(Value::Float)
+}
+
+/// CPython's `m_log`: `log` for positive finite arguments, with C99's special values made explicit.
+fn m_log(x: f64) -> f64 {
+    if x.is_finite() {
+        if x > 0.0 {
+            super::libm::log(x)
+        } else if x == 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            f64::NAN
+        }
+    } else if x.is_nan() || x > 0.0 {
+        x
+    } else {
+        f64::NAN
+    }
+}
+
+/// CPython's `loghelper(arg, m_log)`. An `int` is handled directly (so a huge one still has a logarithm:
+/// `log(x) + log(2) * e` from its `frexp`); anything else goes through `math_1`.
+fn loghelper(x: &Value) -> Result<f64> {
+    let int = match x {
+        Value::Int(i) => i.clone(),
+        Value::Bool(b) => IBig::from(*b as u8),
+        _ => return math_1(x, m_log),
+    };
+    // Negative or zero inputs give a ValueError.
+    if int <= IBig::ZERO {
+        return domain_error();
+    }
+    match int_to_f64(&int) {
+        Ok(f) => Ok(m_log(f)),
+        Err(_) => {
+            // Here the conversion to double overflowed, but it's possible to compute the log anyway.
+            let (m, e) = frexp_int(&int);
+            // Value is ~= x * 2**e, so the log ~= log(x) + log(2) * e.
+            Ok(m_log(m) + m_log(2.0) * e as f64)
+        }
+    }
+}
+
+/// `_PyLong_Frexp` for a positive int too large for a float: `(m, e)` with `m` in `[0.5, 1)` and `int ~= m *
+/// 2**e`, `m` correctly rounded (half to even) to 53 bits.
+fn frexp_int(int: &IBig) -> (f64, i64) {
+    use dashu_base::{BitTest, UnsignedAbs};
+    let bits = int.unsigned_abs().bit_len() as i64;
+    // Scale to exactly `bits` binary digits after the point: `ratio_to_f64` rounds as `_PyLong_Frexp` does.
+    let shift = bits - 1000;
+    let top = int >> shift as usize;
+    let rest_nonzero = (top.clone() << shift as usize) != *int;
+    // Keep a sticky bit below the kept digits so ties round the same way as the full value.
+    let top = (top << 1) + IBig::from(rest_nonzero as u8);
+    let m = ratio_to_f64(&top, &(IBig::ONE << 1001)).expect("in range");
+    // A carry may round m up to 1.0; frexp then reports 0.5 and one more in the exponent.
+    if m == 1.0 {
+        (0.5, bits + 1)
+    } else {
+        (m, bits)
+    }
+}
+
+/// `math.log(x)` (natural) or `math.log(x, base)`: `log(x) / log(base)`, `ZeroDivisionError` for base 1.
+pub fn math_log(x: &Value, base: Option<&Value>) -> Result<Value> {
+    let num = loghelper(x)?;
+    let Some(base) = base else {
+        return Ok(Value::Float(num));
+    };
+    let den = loghelper(base)?;
+    Value::Float(num).binary(BinOp::TrueDiv, &Value::Float(den))
+}
+
+/// The key of `x[key]` (`operator.getitem`): any object, or a slice.
+#[derive(Clone, Debug)]
+pub enum Index {
+    Item(Value),
+    /// `slice(start, stop, step)`; `Value::None` where omitted.
+    Slice(Value, Value, Value),
+}
+
+/// `PyNumber_AsSsize_t` for an index: `int`s and `bool`s (others raise `TypeError`); with `clamp`, values beyond
+/// the C range saturate, as slice indices do (`_PyEval_SliceIndex`), else they raise `IndexError`.
+fn ssize(v: &Value, clamp: bool, what: &str) -> Result<i64> {
+    let i = match v {
+        Value::Int(i) => i.clone(),
+        Value::Bool(b) => IBig::from(*b as u8),
+        Value::Host(_) => return Err(Error::Unsupported("a host object as an index".into())),
+        _ => return type_error(what.to_string()),
+    };
+    match i64::try_from(&i) {
+        Ok(x) => Ok(x),
+        Err(_) if clamp => Ok(if i < IBig::ZERO { i64::MIN } else { i64::MAX }),
+        Err(_) => Err(Error::Index(
+            "cannot fit 'int' into an index-sized integer".into(),
+        )),
+    }
+}
+
+/// `PySlice_Unpack` + `PySlice_AdjustIndices`: the positions a slice selects from a sequence of `len` items.
+fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Result<Vec<usize>> {
+    const MSG: &str = "slice indices must be integers or None or have an __index__ method";
+    let step = match step {
+        Value::None => 1,
+        s => ssize(s, true, MSG)?,
+    };
+    if step == 0 {
+        return Err(Error::Value("slice step cannot be zero".into()));
+    }
+    // Ensure step can be negated without overflow.
+    let step = step.max(-i64::MAX) as i128;
+    let bound = |v: &Value, if_none: i64| match v {
+        Value::None => Ok(if_none),
+        x => ssize(x, true, MSG),
+    };
+    let start = bound(start, if step < 0 { i64::MAX } else { 0 })? as i128;
+    let stop = bound(stop, if step < 0 { i64::MIN } else { i64::MAX })? as i128;
+    let len = len as i128;
+    let adjust = |x: i128| {
+        if x < 0 {
+            let x = x + len;
+            if x < 0 {
+                if step < 0 {
+                    -1
+                } else {
+                    0
+                }
+            } else {
+                x
+            }
+        } else if x >= len {
+            if step < 0 {
+                len - 1
+            } else {
+                len
+            }
+        } else {
+            x
+        }
+    };
+    let (start, stop) = (adjust(start), adjust(stop));
+    let count = if step < 0 {
+        if stop < start {
+            (start - stop - 1) / -step + 1
+        } else {
+            0
+        }
+    } else if start < stop {
+        (stop - start - 1) / step + 1
+    } else {
+        0
+    };
+    Ok((0..count).map(|i| (start + i * step) as usize).collect())
+}
+
+/// `x[key]` for the sequences the core models (`tuple`, `str`) and host objects; other values are not
+/// subscriptable.
+pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
+    let (kind, len) = match x {
+        Value::Tuple(t) => ("tuple", t.len()),
+        Value::Str(s) => ("string", s.chars().count()),
+        Value::Host(h) => return h.getitem(key),
+        _ => {
+            return type_error(format!(
+                "'{}' object is not subscriptable",
+                x.type_name()
+            ))
+        }
+    };
+    let positions = match key {
+        Index::Item(Value::Host(_)) => {
+            return Err(Error::Unsupported("a host object as an index".into()))
+        }
+        Index::Item(i) => {
+            let msg = match x {
+                Value::Tuple(_) => format!(
+                    "tuple indices must be integers or slices, not {}",
+                    i.type_name()
+                ),
+                _ => format!("string indices must be integers, not '{}'", i.type_name()),
+            };
+            let i = ssize(i, false, &msg)?;
+            let i = if i < 0 { i + len as i64 } else { i };
+            if i < 0 || i >= len as i64 {
+                return Err(Error::Index(format!("{kind} index out of range")));
+            }
+            let i = i as usize;
+            return Ok(match x {
+                Value::Tuple(t) => t[i].clone(),
+                Value::Str(s) => Value::str(&s.chars().nth(i).expect("in range").to_string()),
+                _ => unreachable!("a sequence"),
+            });
+        }
+        Index::Slice(start, stop, step) => slice_positions(start, stop, step, len)?,
+    };
+    Ok(match x {
+        Value::Tuple(t) => Value::tuple(positions.iter().map(|&i| t[i].clone()).collect()),
+        Value::Str(s) => {
+            let chars: Vec<char> = s.chars().collect();
+            Value::str(&positions.iter().map(|&i| chars[i]).collect::<String>())
+        }
+        _ => unreachable!("a sequence"),
+    })
+}
+
+/// `len(x)`.
+pub fn py_len(x: &Value) -> Result<usize> {
+    match x {
+        Value::Tuple(t) => Ok(t.len()),
+        Value::Str(s) => Ok(s.chars().count()),
+        Value::Host(h) => h.len(),
+        _ => type_error(format!("object of type '{}' has no len()", x.type_name())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn f(x: f64) -> Value {
+        Value::Float(x)
+    }
+
+    #[test]
+    fn sum_follows_cpython_fast_paths() {
+        // Compensated for floats, uncompensated for ints in the float path (Python 3.13).
+        let s = py_sum([f(1e16), Value::from(1), Value::from(1)].map(Ok), Value::from(0));
+        assert_eq!(s, Ok(f(1e16)));
+        let s = py_sum([f(1e16), f(1.0), f(1.0)].map(Ok), Value::from(0)).unwrap();
+        assert_eq!(s.to_string(), "1.0000000000000002e+16");
+        let s = py_sum(vec![Ok(f(0.1)); 10], Value::from(0));
+        assert_eq!(s, Ok(f(1.0)));
+        // An empty sum is the start; ints overflowing a C long stay exact.
+        assert_eq!(py_sum([], Value::from(0)), Ok(Value::from(0)));
+        let big = Value::from(i64::MAX);
+        let s = py_sum([big.clone(), big].map(Ok), Value::from(0)).unwrap();
+        assert_eq!(s.to_string(), "18446744073709551614");
+    }
+
+    #[test]
+    fn slices_select_like_python() {
+        let t = Value::tuple((0..5).map(Value::from).collect());
+        let sl = |a: Value, b: Value, c: Value| getitem(&t, &Index::Slice(a, b, c)).unwrap().to_string();
+        let n = Value::None;
+        assert_eq!(sl(n.clone(), n.clone(), Value::from(-1)), "(4, 3, 2, 1, 0)");
+        assert_eq!(sl(Value::from(1), Value::from(-1), Value::from(2)), "(1, 3)");
+        assert_eq!(sl(Value::from(10), n.clone(), n.clone()), "()");
+        assert_eq!(getitem(&t, &Index::Item(Value::from(-1))).unwrap(), Value::from(4));
+        assert!(getitem(&t, &Index::Item(Value::from(5))).is_err());
+        assert_eq!(
+            getitem(&Value::str("héllo"), &Index::Item(Value::from(1))).unwrap(),
+            Value::str("é")
+        );
+    }
+
+    #[test]
+    fn log_of_huge_int() {
+        // As Python prints them: `math.log(2**2000, 2.0)`, `math.log(3**1000)`, `math.log(10**400, 10)`.
+        let log = |x: IBig, base: Option<Value>| math_log(&Value::Int(x), base.as_ref()).unwrap().to_string();
+        assert_eq!(log(IBig::ONE << 2000, Some(f(2.0))), "2000.0000000000002");
+        assert_eq!(log(IBig::from(3u8).pow(1000), None), "1098.6122886681096");
+        assert_eq!(log(IBig::from(10u8).pow(400), Some(Value::from(10))), "399.99999999999994");
+    }
+}

@@ -10,8 +10,11 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
+use dashu_ratio::RBig;
+
+use super::builtins::Index;
 use super::{BinOp, UnOp, Value};
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// What the core needs from a host object. `a` and `b` are the full operands in Python's order; at least one of
 /// them is this host object.
@@ -34,6 +37,23 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     fn repr(&self) -> String;
     /// For the host's own downcast back to its object.
     fn as_any(&self) -> &dyn Any;
+    /// Python's `PyFloat_AsDouble(self)`, as `math` functions convert their arguments.
+    fn to_float(&self) -> Result<f64> {
+        Err(Error::Unsupported("float() of a host object".into()))
+    }
+    /// `Fraction(self.numerator, self.denominator)` if `self` is a `numbers.Rational`, else `None`: what
+    /// `Fraction(self, d)` needs.
+    fn as_rational(&self) -> Result<Option<RBig>> {
+        Err(Error::Unsupported("Fraction() of a host object".into()))
+    }
+    /// Python's `self[key]`.
+    fn getitem(&self, _key: &Index) -> Result<Value> {
+        Err(Error::Unsupported("indexing a host object".into()))
+    }
+    /// Python's `len(self)`.
+    fn len(&self) -> Result<usize> {
+        Err(Error::Unsupported("len() of a host object".into()))
+    }
 }
 
 /// A shared reference to a host object.
@@ -77,7 +97,7 @@ pub(super) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Die, DieArg, Error, Outcome, Quantity};
+    use crate::{Die, DieArg, Outcome, Quantity};
 
     /// A host "number" that sorts in reverse and adds like an int, and whose `-` raises (a host exception).
     #[derive(Debug)]
