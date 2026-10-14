@@ -311,14 +311,18 @@ pub fn tuple_index(x: PValue, index: PValue) -> Result<PValue, PErr> {
 pub fn tuple_slice(x: PValue, start: PValue, stop: PValue, step: PValue) -> Result<PValue, PErr> {
     let Some(e) = as_tuple_expression(&x) else {
         return match &x {
-            x if as_expression(x).is_some() => super::pool::pool_slice(x.clone(), start, stop, step),
+            x if as_expression(x).is_some() => {
+                super::pool::pool_slice(x.clone(), start, stop, step)
+            }
             PValue::Value(Value::None) => type_error("'NoneType' object is not subscriptable"),
             _ => Err(PErr::Unimplemented("slicing this object".into())),
         };
     };
     let bound = |b: PValue| match b {
         PValue::Value(v) => Ok(v),
-        _ => Err(PErr::Unimplemented("a slice bound that is not a value".into())),
+        _ => Err(PErr::Unimplemented(
+            "a slice bound that is not a value".into(),
+        )),
     };
     let index = [bound(start)?, bound(stop)?, bound(step)?];
     Ok(PValue::Expr(MExpr::TupleSlice(Arc::new((e, index)))))
@@ -719,7 +723,11 @@ fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
 }
 
 /// `data[inner] += weight` for a mixture's `defaultdict(int)` of inners.
-fn add_inner(data: &mut Vec<(MExpr, Quantity)>, inner: MExpr, weight: Quantity) -> Result<(), PErr> {
+fn add_inner(
+    data: &mut Vec<(MExpr, Quantity)>,
+    inner: MExpr,
+    weight: Quantity,
+) -> Result<(), PErr> {
     for (key, w) in data.iter_mut() {
         if same_expression(key, &inner)? {
             *w += weight;

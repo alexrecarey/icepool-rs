@@ -874,7 +874,9 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
             return Err(PErr::Unimplemented("iterating a multiset generator".into()))
         }
         PValue::MultisetFunction(_) | PValue::RawResult(_) => {
-            return Err(PErr::Unimplemented("iterating a multiset function result".into()))
+            return Err(PErr::Unimplemented(
+                "iterating a multiset function result".into(),
+            ))
         }
     })
 }

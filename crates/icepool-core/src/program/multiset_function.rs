@@ -17,9 +17,7 @@ use super::expression::{prepare, product, MExpr};
 use super::ops::{new_die, py_iter, type_error};
 use super::{eval, raise, PErr, PValue};
 use crate::error::Error;
-use crate::evaluator::multiset_function::{
-    Call, DynEvaluator, Erased, MultisetFunction,
-};
+use crate::evaluator::multiset_function::{Call, DynEvaluator, Erased, MultisetFunction};
 use crate::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
 use crate::expression::CallTree;
 use crate::order::Order;
@@ -69,7 +67,11 @@ thread_local! {
 /// Node `mf_def`: `icepool.multiset_function(f)` for a function `f(p0, ..., p{params-1}[, *rest])` whose body is
 /// the lazy program `body`.
 pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
-    let keys: Vec<&str> = m.keys().map(String::as_str).filter(|k| *k != "op").collect();
+    let keys: Vec<&str> = m
+        .keys()
+        .map(String::as_str)
+        .filter(|k| *k != "op")
+        .collect();
     let (Some(params), Some(var), Some(body), 4) =
         (m.get("params"), m.get("var"), m.get("body"), m.len())
     else {
@@ -305,7 +307,9 @@ fn prepare_function(
         None => f.params > inputs.len(),
     };
     if kwargs.iter().any(|(k, _)| k != "star") {
-        return Err(PErr::Unimplemented("keyword arguments to a multiset function".into()));
+        return Err(PErr::Unimplemented(
+            "keyword arguments to a multiset function".into(),
+        ));
     }
     let mut vars = Vec::new();
     let rest = if star {

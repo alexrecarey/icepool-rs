@@ -156,7 +156,9 @@ where
         outcomes: &[O],
         sizes: &[Option<Count>],
     ) -> Result<AnyState> {
-        let state = self.evaluator.initial_state_counts(order, outcomes, sizes)?;
+        let state = self
+            .evaluator
+            .initial_state_counts(order, outcomes, sizes)?;
         Ok(AnyState(Arc::new(state)))
     }
 
@@ -241,7 +243,9 @@ impl<'a, O: Outcome, F> MultisetFunction<'a, O, F> {
         sizes: &CountTree<Option<Count>>,
     ) -> Result<CallState> {
         Ok(match call {
-            Call::Evaluator(e) => CallState::Leaf(e.initial_state(order, outcomes, sizes.leaf()?)?),
+            Call::Evaluator(e) => {
+                CallState::Leaf(e.initial_state(order, outcomes, sizes.leaf()?)?)
+            }
             // `self.inner_quest.initial_state_main(order, outcomes, *arg_sizes[0], **self.inner_kwargs)`
             Call::Function(inner) => Self::initial(inner, order, outcomes, &sizes.calls()[0])?,
             Call::Joint(inners) => CallState::Joint(
@@ -324,7 +328,9 @@ impl<'a, O: Outcome, F> MultisetFunction<'a, O, F> {
                     .iter()
                     .zip(joint_states(state))
                     .zip(sizes.calls())
-                    .map(|((inner, state), sizes)| self.finish(inner, state, order, outcomes, sizes))
+                    .map(|((inner, state), sizes)| {
+                        self.finish(inner, state, order, outcomes, sizes)
+                    })
                     .collect::<Result<Vec<_>>>()?;
                 (self.tupleize)(finals)
             }

@@ -3,9 +3,9 @@
 //! final outcomes into a die.
 
 use super::catalogue_evaluators::CatalogueEvaluator;
-use super::multiset_function::{in_function, raw_result};
 use super::expression::{as_expression, as_tuple_expression, prepare, the_expression, MExpr};
 use super::map::the_die;
+use super::multiset_function::{in_function, raw_result};
 use super::ops::{die_arg, new_die, py_iter, type_error};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
@@ -161,7 +161,8 @@ fn value(x: PValue) -> Result<Value, PErr> {
 /// `pool.all_counts(filter=filter)`.
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
-    die(AllCountsEvaluator {
+    die(
+        AllCountsEvaluator {
             filter: value(filter)?,
         },
         &pools,
@@ -184,7 +185,8 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
         v if v == Value::str("low") => false,
         _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
     };
-    die(LargestStraightAndOutcomeEvaluator { prioritize_highest },
+    die(
+        LargestStraightAndOutcomeEvaluator { prioritize_highest },
         &pools,
     )
 }
@@ -211,7 +213,8 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
     let left = method_self(p)?;
     let right = implicit_convert(divisor)?;
-    die(CountSubsetEvaluator {
+    die(
+        CountSubsetEvaluator {
             empty_divisor: value(empty_divisor)?,
         },
         &[left, right],

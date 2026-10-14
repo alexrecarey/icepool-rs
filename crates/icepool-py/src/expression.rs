@@ -488,10 +488,10 @@ pub(crate) fn flat(nodes: &Bound<'_, PyAny>) -> PyResult<Flat<Value>> {
             result.push(Dungeonlet::FreeVariable);
             continue;
         }
-        if let Ok(("param", arg_index, star_index)) =
-            node.extract::<(String, usize, Option<usize>)>()
-                .as_ref()
-                .map(|(k, a, s)| (k.as_str(), *a, *s))
+        if let Ok(("param", arg_index, star_index)) = node
+            .extract::<(String, usize, Option<usize>)>()
+            .as_ref()
+            .map(|(k, a, s)| (k.as_str(), *a, *s))
         {
             result.push(Dungeonlet::Parameter {
                 arg_index,
@@ -510,7 +510,9 @@ pub(crate) fn flat(nodes: &Bound<'_, PyAny>) -> PyResult<Flat<Value>> {
             .collect::<PyResult<Vec<_>>>()?;
         if spec.get_item(0)?.extract::<String>().ok().as_deref() == Some("tuple_item") {
             let [child] = children[..] else {
-                return Err(PyValueError::new_err("icepool_rs: a tuple item has one child"));
+                return Err(PyValueError::new_err(
+                    "icepool_rs: a tuple item has one child",
+                ));
             };
             result.push(Dungeonlet::TupleItem {
                 child,
