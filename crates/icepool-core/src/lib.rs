@@ -22,6 +22,7 @@ pub mod math;
 pub mod order;
 pub mod outcome;
 pub mod pool;
+pub mod population;
 pub mod program;
 pub mod pysort;
 pub mod value;

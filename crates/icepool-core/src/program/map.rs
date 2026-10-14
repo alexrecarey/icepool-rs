@@ -32,7 +32,7 @@ fn repl(f: &PValue) -> Result<Repl<'_>, PErr> {
 }
 
 /// `star` as given: `None` means infer it; anything else is used for its truth value.
-fn star_arg(star: &PValue) -> Result<Option<bool>, PErr> {
+pub(super) fn star_arg(star: &PValue) -> Result<Option<bool>, PErr> {
     match star {
         PValue::Value(Value::None) => Ok(None),
         x => truthy(x).map(Some),
@@ -41,7 +41,7 @@ fn star_arg(star: &PValue) -> Result<Option<bool>, PErr> {
 
 /// Calls `f` on one joint outcome, unpacking the first argument if `star` (`transition(*first, *extra,
 /// **kwargs)`).
-fn call(
+pub(super) fn call(
     f: &Func,
     star: bool,
     mut args: Vec<PValue>,

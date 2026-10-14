@@ -12,6 +12,7 @@ use super::die_methods;
 use super::evaluate;
 use super::map;
 use super::pool;
+use super::statistics;
 use super::{raise, Args, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
@@ -225,6 +226,86 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "evaluate_kw" => {
             let [name, params, a, kwargs] = args.exactly(["name", "params", "args", "kwargs"])?;
             evaluate::catalogue(name, params, a, map::kwargs(kwargs)?)
+        }
+        "quantities" => {
+            let [die, comparison] = args.exactly(["die", "comparison"])?;
+            statistics::quantities(die, comparison)
+        }
+        "probabilities" => {
+            let [die, comparison, percent] = args.exactly(["die", "comparison", "percent"])?;
+            statistics::probabilities(die, comparison, percent)
+        }
+        "quantity" => {
+            let [die, a] = args.exactly(["die", "args"])?;
+            statistics::quantity(die, a)
+        }
+        "probability" => {
+            let [die, a, percent] = args.exactly(["die", "args", "percent"])?;
+            statistics::probability(die, a, percent)
+        }
+        "nearest" => {
+            let [die, comparison, outcome] = args.exactly(["die", "comparison", "outcome"])?;
+            statistics::nearest(die, comparison, outcome)
+        }
+        "die_stat" => {
+            let [die, stat] = args.exactly(["die", "stat"])?;
+            statistics::die_stat(die, stat)
+        }
+        "entropy" => {
+            let [die, base] = args.exactly(["die", "base"])?;
+            statistics::entropy(die, base)
+        }
+        "die_quantile" => {
+            let [die, method, a] = args.exactly(["die", "method", "args"])?;
+            statistics::quantile(die, method, a)
+        }
+        "cdf_distance" => {
+            let [a, b, stat] = args.exactly(["a", "b", "stat"])?;
+            statistics::cdf_distance(a, b, stat)
+        }
+        "marginal" => {
+            let [die, index] = args.exactly(["die", "index"])?;
+            statistics::marginal(die, index)
+        }
+        "marginal_slice" => {
+            let [die, start, stop, step] = args.exactly(["die", "start", "stop", "step"])?;
+            statistics::marginal_slice(die, start, stop, step)
+        }
+        "marginals" => {
+            let [die] = args.exactly(["die"])?;
+            statistics::marginals(die)
+        }
+        "group_by" => {
+            let [die, key, star] = args.exactly(["die", "key", "star"])?;
+            statistics::group_by(die, key, star)
+        }
+        "group_by_index" => {
+            let [die, index] = args.exactly(["die", "index"])?;
+            statistics::group_by_index(die, index)
+        }
+        "joint_stat" => {
+            let [die, stat, i, j] = args.exactly(["die", "stat", "i", "j"])?;
+            statistics::joint_stat(die, stat, i, j)
+        }
+        "quantities_op" => {
+            let [die, method, x] = args.exactly(["die", "method", "x"])?;
+            statistics::quantities_op(die, method, x)
+        }
+        "pad_to_denominator" => {
+            let [die, denominator, outcome] = args.exactly(["die", "denominator", "outcome"])?;
+            statistics::pad_to_denominator(die, denominator, outcome)
+        }
+        "multiply_to_denominator" => {
+            let [die, denominator] = args.exactly(["die", "denominator"])?;
+            statistics::multiply_to_denominator(die, denominator)
+        }
+        "quantity_where" => {
+            let [die, which, star] = args.exactly(["die", "which", "star"])?;
+            statistics::quantity_where(die, which, star)
+        }
+        "probability_where" => {
+            let [die, which, star, percent] = args.exactly(["die", "which", "star", "percent"])?;
+            statistics::probability_where(die, which, star, percent)
         }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
@@ -829,6 +910,11 @@ fn weights(items: PValue) -> Result<PValue, PErr> {
             Key::Die(d) => PValue::Die(d),
         })
         .collect();
+    weights_die(args, values)
+}
+
+/// `icepool.Die(mapping)` for a dict's distinct keys and its values.
+pub(super) fn weights_die(args: Vec<PValue>, values: Vec<PValue>) -> Result<PValue, PErr> {
     // Die(mapping): itemize multiplies each quantity by 1, which leaves any number as it is, then checks `x < 0`.
     let mut times = Vec::with_capacity(values.len());
     for v in values {

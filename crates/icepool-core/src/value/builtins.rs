@@ -114,9 +114,9 @@ pub fn try_fraction(numerator: &Value, denominator: &IBig) -> Result<Value> {
         _ => None,
     };
     match rational {
-        Some(_) if *denominator == IBig::ZERO => Err(Error::ZeroDivision(format!(
-            "Fraction({numerator}, 0)"
-        ))),
+        Some(_) if *denominator == IBig::ZERO => {
+            Err(Error::ZeroDivision(format!("Fraction({numerator}, 0)")))
+        }
         Some(r) => Ok(Value::Fraction(r / RBig::from(denominator.clone()))),
         None => numerator.binary(BinOp::TrueDiv, &Value::Int(denominator.clone())),
     }
@@ -301,12 +301,7 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
         Value::Tuple(t) => ("tuple", t.len()),
         Value::Str(s) => ("string", s.chars().count()),
         Value::Host(h) => return h.getitem(key),
-        _ => {
-            return type_error(format!(
-                "'{}' object is not subscriptable",
-                x.type_name()
-            ))
-        }
+        _ => return type_error(format!("'{}' object is not subscriptable", x.type_name())),
     };
     let positions = match key {
         Index::Item(Value::Host(_)) => {
@@ -365,7 +360,10 @@ mod tests {
     #[test]
     fn sum_follows_cpython_fast_paths() {
         // Compensated for floats, uncompensated for ints in the float path (Python 3.13).
-        let s = py_sum([f(1e16), Value::from(1), Value::from(1)].map(Ok), Value::from(0));
+        let s = py_sum(
+            [f(1e16), Value::from(1), Value::from(1)].map(Ok),
+            Value::from(0),
+        );
         assert_eq!(s, Ok(f(1e16)));
         let s = py_sum([f(1e16), f(1.0), f(1.0)].map(Ok), Value::from(0)).unwrap();
         assert_eq!(s.to_string(), "1.0000000000000002e+16");
@@ -381,12 +379,19 @@ mod tests {
     #[test]
     fn slices_select_like_python() {
         let t = Value::tuple((0..5).map(Value::from).collect());
-        let sl = |a: Value, b: Value, c: Value| getitem(&t, &Index::Slice(a, b, c)).unwrap().to_string();
+        let sl =
+            |a: Value, b: Value, c: Value| getitem(&t, &Index::Slice(a, b, c)).unwrap().to_string();
         let n = Value::None;
         assert_eq!(sl(n.clone(), n.clone(), Value::from(-1)), "(4, 3, 2, 1, 0)");
-        assert_eq!(sl(Value::from(1), Value::from(-1), Value::from(2)), "(1, 3)");
+        assert_eq!(
+            sl(Value::from(1), Value::from(-1), Value::from(2)),
+            "(1, 3)"
+        );
         assert_eq!(sl(Value::from(10), n.clone(), n.clone()), "()");
-        assert_eq!(getitem(&t, &Index::Item(Value::from(-1))).unwrap(), Value::from(4));
+        assert_eq!(
+            getitem(&t, &Index::Item(Value::from(-1))).unwrap(),
+            Value::from(4)
+        );
         assert!(getitem(&t, &Index::Item(Value::from(5))).is_err());
         assert_eq!(
             getitem(&Value::str("héllo"), &Index::Item(Value::from(1))).unwrap(),
@@ -397,9 +402,14 @@ mod tests {
     #[test]
     fn log_of_huge_int() {
         // As Python prints them: `math.log(2**2000, 2.0)`, `math.log(3**1000)`, `math.log(10**400, 10)`.
-        let log = |x: IBig, base: Option<Value>| math_log(&Value::Int(x), base.as_ref()).unwrap().to_string();
+        let log = |x: IBig, base: Option<Value>| {
+            math_log(&Value::Int(x), base.as_ref()).unwrap().to_string()
+        };
         assert_eq!(log(IBig::ONE << 2000, Some(f(2.0))), "2000.0000000000002");
         assert_eq!(log(IBig::from(3u8).pow(1000), None), "1098.6122886681096");
-        assert_eq!(log(IBig::from(10u8).pow(400), Some(Value::from(10))), "399.99999999999994");
+        assert_eq!(
+            log(IBig::from(10u8).pow(400), Some(Value::from(10))),
+            "399.99999999999994"
+        );
     }
 }

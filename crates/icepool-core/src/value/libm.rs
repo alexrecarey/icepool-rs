@@ -122,11 +122,11 @@ fn arm_log(x: f64) -> f64 {
     let w = kd.mul_add(LN2HI, logc); // contracted
     let hi = w + r;
     let lo = kd.mul_add(LN2LO, w - hi + r); // contracted
-    // log(x) = lo + (log1p(r) - r) + hi.
+                                            // log(x) = lo + (log1p(r) - r) + hi.
     let r2 = r * r; // rounding error: 0x1p-54/N^2.
-    // Worst case error if |y| > 0x1p-5: 0.5 + 4.13/N + abs-poly-error*2^57 ULP (+ 0.002 ULP without fma).
-    // Worst case error if |y| > 0x1p-4: 0.5 + 2.06/N + abs-poly-error*2^56 ULP (+ 0.001 ULP without fma).
-    // y = lo + r2 * A[0] + r * r2 * (A[1] + r * A[2] + r2 * (A[3] + r * A[4])) + hi (all contracted).
+                    // Worst case error if |y| > 0x1p-5: 0.5 + 4.13/N + abs-poly-error*2^57 ULP (+ 0.002 ULP without fma).
+                    // Worst case error if |y| > 0x1p-4: 0.5 + 2.06/N + abs-poly-error*2^56 ULP (+ 0.001 ULP without fma).
+                    // y = lo + r2 * A[0] + r * r2 * (A[1] + r * A[2] + r2 * (A[3] + r * A[4])) + hi (all contracted).
     let inner = r.mul_add(a(4), a(3)).mul_add(r2, r.mul_add(a(2), a(1)));
     (r * r2).mul_add(inner, r2.mul_add(a(0), lo)) + hi
 }
@@ -293,7 +293,18 @@ mod tests {
     #[test]
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     fn matches_platform_log() {
-        for x in [0.0, -0.0, 1.0, -1.0, 2.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 5e-324, f64::MAX] {
+        for x in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            2.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            5e-324,
+            f64::MAX,
+        ] {
             same(x);
         }
         for d in 1..2000u32 {

@@ -12,6 +12,7 @@ mod evaluate;
 mod map;
 mod ops;
 mod pool;
+mod statistics;
 mod wire;
 
 pub use ops::matmul_dice;
