@@ -620,6 +620,19 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Gotchas
 
+- **Long gate L202610141124 (task P1 fixed here too).** (1) `Die` caches what Python caches: `position` (an
+  `FxHashMap` standing in for the dict behind `outcome in self`; the first of equal outcomes wins, and NaN is never
+  found, as before), `cumulative_quantities` (`_cumulative_quantities`) and `denominator` (`_denominator`). Without
+  them `quantity('<=', x)` per outcome was quadratic: `cdf_distance(d6, 3 @ (d12 / d12))` (41k float outcomes) took
+  47 s. New per-outcome queries on `Die` should use these, not scans. (2) The fresh-seed long fuzz died silently
+  with exit 137 (OOM kill): `icepool.math.comb` caches every Pascal row up to n in the process-wide
+  `comb_row_cache`, so a deal from a deck with `10**20` copies (the `weights` leaf) grew it for 3 s per program and
+  it never shrank. `deck.py` `_gen_modest_deck` now re-draws decks over 200 cards for deals and multi-deals; route
+  any new dealing generator through it. (3) Seed 15's failure was a traceback: `OracleTimeout` raised *at*
+  `signal.alarm(0)` in tool.py's `finally` (the alarm landed after the try body ended, e.g. a long C call finishing
+  right at 3 s). A race in the protected harness; it didn't reproduce. If it recurs, it is not the port.
+  (4) `value/pow.rs` wraps `2 * ix` as C does (`wrapping_mul`): debug builds panicked, so cargo-mutants refused to
+  run ("cargo test failed in an unmutated tree"). Run `cargo test -p icepool-core --lib` in debug too.
 - Files copied from the oracle checkout are read-only on disk (`chmod -R u+w python` once; git ignores the mode).
   Never run Python with the cwd inside `python/icepool`: its `operator/` package shadows the stdlib's.
 - The upstream suite passing is not proof a switched path is used: check with `ICEPOOL_BACKEND=rust` that dice
