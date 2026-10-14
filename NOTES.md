@@ -10,9 +10,10 @@ turns out wrong. Newest decisions at the top of each section.
   `f2f.calculate` (input object in, `{rolls, outcomes:[{player, wounds, chance}]}` out, throws where Python raises;
   `rolls` is a Number up to 2**53-1 and a BigInt beyond, as Pyodide's `to_js` converts a Python int).
   `build.sh [OUT]` = wasm-pack `--target web` and `--target nodejs` into `$CARGO_TARGET_DIR/icepool-wasm/{web,node}`.
-  `run-wasm.sh` rebuilds the node package when any core/wasm source is newer (about 6 s once cargo has built the
-  wasm32 target; a cold build including the wasm-pack tool download took 70 s, more than the harness's 20 s
-  per-program timeout, so build first if in doubt), then speaks the icepool-run protocol; `--test` checks
+  `run-wasm.sh` rebuilds the node package when any core/wasm source is newer, then speaks the icepool-run
+  protocol. That package is `--no-opt` (under 1 s once cargo has built the wasm32 target): `wasm-opt -O3` took 6 to
+  45 s under load, and the build must fit in the harness's 20 s per-program timeout (a cold cargo build does not:
+  build the wasm32 target first, as the long gate does). `--test` and `--bench` use the optimised build; `--test` checks
   `calculate` against the 40 recorded `f2f.calculate` outputs, `--bench` times khepri. A panic is a trap in WASM
   (no unwinding): run-wasm.mjs answers like icepool-run's panic guard and reloads the instance.
 - **Float `pow` under WASM** (`value/pow.rs`). CPython's `float ** float` ends in glibc `pow`; wasm32's
