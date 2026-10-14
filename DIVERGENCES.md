@@ -140,3 +140,20 @@ Drafted upstream test:
 def test_pad_to_same_denominator_absent_outcome():
     assert d6.pad_to_denominator(6, 7).equals(d6)
 ```
+
+
+### Formatting a die with no columns raises `IndexError` (S2b)
+
+population/format.py `compute_alignments(rows)` starts with `['>'] * len(rows[0])`. When the column spec selects
+no columns (`f'{d6:md:}'`, `html:`, `bbcode:`), or `*o` unpacks outcomes of length 0 (`Die(['']).format('md:*o')`,
+`Die([()]).format('md:*o')`), `zip(*cols)` yields no rows and `rows[0]` raises `IndexError` instead of printing a
+table without columns. `csv` does not compute alignments, so `f'{d6:csv:}'` is `'\r\n'`. Also, because
+`quantities('>=')` of an empty die is `(0,)` (see above), `Die([]).format('csv:q>=')` has one data row `0`. The
+port copies both (format.rs).
+
+Drafted upstream test:
+
+```python
+def test_format_no_columns():
+    assert f'{icepool.d6:md:}' == 'Die with denominator 6\n\n|\n|\n' + '|\n' * 6 + '\n'
+```

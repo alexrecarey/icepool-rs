@@ -5,6 +5,32 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Formatting, sampling, `==` on the core (S2b).** Core `format.rs` = population/format.py (`format(die,
+  type_name, spec, csv_table)` does `Population.format`'s spec parsing and default columns; `table` = headers +
+  rows; `csv` writes the `'excel'` dialect itself), over `value/pystr.rs`: exact `py_str` / `py_repr` (Fraction
+  `'n/d'`, single-quote str repr, CPython's 4300-digit int limit; a non-ASCII char in a str *repr* is Unsupported:
+  printability needs Unicode tables) and `format_float` (`'f'`/`'e'`/`'%'`: Rust's exact formatting rounds ties
+  like CPython's dtoa, checked on 800k values; only the exponent spelling differs). `builtins::math_log10` /
+  `float_ceil` (log10 is `f64::log10` = glibc natively; on WASM another libm, not ported: only
+  `format_probability_inverse`'s `ceil(log10(int_start))` uses it). `random.rs` = CPython's MT19937 `seed(int)`
+  + `randrange` (`_randbelow_with_getrandbits`), for icepool-run/WASM; `Die::sample_at(r)` is the bisect.
+  `Die::equals(other, simplify)`, `Die<Value>::hash_key_compare(op)` (tuple order of `(Die, tuple(items))`).
+  New `HostObject` hooks: `py_str`, `py_repr` (fallible), `len_kind` (`Mapping` / `Sized` / neither).
+- Facade: `Population.format` (csv writer kwargs: the core's table written by `format.write_csv` with Python's
+  csv module), `_common_outcome_length`, `sample` (the draw stays `random.randrange` on Python's global, user-seeded
+  generator; `icepool_rs.sample_at` bisects), `format_probability_inverse`, `Die.equals` (`icepool_rs.die_equals`)
+  and `Die.hash_key` = `(Die, self._rust_die())`: `icepool_rs.Die` now has `__hash__` (core hash, not Python's
+  tuple hash: set/dict *iteration order* of dice can differ from the oracle; nothing in icepool depends on it) and
+  `__richcmp__` (== core equality, < etc. tuple order). `DieWithTruth` itself is untouched: its data comes from
+  `binary_operator` (core) and its truth from `equals` (core).
+- Program layer: `PValue::DieWithTruth(die, truth)` (eager; neither half can raise for values). Nodes (harness/
+  grammar/format.py): `format` (spec `None` = `str(die)`), `format_probability_inverse` (`args` = `[]` or
+  `[int_start]`), `common_outcome_length`, `sample` (`random.seed(seed)` then n samples), `eq`/`ne` (kind
+  "die_truth": only `format`/`truth`/`equals`/`hash_key_compare` consume it, so the type name `DieWithTruth` never
+  leaks into "die" nodes), `truth` (`bool(x)`), `equals`, `hash_key_compare`. The single-die shortcut of
+  `Die([x])` returns a `DieWithTruth` as is (`ops::new_die`). Fuzzing these needs base ops in `--ops` (the
+  generators call `g.die()`), e.g. `--ops format,...,hash_key_compare,d,die,weights,die_typed,add,mixture`.
+
 - **Population statistics on the core (S2a).** Core `population.rs` = population/base.py: generic over `Outcome`
   where only order matters (`quantities(Comparison)`, `quantity`, `nearest`, `mode`, `modal_quantity`,
   `quantity_where(mask)`, `group_by(keys)`), `impl Die<Value>` for the arithmetic (probabilities, quantiles, mean /
