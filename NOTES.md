@@ -5,6 +5,51 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Deck and Deal on the core (S4a).** Core `deck.rs` = population/deck.py: `Deck<O>` wraps its cards as a `Die`
+  (`population()`: every `Population` method means the same on both, so statistics / pops / hashing are shared),
+  `Deck::new(args, dups)` = `expand_args_for_deck` (`creation_args::merge_duplicates`: dups add up, zero dups and
+  zero-quantity outcomes of a die argument contribute nothing, not even the key). The operators go through a
+  port of Python's `Counter` (`deck::Counter`: insertion order, signed `IBig` counts, missing key = 0, first key
+  spelling kept): `counter_items(op, &Counter(other))` = the items of `+data` (`Add`, `Sub`, `RSub` = `other -
+  deck`, `And` (keys are *other's*), `Or`, `Xor`); `counter_op` = `Deck(+data)` for plain-value keys.
+  `deal.rs` = generator/deal.py: `Deal<O>` (deck + keep tuple; `keep` / `multiply_counts` via the shared
+  `keep_tuple::keep` / `keep_tuple::multiply_counts`, which `Pool` now uses too) and `DealSource<O>` (outcomes as
+  a `lo..hi` window of the first deck's, like `PoolSource`; `Eq`/`Hash` on deck + keep tuple), a new
+  `MultisetSource::Deal` variant, so every evaluator runs over deals unchanged. `math::comb` multiplies out
+  (icepool reads `comb_row(n)[k]`, quadratic in the deck size).
+- Program layer `program/deck.rs`; `PValue::Deck` / `PValue::Deal`. `program/pool.rs KeepGen {Pool, Deal}`:
+  the keep-like nodes (`pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul`, `pool_neg`) and every
+  evaluation (`evaluate::run`, catalogue evaluators, `implicit_convert`: a `Deck` raises ValueError like
+  `Pool(deck)`) take either; `pool_info` / `pool_pop` / `pool_add` / `pool` stay pool-only (a deal there is
+  unimplemented: `Deal + x` is a CompoundKeepGenerator, S4c). `itemize` / `die_arg` / `py_iter` treat a deck as the
+  mapping it is (so `Die(deck)`, `Die([deck])` work). A deck or deal result encodes as Python's repr
+  (`wire.rs deck_repr`: `{"repr": "Deck: Deck({1: 2})"}`), so the deck-building nodes are fuzz roots.
+- Nodes (harness/grammar/deck.py): `deck` (`Deck(outcomes, times)`), `deck_op` (`operator` in `+ - & | ^`, a
+  deck on either side; the other side anything `Counter()` takes: deck, die, list, str, None), `deck_mul`
+  (`* r* // %` with any operand: non-ints are TypeError), `deck_map`, `deck_pad_to_denominator`, `deck_info`,
+  `deck_pop`, `deck_stat` (statistics.py's `STATS`), `deck_sequence` (small literal decks only), `deal` (kind
+  "deal", no gen), `deal_info`, `deal_pop`. `pool.py gen_pool(..., deals=True)` (evaluate.py's generators and
+  `pool_index`) makes a deal instead of a pool 25% of the time, with the same keep-like operations on top. Quirks
+  copied: `deck.sequence(0)` raises UnboundLocalError, a tuple holding Reroll in `Deck(...)` raises only with
+  nonzero dups (DIVERGENCES.md); `None + deck` is the deck (`Counter(None)` is empty); `[1] + deck` / `"ab" + deck`
+  are the deck's reflected operators (sequences have no numeric slots), but `x ^ deck` is TypeError (no
+  `__rxor__`); a non-int `times` element is fine if it is 0 or its argument has no cards, else ValueError.
+- Facade: `Deck` holds `icepool_rs.Deck` as `_rs` (`Deck._new_rust`, `_rust_deck()` converts a Python-made deck
+  once, `_rust_die()` = its cards as a core die). `Deck.__new__` keeps `contains_again` / `itemize` / the
+  single-deck shortcut and calls `creation_args.expand_args_for_deck_rust` (tags as for dice). The operators
+  count `Counter(other)` in Python and pass its items to `icepool_rs.deck_counter_op`, then build
+  `Deck(dict(items))` (so keys that are dice / Reroll / tuples of dice expand as Python's `Deck(+data)` does).
+  `_popped_min/max`, `hash_key` (`(Deck, _rs)`) on the core; base.py's switched `Population` methods test
+  `_rust_population(self)` (Die or Deck) instead of `isinstance(self, Die)`, except `zero` and `split` (they build
+  `Die._new_rust` results; for a deck they stay upstream's code, whose `Deck(...)` is the core's). `Deck.map` and
+  `Deck.sequence` are upstream's code over core calls. `Deal.__init__` = `icepool_rs.deal_new` (checks and keep
+  tuple); `Deal._new_rust(deck, rs)` keeps the facade's deck object; `keep` (keep.py), `multiply_counts`,
+  `_set_keep_tuple` (`with_keep_tuple`), `denominator`, `hash_key`, `_make_source` on the core; `DealSource`
+  (`_new_rust`, `deck` / `keep_tuple` lazily via `__getattr__`) pops, sizes and prefers its order on the core, and
+  `evaluator_rust.is_rust_evaluable` accepts it. `MultiDeal` (S4b) is still upstream's code over core decks.
+- Facade gap: a `Counter(other)` value that is not an `int` (a dict operand with float counts) raises
+  NotImplementedError; Python goes on (and usually raises ValueError in `Deck(...)`).
+
 - **map(repeat), Markov chains, map_and_time on the core (S3b).** Core `map_tools/` = map_tools/: `core_impl.rs`
   `TransitionCache<F>` (F = `FnMut(&Value, usize) -> Result<Next, E>`: the state and an index into the joint
   outcomes of the extra args, so the *caller* keeps the outcome objects and does `star`; the core only gets their
@@ -127,8 +172,8 @@ turns out wrong. Newest decisions at the top of each section.
   standardized_moment (so skewness / excess_kurtosis), entropy, `_Marginals.__len__`, covariance, correlation,
   `group_by` (key function called back per outcome inside Rust, so an unhashable key raises before the next call).
   `marginals[...]` needs no edit: `operator.getitem` is now native in icepool-py `ops::Unary::GetItem` (Unsupported
-  -> Python's getitem for that outcome); `marginals.attr` stays a host callback. A `Deck` still runs base.py's
-  Python (S4a). `has_zero_quantities` does not exist at the pinned oracle (only `Counts.has_zero_values`).
+  -> Python's getitem for that outcome); `marginals.attr` stays a host callback. A `Deck` runs the same core
+  calls since S4a (`_rust_population`). `has_zero_quantities` does not exist at the pinned oracle (only `Counts.has_zero_values`).
 - Nodes (harness/grammar/statistics.py): quantities, probabilities, quantity, probability (`args` = 1 or 2
   positionals), nearest, die_stat (`getattr(die, stat)()` for 15 names), entropy (`base` list), die_quantile,
   cdf_distance, marginal, marginal_slice, marginals, group_by, group_by_index, joint_stat, quantities_op,
@@ -155,7 +200,7 @@ turns out wrong. Newest decisions at the top of each section.
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
 - Still upstream's Python driver (by input kind, not a fallback): multiset expressions (BodyDungeonlet: `unique`,
-  `+` of pools, keep of an expression...), `Deal`/`MultiDeal`/`CompoundKeep`/weightless sources, and
+  `+` of pools, keep of an expression...), `MultiDeal`/`CompoundKeep`/weightless sources (`Deal` since S4a), and
   `@multiset_function` dungeons. In the upstream suite: 775 evaluations on the core, ~1070 still Python (S4).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
@@ -189,7 +234,7 @@ turns out wrong. Newest decisions at the top of each section.
   on the core driver since S1e. `_dice`/`_outcomes` (Pool) and `dice`/`_outcomes`/`keep_tuple` (PoolSource) are converted lazily
   by `__getattr__` (facade dice are new `Die._new_rust` objects, equal but not identical to the dice passed in).
   Under rust, `Pool._set_keep_tuple`, `_new_raw`, `_new_from_mapping` and `PoolSource._new_raw`'s `@cache` are
-  unused (`clear_cache` is harmless). `make_keep_tuple` / `compose_keep_tuples` stay Python for `Deal`/compound.
+  unused (`clear_cache` is harmless). `make_keep_tuple` / `compose_keep_tuples` stay Python for compound generators.
 - Facade gaps (NotImplementedError where Python answers): keep-index sequence elements that are not ints (Python
   keeps floats etc. and sums them in `compose_keep_tuples`), `multiply_counts` by a non-int, keep counts beyond
   i64 (as in icepool-run). `d(6).pool(2**70)` is OverflowError on both sides.
@@ -237,7 +282,7 @@ turns out wrong. Newest decisions at the top of each section.
   logic there if a generator ever produces one.
 - Left in Python on purpose: `explode` (it is `map` + Again: on the core since S3a), public `icepool.from_cumulative` (its
   outcomes may be dice/Reroll mixed by `Die()`, which is the core's; only the subtraction loop is Python), the
-  `Deck` paths of `split`/`zero`/pops (S4a). Grammar nodes added: `zero`, `simplify`, `die_pop` (`(die, quantity)`,
+  `Deck` paths of `split`/`zero` (they build the result with `Deck(...)`, on the core since S4a). Grammar nodes added: `zero`, `simplify`, `die_pop` (`(die, quantity)`,
   kind "value"), `from_cumulative` (int cumulative only; cumulative dice are unimplemented in icepool-run).
 - Facade gaps (both sides raise, only the type or the empty-die case differ): `truncate`/`clip` hash their bounds
   on entry, so an unhashable bound raises TypeError even on an empty die (Python returns the empty die).

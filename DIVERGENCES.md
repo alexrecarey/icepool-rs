@@ -216,3 +216,34 @@ def test_mean_time_to_absorb_expands_multisets():
     assert icepool.mean_time_to_absorb(f, 0, icepool.d(2).pool(2)) == \
         icepool.mean_time_to_absorb(f, 0, icepool.d(2).pool(2).expand())
 ```
+
+### `Deck.sequence(0)` raises `UnboundLocalError` (S4a)
+
+`Deck.sequence(deals)` (population/deck.py) fills `_sequence_cache` in `for i in range(len(self._sequence_cache),
+deals + 1): ... result = ...; self._sequence_cache.append(result)` and returns `result`, which is only bound inside
+the loop. With `deals == 0` (the cache already holds `Die([()])`), and with any `deals` no larger than an earlier
+call on the same deck, the loop never runs and `return result` raises `UnboundLocalError`. The intent is surely
+`return self._sequence_cache[deals]`. The port raises for `deals == 0` (program/deck.rs `deck_sequence`; one call
+per program, so the second case is not reachable there). The facade runs upstream's code unchanged.
+
+Drafted upstream test:
+
+```python
+def test_sequence_zero_and_repeated():
+    deck = Deck([1, 2, 2])
+    assert deck.sequence(0).equals(Die([()]))
+    assert deck.sequence(2).equals(deck.sequence(2))
+    assert deck.sequence(1).equals(Die([(1,), (2,), (2,)]))
+```
+
+### A tuple holding `Reroll` in `Deck(...)` raises `AttributeError` unless its duplicates are 0 (S4a)
+
+Same root as the `Die(...)` entry above: `expand_arg` hands `Reroll` itself on as the subdata, and
+`merge_duplicates` calls `subdata.items()` on it, but only after `if subdup == 0: continue`. So
+`Deck([(1, Reroll)], times=[0])` is an empty deck while `times=[1]` raises. Copied (program/deck.rs `new_deck`,
+creation_args.py `expand_args_for_deck_rust`). The same test as above, for decks:
+
+```python
+def test_deck_tuple_with_reroll_drops_out():
+    assert Deck([(1, Reroll), 2]) == Deck([2])
+```
