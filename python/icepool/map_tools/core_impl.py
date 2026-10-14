@@ -26,6 +26,21 @@ def map_simple(
         * A list of final quantities.
     """
     transition, star = transition_and_star(repl, len(extra_args) + 1, star)
+    # icepool-rs: the Cartesian product, the calls to `transition` (host
+    # callbacks) and unwrapping `Break` run in the Rust core; the arguments are
+    # given as their `_items_for_cartesian_product` (or `(arg, 1)`), and the
+    # results are mixed by `Die` below, which is the core's too.
+    if icepool.backend.RUST:
+        final_states, final_quantites = icepool.backend.RUST.map_simple(
+            transition, bool(star), [
+                icepool.expand.arg_items(arg)
+                for arg in (first_arg, *extra_args)
+            ], kwargs)
+        return icepool.Die(final_states,
+                           final_quantites,
+                           again_count=again_count,
+                           again_depth=again_depth,
+                           again_end=again_end)
     final_states: list[T | icepool.Die[T] | icepool.AgainExpression
                        | icepool.RerollType] = []
     final_quantites: list[int] = []

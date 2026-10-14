@@ -5,6 +5,7 @@
 //! the facade's `Counts`.
 
 mod convert;
+mod map;
 mod ops;
 
 use dashu_int::{IBig, UBig};
@@ -476,6 +477,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(keep_single, m)?,
         wrap_pyfunction!(zero, m)?,
         wrap_pyfunction!(simplify, m)?,
+        wrap_pyfunction!(map::map_simple, m)?,
+        wrap_pyfunction!(map::tupleize, m)?,
     ] {
         m.add_function(f)?;
     }

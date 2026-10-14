@@ -145,19 +145,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
             }
         });
     }
-    let mut data: Vec<(Value, Quantity)> = Vec::new();
-    let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
-    for (outcomes, quantity) in iter_cartesian_product(&parts) {
-        let key = Value::tuple(outcomes);
-        match index.get(&key) {
-            Some(&i) => data[i].1 = quantity,
-            None => {
-                index.insert(key.clone(), data.len());
-                data.push((key, quantity));
-            }
-        }
-    }
-    Ok(DieArg::Die(Die::from_dict(data)?))
+    Ok(DieArg::Die(crate::expand::tupleize_dice(&parts)?))
 }
 
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {

@@ -20,6 +20,16 @@ class Expandable(Protocol[A_co]):
         ...
 
 
+def arg_items(arg) -> Sequence[tuple[Any, int]]:
+    """icepool-rs: moved out of `iter_cartesian_product` (unchanged) so that
+    the Rust path of `map_simple` gets the same items."""
+    items = getattr(arg, '_items_for_cartesian_product', None)
+    if items is not None:
+        return items
+    else:
+        return [(arg, 1)]
+
+
 def iter_cartesian_product(
     *args: 'Outcome | icepool.Population | icepool.MultisetExpression'
 ) -> Iterator[tuple[tuple, int]]:
@@ -35,13 +45,6 @@ def iter_cartesian_product(
     if len(args) == 0:
         yield (), 1
         return
-
-    def arg_items(arg) -> Sequence[tuple[Any, int]]:
-        items = getattr(arg, '_items_for_cartesian_product', None)
-        if items is not None:
-            return items
-        else:
-            return [(arg, 1)]
 
     for t in itertools.product(*(arg_items(arg) for arg in args)):
         outcomes, quantities = zip(*t)
@@ -84,6 +87,19 @@ def cartesian_product(
 
     if population_type is None:
         return outcome_type(args)  # type: ignore
+    # icepool-rs: a die of tuples is built in the Rust core, when every
+    # argument is a die or a plain outcome (anything else that expands, such as
+    # a multiset expression, stays on the Python path).
+    elif (icepool.backend.RUST and population_type is icepool.Die
+          and outcome_type is tuple and all(
+              isinstance(arg, icepool.Die)
+              or not hasattr(arg, '_items_for_cartesian_product')
+              for arg in args)):
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.tupleize([
+                (1, arg._rust_die()) if isinstance(arg, icepool.Die) else
+                (0, arg) for arg in args
+            ]))
     else:
         data = {}
         for outcomes, final_quantity in iter_cartesian_product(

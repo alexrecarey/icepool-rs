@@ -65,8 +65,13 @@ def expand_args_for_die_rust(
     `expand_arg` stays here; each subdata goes to Rust tagged with its kind (see `icepool_rs.expand_args_for_die`).
     """
     subdatas = []
-    for arg in args:
-        subdata = expand_arg(arg)
+    # As in Python, every argument is expanded before any is merged.
+    for subdata in [expand_arg(arg) for arg in args]:
+        if not isinstance(subdata, Mapping):
+            # A tuple holding `Reroll` expands to `Reroll` itself (see
+            # `cartesian_product`), which `merge_weights_lcm` then fails on.
+            raise AttributeError(
+                f"'{type(subdata).__name__}' object has no attribute 'values'")
         if isinstance(subdata, icepool.Die):
             subdatas.append((1, subdata._rust_die()))
         elif isinstance(subdata, icepool.Population):

@@ -1,6 +1,7 @@
 //! Port of icepool `expand.py`: Cartesian products of dice.
 
-use crate::Quantity;
+use crate::error::Result;
+use crate::{Die, Quantity, Value};
 
 /// Yields the independent joint distribution of the arguments (`iter_cartesian_product`).
 ///
@@ -41,6 +42,28 @@ pub fn iter_cartesian_product<T: Clone>(
         }
         Some((outcomes, quantity))
     })
+}
+
+/// `cartesian_product(*args, outcome_type=tuple)` when the population type is `Die`: a die of tuples, one per
+/// joint outcome of `args` (each given as for `iter_cartesian_product`).
+///
+/// Python builds a dict `data[outcome_type(outcomes)] = final_quantity` (assignment, not `+=`: equal tuples such
+/// as `(1,)` and `(True,)` overwrite each other's quantity and keep the first key) and returns `Die(data)`, which
+/// drops zero quantities.
+pub fn tupleize_dice(args: &[Vec<(Value, Quantity)>]) -> Result<Die<Value>> {
+    let mut data: Vec<(Value, Quantity)> = Vec::new();
+    let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
+    for (outcomes, quantity) in iter_cartesian_product(args) {
+        let key = Value::tuple(outcomes);
+        match index.get(&key) {
+            Some(&i) => data[i].1 = quantity,
+            None => {
+                index.insert(key.clone(), data.len());
+                data.push((key, quantity));
+            }
+        }
+    }
+    Die::from_dict(data)
 }
 
 #[cfg(test)]
