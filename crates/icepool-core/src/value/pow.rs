@@ -220,9 +220,10 @@ fn checkint(iy: u64) -> u32 {
     2
 }
 
-/// Returns true if input is the bit representation of 0, infinity or nan.
+/// Returns true if input is the bit representation of 0, infinity or nan. (C's unsigned `2 * i` wraps, dropping the
+/// sign bit: `wrapping_mul` here and below, or debug builds panic.)
 fn zeroinfnan(i: u64) -> bool {
-    (2 * i).wrapping_sub(1) >= 2 * f64::INFINITY.to_bits() - 1
+    i.wrapping_mul(2).wrapping_sub(1) >= 2 * f64::INFINITY.to_bits() - 1
 }
 
 /// Arm's `pow(x, y)`. Worst-case error: 0.54 ULP (~= ulperr_exp + 1024*Ln2*relerr_log*2^53); relerr_log: 1.3 *
@@ -243,19 +244,19 @@ fn arm_pow(x: f64, y: f64) -> f64 {
         // 0x1.e7b6p-65 then pow(x,y) = +-1.
         // Special cases: (x < 0x1p-126 or inf or nan) or (|y| < 0x1p-65 or |y| >= 0x1p63 or nan).
         if zeroinfnan(iy) {
-            if 2 * iy == 0 {
+            if iy.wrapping_mul(2) == 0 {
                 return 1.0;
             }
             if ix == one {
                 return 1.0;
             }
-            if 2 * ix > 2 * inf || 2 * iy > 2 * inf {
+            if ix.wrapping_mul(2) > 2 * inf || iy.wrapping_mul(2) > 2 * inf {
                 return x + y;
             }
-            if 2 * ix == 2 * one {
+            if ix.wrapping_mul(2) == 2 * one {
                 return 1.0;
             }
-            if (2 * ix < 2 * one) == (iy >> 63 == 0) {
+            if (ix.wrapping_mul(2) < 2 * one) == (iy >> 63 == 0) {
                 return 0.0; // |x|<1 && y==inf or |x|>1 && y==-inf.
             }
             return y * y;
