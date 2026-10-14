@@ -204,16 +204,32 @@ def deal(deck, hand_size):
     return deck.deal(hand_size)
 
 
+# Deals are only made from decks of at most this many cards. A deal's denominator is icepool.math.comb(deck size,
+# hand size), and comb() fills the process-wide comb_row_cache with every row of Pascal's triangle up to the deck
+# size: a deck holding 10**20 copies of a card (weights) makes the oracle grow that cache until the fuzzer's timeout,
+# and the rows stay cached, so a long fuzz run piles them up until the kernel kills it (long gate, 2026-10-14).
+_MAX_DECK_SIZE = 200
+
+
+def _gen_modest_deck(g, depth):
+    """(deck program, its size or None if it raises): a deck of at most _MAX_DECK_SIZE cards (asks the oracle)."""
+    for _ in range(10):
+        d = g.make("deck", min(depth, 1))
+        try:
+            size = peek(d).size()
+        except Exception:  # noqa: BLE001 - a deck that raises is a fine program too
+            return d, None
+        if size <= _MAX_DECK_SIZE:
+            return d, size
+    return {"op": "deck", "outcomes": [1, 2, 3], "times": 2}, 6
+
+
 def gen_deal(g, depth):
     """A deal from a modest deck; the hand size mostly fits the deck (asks the oracle for its size)."""
-    d = g.make("deck", min(depth, 1))
+    d, size = _gen_modest_deck(g, depth)
     hand_size = g.rng.randint(0, 3)
-    try:
-        size = peek(d).size()
-        if g.rng.random() < 0.9:
-            hand_size = g.rng.randint(0, min(size, 5))
-    except Exception:  # noqa: BLE001 - a deck that raises is a fine program too
-        pass
+    if size is not None and g.rng.random() < 0.9:
+        hand_size = g.rng.randint(0, min(size, 5))
     if g.rng.random() < 0.03:
         hand_size = -1
     return {"op": "deal", "deck": d, "hand_size": hand_size}
@@ -275,14 +291,10 @@ _MAX_DEALT = 6
 def gen_multi_deal(g, depth):
     """A multi-deal from a modest deck: mostly hands that fit the deck (asks the oracle for its size), now and
     then more cards than it has; a third of the time hand groups."""
-    d = g.make("deck", min(depth, 1))
+    d, size = _gen_modest_deck(g, depth)
     room = g.rng.randint(0, 4)
-    try:
-        size = peek(d).size()
-        if g.rng.random() < 0.92:
-            room = min(size, _MAX_DEALT)
-    except Exception:  # noqa: BLE001 - a deck that raises is a fine program too
-        pass
+    if size is not None and g.rng.random() < 0.92:
+        room = min(size, _MAX_DEALT)
     if g.rng.random() < 0.35:
         groups = []
         for _ in range(g.rng.choice([0, 1, 1, 2, 2, 3])):
