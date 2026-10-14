@@ -5,6 +5,48 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Population statistics on the core (S2a).** Core `population.rs` = population/base.py: generic over `Outcome`
+  where only order matters (`quantities(Comparison)`, `quantity`, `nearest`, `mode`, `modal_quantity`,
+  `quantity_where(mask)`, `group_by(keys)`), `impl Die<Value>` for the arithmetic (probabilities, quantiles, mean /
+  variance / sd / standardized_moment / skewness / excess_kurtosis / entropy, KS / CvM, `marginal(Index)`,
+  `marginals_len`, covariance / correlation, multiply / divide / modulo_quantities, pad_to / multiply_to_denominator).
+  Methods making a new population return Python's `dict` as `Data` (`(outcome, quantity)` `Value` pairs, `None` =
+  Python returns `self`): `Die(dict)`'s weight checks stay with the caller (`program/ops.rs weights_die`, the
+  facade's `Population._from_rust_data` = `self._new_type(dict(data))`).
+- `value/builtins.rs`: CPython 3.13's `sum` with its fast paths (int accumulation in a C long; float Neumaier
+  compensation, but ints added to a float total are *not* compensated; once generic, never back), `to_float`
+  (`PyFloat_AsDouble`), `try_fraction` (`Fraction(n, d)` or `n / d`), `math_sqrt`, `math_log` (CPython `loghelper`
+  incl. the huge-int frexp path, `m_log` specials, `math_1` domain errors), `getitem(Value, &Index)` (tuple/str
+  index and slices exactly as `PySlice_Unpack` + `AdjustIndices`), `py_len`. Use them for any new Python-builtin
+  arithmetic.
+- **`value/libm.rs` `log`**: natively `f64::ln` (glibc); on wasm32 a port of Arm's log as glibc 2.43's x86_64
+  `__log_fma` runs it (tables read out of libm.so's `__log_data`, FMA contractions off its disassembly).
+  `matches_platform_log` checks it bit for bit (~4M inputs); at S2a 1320 stats programs fuzzed clean through
+  crates/icepool-wasm/run-wasm.sh. Anything else transcendental still needs the same
+  treatment (see pow.rs).
+- New `HostObject` hooks, all defaulting to `Error::Unsupported`: `to_float`, `as_rational` (`numbers.Rational` ->
+  `Fraction(n.numerator, n.denominator)`), `as_index` (`__index__`), `getitem(&Index)`, `py_len`. `PyHost` implements
+  them in crates/icepool-py/src/stats.rs. Facade gap: an `int` subclass item in `sum`'s float path goes the
+  generic way (Python treats it as an int: same result unless compensation was pending).
+- Facade (python/icepool/population/base.py, `if icepool.backend.RUST and isinstance(self, icepool.Die)`):
+  is_empty, min/max_outcome, nearest, quantity, quantity_where / probability_where (the callable is called in the
+  facade, a mask goes to Rust), quantities (except `'=='`, the values view), `_denominator`, multiply / divide /
+  modulo_quantities, pad_to / multiply_to_denominator, probability(ies), mode, modal_quantity, KS / CvM against a
+  Die (a Deck `other` stays Python), quantile(_low/_high) (so median*), mean, variance, standard_deviation (so sd),
+  standardized_moment (so skewness / excess_kurtosis), entropy, `_Marginals.__len__`, covariance, correlation,
+  `group_by` (key function called back per outcome inside Rust, so an unhashable key raises before the next call).
+  `marginals[...]` needs no edit: `operator.getitem` is now native in icepool-py `ops::Unary::GetItem` (Unsupported
+  -> Python's getitem for that outcome); `marginals.attr` stays a host callback. A `Deck` still runs base.py's
+  Python (S4a). `has_zero_quantities` does not exist at the pinned oracle (only `Counts.has_zero_values`).
+- Nodes (harness/grammar/statistics.py): quantities, probabilities, quantity, probability (`args` = 1 or 2
+  positionals), nearest, die_stat (`getattr(die, stat)()` for 15 names), entropy (`base` list), die_quantile,
+  cdf_distance, marginal, marginal_slice, marginals, group_by, group_by_index, joint_stat, quantities_op,
+  pad_to_denominator, multiply_to_denominator, quantity_where, probability_where. `cdf_distance` and tuple dice use
+  NaN-free dice (`_stat_die_without_nan`, pool.py `_die_without_nan`): `sorted_union` sorts a set and tuples holding
+  the same NaN object compare equal in Python, both identity-dependent.
+- Zero quantities: at the pinned oracle no node makes a die with zero quantities (`Die({x: 0})` and mixing drop
+  them; only `_pop_min/_pop_max` keep existing ones), so they are effectively untestable through programs.
+
 - **Evaluation driver on the core (S1e).** Under `ICEPOOL_BACKEND=rust`, `MultisetEvaluatorBase.evaluate` keeps
   its argument conversion, `_prepare`, the `_cache` bookkeeping of dungeons (so upstream's evaluator_cache_test.py
   holds unshimmed: it only counts dungeons) and the outer `Die(final_data)`; per prepared evaluation,
