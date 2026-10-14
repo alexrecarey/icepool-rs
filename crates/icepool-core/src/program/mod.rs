@@ -14,6 +14,7 @@ mod evaluate;
 mod expression;
 mod format;
 mod function;
+pub mod host;
 mod map;
 mod map_tools;
 mod multi_deal;
@@ -21,7 +22,7 @@ mod multiset_function;
 mod ops;
 mod pool;
 mod statistics;
-mod wire;
+pub mod wire;
 
 pub use ops::matmul_dice;
 
@@ -158,7 +159,7 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                     ("fn", "name", Json::String(name)) => PValue::Value(Value::str(name)),
                     _ => eval(v)?,
                 };
-                // Only `bool(x)` can use a `DieWithTruth` whose data raises.
+                // Raised as soon as it is evaluated (see `call`), before any later argument runs.
                 if let PValue::DieWithTruthError(e, _) = &v {
                     if !matches!(op, "truth" | "coll_truth") {
                         return Err(e.clone().into());
@@ -166,7 +167,7 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                 }
                 values.push((k.as_str(), v));
             }
-            ops::call(op, Args(values))
+            call(op, values)
         }
         Json::Array(a) => a
             .iter()
@@ -178,6 +179,20 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
             .map(PValue::List),
         _ => wire::dec(x),
     }
+}
+
+/// One node applied to its evaluated arguments: what the facades call (the JS facade's methods are nodes). The
+/// lazy nodes (`khepri`, `mf_def`) take raw JSON and only run through [`eval`].
+pub fn call(op: &str, args: Vec<(&str, PValue)>) -> Result<PValue, PErr> {
+    // Only `bool(x)` can use a `DieWithTruth` whose data raises.
+    if !matches!(op, "truth" | "coll_truth") {
+        for (_, v) in &args {
+            if let PValue::DieWithTruthError(e, _) = v {
+                return Err(e.clone().into());
+            }
+        }
+    }
+    ops::call(op, Args(args))
 }
 
 /// The `khepri` node: khepri-f2f's whole engine (harness/grammar/khepri.py). Its `input` is lazy: the engine

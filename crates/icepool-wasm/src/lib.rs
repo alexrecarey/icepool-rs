@@ -9,6 +9,10 @@
 //! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`, and the caller should drop the
 //! instance (run-wasm.mjs reloads it).
 
+mod facade;
+
+pub use facade::{call, evaluate, live_handles, release, wire_result};
+
 use serde_json::Value as Json;
 use wasm_bindgen::prelude::*;
 

@@ -80,6 +80,8 @@ pub enum Func {
     CountIfGtK(PValue),
     /// `{k: v for k, v in pairs}`: a mapping, not a callable.
     Mapping(FxHashMap<Key, PValue>),
+    /// A callable of the host language (the JS facade's functions), called back through the host.
+    Host(std::sync::Arc<dyn super::host::HostFunction>),
 }
 
 impl Func {
@@ -151,6 +153,7 @@ impl Func {
         use Func::*;
         let n = match self {
             Mapping(_) => return None,
+            Host(f) => return Some(f.positional()),
             Const(_) => return Some((0, None)),
             CountDiff | CountIfGtK(_) => return Some((1, None)),
             ReadRoll | Swap | Add2 | Max2 | BreakEq | CapSum(_) | BreakAt(..) | RestartOn(..)
@@ -181,6 +184,9 @@ impl Func {
         kwargs: Vec<(String, PValue)>,
     ) -> Result<PValue, PErr> {
         use Func::*;
+        if let Host(f) = self {
+            return f.call(args, kwargs);
+        }
         let mut k = None;
         for (name, v) in kwargs {
             match (self, name.as_str()) {
@@ -382,7 +388,7 @@ impl Func {
                     PValue::tuple(vec![b, next])
                 }
             }
-            Mapping(_) | CountDiff | CountIfGtK(_) => unreachable!("handled above"),
+            Mapping(_) | CountDiff | CountIfGtK(_) | Host(_) => unreachable!("handled above"),
         })
     }
 }

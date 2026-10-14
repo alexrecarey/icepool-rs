@@ -393,9 +393,10 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
 }
 
 /// `EVALUATORS[name](*params).evaluate(*inputs)`: per prepared evaluation `Die(final_outcomes, final_weights)`
-/// through `new_die`, which mixes in final outcomes that are dice; then those mixed by weight.
-pub fn run(
-    evaluator: &CatalogueEvaluator,
+/// through `new_die`, which mixes in final outcomes that are dice; then those mixed by weight. Also runs the
+/// host's evaluators (`program::host`), whose final outcomes may be dice too.
+pub fn run<E: MultisetEvaluator<Value, Final = PValue>>(
+    evaluator: &E,
     exprs: &[super::expression::MExpr],
 ) -> std::result::Result<PValue, PErr> {
     let mut results = Vec::new();
