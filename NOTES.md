@@ -5,6 +5,30 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Pools on the core (S1d).** Under `ICEPOOL_BACKEND=rust` the facade's `Pool` holds an `icepool_rs.Pool` as
+  `_rs` (`Pool._new_rust`, crates/icepool-py/src/pool.rs) and its `PoolSource` an `icepool_rs.PoolSource`
+  (`PoolSource._new_rust`). `Pool.__new__` keeps its juggling (`Pool(pool, times)` via `_dice`, the Die/Deck
+  check, `itemize`, `implicit_convert_to_die`) and calls `icepool_rs.pool_new(rs_dice, times)` (non-int count:
+  TypeError like `(1,) * sum(times)`). Switched: `KeepGenerator.keep` for a `Pool` (keep tuple made and composed
+  in Rust; the negative-counts fallback to `MultisetExpression.keep` and the keep evaluator for an int index stay
+  Python), `Pool.multiply_counts` (so `*`, `-`), `Pool.additive_union` of pools (`None` from Rust -> Python's
+  `KeepGenerator.additive_union`, i.e. CompoundKeepGenerator), `_make_source`, `raw_size`, `denominator`,
+  `hash_key` (`(Pool, _rs)`: the Rust object hashes/compares dice + keep tuple), and all of `PoolSource` (`pop`,
+  `order_preference`, `size`, `is_resolvable`, `denominator`, `hash_key`). The evaluator driving the pops is still
+  Python (S1e). `_dice`/`_outcomes` (Pool) and `dice`/`_outcomes`/`keep_tuple` (PoolSource) are converted lazily
+  by `__getattr__` (facade dice are new `Die._new_rust` objects, equal but not identical to the dice passed in).
+  Under rust, `Pool._set_keep_tuple`, `_new_raw`, `_new_from_mapping` and `PoolSource._new_raw`'s `@cache` are
+  unused (`clear_cache` is harmless). `make_keep_tuple` / `compose_keep_tuples` stay Python for `Deal`/compound.
+- Facade gaps (NotImplementedError where Python answers): keep-index sequence elements that are not ints (Python
+  keeps floats etc. and sums them in `compose_keep_tuples`), `multiply_counts` by a non-int, keep counts beyond
+  i64 (as in icepool-run). `d(6).pool(2**70)` is OverflowError on both sides.
+- Program layer: the `pool` node now does `Pool(pool, times)` (`times == 1` returns the pool, else the mapping
+  `{die: count}` of `_dice` through `itemize_mapping`: keep tuple and zero-count dice forgotten). New nodes
+  `pool_dict` (`Pool(dict(items), times)`; `program/pool.rs dict` = Python dict merging: first key, last value,
+  `True`/`1` one key) and `d_pool`/`z_pool` (`die_sizes`, `mapping` flag = `dict(die_sizes)`; falsy argument ->
+  `Pool({Die([0]): 0})`). `ops::itemize` now takes mapping values as `Value`s (`itemize_mapping`). They have no
+  gen; `grammar/pool.py _other_pool` puts them into `_base_pool` (25%) so pool_info/pool_pop/... fuzz them.
+
 - **map without repeat on the core (S1c).** Under `ICEPOOL_BACKEND=rust`, core_impl.py `map_simple` keeps
   `transition_and_star` (so `infer_star` and the mapping lambda stay Python's) and calls `icepool_rs.map_simple(
   transition, star, [arg_items(arg) ...], kwargs)`: the Cartesian product (core `iter_cartesian_product` over
