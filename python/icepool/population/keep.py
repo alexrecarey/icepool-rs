@@ -295,6 +295,11 @@ def _lowest_single(*args: 'T | icepool.Die[T]') -> 'icepool.Die[T]':
     input dice.
     """
     dice = tuple(icepool.implicit_convert_to_die(arg) for arg in args)
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.keep_single(
+                [die._rust_die() for die in dice], False))
     max_outcome = min(die.max_outcome() for die in dice)
     dice = tuple(die.clip(max_outcome=max_outcome) for die in dice)
     outcomes = icepool.sorted_union(*dice)
@@ -311,6 +316,11 @@ def _highest_single(*args: 'T | icepool.Die[T]') -> 'icepool.Die[T]':
     input dice.
     """
     dice = tuple(icepool.implicit_convert_to_die(arg) for arg in args)
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.keep_single(
+                [die._rust_die() for die in dice], True))
     min_outcome = max(die.min_outcome() for die in dice)
     dice = tuple(die.clip(min_outcome=min_outcome) for die in dice)
     outcomes = icepool.sorted_union(*dice)

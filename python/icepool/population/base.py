@@ -161,6 +161,10 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         Raises:
             ValueError: If the zeros did not resolve to a single outcome.
         """
+        # icepool-rs: a die's zero runs in the Rust core (`x * 0` per outcome).
+        if icepool.backend.RUST and isinstance(self, icepool.Die):
+            return icepool.Die._new_rust(
+                icepool.backend.RUST.zero(self._rust_die()))
         result = self._unary_operator(Population._zero)
         if len(result) != 1:
             raise ValueError('zero() did not resolve to a single outcome.')
@@ -851,6 +855,13 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             `which`, and a population consisting of the unselected outcomes.
         """
         outcome_set = self._select_outcomes(outcomes, star)
+
+        # icepool-rs: for a die, the split runs in the Rust core, given one
+        # flag per outcome.
+        if icepool.backend.RUST and isinstance(self, icepool.Die):
+            mask = [outcome in outcome_set for outcome in self.outcomes()]
+            a, b = icepool.backend.RUST.split(self._rust_die(), mask)
+            return icepool.Die._new_rust(a), icepool.Die._new_rust(b)
 
         selected = {}
         not_selected = {}

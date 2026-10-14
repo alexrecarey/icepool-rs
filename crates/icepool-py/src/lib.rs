@@ -7,11 +7,14 @@
 mod convert;
 mod ops;
 
-use dashu_int::UBig;
+use dashu_int::{IBig, UBig};
+use icepool_core::program::PErr;
 use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{
+    PyNotImplementedError, PyOverflowError, PyTypeError, PyValueError, PyZeroDivisionError,
+};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyTuple};
 
 use convert::{from_py, int_from_py, quantity_to_py, to_py, to_py_err};
 
@@ -191,6 +194,269 @@ fn binary_operator(
     RsDie::wrap(py, result)
 }
 
+/// A program-layer error (the Python-dynamic layer the facade shares with icepool-run) as a Python exception.
+fn perr_to_py(e: PErr) -> PyErr {
+    match e {
+        PErr::Raise(e) => to_py_err(e),
+        PErr::Unimplemented(m) => PyNotImplementedError::new_err(format!("icepool_rs: {m}")),
+    }
+}
+
+fn rs(die: &Bound<'_, RsDie>) -> CoreDie<Value> {
+    die.get().die.clone()
+}
+
+/// A number used as an exponent `e` of an `int` base, by what Python's `int ** e` makes of it: an int result, or
+/// (a float, or a Fraction that is not a non-negative integer) a non-int one, whose value is given as a float.
+enum Exponent {
+    Int(IBig),
+    NonInt(f64),
+}
+
+fn exponent(x: &Bound<'_, PyAny>) -> PyResult<Option<Exponent>> {
+    // `int` and its subclasses (`bool`, `IntEnum`).
+    if x.is_instance_of::<PyInt>() {
+        return Ok(Some(Exponent::Int(int_from_py(x)?)));
+    }
+    if x.is_exact_instance_of::<PyFloat>() {
+        return Ok(Some(Exponent::NonInt(x.extract()?)));
+    }
+    if let Value::Fraction(r) = from_py(x)? {
+        // `int ** Fraction` is `int ** numerator` for a non-negative integer, otherwise `Fraction ** Fraction`
+        // (a float, or a Fraction for a negative integer).
+        if r.denominator().is_one() && r.numerator() >= &IBig::ZERO {
+            return Ok(Some(Exponent::Int(r.numerator().clone())));
+        }
+        return Ok(Some(Exponent::NonInt(
+            x.call_method0("__float__")?.extract()?,
+        )));
+    }
+    Ok(None)
+}
+
+/// `float(i) ** e` as Python checks it: `OverflowError` for an int too large for a float, or a finite power whose
+/// result is not.
+fn float_pow(i: &Quantity, e: f64) -> PyResult<f64> {
+    let base = icepool_core::value::int_to_f64(&IBig::from(i.clone())).map_err(to_py_err)?;
+    let r = base.powf(e);
+    if r.is_infinite() && e.is_finite() {
+        return Err(PyOverflowError::new_err(
+            "(34, 'Numerical result out of range')",
+        ));
+    }
+    Ok(r)
+}
+
+/// `Die.reroll` once the facade has selected the outcomes (`_select_outcomes`, or the min outcome) as one flag
+/// per outcome. `depth`: `None` is Python's `'inf'`; the facade has already rejected a negative depth.
+#[pyfunction]
+fn reroll(
+    py: Python<'_>,
+    die: &Bound<'_, RsDie>,
+    mask: Vec<bool>,
+    depth: Option<&Bound<'_, PyAny>>,
+) -> PyResult<RsDie> {
+    let die = &die.get().die;
+    let depth = match depth.map(exponent).transpose()? {
+        None => None,
+        Some(Some(Exponent::Int(d))) => Some(u32::try_from(d).map_err(|_| {
+            // Python would compute for a very long time (or run out of memory) with a depth this large.
+            PyNotImplementedError::new_err("icepool_rs: huge reroll depth")
+        })?),
+        Some(Some(Exponent::NonInt(depth))) => {
+            // `total_reroll_quantity**depth` and `denominator**(depth + 1)` are floats, and so is the stop factor
+            // (unless `// total_stop_quantity` divides by zero) and every quantity it scales: `Die(data)` then
+            // raises, as every stopping outcome has a non-zero quantity.
+            let total: Quantity = die
+                .items()
+                .iter()
+                .zip(&mask)
+                .filter(|(_, &r)| r)
+                .map(|((_, q), _)| q)
+                .sum();
+            let denominator = die.denominator();
+            float_pow(&total, depth)?;
+            float_pow(&denominator, depth + 1.0)?;
+            if denominator == total {
+                return Err(PyZeroDivisionError::new_err("float floor division by zero"));
+            }
+            return Err(PyTypeError::new_err(
+                "'float' object cannot be interpreted as an integer",
+            ));
+        }
+        Some(None) => {
+            return Err(PyNotImplementedError::new_err(
+                "icepool_rs: a reroll depth that is not a number",
+            ))
+        }
+    };
+    RsDie::wrap(py, die.reroll(&mask, depth))
+}
+
+/// `Population.split` for a die, with the selection as one flag per outcome: `(selected, the rest)`.
+#[pyfunction]
+fn split(py: Python<'_>, die: &Bound<'_, RsDie>, mask: Vec<bool>) -> PyResult<(RsDie, RsDie)> {
+    let (a, b) = die.get().die.split(&mask).map_err(to_py_err)?;
+    Ok((RsDie::wrap(py, Ok(a))?, RsDie::wrap(py, Ok(b))?))
+}
+
+/// A bound of `truncate` / `clip`: `None` leaves that side alone.
+fn bound(x: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Value>> {
+    x.map(from_py).transpose()
+}
+
+/// `Die.truncate(min_outcome, max_outcome)`.
+#[pyfunction]
+#[pyo3(signature = (die, min_outcome=None, max_outcome=None))]
+fn truncate(
+    py: Python<'_>,
+    die: &Bound<'_, RsDie>,
+    min_outcome: Option<&Bound<'_, PyAny>>,
+    max_outcome: Option<&Bound<'_, PyAny>>,
+) -> PyResult<RsDie> {
+    let (min, max) = (bound(min_outcome)?, bound(max_outcome)?);
+    RsDie::wrap(py, die.get().die.truncate(min.as_ref(), max.as_ref()))
+}
+
+/// `Die.clip(min_outcome, max_outcome)`.
+#[pyfunction]
+#[pyo3(signature = (die, min_outcome=None, max_outcome=None))]
+fn clip(
+    py: Python<'_>,
+    die: &Bound<'_, RsDie>,
+    min_outcome: Option<&Bound<'_, PyAny>>,
+    max_outcome: Option<&Bound<'_, PyAny>>,
+) -> PyResult<RsDie> {
+    let (min, max) = (bound(min_outcome)?, bound(max_outcome)?);
+    RsDie::wrap(py, die.get().die.clip(min.as_ref(), max.as_ref()))
+}
+
+/// `n.__matmul__(die)` once both are dice: roll `n`, then roll `die` that many times and sum. The counts'
+/// Python types matter (a float count makes float quantities), as in icepool-run.
+#[pyfunction]
+fn matmul(py: Python<'_>, n: &Bound<'_, RsDie>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    // A count of an `int` subclass (an `IntEnum`) is a host object to the core, but `_sum_all` and the scaling
+    // only do int arithmetic and comparisons with it, as with the equal int; counts never appear in the result.
+    let mut n = n.get().die.clone();
+    if n.outcomes().any(|o| matches!(o, Value::Host(_))) {
+        let items = n
+            .items()
+            .iter()
+            .map(|(o, q)| {
+                let obj = to_py(py, o)?;
+                let o = if matches!(o, Value::Host(_)) && obj.is_instance_of::<PyInt>() {
+                    Value::Int(int_from_py(&obj)?)
+                } else {
+                    o.clone()
+                };
+                Ok((o, q.clone()))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        n = CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items));
+    }
+    let result = icepool_core::program::matmul_dice(&n, &die.get().die).map_err(perr_to_py)?;
+    RsDie::wrap(py, Ok(result))
+}
+
+/// `Die._popped_min`: the die without its min outcome (zero quantities kept) and that outcome's quantity.
+#[pyfunction]
+fn pop_min<'py>(py: Python<'py>, die: &Bound<'py, RsDie>) -> PyResult<(RsDie, Bound<'py, PyAny>)> {
+    let (popped, q) = die.get().die.pop_min().map_err(to_py_err)?;
+    Ok((RsDie { die: popped }, quantity_to_py(py, &q)?))
+}
+
+/// `Die._popped_max`.
+#[pyfunction]
+fn pop_max<'py>(py: Python<'py>, die: &Bound<'py, RsDie>) -> PyResult<(RsDie, Bound<'py, PyAny>)> {
+    let (popped, q) = die.get().die.pop_max().map_err(to_py_err)?;
+    Ok((RsDie { die: popped }, quantity_to_py(py, &q)?))
+}
+
+/// `Die._lowest_single(rolls)` (`highest` false) or `_highest_single(rolls)` for `rolls` other than 0 (the facade
+/// makes that `zero().simplify()`): `from_cumulative` over each cumulative quantity `** rolls`.
+#[pyfunction]
+fn die_keep_single(
+    py: Python<'_>,
+    die: &Bound<'_, RsDie>,
+    rolls: &Bound<'_, PyAny>,
+    highest: bool,
+) -> PyResult<RsDie> {
+    let die = &die.get().die;
+    let rolls = match exponent(rolls)? {
+        Some(Exponent::Int(r)) if r >= IBig::ZERO => {
+            // Python would run out of memory with x**rolls this large.
+            let r = usize::try_from(r).map_err(|_| PyOverflowError::new_err("rolls too large"))?;
+            let result = if highest {
+                die.highest_single(r)
+            } else {
+                die.lowest_single(r)
+            };
+            return RsDie::wrap(py, result);
+        }
+        // Only its sign matters below.
+        Some(Exponent::Int(_)) => -1.0,
+        Some(Exponent::NonInt(r)) => r,
+        None => {
+            return Err(PyNotImplementedError::new_err(
+                "icepool_rs: keeping one of a number of rolls that is not a number",
+            ))
+        }
+    };
+    // `x**rolls` is not an int here, which `from_cumulative` rejects, unless there are no quantities at all; but
+    // computing the powers may raise first. The cumulative quantities run from the quantity of the outcome at one
+    // end (the max for `>=`, the min for `<=`), zero or not, up to the denominator, the largest.
+    let end = if highest {
+        die.items().first()
+    } else {
+        die.items().last()
+    };
+    let Some((_, end_quantity)) = end else {
+        return RsDie::wrap(py, CoreDie::from_dict(vec![]));
+    };
+    if rolls < 0.0 && end_quantity.is_zero() {
+        return Err(PyZeroDivisionError::new_err(
+            "0.0 cannot be raised to a negative power",
+        ));
+    }
+    if rolls > 0.0 {
+        float_pow(&die.denominator(), rolls)?;
+    }
+    Err(PyTypeError::new_err(
+        "Unsupported type <class 'list'> for cumulative values.",
+    ))
+}
+
+/// keep.py `_lowest_single(*dice)` (`highest` false) or `_highest_single(*dice)`: roll all the dice and take the
+/// lowest (highest) single one.
+#[pyfunction]
+fn keep_single(py: Python<'_>, dice: Vec<Bound<'_, RsDie>>, highest: bool) -> PyResult<RsDie> {
+    let dice: Vec<_> = dice.iter().map(rs).collect();
+    if dice.is_empty() {
+        let f = if highest { "max" } else { "min" };
+        return Err(PyValueError::new_err(format!(
+            "{f}() iterable argument is empty"
+        )));
+    }
+    let result = if highest {
+        icepool_core::keep::highest_single(&dice)
+    } else {
+        icepool_core::keep::lowest_single(&dice)
+    };
+    RsDie::wrap(py, result)
+}
+
+/// `Population.zero` for a die: every outcome times `0`, which must resolve to a single outcome.
+#[pyfunction]
+fn zero(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    RsDie::wrap(py, die.get().die.zero())
+}
+
+/// `Die.simplify`: all quantities divided by their greatest common denominator (zero quantities drop out).
+#[pyfunction]
+fn simplify(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    RsDie::wrap(py, die.get().die.simplify())
+}
+
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RsDie>()?;
@@ -198,5 +464,20 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(from_counts_items, m)?)?;
     m.add_function(wrap_pyfunction!(unary_operator, m)?)?;
     m.add_function(wrap_pyfunction!(binary_operator, m)?)?;
+    for f in [
+        wrap_pyfunction!(reroll, m)?,
+        wrap_pyfunction!(split, m)?,
+        wrap_pyfunction!(truncate, m)?,
+        wrap_pyfunction!(clip, m)?,
+        wrap_pyfunction!(matmul, m)?,
+        wrap_pyfunction!(pop_min, m)?,
+        wrap_pyfunction!(pop_max, m)?,
+        wrap_pyfunction!(die_keep_single, m)?,
+        wrap_pyfunction!(keep_single, m)?,
+        wrap_pyfunction!(zero, m)?,
+        wrap_pyfunction!(simplify, m)?,
+    ] {
+        m.add_function(f)?;
+    }
     Ok(())
 }

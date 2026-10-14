@@ -301,6 +301,10 @@ class Die(Population[T_co], MaybeHashKeyed):
 
     def simplify(self) -> 'Die[T_co]':
         """Divides all quantities by their greatest common denominator. """
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.simplify(self._rust_die()))
         return icepool.Die(self._data.simplify())
 
     # Rerolls and other outcome management.
@@ -335,6 +339,19 @@ class Die(Population[T_co], MaybeHashKeyed):
             outcome_set = {self.min_outcome()}
         else:
             outcome_set = self._select_outcomes(outcomes, star)
+
+        # icepool-rs: the selection stays Python's (callables, membership);
+        # the reroll runs in the Rust core, given one flag per outcome.
+        if icepool.backend.RUST:
+            if depth == 'inf':
+                rs_depth = None
+            elif depth < 0:
+                raise ValueError('reroll depth cannot be negative.')
+            else:
+                rs_depth = depth
+            mask = [outcome in outcome_set for outcome in self.outcomes()]
+            return Die._new_rust(
+                icepool.backend.RUST.reroll(self._rust_die(), mask, rs_depth))
 
         if depth == 'inf':
             data = {
@@ -423,6 +440,11 @@ class Die(Population[T_co], MaybeHashKeyed):
         Not to be confused with `trunc(die)`, which performs integer truncation
         on each outcome.
         """
+        # icepool-rs: runs in the Rust core (the same bisect comparisons).
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.truncate(self._rust_die(), min_outcome,
+                                              max_outcome))
         if min_outcome is not None:
             start = bisect.bisect_left(self.outcomes(), min_outcome)
         else:
@@ -445,6 +467,11 @@ class Die(Population[T_co], MaybeHashKeyed):
         This will typically cause some quantity to bunch up at the endpoint(s).
         If you want to reroll outcomes beyond this range, use `truncate()`.
         """
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.clip(self._rust_die(), min_outcome,
+                                          max_outcome))
         data: MutableMapping[Any, int] = defaultdict(int)
         for outcome, quantity in self.items():
             if min_outcome is not None and outcome <= min_outcome:
@@ -457,6 +484,10 @@ class Die(Population[T_co], MaybeHashKeyed):
 
     @cached_property
     def _popped_min(self) -> tuple['Die[T_co]', int]:
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            rs, quantity = icepool.backend.RUST.pop_min(self._rust_die())
+            return Die._new_rust(rs), quantity
         die = Die._new_raw(self._data.remove_min())
         return die, self.quantities()[0]
 
@@ -470,6 +501,10 @@ class Die(Population[T_co], MaybeHashKeyed):
 
     @cached_property
     def _popped_max(self) -> tuple['Die[T_co]', int]:
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            rs, quantity = icepool.backend.RUST.pop_max(self._rust_die())
+            return Die._new_rust(rs), quantity
         die = Die._new_raw(self._data.remove_max())
         return die, self.quantities()[-1]
 
@@ -781,6 +816,13 @@ class Die(Population[T_co], MaybeHashKeyed):
             return NotImplemented
         other = implicit_convert_to_die(other)
 
+        # icepool-rs: `_sum_all` and the scaling run in the Rust core, with
+        # their own per-call sum cache instead of `other._sum_cache`.
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.matmul(self._rust_die(),
+                                            other._rust_die()))
+
         data: MutableMapping[int, Any] = defaultdict(int)
 
         max_abs_die_count = max(abs(self.min_outcome()),
@@ -968,6 +1010,11 @@ class Die(Population[T_co], MaybeHashKeyed):
         """Roll this die several times and keep the lowest."""
         if rolls == 0:
             return self.zero().simplify()
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.die_keep_single(self._rust_die(), rolls,
+                                                     False))
         return icepool.from_cumulative(
             self.outcomes(), [x**rolls for x in self.quantities('>=')],
             reverse=True)
@@ -1005,6 +1052,11 @@ class Die(Population[T_co], MaybeHashKeyed):
         """Roll this die several times and keep the highest."""
         if rolls == 0:
             return self.zero().simplify()
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.die_keep_single(self._rust_die(), rolls,
+                                                     True))
         return icepool.from_cumulative(
             self.outcomes(), [x**rolls for x in self.quantities('<=')])
 
