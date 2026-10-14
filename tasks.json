@@ -142,6 +142,15 @@
       "K6"
     ],
     "milestone": null,
-    "details": "K5 ported Pool/keep tuples/popping but left everything that evaluates a pool unimplemented (program/pool.rs `evaluation_needed`): pool[int] (keep evaluator), the pool path of Die.highest/Die.lowest and icepool.highest/lowest (`_sum_slice` -> Pool(dice)[slice].sum()), Die.keep, Die.middle, icepool.middle. Once K6 lands: implement those, then remove the generator filter in harness/grammar/pool.py (`_keep_drop` / `_no_pool_needed`, which only generates keep/drop that avoid the pool) and let pool_keep generate int indices. Also: d_pool/z_pool, Pool(mapping), Pool(pool, times), and keep counts / multipliers beyond i64 (Python ints; the port says Unsupported). Keeping on a pool with negative counts (MultisetKeep) and adding pools with different counts (CompoundKeepGenerator) belong to S4 (multiset expressions)."
+    "details": "K5 ported Pool/keep tuples/popping but left everything that evaluates a pool unimplemented (program/pool.rs `evaluation_needed`): pool[int] (keep evaluator), the pool path of Die.highest/Die.lowest and icepool.highest/lowest (`_sum_slice` -> Pool(dice)[slice].sum()), Die.keep, Die.middle, icepool.middle. Once K6 lands: implement those, then remove the generator filter in harness/grammar/pool.py (`_keep_drop` / `_no_pool_needed`, which only generates keep/drop that avoid the pool) and let pool_keep generate int indices. Also: d_pool/z_pool, Pool(mapping), Pool(pool, times), and keep counts / multipliers beyond i64 (Python ints; the port says Unsupported). Keeping on a pool with negative counts (MultisetKeep) and adding pools with different counts (CompoundKeepGenerator) belong to S4 (multiset expressions). K6 already did: pool[int] (node pool_index, the keep evaluator), the pool path of Die.highest/lowest and icepool.highest/lowest (pool.sum()), and removed the _keep_drop/_no_pool_needed generator filters. Left: Die.keep, Die.middle, icepool.middle, d_pool/z_pool, Pool(mapping), Pool(pool, times), keep counts beyond i64."
+  },
+  {
+    "id": "K6c",
+    "title": "Remaining built-in evaluators and pool comparisons",
+    "deps": [
+      "K6"
+    ],
+    "milestone": null,
+    "details": "K6 ported the evaluation driver and sum, size, empty/any, product_of_counts, expand, keep, highest_outcome_and_count, all_counts, largest_count, largest_count_and_outcome, count_subset, largest_straight(_and_outcome), all_straights, issubset/issuperset/isdisjoint (crates/icepool-core/src/evaluator/, nodes in harness/grammar/evaluate.py). Left: pool.sum(map=...) (callable or mapping from the catalogue; SumEvaluator with next_state_key None), largest_count(wild=, wild_low=, wild_high=) (LargestCountWithWildEvaluator, make_select_function), all_straights_reduce_counts(reducer), argsort / argsort_grouped (evaluator/argsort.py: ArgsortEvaluatorDrop/Left/Right, limit, limit_pad, tie), the comparison operators pool < > <= >= other (try/except TypeError -> NotImplemented, then the reflected operator) and == / != (DieWithTruth with truth_value_callback = equals), `other // pool` (__rfloordiv__ -> count_subset), leximin/leximax (evaluator/lexi.py). Same pattern: Value-based evaluator in the core, a node per method, fresh_caches() first on the Python side."
   }
 ]

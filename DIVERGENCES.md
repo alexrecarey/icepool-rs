@@ -83,3 +83,30 @@ def test_middle_keep_more_than_size_keeps_all():
     assert d6.pool(3).middle(5).keep_tuple() == (1, 1, 1)
     assert d6.middle(3, 5).equals(3 @ d6)
 ```
+
+### Sources with opposite `KeepSkip` preferences evaluate wrongly (`Order.Any` pop order) (K6)
+
+`merge_order_preferences` (order.py) turns two conflicting preferences of the same priority into `Order.Any` of
+the next priority. Two pools whose keep tuples skip at opposite ends (`d4.pool(3)[1:]` prefers descending,
+`d4.pool(3)[:2]` ascending) merge to `(Order.Any, PoolComposition)`, and `Dungeon.evaluate` pops in that order.
+But `Room.pop` takes the *min* outcome for any `order >= 0` (`if order < 0: ... else: outcomes[0]`), while
+`PoolSource.pop` pops its *max* unless `order > 0`. So the room offers the min outcome, every source answers "not my
+outcome" (count 0, weight 1), and the sources are never popped: `d4.pool(3)[1:].issubset(d4.pool(3)[:2])` is a die
+with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096. The
+port copies it (`evaluator/mod.rs` `Dungeon::pop`, fixtures in fixtures/k6/evaluate.jsonl). Probably `Any` should
+fall back to the default order before popping.
+
+Drafted upstream test:
+
+```python
+def test_opposite_keep_skip_preferences():
+    from collections import Counter
+    import itertools
+    a = d4.pool(3)[1:]
+    b = d4.pool(3)[:2]
+    expected = Counter()
+    for x in itertools.product(range(1, 5), repeat=3):
+        for y in itertools.product(range(1, 5), repeat=3):
+            expected[Counter(sorted(x)[1:]) <= Counter(sorted(y)[:2])] += 1
+    assert a.issubset(b).equals(Die(expected), simplify=True)
+```

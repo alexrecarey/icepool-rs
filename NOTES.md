@@ -5,6 +5,42 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Multiset evaluation (K6).** Core `evaluator/mod.rs` = multiset_evaluator_base.py: trait `MultisetEvaluator<O>`
+  (`State: Clone+Eq+Hash`, `Final`; `initial_state`/`next_state`/`extra_outcomes`/`final_outcome`; `Ok(None)` from
+  `next_state` is Reroll; `Final::{Outcome, Reroll, None}`; `Err(Error::UnsupportedOrder)` triggers the retry) and
+  `evaluate` / `evaluate_with_depth_check` returning `(final outcome, weight)` in `finalize_evaluation` order. A
+  room is `(lo..hi window of all_outcomes, sources, state)`; one fresh memo per attempt (the comment on `Dungeon`
+  says why that equals Python's two persistent caches). Only generator inputs: each argument is one
+  `MultisetSource` whose count passes straight through; multiset expressions (dungeonlet/questlet trees) are S4.
+  `order.rs` has `merge_order_preferences`, `OrderReason`, `can_truncate`, `lo_hi_skip`; `PoolSource::
+  order_preference` (its `KeepSkip` directions are the reverse of `pool_pop_order`, copied). With two sources
+  preferring opposite orders the pop order is `Any` and Python evaluates wrongly: copied, see DIVERGENCES.md.
+- Built-ins over `Value` (`evaluator/basic.rs`, `poker.rs`, `keep.rs`, `comparison.rs`): states are Python objects
+  as `Value` (`Value::None` = not started), bodies use `Value::binary` / `truthy` / `py_max` / `py_min`, so Python's
+  quirks come for free (`max(state or count, count)` with a 0 state, `str * count`, tuple comparison). Program
+  layer `program/evaluate.rs` (`run`, `implicit_convert` = `Pool(list)`), nodes in `harness/grammar/evaluate.py`
+  (`pool_sum`, `pool_size`, ..., `pool_issubset`, and `evaluate` for named evaluators); `pool_index` (`pool[int]`)
+  is in pool.py. Left for K6c: sum(map), wild largest_count, all_straights_reduce_counts, argsort, lexi, the
+  comparison operators, `==`/`!=`.
+- Named evaluators: `harness/catalogue/evaluators.py` (Python subclasses) mirrored by
+  `program/catalogue_evaluators.rs` (`CatalogueEvaluator` variants, `Final = PValue` so a final outcome may be a
+  die; the result goes through `ops::new_die`). To add one: a class with `@evaluator(name, params=, inputs=)` and a
+  variant + arity in `CatalogueEvaluator::new`. A fixed-arity `next_state(self, state, order, outcome, count)` given
+  more inputs is a TypeError at the first `next_state` (`one_count`).
+- Every node that evaluates a pool calls `pool.fresh_caches()` first (PoolSource `_new_raw` cache + the shared
+  evaluator instances' `_cache`, all `==`-keyed, so a long-lived oracle leaks spellings between programs). The
+  port only caches within one evaluation.
+- Python's recursion limit: evaluation recurses once per outcome; RecursionError near 980 outcomes, depending on
+  stack depth and on whether the dice's `_popped_max` were computed before (process history).
+  `program/evaluate.rs` `check_recursion`: raise from 990 outcomes, unimplemented for 931..989. `consecutive`
+  (straights) makes big ranges from e.g. `pow`; `pool_expand`'s generator keeps its pools small for this reason.
+- Generators keep NaN out of anything pooled (`pool.py` `_die_without_nan`, asks the oracle): a pool's outcomes are
+  `sorted(set(...))` and NaN hashes by identity, so Python's order depends on memory addresses.
+- Performance: `Die` caches its hash and its popped min/max dice (`OnceLock`s in the shared `DieData`, like
+  Python's cached properties; clippy.toml tells `mutable_key_type` that is fine), `Die` `==` short-cuts on pointer
+  equality, and `Num::py_hash` has an `i64` fast path. Before that a 960-outcome evaluation took 16s (Python: 3s).
+- `Error::Order` (ConflictingOrderError) and `Error::UnsupportedOrder` are new variants.
+
 - **Pools (K5).** Core: `pool.rs` `Pool<O>` (= `Pool`/`KeepGenerator`: `dice` as `(Die, count)` sorted by the
   die's `hash_key` with `py_sorted`, `outcomes` = `sorted_union` including zero-times dice, `keep_tuple: [i64]`),
   `keep` / `multiply_counts` / `additive_union` (`None` = not one pool), `source()` -> `PoolSource` (outcomes as a
@@ -20,14 +56,8 @@ turns out wrong. Newest decisions at the top of each section.
   `pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul/neg/add`, `Ellipsis`) have **no gen**; they
   are generated inside `pool_info` (public accessors + `_dice`) and `pool_pop` (one pop of `_make_source()`) by
   `grammar/pool.py` `gen_pool`. Any node returning a new kind with a gen becomes a fuzz root: keep that in mind.
-- `pool_pop` calls `icepool.Pool.clear_cache()`: `PoolSource._new_raw` is a global `@cache` keyed by `==`, so a
-  long-lived oracle merges `True`/`1` spellings across programs (DIVERGENCES.md). K6's evaluator will meet the
-  same: clear it in evaluator nodes too, or results depend on what the process ran before.
-- Everything that evaluates a pool (`pool[int]`, `.sum()`, the pool path of `die.highest` and `icepool.highest`)
-  says Unimplemented (`program/pool.rs` `evaluation_needed`) after doing what Python does first (so raises still
-  match). The die nodes' generators only produce keep/drop the port answers without a pool (`_keep_drop`), and
-  only a pool's last keep operation may make counts negative (keeping after that is a MultisetKeep expression).
-  Task K6b removes those filters.
+- `pool_pop` and every evaluating node call `pool.fresh_caches()` (see K6 above). Only a pool's last keep operation
+  may make counts negative (keeping after that is a MultisetKeep expression, S4); `pool_index` pools never do.
 - `Pool.__new__` quirks copied: a float/Fraction in `times` raises TypeError (`(1,) * sum(times)`), even `0.0`;
   `Pool(die)` raises ValueError; `Die.pool(-1)` raises (itemize). `middle(keep > size)` keeps only the top roll
   (DIVERGENCES.md).
