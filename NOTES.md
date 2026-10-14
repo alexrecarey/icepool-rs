@@ -5,6 +5,40 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **MultiDeal and tuple sources on the core (S4b).** Core `multi_deal.rs` = generator/multi_deal.py: `MultiDeal<O>`
+  (deck + `hand_groups: [(usize, usize)]`; `new` checks the total like Python, then refuses negative sizes as
+  `Unsupported`: Python accepts them and later reads icepool's cached `comb_row` with negative indices, so the answer
+  depends on the process's history) and `MultiDealSource<O>` (outcome window like `DealSource`; `pop` ports the
+  `iter_hypergeom` split (`math::iter_hypergeom`), the per-group descending sort + `groupby` regrouping and the skip
+  branch). New `MultisetSource::MultiDeal`; `MultisetSource::pop` now yields `pool::Count` (`Int(i64)` |
+  `Tuple(Arc<[i64]>)`) and `size()` is `Option<Count>`. The driver calls the new trait methods
+  `initial_state_counts` / `next_state_counts` / `final_outcome_counts`; their defaults convert to the old `i64`
+  methods and say `Unsupported` for a tuple, so the built-in evaluators and khepri are untouched. `HostEvaluator`
+  (icepool-py) and `CatalogueEvaluator` override them: counts/sizes reach Python (or the Value bodies) as tuples.
+- `CatalogueEvaluator` bodies are now written over counts as `Value`s (so a tuple count meets Python's operators:
+  mostly TypeError, `count_eq` with an absent k is fine). New catalogue evaluators `hand_sums` (per-hand sums; a
+  pool input raises TypeError in initial_state) and `record` (every `(outcome, *counts)` seen, then `(record,
+  sizes)`; works for any inputs). They are also picked by the old `evaluate` node.
+- Program layer `program/multi_deal.rs`, `PValue::MultiDeal` (repr `MultiDeal(Deck({...}), hand_groups=((2, 1),))`).
+  Nodes (harness/grammar/deck.py): `multi_deal` (`deck.deal(hand_sizes)`; the old `deal` node handles a non-int
+  too), `deal_groups` (`deck.deal_groups(*map(tuple, groups))`), both kind "multi_deal" without gen;
+  `multi_deal_info`, `multi_deal_pop`, `multi_deal_evaluate` (= `evaluate` with a multi-deal among the args,
+  generator `_gen_multi_deal_evaluate`). `gen_multi_deal` keeps at most 6 cards dealt. Bool / non-int hand sizes
+  are unimplemented in icepool-run (Python shows `True` in hand_sizes and the repr). Fuzz with deck ops in `--ops`,
+  e.g. `--ops multi_deal,deal_groups,multi_deal_info,multi_deal_pop,multi_deal_evaluate,deck,d,die_pool,pool_keep,deal`
+  (and `multi_deal,deal_groups,multi_deal_evaluate,deck,deck_op,deck_mul` for mostly evaluations).
+- Facade: `MultiDeal.__init__` keeps the hand groups and the total check in Python, then `_rs =
+  icepool_rs.multi_deal_new(deck._rust_deck(), [tuple(g) for g in hand_groups])` (crates/icepool-py/src/
+  multi_deal.rs; a non-int size -> NotImplementedError, a negative one too: facade gaps). `hand_sizes`,
+  `total_cards_dealt`, `len`, `hash_key`, repr stay Python; `denominator` and `_make_source` are the core's.
+  `MultiDealSource._new_rust` (deck / hand_groups lazily via `__getattr__`) pops, sizes (a tuple), outcomes (a
+  tuple, not a keys view, as for DealSource), resolvability and `hash_key` on the core. `is_rust_evaluable`
+  accepts a `MultisetTupleGeneratorQuestlet` over a `MultiDealSource`; an evaluation with one always goes through
+  `evaluate_host` (never `builtin_spec`), so built-ins given tuples behave as in Python (`sum_evaluator` repeats
+  tuples). A hand of a multi-deal (`deal[0]`, `MultisetTupleIndex`) is an expression: still upstream's driver
+  (S4c/S4d), over the core's `MultiDealSource`.
+- Upstream bug copied: `MultiDeal.denominator()` for 3+ hands is not the multinomial (DIVERGENCES.md).
+
 - **Deck and Deal on the core (S4a).** Core `deck.rs` = population/deck.py: `Deck<O>` wraps its cards as a `Die`
   (`population()`: every `Population` method means the same on both, so statistics / pops / hashing are shared),
   `Deck::new(args, dups)` = `expand_args_for_deck` (`creation_args::merge_duplicates`: dups add up, zero dups and
@@ -46,7 +80,7 @@ turns out wrong. Newest decisions at the top of each section.
   tuple); `Deal._new_rust(deck, rs)` keeps the facade's deck object; `keep` (keep.py), `multiply_counts`,
   `_set_keep_tuple` (`with_keep_tuple`), `denominator`, `hash_key`, `_make_source` on the core; `DealSource`
   (`_new_rust`, `deck` / `keep_tuple` lazily via `__getattr__`) pops, sizes and prefers its order on the core, and
-  `evaluator_rust.is_rust_evaluable` accepts it. `MultiDeal` (S4b) is still upstream's code over core decks.
+  `evaluator_rust.is_rust_evaluable` accepts it. `MultiDeal`: on the core since S4b (above).
 - Facade gap: a `Counter(other)` value that is not an `int` (a dict operand with float counts) raises
   NotImplementedError; Python goes on (and usually raises ValueError in `Deck(...)`).
 
@@ -200,7 +234,7 @@ turns out wrong. Newest decisions at the top of each section.
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
 - Still upstream's Python driver (by input kind, not a fallback): multiset expressions (BodyDungeonlet: `unique`,
-  `+` of pools, keep of an expression...), `MultiDeal`/`CompoundKeep`/weightless sources (`Deal` since S4a), and
+  `+` of pools, keep of an expression...), `CompoundKeep`/weightless sources (`Deal` since S4a, `MultiDeal` S4b), and
   `@multiset_function` dungeons. In the upstream suite: 775 evaluations on the core, ~1070 still Python (S4).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
