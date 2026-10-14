@@ -5,6 +5,74 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Multiset operators and CompoundKeepGenerator on the core (S4c).** Core `operator/` = operator/*.py, one file
+  per icepool file (binary, adjust_counts, filter_outcomes, keep, pair, versus, debug): `Operator<O>` is both the
+  `BodyDungeonlet` (`next_state`) and the `BodyQuestlet` (`initial_state`) of an operator node; its local state is
+  a `Statelet` (hashable enum: `None`, `Keep{keep_tuple, keep_more}`, `Versus`, `SortPair`, `SortPairWhile`,
+  `MaxPairLate/Early`). Counts are `i64` (`Count::Int`); a tuple count, overflow, a non-int `map_counts` result or
+  constant are `Unsupported`. `map_counts` functions and `keep_outcomes` callables are trait objects
+  (`CountFunction`, `OutcomePredicate`, `Send + Sync` or `PValue` stops being `Send`); a collection target is
+  `OutcomeFilter::Set` (`==` membership). `lexi.rs`: `compute_lexi_tuple*` (comparison / extra are strings, an
+  invalid one raises ValueError where Python's `match` does: at evaluation for sort_pair, at construction for
+  versus / max_pair). `expression.rs` = the evaluation side of multiset_expression_base.py: an input is a `Flat`
+  (postfix `Dungeonlet::{FreeVariable, Operator{operator, children}}`, children as absolute positions), statelets of
+  all operator nodes of all inputs in one `Statelets` (free variables keep none). `compound_keep.rs`:
+  `CompoundKeep` holds the inner *sources* (immutable, so equal to remaking them) + keep tuple, and
+  `CompoundKeepSource` (outcomes = sorted union computed once; new `MultisetSource::CompoundKeep`).
+- The driver (`evaluator::evaluate_expressions(evaluator, flats, sources, check_depth)`; `evaluate_with_depth_check`
+  is it with one free variable per source) carries `(statelets, main state)` exactly like Python's
+  `defaultdict(lambda: defaultdict(int))`: results are `FinalStates` = statelets -> {state: weight}, statelet groups
+  in first-seen order (finalize iterates them nested, which can change which spelling of an equal final outcome Die
+  keeps), a statelet entry created even if all its main states rerolled. The dungeonlets step once per (pop,
+  previous statelets), then the evaluator once per main state, as `DungeonletCallTree.next_state` does. Sizes from
+  the questlets (`expression::initial_state`) are what `initial_state` / `final_outcome` get, e.g. `None` for
+  `unique()`.
+- Python quirks copied: an operator with no children is fine (`positions[-1]` sits in a lazy generator); its
+  `reduce` raises TypeError only once an outcome is seen. `MultisetKeep` with a negative child size slices
+  `keep_tuple[:size]` from the end and `[0] * size` is empty (port in `operator/keep.rs` with Python slice / list
+  assignment semantics, IndexError past the end). `(keep_more,) * more` makes bool elements: harmless, they are only
+  summed. `sort_pair` raises a plain `OrderError` (not Conflicting): core `Error::Order` with an `"OrderError: "`
+  prefix (icepool-py maps it). `MultisetForceOrder` message prints the int.
+- Program layer `program/expression.rs`: `MExpr { Gen(KeepGen), MultiDeal, Op(Arc<(Operator, children)>) }`,
+  `PValue::Expr` (compound keeps and operators; pools / deals / multi-deals keep their own variants, see
+  `into_pvalue`). `KeepGen` gained `Compound`; every evaluation takes `MExpr`s (`evaluate::run`, catalogue
+  evaluators, `implicit_convert` now returns `MExpr`) and `prepare`s them. Python's dispatch is in `binary_op`
+  (`KeepGenerator.__add__` = `self.additive_union`: `Pool.additive_union` merges pools or falls to
+  `KeepGenerator.additive_union` = compound if all keep generators have no negative keeps, else
+  `MultisetAdditiveUnion`; reflected operators for a list / tuple / str on the left, `__rxor__` swaps). The keep-like
+  pool nodes (`pool_keep`, `pool_slice`, `pool_highest/lowest`, `pool_middle`, `pool_mul`, `pool_neg`, `pool_add`)
+  take any expression: a keep generator without negative keeps stays one, anything else is `MultisetKeep` (an int
+  index on those is the keep evaluator with that index).
+- Nodes (harness/grammar/multiset.py, kind "mexpr", no gen: an expression's repr has an address): `mx_binary` (`a o
+  b`; the argument is `o` because `op` is the node key), `mx_method` (`MultisetExpression.<name>(*args)`),
+  `mx_counts` (`o` in mul/neg/pos/floordiv/mod/unique/keep_counts/multiply_counts/divide_counts/modulo_counts),
+  `mx_filter`, `mx_map_counts` (catalogue `count_diff`, `count_if_gt_k`, or add2/max2/sum3), `mx_sort_pair`,
+  `mx_max_pair`, `mx_versus`, `mx_force_order`, and the root `mx_evaluate` (`getattr(expr, method)()`).
+  `gen_expression` builds trees of up to 3 operators over `gen_pool(..., expressions=False)` leaves; `gen_pool(...,
+  deals=True)` returns an expression 20% of the time, so every evaluation node fuzzes expressions too. Fuzz with
+  `--ops mx_binary,mx_method,mx_counts,mx_filter,mx_map_counts,mx_sort_pair,mx_max_pair,mx_versus,mx_force_order,mx_evaluate,d,deck`
+  (deck is needed: deals are leaves). At S4c: 20k of those clean through icepool-run and the facade, 469 edge-case
+  fixtures in fixtures/s4c. The catalogue evaluator `record` (evaluate node) shows every count and size an
+  expression passes: the best probe for operator bugs.
+- Facade: `evaluator_rust.rust_flats(dungeon, quest, sources)` (was `is_rust_evaluable`) describes each prepared
+  input as `None` (free variable over a core source: pool / deal / compound keep / multi-deal source) or `(spec,
+  child_indexes)`; `_operator_spec` names the exact operator class and the attributes it reads. **The spec comes from
+  the questlet's operator**: a dungeon found in the evaluator's `_cache` is only equal by `_dungeonlet_key`, which
+  leaves out what only `_initial_state` reads (a `MultisetKeep`'s index...), so its dungeonlets may belong to an
+  earlier expression (the check is that both operators have the same type and `_dungeonlet_key`). icepool-py
+  `expression.rs` parses specs into core `Operator`s (`map_counts` / predicate callables are host callbacks; a
+  `keep_outcomes` collection is read out of the constructor's closure cell `target_set`), and `evaluate_builtin` /
+  `evaluate_host` take `flats`. `CompoundKeepGenerator` holds `icepool_rs.CompoundKeep` as `_rs` (built from the
+  inners' `_make_source()._rs`; `keep` (keep.py), `multiply_counts`, `_set_keep_tuple`, `hash_key`, `_make_source` on
+  the core); `CompoundKeepSource._new_rust` pops / sizes / prefers order on the core, `inner_sources` and
+  `keep_tuple` lazily via `__getattr__`. In the upstream suite 1796 evaluations now run on the core, 52 on
+  upstream's driver: `@multiset_function` (S4d), a hand of a MultiDeal (`MultisetTupleIndex`, S4d), and
+  `weightless()` (task S4e).
+- Facade gaps (NotImplementedError where Python answers): a `map_counts` function returning a non-int (a bool too:
+  Python keeps bool counts, which can leak into results such as `all_counts`), operator constants that are not ints
+  (`unique(1.5)`, `unique(True)`, `keep_counts('>', 0.5)`), `MultisetKeep` indices that are not a slice / list /
+  tuple of ints and `...`, slice bounds that are not ints. icepool-run says unimplemented for the same.
+
 - **MultiDeal and tuple sources on the core (S4b).** Core `multi_deal.rs` = generator/multi_deal.py: `MultiDeal<O>`
   (deck + `hand_groups: [(usize, usize)]`; `new` checks the total like Python, then refuses negative sizes as
   `Unsupported`: Python accepts them and later reads icepool's cached `comb_row` with negative indices, so the answer
@@ -55,7 +123,7 @@ turns out wrong. Newest decisions at the top of each section.
   the keep-like nodes (`pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul`, `pool_neg`) and every
   evaluation (`evaluate::run`, catalogue evaluators, `implicit_convert`: a `Deck` raises ValueError like
   `Pool(deck)`) take either; `pool_info` / `pool_pop` / `pool_add` / `pool` stay pool-only (a deal there is
-  unimplemented: `Deal + x` is a CompoundKeepGenerator, S4c). `itemize` / `die_arg` / `py_iter` treat a deck as the
+  unimplemented; `Deal + x` is a CompoundKeepGenerator since S4c). `itemize` / `die_arg` / `py_iter` treat a deck as the
   mapping it is (so `Die(deck)`, `Die([deck])` work). A deck or deal result encodes as Python's repr
   (`wire.rs deck_repr`: `{"repr": "Deck: Deck({1: 2})"}`), so the deck-building nodes are fuzz roots.
 - Nodes (harness/grammar/deck.py): `deck` (`Deck(outcomes, times)`), `deck_op` (`operator` in `+ - & | ^`, a
@@ -220,7 +288,7 @@ turns out wrong. Newest decisions at the top of each section.
 - **Evaluation driver on the core (S1e).** Under `ICEPOOL_BACKEND=rust`, `MultisetEvaluatorBase.evaluate` keeps
   its argument conversion, `_prepare`, the `_cache` bookkeeping of dungeons (so upstream's evaluator_cache_test.py
   holds unshimmed: it only counts dungeons) and the outer `Die(final_data)`; per prepared evaluation,
-  `evaluator/evaluator_rust.py is_rust_evaluable` (a `MultisetEvaluatorDungeon`/`Quest`, every input one
+  `evaluator/evaluator_rust.py is_rust_evaluable` (`rust_flats` since S4c) (a `MultisetEvaluatorDungeon`/`Quest`, every input one
   `MultisetFreeVariable` + `MultisetGeneratorQuestlet`, every source a `PoolSource` with `_rs`) sends it to
   crates/icepool-py/src/evaluate.rs instead of `Dungeon.evaluate`. `builtin_spec` names the core built-ins
   (`type(evaluator) is` the exact class, its `next_state` arity, only the kwargs it reads with exact types:
@@ -233,9 +301,8 @@ turns out wrong. Newest decisions at the top of each section.
   subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
-- Still upstream's Python driver (by input kind, not a fallback): multiset expressions (BodyDungeonlet: `unique`,
-  `+` of pools, keep of an expression...), `CompoundKeep`/weightless sources (`Deal` since S4a, `MultiDeal` S4b), and
-  `@multiset_function` dungeons. In the upstream suite: 775 evaluations on the core, ~1070 still Python (S4).
+- Still upstream's Python driver (by input kind, not a fallback): since S4c only `@multiset_function` dungeons,
+  hands of a MultiDeal and weightless sources (see S4c above for the counts).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
   at top level and 20 frames deep). The oracle's real limit also depends on warm `_popped_max` and on the shared
@@ -416,7 +483,7 @@ turns out wrong. Newest decisions at the top of each section.
   `evaluate` / `evaluate_with_depth_check` returning `(final outcome, weight)` in `finalize_evaluation` order. A
   room is `(lo..hi window of all_outcomes, sources, state)`; one fresh memo per attempt (the comment on `Dungeon`
   says why that equals Python's two persistent caches). Only generator inputs: each argument is one
-  `MultisetSource` whose count passes straight through; multiset expressions (dungeonlet/questlet trees) are S4.
+  `MultisetSource` whose count passes straight through; multiset expressions (dungeonlet/questlet trees) came in S4c.
   `order.rs` has `merge_order_preferences`, `OrderReason`, `can_truncate`, `lo_hi_skip`; `PoolSource::
   order_preference` (its `KeepSkip` directions are the reverse of `pool_pop_order`, copied). With two sources
   preferring opposite orders the pop order is `Any` and Python evaluates wrongly: copied, see DIVERGENCES.md.
@@ -461,8 +528,9 @@ turns out wrong. Newest decisions at the top of each section.
   `pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul/neg/add`, `Ellipsis`) have **no gen**; they
   are generated inside `pool_info` (public accessors + `_dice`) and `pool_pop` (one pop of `_make_source()`) by
   `grammar/pool.py` `gen_pool`. Any node returning a new kind with a gen becomes a fuzz root: keep that in mind.
-- `pool_pop` and every evaluating node call `pool.fresh_caches()` (see K6 above). Only a pool's last keep operation
-  may make counts negative (keeping after that is a MultisetKeep expression, S4); `pool_index` pools never do.
+- `pool_pop` and every evaluating node call `pool.fresh_caches()` (see K6 above). In `gen_pool` only a pool's last
+  keep operation may make counts negative (keeping after that is a `MultisetKeep` expression, ported in S4c and
+  generated by multiset.py); `pool_index` pools never do.
 - `Pool.__new__` quirks copied: a float/Fraction in `times` raises TypeError (`(1,) * sum(times)`), even `0.0`;
   `Pool(die)` raises ValueError; `Die.pool(-1)` raises (itemize). `middle(keep > size)` keeps only the top roll
   (DIVERGENCES.md).

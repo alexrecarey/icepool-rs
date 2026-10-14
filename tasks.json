@@ -301,5 +301,14 @@
     ],
     "milestone": null,
     "details": "S3a switched Again (both modes) and so Die.explode (map_final is a host callback, Die(..., again_depth) runs in icepool_rs). Left from its scope: Die.explode_to_pool, which builds a die of icepool.Vector (i, 1) / (depth + 1, 0) counts (S5a makes Vector a native Value and decodes it in the program language) and ends in map_to_pool (a MixtureGenerator of pools: S4d mixtures). Port explode_to_pool / reroll_to_pool / map_to_pool on the core once those exist, with grammar nodes evaluating the resulting generator (e.g. .sum(), .highest(k)). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S4e",
+    "title": "Strangler: weightless generators",
+    "deps": [
+      "S4c"
+    ],
+    "milestone": null,
+    "details": "generator/weightless.py: WeightlessGenerator / WeightlessSource (MultisetGenerator.weightless()) as a core MultisetSource variant wrapping another source (every weight 1; UnsupportedOrder when one pop yields the same count twice), so evaluations over g.weightless() run on the core driver instead of upstream's Dungeon.evaluate (evaluator_rust._core_source refuses WeightlessSource today: 2 evaluations in the upstream suite). Left over from S4c, which ported the operators and CompoundKeepGenerator. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
   }
 ]
