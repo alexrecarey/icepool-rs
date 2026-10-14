@@ -217,7 +217,7 @@ fn prepare_leaf(leaf: &Leaf, exprs: &[MExpr]) -> Result<Prepared, PErr> {
     let (flats, sources) = prepare(exprs)?;
     Ok(Prepared {
         tree: CallTree::leaf(flats),
-        call: Call::Evaluator(leaf.clone()),
+        call: Call::Evaluator(Box::new(leaf.clone())),
         sources,
     })
 }

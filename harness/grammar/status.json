@@ -152,10 +152,10 @@
   "mx_versus": "ported",
   "mx_force_order": "ported",
   "mx_evaluate": "ported",
-  "mf_def": "pending",
-  "mf_var": "pending",
-  "mf_call": "pending",
-  "mx_tuple_index": "pending",
-  "mx_tuple_slice": "pending",
-  "mx_tuple_evaluate": "pending"
+  "mf_def": "ported",
+  "mf_var": "ported",
+  "mf_call": "ported",
+  "mx_tuple_index": "ported",
+  "mx_tuple_slice": "ported",
+  "mx_tuple_evaluate": "ported"
 }

@@ -168,21 +168,21 @@ def _body(g, depth, kinds, nested=True):
 
 
 def _call(g, depth, args, kinds, nested=True):
-    """mf_call of a fresh function on `args` (whose tuple lengths are `kinds`): star as Python would infer it, or
-    given; the function's arity mostly fits."""
+    """mf_call of a fresh function on `args` (whose tuple lengths are `kinds`). Mostly the function's arity fits
+    its arguments (unpacking the first if it is starred), and `star` is left to Python's inference when that agrees
+    with the body's view of its variables, else given."""
     tuple_first = bool(kinds) and kinds[0] is not None
     star = None if g.rng.random() < 0.7 else {"bool": g.rng.random() < (0.7 if tuple_first else 0.1)}
     starred = tuple_first and (star == {"bool": True} or star is None and g.rng.random() < 0.5)
     var_kinds = ([None] * kinds[0] + kinds[1:]) if starred else list(kinds)
     params = len(var_kinds)
-    if starred and star is None and params <= len(args):
-        star = {"bool": True}
     var = g.rng.random() < 0.15
     if var and params:
         params = g.rng.randint(0, params)
     if g.rng.random() < 0.04:
-        params += g.rng.choice([-1, 1])  # TypeError from the arity, or a different star inference
-        params = max(params, 0)
+        params = max(params + g.rng.choice([-1, 1]), 0)  # TypeError from the arity
+    elif star is None and (params > len(args)) != bool(starred):
+        star = {"bool": bool(starred)}
     f = {"op": "mf_def", "params": params, "var": {"bool": var}, "body": _body(g, depth, var_kinds, nested)}
     return {"op": "mf_call", "f": f, "args": args, "star": star}
 

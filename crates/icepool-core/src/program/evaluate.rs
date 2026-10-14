@@ -48,6 +48,15 @@ pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
     }
 }
 
+/// The `self` of an evaluation method (`pool.sum()`, ...): a multiset tuple expression (a `MultiDeal`, a tuple
+/// parameter) has none of them.
+fn method_self(p: PValue) -> Result<MExpr, PErr> {
+    if as_tuple_expression(&p).is_some() {
+        return type_error("AttributeError: a multiset tuple expression has no evaluation methods");
+    }
+    the_expression(p)
+}
+
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`) and raises
 /// `RecursionError` near 1000 outcomes. Where exactly depends on the caller's stack (the program's nesting, the
 /// harness's own frames) and on the process's history: popping a die computes `_popped_max` (a `cached_property`
@@ -101,7 +110,7 @@ where
 
 /// The one-pool evaluation methods of `MultisetExpression` (`pool.sum()` is node `pool_sum`, and so on).
 pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
-    let pools = [the_expression(p)?];
+    let pools = [method_self(p)?];
     match op {
         "pool_sum" => die(SumEvaluator, &pools),
         "pool_size" => die(SizeEvaluator, &pools),
@@ -128,7 +137,7 @@ fn value(x: PValue) -> Result<Value, PErr> {
 
 /// `pool.all_counts(filter=filter)`.
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
-    let pools = [the_expression(p)?];
+    let pools = [method_self(p)?];
     die(AllCountsEvaluator {
             filter: value(filter)?,
         },
@@ -138,7 +147,7 @@ pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
 
 /// `pool.expand(order=order)`.
 pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
-    let pools = [the_expression(p)?];
+    let pools = [method_self(p)?];
     // `order != Order.Ascending` (an `IntEnum`, so `1` and `True` are ascending too).
     let ascending = value(order)? == Value::from(1);
     die(ExpandEvaluator { ascending }, &pools)
@@ -146,7 +155,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
 
 /// `pool.largest_straight_and_outcome(priority)`.
 pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValue, PErr> {
-    let pools = [the_expression(p)?];
+    let pools = [method_self(p)?];
     let prioritize_highest = match value(priority)? {
         v if v == Value::str("high") => true,
         v if v == Value::str("low") => false,
@@ -159,7 +168,7 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
 
 /// `keep_evaluator.evaluate(pool, index=index)`.
 pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
-    let pools = [the_expression(p)?];
+    let pools = [method_self(p)?];
     let index = match value(index)? {
         Value::None => None,
         Value::Int(i) => Some(
@@ -177,7 +186,7 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
 
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
-    let left = the_expression(p)?;
+    let left = method_self(p)?;
     let right = implicit_convert(divisor)?;
     die(CountSubsetEvaluator {
             empty_divisor: value(empty_divisor)?,
@@ -189,7 +198,7 @@ pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result
 /// `pool.issubset(other)`, `pool.issuperset(other)`, `pool.isdisjoint(other)`, and node `pool_compare`'s
 /// `cmp` names for the other comparison evaluators.
 pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
-    let left = the_expression(p)?;
+    let left = method_self(p)?;
     let right = implicit_convert(other)?;
     let comparison = match op {
         "pool_issubset" => Comparison::IsSubset,

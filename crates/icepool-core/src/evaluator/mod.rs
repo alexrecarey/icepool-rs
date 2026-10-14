@@ -498,7 +498,11 @@ pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
             .chain(sources.iter().map(MultisetSource::order_preference)),
     )?;
 
-    let source_outcomes: Vec<O> = sorted_union(sources.iter().map(|s| s.outcomes().iter()))?;
+    let source_outcomes = sources
+        .iter()
+        .map(MultisetSource::outcomes)
+        .collect::<Result<Vec<_>>>()?;
+    let source_outcomes: Vec<O> = sorted_union(source_outcomes.into_iter().map(|o| o.iter()))?;
     let extra_outcomes = evaluator.extra_outcomes(&source_outcomes)?;
     let all_outcomes: Vec<O> = sorted_union([source_outcomes.iter(), extra_outcomes.iter()])?;
 

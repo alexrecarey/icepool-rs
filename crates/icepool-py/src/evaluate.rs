@@ -27,8 +27,11 @@ use icepool_core::evaluator::poker::{
     HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
-use icepool_core::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
-use icepool_core::expression::free_variable;
+use icepool_core::evaluator::multiset_function::{
+    Call, DynEvaluator, Erased, MultisetFunction, Tupleize,
+};
+use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, MultisetEvaluator};
+use icepool_core::expression::{free_variable, CallTree};
 use icepool_core::order::Order;
 use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::{Error, Quantity, Value};
@@ -98,14 +101,85 @@ fn finals<'py, F>(
     Ok((outcomes, weights))
 }
 
-fn run<'py, E: MultisetEvaluator<Value, Final = Value>>(
+/// Something to do with a built-in evaluator of the core, whatever its type.
+trait BuiltinVisitor<'py> {
+    type Out;
+    fn visit<E>(self, evaluator: E) -> PyResult<Self::Out>
+    where
+        E: MultisetEvaluator<Value, Final = Value> + 'static;
+}
+
+/// The built-in evaluator of the core named by the facade (evaluator_rust.py `builtin_spec`) with its parameters,
+/// handed to `visitor`.
+fn with_builtin<'py, V: BuiltinVisitor<'py>>(
+    name: &str,
+    params: &[Bound<'py, PyAny>],
+    visitor: V,
+) -> PyResult<V::Out> {
+    let param = |i: usize| -> PyResult<&Bound<'py, PyAny>> {
+        params
+            .get(i)
+            .ok_or_else(|| PyValueError::new_err(format!("icepool_rs: {name} needs a parameter")))
+    };
+    let v = visitor;
+    match name {
+        "sum" => v.visit(SumEvaluator),
+        "size" => v.visit(SizeEvaluator),
+        "product_of_counts" => v.visit(ProductOfCountsEvaluator),
+        "empty" => v.visit(EmptyEvaluator {
+            any: param(0)?.extract()?,
+        }),
+        "expand" => v.visit(ExpandEvaluator {
+            ascending: param(0)?.extract()?,
+        }),
+        "keep" => v.visit(KeepEvaluator {
+            index: param(0)?.extract()?,
+        }),
+        "highest_outcome_and_count" => v.visit(HighestOutcomeAndCountEvaluator),
+        "all_counts" => v.visit(AllCountsEvaluator {
+            filter: from_py(param(0)?)?,
+        }),
+        "largest_count" => v.visit(LargestCountEvaluator),
+        "largest_count_and_outcome" => v.visit(LargestCountAndOutcomeEvaluator),
+        "count_subset" => v.visit(CountSubsetEvaluator {
+            empty_divisor: from_py(param(0)?)?,
+        }),
+        "largest_straight" => v.visit(LargestStraightEvaluator),
+        "largest_straight_and_outcome" => v.visit(LargestStraightAndOutcomeEvaluator {
+            prioritize_highest: param(0)?.extract()?,
+        }),
+        "all_straights" => v.visit(AllStraightsEvaluator),
+        "is_proper_subset" => v.visit(ComparisonEvaluator(Comparison::IsProperSubset)),
+        "is_subset" => v.visit(ComparisonEvaluator(Comparison::IsSubset)),
+        "is_proper_superset" => v.visit(ComparisonEvaluator(Comparison::IsProperSuperset)),
+        "is_superset" => v.visit(ComparisonEvaluator(Comparison::IsSuperset)),
+        "is_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsEqualSet)),
+        "is_not_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsNotEqualSet)),
+        "is_disjoint_set" => v.visit(ComparisonEvaluator(Comparison::IsDisjointSet)),
+        _ => Err(PyValueError::new_err(format!(
+            "icepool_rs: no built-in evaluator {name:?}"
+        ))),
+    }
+}
+
+/// Runs a built-in evaluation (see [`evaluate_builtin`]).
+struct RunBuiltin<'a, 'py> {
     py: Python<'py>,
-    evaluator: &E,
-    (flats, srcs): (Option<&Inputs<'py>>, &[Bound<'py, PyAny>]),
+    flats: Option<&'a Inputs<'py>>,
+    sources: &'a [Bound<'py, PyAny>],
     depth_budget: isize,
-) -> PyResult<Finals<'py>> {
-    let result = run_evaluation(evaluator, flats, srcs, depth_budget)?;
-    finals(py, result, |o| to_py(py, &o))
+}
+
+impl<'py> BuiltinVisitor<'py> for RunBuiltin<'_, 'py> {
+    type Out = Finals<'py>;
+
+    fn visit<E>(self, evaluator: E) -> PyResult<Finals<'py>>
+    where
+        E: MultisetEvaluator<Value, Final = Value> + 'static,
+    {
+        let result = run_evaluation(&evaluator, self.flats, self.sources, self.depth_budget)?;
+        finals(self.py, result, |o| to_py(self.py, &o))
+    }
 }
 
 /// A built-in evaluator of the core, named by the facade (evaluator_rust.py `builtin_spec`) with its parameters.
@@ -122,58 +196,13 @@ pub fn evaluate_builtin<'py>(
     depth_budget: isize,
     flats: Option<Inputs<'py>>,
 ) -> PyResult<Finals<'py>> {
-    let param = |i: usize| -> PyResult<&Bound<'py, PyAny>> {
-        params
-            .get(i)
-            .ok_or_else(|| PyValueError::new_err(format!("icepool_rs: {name} needs a parameter")))
+    let run = RunBuiltin {
+        py,
+        flats: flats.as_ref(),
+        sources: &sources,
+        depth_budget,
     };
-    let s = (flats.as_ref(), &sources[..]);
-    let b = depth_budget;
-    match name {
-        "sum" => run(py, &SumEvaluator, s, b),
-        "size" => run(py, &SizeEvaluator, s, b),
-        "product_of_counts" => run(py, &ProductOfCountsEvaluator, s, b),
-        "empty" => {
-            let any = param(0)?.extract()?;
-            run(py, &EmptyEvaluator { any }, s, b)
-        }
-        "expand" => {
-            let ascending = param(0)?.extract()?;
-            run(py, &ExpandEvaluator { ascending }, s, b)
-        }
-        "keep" => {
-            let index = param(0)?.extract()?;
-            run(py, &KeepEvaluator { index }, s, b)
-        }
-        "highest_outcome_and_count" => run(py, &HighestOutcomeAndCountEvaluator, s, b),
-        "all_counts" => {
-            let filter = from_py(param(0)?)?;
-            run(py, &AllCountsEvaluator { filter }, s, b)
-        }
-        "largest_count" => run(py, &LargestCountEvaluator, s, b),
-        "largest_count_and_outcome" => run(py, &LargestCountAndOutcomeEvaluator, s, b),
-        "count_subset" => {
-            let empty_divisor = from_py(param(0)?)?;
-            run(py, &CountSubsetEvaluator { empty_divisor }, s, b)
-        }
-        "largest_straight" => run(py, &LargestStraightEvaluator, s, b),
-        "largest_straight_and_outcome" => {
-            let prioritize_highest = param(0)?.extract()?;
-            let e = LargestStraightAndOutcomeEvaluator { prioritize_highest };
-            run(py, &e, s, b)
-        }
-        "all_straights" => run(py, &AllStraightsEvaluator, s, b),
-        "is_proper_subset" => run(py, &ComparisonEvaluator(Comparison::IsProperSubset), s, b),
-        "is_subset" => run(py, &ComparisonEvaluator(Comparison::IsSubset), s, b),
-        "is_proper_superset" => run(py, &ComparisonEvaluator(Comparison::IsProperSuperset), s, b),
-        "is_superset" => run(py, &ComparisonEvaluator(Comparison::IsSuperset), s, b),
-        "is_equal_set" => run(py, &ComparisonEvaluator(Comparison::IsEqualSet), s, b),
-        "is_not_equal_set" => run(py, &ComparisonEvaluator(Comparison::IsNotEqualSet), s, b),
-        "is_disjoint_set" => run(py, &ComparisonEvaluator(Comparison::IsDisjointSet), s, b),
-        _ => Err(PyValueError::new_err(format!(
-            "icepool_rs: no built-in evaluator {name:?}"
-        ))),
-    }
+    with_builtin(name, &params, run)
 }
 
 /// A `MultisetEvaluator` whose methods are Python callables: the bound methods the facade's
@@ -197,6 +226,28 @@ struct HostEvaluator<'py> {
 }
 
 impl<'py> HostEvaluator<'py> {
+    /// An evaluator calling back these bound methods (`kwargs` go to `initial_state` and `final_outcome`).
+    fn new(
+        next_state: Bound<'py, PyAny>,
+        initial_state: Bound<'py, PyAny>,
+        extra_outcomes: Bound<'py, PyAny>,
+        final_outcome: Bound<'py, PyAny>,
+        kwargs: Option<Bound<'py, PyDict>>,
+    ) -> PyResult<Self> {
+        let icepool = next_state.py().import("icepool")?;
+        Ok(HostEvaluator {
+            next_state,
+            initial_state,
+            extra_outcomes,
+            final_outcome,
+            kwargs,
+            order_type: icepool.getattr("Order")?,
+            reroll_types: icepool.getattr("REROLL_TYPES")?,
+            unsupported_order: icepool.getattr("UnsupportedOrder")?.cast_into::<PyType>()?,
+            outcomes: RefCell::new(None),
+        })
+    }
+
     fn py(&self) -> Python<'py> {
         self.next_state.py()
     }
@@ -414,18 +465,145 @@ pub fn evaluate_host<'py>(
     depth_budget: isize,
     flats: Option<Inputs<'py>>,
 ) -> PyResult<Finals<'py>> {
-    let icepool = py.import("icepool")?;
-    let evaluator = HostEvaluator {
+    let evaluator = HostEvaluator::new(
         next_state,
         initial_state,
         extra_outcomes,
         final_outcome,
         kwargs,
-        order_type: icepool.getattr("Order")?,
-        reroll_types: icepool.getattr("REROLL_TYPES")?,
-        unsupported_order: icepool.getattr("UnsupportedOrder")?.cast_into::<PyType>()?,
-        outcomes: RefCell::new(None),
-    };
+    )?;
     let result = run_evaluation(&evaluator, flats.as_ref(), &sources, depth_budget)?;
+    finals(py, result, |o| Ok(o.into_bound(py)))
+}
+
+/// An evaluator called in a `@multiset_function`, type-erased, its final outcomes Python objects.
+type Leaf<'py> = Box<dyn DynEvaluator<Value, Py<PyAny>> + 'py>;
+
+/// One call of a `@multiset_function` evaluation: its call tree and its main side.
+type PyCall<'py> = (CallTree<Value>, Call<'py, Value, Py<PyAny>>);
+
+/// A built-in evaluator as a [`Leaf`].
+struct BuiltinLeaf<'py>(Python<'py>);
+
+impl<'py> BuiltinVisitor<'py> for BuiltinLeaf<'py> {
+    type Out = Leaf<'py>;
+
+    fn visit<E>(self, evaluator: E) -> PyResult<Leaf<'py>>
+    where
+        E: MultisetEvaluator<Value, Final = Value> + 'static,
+    {
+        let py = self.0;
+        Ok(Box::new(Erased {
+            evaluator,
+            map_final: move |v: Value| to_py(py, &v).map(Bound::unbind).map_err(host_error),
+        }))
+    }
+}
+
+/// One call of a `@multiset_function` evaluation as evaluator_rust.py `_call_tree` describes it: `(kind, flats,
+/// ...)` with kind `function` (one inner call), `joint` (a list of them), `builtin` (name, params) or `host` (the
+/// dungeon's `next_state_main` and the quest's `initial_state_main`, `extra_outcomes`, `final_outcome`, kwargs).
+fn call_tree<'py>(
+    py: Python<'py>,
+    desc: &Bound<'py, PyAny>,
+) -> PyResult<PyCall<'py>> {
+    let t = desc.cast::<PyTuple>()?;
+    let kind: String = t.get_item(0)?.extract()?;
+    let flats = t
+        .get_item(1)?
+        .try_iter()?
+        .map(|f| flat(&f?))
+        .collect::<PyResult<Vec<_>>>()?;
+    let leaf = |call| Ok((CallTree::leaf(flats.clone()), Call::Evaluator(call)));
+    match kind.as_str() {
+        "function" => {
+            let (inner_tree, inner) = call_tree(py, &t.get_item(2)?)?;
+            let tree = CallTree {
+                flats,
+                calls: vec![inner_tree],
+            };
+            Ok((tree, Call::Function(Box::new(inner))))
+        }
+        "joint" => {
+            let mut calls = Vec::new();
+            let mut inners = Vec::new();
+            for inner in t.get_item(2)?.try_iter()? {
+                let (inner_tree, inner) = call_tree(py, &inner?)?;
+                calls.push(inner_tree);
+                inners.push(inner);
+            }
+            Ok((CallTree { flats, calls }, Call::Joint(inners)))
+        }
+        "builtin" => {
+            let name: String = t.get_item(2)?.extract()?;
+            let params: Vec<Bound<'py, PyAny>> = t.get_item(3)?.extract()?;
+            leaf(with_builtin(&name, &params, BuiltinLeaf(py))?)
+        }
+        "host" => {
+            let host = HostEvaluator::new(
+                t.get_item(2)?,
+                t.get_item(3)?,
+                t.get_item(4)?,
+                t.get_item(5)?,
+                t.get_item(6)?.extract()?,
+            )?;
+            leaf(Box::new(Erased {
+                evaluator: host,
+                map_final: Ok,
+            }))
+        }
+        _ => Err(PyValueError::new_err(format!(
+            "icepool_rs: no call kind {kind:?}"
+        ))),
+    }
+}
+
+/// `icepool.tupleize(*final_outcomes)` of a joint `@multiset_function` result: `None` stays `None`, a reroll is
+/// `icepool.Reroll`, and a reroll result drops the state.
+fn host_tupleize(py: Python<'_>) -> PyResult<Box<Tupleize<'_, Py<PyAny>>>> {
+    let icepool = py.import("icepool")?;
+    let tupleize = icepool.getattr("tupleize")?;
+    let reroll = icepool.getattr("Reroll")?;
+    let reroll_types = icepool.getattr("REROLL_TYPES")?;
+    Ok(Box::new(move |finals: Vec<Final<Py<PyAny>>>| {
+        let args = finals
+            .into_iter()
+            .map(|f| match f {
+                Final::None => py.None(),
+                Final::Reroll => reroll.clone().unbind(),
+                Final::Outcome(o) => o,
+            })
+            .collect::<Vec<_>>();
+        let result = PyTuple::new(py, args)
+            .and_then(|args| tupleize.call1(args))
+            .map_err(host_error)?;
+        Ok(if reroll_types.contains(&result).map_err(host_error)? {
+            Final::Reroll
+        } else if result.is_none() {
+            Final::None
+        } else {
+            Final::Outcome(result.unbind())
+        })
+    }))
+}
+
+/// A `@multiset_function` evaluation (evaluator/multiset_function.py's dungeon and quest), described by
+/// evaluator_rust.py `rust_call_tree`, over core sources: the core drives the expressions of every call and the
+/// function's main state; the evaluators called in it are built-ins or host callbacks.
+#[pyfunction]
+pub fn evaluate_tree<'py>(
+    py: Python<'py>,
+    tree: Bound<'py, PyAny>,
+    sources: Vec<Bound<'py, PyAny>>,
+    depth_budget: isize,
+) -> PyResult<Finals<'py>> {
+    let (tree, call) = call_tree(py, &tree)?;
+    let evaluator = MultisetFunction {
+        call,
+        tupleize: host_tupleize(py)?,
+    };
+    let srcs = self::sources(&sources)?;
+    let result = evaluate_call_tree(&evaluator, &tree, &srcs, depth_check(depth_budget))
+        .map_err(to_py_err)?;
     finals(py, result, |o| Ok(o.into_bound(py)))
 }

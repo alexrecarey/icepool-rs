@@ -248,13 +248,15 @@ fn int_popped<S, O>(
 }
 
 impl<O: Outcome> MultisetSource<O> {
-    pub fn outcomes(&self) -> &[O] {
-        match self {
+    /// The possible outcomes, ascending. A compound keep sorts its inner sources' outcomes together, which can
+    /// raise.
+    pub fn outcomes(&self) -> Result<&[O]> {
+        Ok(match self {
             MultisetSource::Pool(s) => s.outcomes(),
             MultisetSource::Deal(s) => s.outcomes(),
             MultisetSource::MultiDeal(s) => s.outcomes(),
-            MultisetSource::CompoundKeep(s) => s.outcomes(),
-        }
+            MultisetSource::CompoundKeep(s) => s.outcomes()?,
+        })
     }
 
     /// The total number of elements output by this source, if only non-negative counts are output (else `None`).

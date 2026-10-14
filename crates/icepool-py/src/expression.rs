@@ -18,6 +18,7 @@ use icepool_core::operator::{
 };
 use icepool_core::order::{Order, OrderReason};
 use icepool_core::pool::MultisetSource;
+use icepool_core::value::builtins::Index;
 use icepool_core::{Error, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
@@ -142,7 +143,7 @@ impl RsCompoundKeep {
 #[pymethods]
 impl RsCompoundKeepSource {
     fn outcomes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        outcome_tuple(py, self.source.outcomes())
+        outcome_tuple(py, self.source.outcomes().map_err(to_py_err)?)
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
@@ -463,14 +464,39 @@ fn operator(spec: &Bound<'_, PyTuple>) -> PyResult<Operator<Value>> {
     })
 }
 
-/// One prepared input as evaluator_rust.py describes it: `None` for a free variable, `(spec, child_indexes)` for
-/// an operator, with Python's relative (negative) child indexes.
+/// The index of a `MultisetTupleIndex` (an int) or `MultisetTupleSlice` (a slice).
+fn tuple_index(index: &Bound<'_, PyAny>) -> PyResult<Index> {
+    if let Ok(s) = index.cast::<PySlice>() {
+        let bound = |name| from_py(&s.getattr(name)?);
+        return Ok(Index::Slice(
+            bound("start")?,
+            bound("stop")?,
+            bound("step")?,
+        ));
+    }
+    Ok(Index::Item(from_py(index)?))
+}
+
+/// One prepared input as evaluator_rust.py describes it: `None` for a free variable, `('param', arg_index,
+/// star_index)` for a `@multiset_function` parameter, `(spec, child_indexes)` for an operator or a tuple item
+/// (spec `('tuple_item', index)`), with Python's relative (negative) child indexes.
 pub(crate) fn flat(nodes: &Bound<'_, PyAny>) -> PyResult<Flat<Value>> {
     let mut result = Vec::new();
     for node in nodes.try_iter()? {
         let node = node?;
         if node.is_none() {
             result.push(Dungeonlet::FreeVariable);
+            continue;
+        }
+        if let Ok(("param", arg_index, star_index)) =
+            node.extract::<(String, usize, Option<usize>)>()
+                .as_ref()
+                .map(|(k, a, s)| (k.as_str(), *a, *s))
+        {
+            result.push(Dungeonlet::Parameter {
+                arg_index,
+                star_index,
+            });
             continue;
         }
         let (spec, child_indexes): (Bound<'_, PyTuple>, Vec<isize>) = node.extract()?;
@@ -482,6 +508,16 @@ pub(crate) fn flat(nodes: &Bound<'_, PyAny>) -> PyResult<Flat<Value>> {
                     .map_err(|_| PyValueError::new_err("icepool_rs: a child index out of range"))
             })
             .collect::<PyResult<Vec<_>>>()?;
+        if spec.get_item(0)?.extract::<String>().ok().as_deref() == Some("tuple_item") {
+            let [child] = children[..] else {
+                return Err(PyValueError::new_err("icepool_rs: a tuple item has one child"));
+            };
+            result.push(Dungeonlet::TupleItem {
+                child,
+                index: tuple_index(&spec.get_item(1)?)?,
+            });
+            continue;
+        }
         result.push(Dungeonlet::Operator {
             operator: operator(&spec)?,
             children,

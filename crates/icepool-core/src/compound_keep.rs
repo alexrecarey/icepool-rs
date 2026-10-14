@@ -6,7 +6,7 @@
 //! values here, so [`CompoundKeep`] holds the inner sources directly.
 
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{Error, Result};
 use crate::function::sorted_union;
@@ -81,8 +81,9 @@ impl<O: Outcome> CompoundKeep<O> {
 pub struct CompoundKeepSource<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
     keep_tuple: Arc<[i64]>,
-    /// `outcomes()`: the sorted union of the inner sources' (remaining) outcomes, computed once.
-    outcomes: Arc<[O]>,
+    /// `outcomes()`: the sorted union of the inner sources' (remaining) outcomes, computed when first asked (Python
+    /// computes it per call: sorting can raise, and an evaluation with an unresolvable source never asks).
+    outcomes: OnceLock<Arc<[O]>>,
 }
 
 impl<O: PartialEq> PartialEq for CompoundKeepSource<O> {
@@ -102,16 +103,24 @@ impl<O: Hash> Hash for CompoundKeepSource<O> {
 
 impl<O: Outcome> CompoundKeepSource<O> {
     fn new(inner_sources: Arc<[MultisetSource<O>]>, keep_tuple: Arc<[i64]>) -> Result<Self> {
-        let outcomes = sorted_union(inner_sources.iter().map(|s| s.outcomes().iter()))?;
         Ok(CompoundKeepSource {
             inner_sources,
             keep_tuple,
-            outcomes: outcomes.into(),
+            outcomes: OnceLock::new(),
         })
     }
 
-    pub fn outcomes(&self) -> &[O] {
-        &self.outcomes
+    pub fn outcomes(&self) -> Result<&[O]> {
+        if let Some(outcomes) = self.outcomes.get() {
+            return Ok(outcomes);
+        }
+        let inner = self
+            .inner_sources
+            .iter()
+            .map(MultisetSource::outcomes)
+            .collect::<Result<Vec<_>>>()?;
+        let outcomes = sorted_union(inner.into_iter().map(|o| o.iter()))?;
+        Ok(self.outcomes.get_or_init(|| outcomes.into()))
     }
 
     pub fn keep_tuple(&self) -> &[i64] {

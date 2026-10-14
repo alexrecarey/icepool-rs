@@ -528,6 +528,7 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(pool::pool_new, m)?,
         wrap_pyfunction!(evaluate::evaluate_builtin, m)?,
         wrap_pyfunction!(evaluate::evaluate_host, m)?,
+        wrap_pyfunction!(evaluate::evaluate_tree, m)?,
         wrap_pyfunction!(pool::pool_additive_union, m)?,
         wrap_pyfunction!(deck::expand_args_for_deck, m)?,
         wrap_pyfunction!(deck::deck_from_counts_items, m)?,

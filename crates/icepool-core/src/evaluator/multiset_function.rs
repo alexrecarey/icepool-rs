@@ -102,6 +102,42 @@ pub trait DynEvaluator<O, F> {
     ) -> Result<Final<F>>;
 }
 
+/// A shared evaluator (one recorded in a function body and reused by every trace of it).
+impl<O, F, T: DynEvaluator<O, F> + ?Sized> DynEvaluator<O, F> for Arc<T> {
+    fn initial_state(
+        &self,
+        order: Order,
+        outcomes: &[O],
+        sizes: &[Option<Count>],
+    ) -> Result<AnyState> {
+        (**self).initial_state(order, outcomes, sizes)
+    }
+
+    fn next_state(
+        &self,
+        state: &AnyState,
+        order: Order,
+        outcome: &O,
+        counts: &[Count],
+    ) -> Result<Option<AnyState>> {
+        (**self).next_state(state, order, outcome, counts)
+    }
+
+    fn extra_outcomes(&self, outcomes: &[O]) -> Result<Vec<O>> {
+        (**self).extra_outcomes(outcomes)
+    }
+
+    fn final_outcome(
+        &self,
+        state: &AnyState,
+        order: Order,
+        outcomes: &[O],
+        sizes: &[Option<Count>],
+    ) -> Result<Final<F>> {
+        (**self).final_outcome(state, order, outcomes, sizes)
+    }
+}
+
 /// `evaluator` as a [`DynEvaluator`], its final outcomes converted by `map_final`.
 pub struct Erased<E, M> {
     pub evaluator: E,
@@ -165,7 +201,7 @@ where
 pub enum Call<'a, O, F> {
     /// `MultisetEvaluatorDungeon` / `Quest` (an evaluation in the body, its kwargs bound in the evaluator), or
     /// `ConstantDungeon` / `Quest` (a result that is not an evaluation): no calls inside.
-    Evaluator(Arc<dyn DynEvaluator<O, F> + 'a>),
+    Evaluator(Box<dyn DynEvaluator<O, F> + 'a>),
     /// `MultisetFunctionDungeon` / `Quest`: one call, whose state is this one's.
     Function(Box<Call<'a, O, F>>),
     /// `MultisetFunctionJointDungeon` / `Quest`: one call per result.

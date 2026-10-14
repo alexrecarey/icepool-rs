@@ -11,12 +11,18 @@ converted to a pool) and the multiset operators of operator/*.py over them, `Dun
   `MultiDeal` input, whose counts and size are tuples (the core's built-ins take `int` counts).
 
 Each prepared input (its flat of dungeonlets) is described to the core as a list of nodes (`rust_flats`): `None` for
-a free variable, `(spec, child_indexes)` for an operator, the spec naming the operator class with the attributes
-its `_next_state` / `_initial_state` read. The operators then run in the core (crates/icepool-py/src/
-expression.rs), `map_counts` functions and `keep_outcomes` callables as host callbacks.
+a free variable, `('param', arg_index, star_index)` for a `@multiset_function` parameter, `(spec, child_indexes)`
+for an operator or a `MultisetTupleIndex` / `MultisetTupleSlice` (a hand of a `MultiDeal`), the spec naming the
+class with the attributes its `_next_state` / `_initial_state` read. The operators then run in the core
+(crates/icepool-py/src/expression.rs), `map_counts` functions and `keep_outcomes` callables as host callbacks.
 
-Other expression kinds (a hand of a `MultiDeal` such as `deal[0]`, mixtures, `weightless()`) and
-`@multiset_function`s are not ported yet (S4d): their evaluation is still upstream's `Dungeon.evaluate`.
+A `@multiset_function` is traced by upstream's code (`MultisetFunctionEvaluator._prepare` calls the function with
+parameters); the dungeon / quest it prepares is described as a call tree (`rust_call_tree`) and run by
+`icepool_rs.evaluate_tree`: the core drives the expressions of every call and the main states of the function, its
+joint results and the evaluators called in it (built-ins natively, others and constant results as host callbacks).
+A `MultisetMixture` needs nothing: its `_prepare` yields one ordinary evaluation per inner expression.
+
+Only `weightless()` sources are not ported yet (S4e): their evaluation is still upstream's `Dungeon.evaluate`.
 
 Rooms are cached per call in the core (ANALYSIS.md decision 5); a dungeon's `ascending_cache` /
 `descending_cache` are not filled by these evaluations.
@@ -112,6 +118,14 @@ def _operator_spec(operator) -> tuple | None:
     return None
 
 
+def _tuple_item_spec(operator) -> tuple | None:
+    """The spec of a `MultisetTupleIndex` / `MultisetTupleSlice` node: its index (an int or a slice)."""
+    from icepool.expression.multiset_tuple_expression import MultisetTupleIndex, MultisetTupleSlice
+    if type(operator) in (MultisetTupleIndex, MultisetTupleSlice):
+        return 'tuple_item', operator._index
+    return None
+
+
 def _core_source(q, source) -> bool:
     """Whether a free variable's source is the core's: a pool, deal or compound keep source with a
     `MultisetGeneratorQuestlet`, a multi-deal source with a `MultisetTupleGeneratorQuestlet`."""
@@ -129,20 +143,29 @@ def _core_source(q, source) -> bool:
 
 
 def rust_flats(dungeon, quest, sources) -> list | None:
-    """The prepared inputs as the core takes them, if `dungeon.evaluate(quest, sources, kwargs)` can run on the core
-    driver; else `None`.
+    """The prepared inputs as the core takes them, if `dungeon.evaluate(quest, sources, kwargs)` is a plain
+    `MultisetEvaluator`'s (no `@multiset_function` calls) that can run on the core driver; else `None`.
 
-    It can when the evaluator is a plain `MultisetEvaluator` (no `@multiset_function` calls) and every node of every
-    input is either a free variable whose source is the core's or a `BodyDungeonlet` / `BodyQuestlet` pair of an
-    operator the core has (`_operator_spec`).
+    It can when every node of every input is either a free variable whose source is the core's or a `BodyDungeonlet`
+    / `BodyQuestlet` pair of an operator the core has (`_operator_spec`).
     """
     from icepool.evaluator.multiset_evaluator import MultisetEvaluatorDungeon, MultisetEvaluatorQuest
     if type(dungeon) is not MultisetEvaluatorDungeon or type(
             quest) is not MultisetEvaluatorQuest:
         return None
+    source_iter = iter(sources)
+    flats = _flats(dungeon, quest, source_iter)
+    if flats is None or next(source_iter, None) is not None:
+        return None
+    return flats
+
+
+def _flats(dungeon, quest, source_iter) -> list | None:
+    """The flats of one call (`dungeon.dungeonlet_flats` with `quest.questlet_flats`) as the core takes them,
+    consuming their sources from `source_iter`; `None` if some node is not the core's."""
+    from icepool.expression.multiset_parameter import MultisetParameterDungeonlet, MultisetParameterQuestlet
     if len(dungeon.dungeonlet_flats) != len(quest.questlet_flats):
         return None
-    source_iter = iter(sources)
     flats = []
     for dungeonlets, questlets in zip(dungeon.dungeonlet_flats,
                                       quest.questlet_flats):
@@ -156,6 +179,14 @@ def rust_flats(dungeon, quest, sources) -> list | None:
                     return None
                 nodes.append(None)
                 continue
+            if type(d) is MultisetParameterDungeonlet:
+                if (type(q) is not MultisetParameterQuestlet
+                        or (d.arg_index, d.star_index) != (q.arg_index, q.star_index)
+                        or type(d.arg_index) is not int
+                        or type(d.star_index) not in (int, type(None))):
+                    return None
+                nodes.append(('param', d.arg_index, d.star_index))
+                continue
             if type(d) is not BodyDungeonlet or type(q) is not BodyQuestlet:
                 return None
             # The questlet is this expression's operator. The dungeonlet may be an earlier, equal one's: a dungeon
@@ -164,6 +195,17 @@ def rust_flats(dungeon, quest, sources) -> list | None:
             # the dungeonlet's must agree on what `_next_state` reads.
             operator = getattr(q.initial_state, '__self__', None)
             d_operator = getattr(d.next_state, '__self__', None)
+            spec = _tuple_item_spec(operator)
+            if spec is not None:
+                # `hash_key` is all `_next_state` / `_initial_state` read: the index.
+                if (type(d_operator) is not type(operator)
+                        or d_operator.hash_key != operator.hash_key
+                        or q.initial_state != operator._initial_state
+                        or d.next_state != d_operator._next_state
+                        or d.child_indexes != q.child_indexes):
+                    return None
+                nodes.append((spec, d.child_indexes))
+                continue
             spec = _operator_spec(operator)
             if (spec is None or type(d_operator) is not type(operator)
                     or q.initial_state != operator._initial_state
@@ -173,9 +215,92 @@ def rust_flats(dungeon, quest, sources) -> list | None:
                 return None
             nodes.append((spec, d.child_indexes))
         flats.append(nodes)
-    if next(source_iter, None) is not None:
-        return None
     return flats
+
+
+def _is_bound(method, name: str) -> bool:
+    """Whether `method` is the bound method `name` of some object (not an attribute replaced by hand)."""
+    return getattr(getattr(method, '__self__', None), name, None) == method
+
+
+def _call_tree(dungeon, quest, source_iter, kwargs, builtins: bool):
+    """`(kind, flats, ...)`: the description of one call of a prepared evaluation, as `icepool_rs.evaluate_tree`
+    takes it, or `None` if some part is not the core's.
+
+    * `('function', flats, inner)`: `MultisetFunctionDungeon` / `Quest` (one result).
+    * `('joint', flats, [inner, ...])`: `MultisetFunctionJointDungeon` / `Quest` (a tuple of results).
+    * `('builtin', flats, name, params)`: a built-in evaluator the core has (`builtin_spec`).
+    * `('host', flats, next_state, initial_state, extra_outcomes, final_outcome, kwargs)`: any other evaluator
+      called in the function, or a constant result (`ConstantDungeon` / `Quest`), called back in Python.
+
+    `kwargs` are the ones its quest's methods get: the evaluation's own at the top, the function's `inner_kwargs`
+    inside it.
+    """
+    from icepool.evaluator.multiset_evaluator import MultisetEvaluatorDungeon, MultisetEvaluatorQuest
+    from icepool.evaluator import multiset_function as mf
+    flats = _flats(dungeon, quest, source_iter)
+    if flats is None:
+        return None
+    t, q = type(dungeon), type(quest)
+    if t is mf.MultisetFunctionDungeon and q is mf.MultisetFunctionQuest:
+        inner = _call_tree(dungeon.inner_dungeon, quest.inner_quest,
+                           source_iter, quest.inner_kwargs, builtins)
+        if inner is None:
+            return None
+        return 'function', flats, inner
+    if t is mf.MultisetFunctionJointDungeon and q is mf.MultisetFunctionJointQuest:
+        if not (len(dungeon.inner_dungeons) == len(quest.inner_quests) ==
+                len(quest.inner_kwargses)):
+            return None
+        inners = []
+        for d, iq, inner_kwargs in zip(dungeon.inner_dungeons,
+                                       quest.inner_quests,
+                                       quest.inner_kwargses):
+            inner = _call_tree(d, iq, source_iter, inner_kwargs, builtins)
+            if inner is None:
+                return None
+            inners.append(inner)
+        return 'joint', flats, inners
+    if dungeon.calls or quest.calls:
+        return None
+    if t is MultisetEvaluatorDungeon and q is MultisetEvaluatorQuest:
+        evaluator = getattr(quest.initial_state_main, '__self__', None)
+        # The dungeon may be an equal one from the evaluator's cache: the same `next_state` by its key.
+        if (builtins and evaluator is not None and type(
+                getattr(dungeon.next_state_main, '__self__', None)) is type(evaluator)
+                and _is_bound(quest.initial_state_main, 'initial_state')):
+            spec = builtin_spec(evaluator, len(flats), kwargs)
+            if spec is not None:
+                return ('builtin', flats) + spec
+    elif not (t is mf.ConstantDungeon and q is mf.ConstantQuest):
+        return None
+    return ('host', flats, dungeon.next_state_main, quest.initial_state_main,
+            quest.extra_outcomes, quest.final_outcome, dict(kwargs) or None)
+
+
+def rust_call_tree(dungeon, quest, sources, kwargs):
+    """The description of a `@multiset_function` evaluation (see `_call_tree`), if it can run on the core; else
+    `None`. With a `MultiDeal` source every evaluator is called back (built-ins would get tuple counts)."""
+    from icepool.evaluator import multiset_function as mf
+    if type(dungeon) not in (mf.MultisetFunctionDungeon,
+                             mf.MultisetFunctionJointDungeon):
+        return None
+    builtins = not any(
+        isinstance(source, icepool.generator.multi_deal.MultiDealSource)
+        for source in sources)
+    source_iter = iter(sources)
+    tree = _call_tree(dungeon, quest, source_iter, kwargs, builtins)
+    if tree is None or next(source_iter, None) is not None:
+        return None
+    return tree
+
+
+def evaluate_tree(tree, sources) -> 'icepool.Die':
+    """`dungeon.evaluate(quest, sources, kwargs)` of a `@multiset_function` on the core, given its
+    `rust_call_tree`."""
+    final_outcomes, final_weights = icepool.backend.RUST.evaluate_tree(
+        tree, [source._rs for source in sources], _depth_budget())
+    return icepool.Die(final_outcomes, final_weights)
 
 
 def _exact_int(x) -> bool:

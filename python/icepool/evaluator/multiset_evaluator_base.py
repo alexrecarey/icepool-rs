@@ -104,12 +104,18 @@ class MultisetEvaluatorBase(ABC, Generic[T, U_co]):
             from icepool.evaluator import evaluator_rust
             flats = evaluator_rust.rust_flats(
                 dungeon, quest, sources) if icepool.backend.RUST else None
+            tree = evaluator_rust.rust_call_tree(
+                dungeon, quest, sources,
+                kwargs) if icepool.backend.RUST and flats is None else None
             if flats is not None:
                 # icepool-rs: generators and the multiset operators over them
-                # evaluate on the core driver (evaluator_rust.py); other
-                # expression kinds and @multiset_function are not ported yet.
+                # evaluate on the core driver (evaluator_rust.py), and so do
+                # @multiset_function call trees; weightless() sources are not
+                # ported yet.
                 result = evaluator_rust.evaluate(self, dungeon, quest,
                                                  sources, kwargs, flats)
+            elif tree is not None:
+                result = evaluator_rust.evaluate_tree(tree, sources)
             else:
                 result = dungeon.evaluate(quest, sources, kwargs)
             final_data[result] += weight
