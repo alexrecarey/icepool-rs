@@ -52,6 +52,14 @@ pub enum Func {
     TupleD(PValue),
     /// `lambda *args: v`
     Const(PValue),
+    /// `lambda x: icepool.Restart if x < k else x`
+    RestartBelow(PValue),
+    /// `lambda x: icepool.Break(v) if x == k else icepool.Break()`
+    BreakK(PValue, PValue),
+    /// `lambda a, b: icepool.Break() if a == b else a + b`
+    BreakEq,
+    /// `lambda x, *, k: x + k`
+    AddKw,
     /// `{k: v for k, v in pairs}`: a mapping, not a callable.
     Mapping(FxHashMap<Key, PValue>),
 }
@@ -65,10 +73,11 @@ impl Func {
         };
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
-            "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "first" => 0,
+            "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "first"
+            | "break_eq" | "add_kw" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
-            | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" => 1,
-            "clamp" | "die_if_k" => 2,
+            | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" => 1,
+            "clamp" | "die_if_k" | "break_k" => 2,
             _ => return raise(Error::Key(format!("no catalogue function {name:?}"))),
         };
         if params.len() != want {
@@ -99,6 +108,10 @@ impl Func {
             "reroll_in_tuple" => RerollInTuple(next()),
             "tuple_d" => TupleD(next()),
             "const" => Const(next()),
+            "restart_below" => RestartBelow(next()),
+            "break_k" => BreakK(next(), next()),
+            "break_eq" => BreakEq,
+            "add_kw" => AddKw,
             "mapping" => Mapping(dict_items(next())?.into_iter().collect()),
             _ => unreachable!("names checked above"),
         })
@@ -111,7 +124,7 @@ impl Func {
         let n = match self {
             Mapping(_) => return None,
             Const(_) => return Some((0, None)),
-            ReadRoll | Swap | Add2 | Max2 => 2,
+            ReadRoll | Swap | Add2 | Max2 | BreakEq => 2,
             Sum3 => 3,
             _ => 1,
         };
@@ -126,7 +139,30 @@ impl Func {
 
     /// Calls the function. A mapping is `mapping.get(o, o)` (`transition_and_star`).
     pub fn call(&self, args: Vec<PValue>) -> Result<PValue, PErr> {
+        self.call_kw(args, vec![])
+    }
+
+    /// Calls the function with keyword arguments too (`map`'s `**kwargs`, passed as-is). Only `add_kw` has a
+    /// keyword-only parameter (`k`, required); any other name is unexpected (TypeError), unless it names a
+    /// positional parameter, which Python would bind: the port does not model that.
+    pub fn call_kw(
+        &self,
+        args: Vec<PValue>,
+        kwargs: Vec<(String, PValue)>,
+    ) -> Result<PValue, PErr> {
         use Func::*;
+        let mut k = None;
+        for (name, v) in kwargs {
+            match (self, name.as_str()) {
+                (AddKw, "k") => k = Some(v),
+                (_, "x" | "a" | "b" | "c" | "t" | "o" | "roll" | "success_value") => {
+                    return Err(PErr::Unimplemented(
+                        "a keyword argument naming a positional parameter".into(),
+                    ))
+                }
+                _ => return type_error(format!("got an unexpected keyword argument '{name}'")),
+            }
+        }
         if let Mapping(m) = self {
             let [o] = <[PValue; 1]>::try_from(args).expect("a mapping takes one argument");
             let key = match &o {
@@ -199,6 +235,33 @@ impl Func {
             }
             TupleD(n) => PValue::tuple(vec![x(), d(n.clone())?]),
             Const(v) => v.clone(),
+            RestartBelow(k) => {
+                let x = x();
+                if truthy(&binary(BinOp::Lt, x.clone(), k.clone())?)? {
+                    PValue::Restart
+                } else {
+                    x
+                }
+            }
+            BreakK(k, v) => {
+                if py_eq(&x(), k)? {
+                    PValue::Break(Box::new(v.clone()))
+                } else {
+                    PValue::Break(Box::new(PValue::Value(Value::None)))
+                }
+            }
+            BreakEq => {
+                let (a, b) = (x(), x());
+                if py_eq(&a, &b)? {
+                    PValue::Break(Box::new(PValue::Value(Value::None)))
+                } else {
+                    binary(BinOp::Add, a, b)?
+                }
+            }
+            AddKw => match k {
+                Some(k) => binary(BinOp::Add, x(), k)?,
+                None => return type_error("missing 1 required keyword-only argument: 'k'"),
+            },
             Mapping(_) => unreachable!("handled above"),
         })
     }
@@ -269,7 +332,11 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
             return type_error("A `Die` only has a truth value if it is the result of == or !=")
         }
         PValue::List(xs) | PValue::Tuple(xs) => !xs.is_empty(),
-        PValue::Reroll | PValue::Func(_) | PValue::Ellipsis => true,
+        PValue::Reroll
+        | PValue::Restart
+        | PValue::Break(_)
+        | PValue::Func(_)
+        | PValue::Ellipsis => true,
         PValue::Pool(_) => return Err(PErr::Unimplemented("the truth value of a pool".into())),
         PValue::Again(_) => {
             return raise(Error::Value(
@@ -283,8 +350,9 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
 pub fn py_eq(a: &PValue, b: &PValue) -> Result<bool, PErr> {
     match (a, b) {
         (PValue::Value(a), PValue::Value(b)) => Ok(a == b),
-        (PValue::Reroll, PValue::Reroll) => Ok(true),
-        (PValue::Reroll, PValue::Value(_)) | (PValue::Value(_), PValue::Reroll) => Ok(false),
+        (PValue::Reroll, PValue::Reroll) | (PValue::Restart, PValue::Restart) => Ok(true),
+        (PValue::Reroll | PValue::Restart, PValue::Value(_) | PValue::Reroll | PValue::Restart)
+        | (PValue::Value(_), PValue::Reroll | PValue::Restart) => Ok(false),
         _ => Err(PErr::Unimplemented(
             "== with dice (DieWithTruth), lists, functions".into(),
         )),

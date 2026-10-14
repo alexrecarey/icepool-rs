@@ -82,5 +82,6 @@
   "zero": "ported",
   "simplify": "ported",
   "die_pop": "ported",
-  "from_cumulative": "ported"
+  "from_cumulative": "ported",
+  "map_kw": "ported"
 }

@@ -23,16 +23,17 @@ class Entry:
     params: Callable                    # params(g) -> list of JSON program values
     args: Callable                      # args(g, depth) -> list of map arguments
     pred: bool = False
+    kw: bool = False                    # takes keyword-only arguments: only for the map_kw node
 
 
 FUNCTIONS: dict[str, Callable] = {}
 ENTRIES: dict[str, Entry] = {}
 
 
-def entry(name, params=lambda g: [], args=None, pred=False):
+def entry(name, params=lambda g: [], args=None, pred=False, kw=False):
     def deco(factory):
         FUNCTIONS[name] = factory
-        ENTRIES[name] = Entry(factory, params, args or (lambda g, depth: [g.die(depth)]), pred)
+        ENTRIES[name] = Entry(factory, params, args or (lambda g, depth: [g.die(depth)]), pred, kw)
         return factory
     return deco
 
@@ -203,6 +204,43 @@ def const(v):
     return lambda *args: v
 
 
+@entry("restart_below", params=lambda g: [_k(g)])
+def restart_below(k):
+    """Outside map(repeat), Restart drops out of the result like Reroll."""
+    return lambda x: icepool.Restart if x < k else x
+
+
+def _break_params(g):
+    r = g.rng.random()
+    if r < 0.3:
+        v = None
+    elif r < 0.5:
+        v = {"op": "d", "sides": _sides(g)}
+    elif r < 0.6:
+        v = {"op": "Reroll"}
+    else:
+        v = _k(g)
+    return [g.rng.randint(0, 6), v]
+
+
+@entry("break_k", params=_break_params)
+def break_k(k, v):
+    """Break(v) (Break() for None: the outcome itself) is unwrapped by map without repeat."""
+    return lambda x: icepool.Break(v) if x == k else icepool.Break()
+
+
+@entry("break_eq", args=_two)
+def break_eq():
+    """With star, Break() stands for the first argument before unpacking: the whole tuple."""
+    return lambda a, b: icepool.Break() if a == b else a + b
+
+
+@entry("add_kw", kw=True)
+def add_kw():
+    """A keyword-only parameter: map_kw passes it as-is (a die is not expanded)."""
+    return lambda x, *, k: x + k
+
+
 def _mapping_params(g):
     r = g.rng
     pairs = []
@@ -223,10 +261,10 @@ def mapping(pairs):
     return {k: v for k, v in pairs}
 
 
-def fn_node(g, name=None, pred=False):
-    """A random `fn` node (a predicate if `pred`), and its catalogue entry."""
+def fn_node(g, name=None, pred=False, kw=False):
+    """A random `fn` node (a predicate if `pred`; keyword-only entries only if `kw`), and its catalogue entry."""
     if name is None:
-        names = [n for n, e in ENTRIES.items() if e.pred or not pred]
+        names = [n for n, e in ENTRIES.items() if (e.pred or not pred) and (kw or not e.kw)]
         name = g.rng.choice(names)
     e = ENTRIES[name]
     return {"op": "fn", "name": name, "params": e.params(g)}, e

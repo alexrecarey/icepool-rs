@@ -32,6 +32,10 @@ pub enum PValue {
     List(Vec<PValue>),
     /// `icepool.Reroll`.
     Reroll,
+    /// `icepool.Restart`. Outside `map(repeat)` and `again_count` it drops out of a die like `Reroll`.
+    Restart,
+    /// `icepool.Break(outcome)` returned by a `map` callable; `Value::None` is `Break()`.
+    Break(Box<PValue>),
     /// A Python tuple holding something that is not a plain value (a die, `Reroll`, ...). Tuples of plain values
     /// are `Value::Tuple`; build tuples with `PValue::tuple`, which picks the right one.
     Tuple(Vec<PValue>),

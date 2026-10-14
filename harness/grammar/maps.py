@@ -44,6 +44,35 @@ def map_(f, args, star):
     return icepool.map(f, *args, star=star)
 
 
+def _kwargs(g):
+    """Keyword arguments for map_kw: usually `k` (an int, a die passed as-is, or another scalar)."""
+    from harness.grammar.operators import scalar
+    r = g.rng.random()
+    if r < 0.1:
+        return []
+    if r < 0.15:
+        return [[{"str": "j"}, 1]]
+    v = g.rng.random()
+    k = g.rng.randint(-2, 6) if v < 0.5 else g.die(0) if v < 0.8 else scalar(g)
+    return [[{"str": "k"}, k]]
+
+
+def _gen_map_kw(g, depth):
+    if g.rng.random() < 0.75:
+        f, e = fn_node(g, name="add_kw")
+    else:
+        f, e = fn_node(g, kw=True)
+    args = e.args(g, depth) if g.rng.random() < 0.9 else []
+    return {"op": "map_kw", "f": f, "args": args, "star": _star(g), "kwargs": _kwargs(g)}
+
+
+@node("map_kw", "die", gen=_gen_map_kw, weight=0.5)
+def map_kw(f, args, star, kwargs):
+    """icepool.map(f, *args, star=star, **dict(kwargs)): kwargs (a list of [name, value]) go to f as-is, dice
+    included; with no args, the result is Die([f(**kwargs)])."""
+    return icepool.map(f, *args, star=star, **{k: v for k, v in kwargs})
+
+
 def _which(g, depth, none_ok):
     """What to select: a catalogue predicate, a collection of outcomes, or (reroll only) None."""
     r = g.rng.random()

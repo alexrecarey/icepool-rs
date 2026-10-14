@@ -39,8 +39,14 @@ fn star_arg(star: &PValue) -> Result<Option<bool>, PErr> {
     }
 }
 
-/// Calls `f` on one joint outcome, unpacking the first argument if `star` (`transition(*first, *extra)`).
-fn call(f: &Func, star: bool, mut args: Vec<PValue>) -> Result<PValue, PErr> {
+/// Calls `f` on one joint outcome, unpacking the first argument if `star` (`transition(*first, *extra,
+/// **kwargs)`).
+fn call(
+    f: &Func,
+    star: bool,
+    mut args: Vec<PValue>,
+    kwargs: &[(String, PValue)],
+) -> Result<PValue, PErr> {
     if star {
         let rest = args.split_off(1);
         let first = args.pop().expect("at least one argument");
@@ -49,7 +55,25 @@ fn call(f: &Func, star: bool, mut args: Vec<PValue>) -> Result<PValue, PErr> {
         unpacked.extend(rest);
         args = unpacked;
     }
-    f.call(args)
+    f.call_kw(args, kwargs.to_vec())
+}
+
+/// `map`'s `**kwargs` as the `map_kw` node gives them: a list of `[name, value]` pairs (a dict comprehension, so
+/// a repeated name keeps the last value).
+pub fn kwargs(pairs: PValue) -> Result<Vec<(String, PValue)>, PErr> {
+    let mut out: Vec<(String, PValue)> = Vec::new();
+    for pair in py_iter(pairs)? {
+        let [name, value] = <[PValue; 2]>::try_from(py_iter(pair)?)
+            .map_err(|_| PErr::Unimplemented("a keyword argument that is not a pair".into()))?;
+        let PValue::Value(Value::Str(name)) = name else {
+            return type_error("keywords must be strings");
+        };
+        match out.iter_mut().find(|(n, _)| **n == *name) {
+            Some(slot) => slot.1 = value,
+            None => out.push((name.to_string(), value)),
+        }
+    }
+    Ok(out)
 }
 
 /// `iter_cartesian_product`'s view of one argument: a die's items, or the argument itself with quantity 1.
@@ -68,8 +92,14 @@ fn arg_items(arg: PValue) -> Vec<(PValue, Quantity)> {
 ///
 /// `repl` is called with every joint outcome of `args` (dice expand into their outcomes, zero quantities
 /// included; anything else is passed as-is), and the results become `Die(results, quantities)`: results that are
-/// dice are mixed in with `weighted_lcm`, `Reroll` drops out, tuples holding dice are `tupleize`d.
-pub fn map(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
+/// dice are mixed in with `weighted_lcm`, `Reroll` (and `Restart`) drops out, tuples holding dice are `tupleize`d,
+/// and a `Break` is unwrapped (`map_simple`). `kwargs` go to `repl` as they are (dice are not expanded).
+pub fn map(
+    f: PValue,
+    args: PValue,
+    star: PValue,
+    kwargs: Vec<(String, PValue)>,
+) -> Result<PValue, PErr> {
     let PValue::List(args) = args else {
         return Err(PErr::Unimplemented(
             "map arguments not given as a list".into(),
@@ -84,7 +114,8 @@ pub fn map(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
                     "If no arguments are given, repl must be a callable.".into(),
                 ))
             }
-            Repl::Callable(f) => f.call(vec![])?,
+            // `Die([repl(**kwargs)])`: not `map_simple`, so a `Break` is not unwrapped.
+            Repl::Callable(f) => f.call_kw(vec![], kwargs)?,
         };
         return die_of(vec![result], vec![Quantity::ONE]);
     }
@@ -102,7 +133,16 @@ pub fn map(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
     let mut final_states = Vec::new();
     let mut final_quantities = Vec::new();
     for (outcomes, quantity) in iter_cartesian_product(&items) {
-        final_states.push(call(f, star, outcomes)?);
+        let first = outcomes[0].clone();
+        let final_state = match call(f, star, outcomes, &kwargs)? {
+            // `Break()` stands for the first outcome (before unpacking), `Break(x)` for `x`.
+            PValue::Break(outcome) => match *outcome {
+                PValue::Value(Value::None) => first,
+                outcome => outcome,
+            },
+            state => state,
+        };
+        final_states.push(final_state);
         final_quantities.push(quantity);
     }
     die_of(final_states, final_quantities)
@@ -124,7 +164,10 @@ fn die_of(outcomes: Vec<PValue>, times: Vec<Quantity>) -> Result<PValue, PErr> {
 pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
     // `cartesian_product` returns `Reroll` if any element is `Reroll`, but `expand_arg` then hands that on as if
     // it were a mapping, and `merge_weights_lcm` raises AttributeError on `Reroll.values()` (see DIVERGENCES.md).
-    if items.iter().any(|x| matches!(x, PValue::Reroll)) {
+    if items
+        .iter()
+        .any(|x| matches!(x, PValue::Reroll | PValue::Restart))
+    {
         return type_error("AttributeError: 'RerollType' object has no attribute 'values'");
     }
     if !items.iter().any(|x| matches!(x, PValue::Die(_))) {
@@ -182,7 +225,10 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
             Func::Mapping(m) => Ok(m.contains_key(&Key::Value(x.clone()))),
             _ => type_error("argument of type 'function' is not iterable"),
         },
-        PValue::Reroll => type_error("argument of type 'RerollType' is not iterable"),
+        PValue::Reroll | PValue::Restart => {
+            type_error("argument of type 'RerollType' is not iterable")
+        }
+        PValue::Break(_) => type_error("argument of type 'Break' is not iterable"),
         PValue::Again(_) => type_error("argument of type 'AgainExpression' is not iterable"),
         PValue::Ellipsis => type_error("argument of type 'ellipsis' is not iterable"),
         PValue::Pool(_) => Err(PErr::Unimplemented("membership in a pool".into())),
@@ -198,7 +244,7 @@ pub(super) fn select(die: &Die<Value>, which: &PValue, star: &PValue) -> Result<
         PValue::Func(f) if f.positional().is_some() => {
             let star = star.unwrap_or_else(|| f.infer_star(1));
             die.outcomes()
-                .map(|o| truthy(&call(f, star, vec![PValue::Value(o.clone())])?))
+                .map(|o| truthy(&call(f, star, vec![PValue::Value(o.clone())], &[])?))
                 .collect()
         }
         collection => die.outcomes().map(|o| contains(collection, o)).collect(),

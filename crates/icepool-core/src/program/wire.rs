@@ -205,10 +205,15 @@ fn enc_object(v: &PValue) -> Option<Json> {
             json!({"tuple": items.iter().map(enc_object).collect::<Option<Vec<_>>>()?})
         }
         PValue::Reroll => json!({"repr": "RerollType: <RerollType.Reroll: 'Reroll'>"}),
+        PValue::Restart => json!({"repr": "RerollType: <RerollType.Restart: 'Restart'>"}),
         // An `AgainExpression` has the default object repr, with an address in it.
         PValue::Ellipsis => json!({"repr": "ellipsis: Ellipsis"}),
         // A pool's repr, like an `AgainExpression`'s, holds an address.
-        PValue::List(_) | PValue::Func(_) | PValue::Again(_) | PValue::Pool(_) => return None,
+        PValue::List(_)
+        | PValue::Func(_)
+        | PValue::Again(_)
+        | PValue::Pool(_)
+        | PValue::Break(_) => return None,
     })
 }
 

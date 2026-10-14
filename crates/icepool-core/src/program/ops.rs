@@ -74,7 +74,11 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         }
         "map" => {
             let [f, args, star] = args.exactly(["f", "args", "star"])?;
-            map::map(f, args, star)
+            map::map(f, args, star, vec![])
+        }
+        "map_kw" => {
+            let [f, args, star, kwargs] = args.exactly(["f", "args", "star", "kwargs"])?;
+            map::map(f, args, star, map::kwargs(kwargs)?)
         }
         "reroll" | "filter" => {
             let [die, which, star, depth] = args.exactly(["die", "which", "star", "depth"])?;
@@ -538,7 +542,10 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Value(v) => {
             return type_error(format!("'{}' object is not iterable", v.type_name()))
         }
-        PValue::Reroll => return type_error("'RerollType' object is not iterable"),
+        PValue::Reroll | PValue::Restart => {
+            return type_error("'RerollType' object is not iterable")
+        }
+        PValue::Break(_) => return type_error("'Break' object is not iterable"),
         PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
         PValue::Again(_) => return type_error("'AgainExpression' object is not iterable"),
         PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
@@ -552,7 +559,10 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
     match x {
         PValue::Value(v) => Ok(DieArg::Outcome(v)),
         PValue::Die(d) => Ok(DieArg::Die(d)),
-        PValue::Reroll => Ok(DieArg::Reroll),
+        // `arg in icepool.REROLL_TYPES`.
+        PValue::Reroll | PValue::Restart => Ok(DieArg::Reroll),
+        // `map` unwraps a `Break`; nothing else returns one.
+        PValue::Break(_) => Err(PErr::Unimplemented("a Break as an outcome".into())),
         PValue::Tuple(items) => map::tupleize(items),
         PValue::List(_) => type_error("unhashable type: 'list'"),
         PValue::Func(_) => Err(PErr::Unimplemented("a function as an outcome".into())),
