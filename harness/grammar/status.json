@@ -8,7 +8,7 @@
   "neg": "ported",
   "lt": "ported",
   "ge": "ported",
-  "matmul": "pending",
+  "matmul": "ported",
   "khepri": "pending",
   "die_typed": "ported",
   "die_times": "ported",
@@ -39,5 +39,8 @@
   "split": "ported",
   "clip": "ported",
   "truncate": "ported",
-  "mixture": "ported"
+  "mixture": "ported",
+  "Again": "ported",
+  "again": "ported",
+  "explode": "ported"
 }

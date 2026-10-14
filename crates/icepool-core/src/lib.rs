@@ -7,6 +7,7 @@
 //! `program` runs the harness's JSON program language (see harness/core/grammar_api.py and docs/semantics.md):
 //! it is how every check drives this crate, and later the WASM entry point.
 
+pub mod again;
 pub mod counts;
 pub mod creation_args;
 pub mod die;
@@ -23,7 +24,7 @@ pub use creation_args::DieArg;
 pub use die::Die;
 pub use error::{Error, Result};
 pub use function::d;
-pub use outcome::Outcome;
+pub use outcome::{Outcome, SumOutcome};
 pub use value::Value;
 
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`

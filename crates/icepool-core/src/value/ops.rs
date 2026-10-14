@@ -732,6 +732,20 @@ pub(super) fn complex_repr(re: f64, im: f64) -> String {
     }
 }
 
+impl crate::outcome::SumOutcome for Value {
+    fn add(&self, other: &Self) -> Result<Self> {
+        self.binary(BinOp::Add, other)
+    }
+
+    fn neg(&self) -> Result<Self> {
+        self.unary(UnOp::Neg)
+    }
+
+    fn times_zero(&self) -> Result<Self> {
+        self.binary(BinOp::Mul, &Value::from(0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

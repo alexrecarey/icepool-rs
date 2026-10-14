@@ -160,7 +160,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
     Ok(DieArg::Die(Die::from_dict(data)?))
 }
 
-fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
+pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
     match die {
         PValue::Die(d) => Ok(d),
         _ => type_error("AttributeError: only dice have this method"),
@@ -195,13 +195,14 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
             _ => type_error("argument of type 'function' is not iterable"),
         },
         PValue::Reroll => type_error("argument of type 'RerollType' is not iterable"),
+        PValue::Again(_) => type_error("argument of type 'AgainExpression' is not iterable"),
     }
 }
 
 /// `Population._select_outcomes(which, star)`: one flag per outcome. A callable is called on each outcome (in
 /// order, unpacked if `star`, which is inferred for one argument); anything else is a collection to test
 /// membership in.
-fn select(die: &Die<Value>, which: &PValue, star: &PValue) -> Result<Vec<bool>, PErr> {
+pub(super) fn select(die: &Die<Value>, which: &PValue, star: &PValue) -> Result<Vec<bool>, PErr> {
     let star = star_arg(star)?;
     match which {
         PValue::Func(f) if f.positional().is_some() => {

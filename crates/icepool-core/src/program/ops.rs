@@ -6,6 +6,7 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 use rustc_hash::FxHashMap;
 
+use super::again::{self, AgainOp};
 use super::catalogue::Func;
 use super::map;
 use super::{raise, Args, PErr, PValue};
@@ -39,6 +40,30 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "Reroll" => {
             let [] = args.exactly([])?;
             Ok(PValue::Reroll)
+        }
+        "Again" => {
+            let [] = args.exactly([])?;
+            Ok(PValue::Again(std::sync::Arc::new(
+                crate::again::Again::Again,
+            )))
+        }
+        "again" => {
+            let [outcomes, depth, end] = args.exactly(["outcomes", "depth", "end"])?;
+            // `again_depth=None` is the default (depth mode, depth 1).
+            let depth = match depth {
+                PValue::Value(Value::None) => None,
+                d => Some(d),
+            };
+            die_with_agains(outcomes, None, depth, end)
+        }
+        "explode" => {
+            let [die, which, star, depth, end] =
+                args.exactly(["die", "which", "star", "depth", "end"])?;
+            again::explode(die, which, star, depth, end)
+        }
+        "matmul" => {
+            let [n, die] = args.exactly(["n", "die"])?;
+            matmul(n, die)
         }
         "tuple" => {
             let [items] = args.exactly(["items"])?;
@@ -136,6 +161,25 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             .map_err(PErr::from)
     };
     match (a, b) {
+        // `AgainExpression` defines every operator (and dice return NotImplemented for it), so an expression on
+        // either side builds a bigger expression. A comparison with the expression on the right reflects.
+        (a @ PValue::Again(_), b) => Ok(again::apply(AgainOp::Binary(op), vec![a, b])),
+        // Except that `str % x` is printf-style formatting, which runs before the expression's `__rmod__`. The
+        // expression is neither a tuple nor a mapping, so it is the one argument: without a conversion specifier
+        // it is left over. (With one, `%s` would format its repr, which holds an address.)
+        (PValue::Value(Value::Str(s)), PValue::Again(_)) if op == BinOp::Mod => {
+            if s.contains('%') {
+                Err(PErr::Unimplemented(
+                    "str % Again with conversion specifiers".into(),
+                ))
+            } else {
+                type_error("not all arguments converted during string formatting")
+            }
+        }
+        (a, b @ PValue::Again(_)) => Ok(match op.reflected_comparison() {
+            Some(reflected) => again::apply(AgainOp::Binary(reflected), vec![b, a]),
+            None => again::apply(AgainOp::Binary(op), vec![a, b]),
+        }),
         (PValue::Die(a), b) => apply(&a, op, &to_die(b)?),
         // The exception: `str % die` is printf-style formatting with the die as the argument, and a die is a
         // Mapping, which formatting accepts even when the format string never uses it.
@@ -154,12 +198,164 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
 }
 
 /// `-a`, `+a`, `~a`, `abs(a)`, `math.trunc(a)`, `math.floor(a)`, `math.ceil(a)`: `Die.unary_operator` on a die.
-fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
+pub(super) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
     match a {
+        // `AgainExpression` has `-`, `+`, `~` and `abs`, but no `__trunc__`, `__floor__`, `__ceil__`.
+        a @ PValue::Again(_) if matches!(op, UnOp::Neg | UnOp::Pos | UnOp::Invert | UnOp::Abs) => {
+            Ok(again::apply(AgainOp::Unary(op), vec![a]))
+        }
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
         PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
         _ => type_error("bad operand type for a unary operator"),
     }
+}
+
+/// `Die._sum_all(k)` recurses once per roll down to the largest sum already in the die's `_sum_cache`, so a big
+/// enough step raises RecursionError (Python's limit is 1000 frames; at top level `Die([n]) @ d1` fails from about
+/// n = 985). Recursing this deep always works, whatever the caller's stack...
+const SAFE_RECURSION: u64 = 800;
+/// ...and this deep never does.
+const SURE_RECURSION_ERROR: u64 = 1000;
+
+/// Whether Python's `_sum_all` would hit the recursion limit computing these counts in order, given the cache it
+/// fills as it goes. A step between the two limits depends on the caller's stack, which the port cannot know, so
+/// it is unimplemented. (The port assumes the right die's `_sum_cache` starts empty, but it lives on the die
+/// object, and `icepool.d` caches its dice, so a Python process that summed `d(6)` before has it warm. Only a
+/// recursion past the limit can tell the difference.)
+fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<(), PErr> {
+    // The largest positive roll count cached so far (1 is a base case, cached for free).
+    let mut cached = 1;
+    for (count, _) in counts {
+        let k = count.unsigned_abs();
+        if k > cached {
+            let depth = k - cached + u64::from(*count < 0);
+            if depth >= SURE_RECURSION_ERROR {
+                return raise(Error::Value(
+                    "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+                ));
+            }
+            if depth > SAFE_RECURSION {
+                return Err(PErr::Unimplemented(
+                    "n @ die close to Python's recursion limit".into(),
+                ));
+            }
+            cached = k;
+        }
+    }
+    Ok(())
+}
+
+/// `n @ die`: roll `n`, then roll `die` that many times and sum the outcomes. An int `n` has no `@`, so Python
+/// calls `Die.__rmatmul__`, which converts it with `implicit_convert_to_die`: `Die([n]) @ die`. With an `Again`
+/// expression on either side (dice return NotImplemented for it) the result is a bigger expression.
+pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
+    let (n, die) = match (n, die) {
+        (n @ PValue::Again(_), die) | (n, die @ PValue::Again(_)) => {
+            return Ok(again::apply(AgainOp::MatMul, vec![n, die]))
+        }
+        (PValue::Die(n), die) => (n, to_die(die)?),
+        (n, PValue::Die(die)) => (to_die(n)?, die),
+        _ => return type_error("unsupported operand type(s) for @"),
+    };
+    // `max(abs(self.min_outcome()), abs(self.max_outcome()))`, then `_sum_all(die_count)` for each outcome.
+    let mut counts = Vec::with_capacity(n.len());
+    let mut kinds = Vec::with_capacity(n.len());
+    for (outcome, quantity) in n.items() {
+        let (count, kind) = die_count(outcome)?;
+        counts.push((count, quantity.clone()));
+        kinds.push(kind);
+    }
+    check_sum_all_recursion(&counts)?;
+    if kinds.iter().all(|k| *k == CountKind::Int) {
+        return Ok(PValue::Die(die.matmul(&counts)?));
+    }
+    // Some count is a float (with an integral value: others raised above). `_sum_all` treats it as the equal
+    // int, but the factor `den**(max_abs_die_count - abs(die_count))` is then a float, and so is every quantity it
+    // scales. (A Fraction exponent keeps the factor an int: `int ** Fraction` with a non-negative integral
+    // exponent is `int ** int`.) `Die(data)` drops a non-int quantity that is zero and raises for any
+    // other, so the result is the int terms alone, unless a non-int term adds anything non-zero to an outcome.
+    // `max` returns the first of two equal values: abs(min_outcome) unless abs(max_outcome) is greater.
+    let (first, last) = (counts[0].0, counts[counts.len() - 1].0);
+    let max_float = if last.unsigned_abs() > first.unsigned_abs() {
+        kinds[kinds.len() - 1]
+    } else {
+        kinds[0]
+    } == CountKind::Float;
+    let max_abs = first.unsigned_abs().max(last.unsigned_abs());
+    let denominator = die.denominator();
+    let mut data: Vec<(Value, Quantity, bool)> = Vec::new();
+    let mut index: FxHashMap<Value, usize> = FxHashMap::default();
+    for ((term, kind), (count, _)) in die
+        .matmul_terms(&counts)?
+        .into_iter()
+        .zip(&kinds)
+        .zip(&counts)
+    {
+        let float_factor = max_float || *kind == CountKind::Float;
+        if float_factor {
+            // `int ** float` converts the int first, and overflows rather than giving inf.
+            let exponent = (max_abs - count.unsigned_abs()) as i32;
+            let base = crate::value::int_to_f64(&IBig::from(denominator.clone()))?;
+            if !base.powi(exponent).is_finite() {
+                return raise(Error::Overflow("int ** float: result too large".into()));
+            }
+        }
+        for (outcome, quantity) in term {
+            match index.get(&outcome) {
+                Some(&i) => {
+                    data[i].1 += quantity;
+                    data[i].2 |= float_factor;
+                }
+                None => {
+                    index.insert(outcome.clone(), data.len());
+                    data.push((outcome, quantity, float_factor));
+                }
+            }
+        }
+    }
+    let mut items = Vec::with_capacity(data.len());
+    for (outcome, quantity, float) in data {
+        if float && !quantity.is_zero() {
+            return type_error("'float' object cannot be interpreted as an integer");
+        }
+        items.push((outcome, quantity));
+    }
+    Ok(PValue::Die(Die::from_dict(items)?))
+}
+
+/// Whether a count in `n @ die` is a float in Python, which makes its factor a float.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CountKind {
+    Int,
+    Float,
+}
+
+/// One outcome of the left die of `@` as a count of rolls.
+fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
+    let (int, kind) = match outcome {
+        Value::Int(i) => (i.clone(), CountKind::Int),
+        Value::Bool(b) => (IBig::from(*b as u8), CountKind::Int),
+        // `_sum_all` subtracts 1 until it reaches 0 or 1, negating on the way below 0, so a count that is not
+        // integral (or not finite) recurses until Python raises RecursionError.
+        Value::Float(f) if f.is_finite() && f.fract() == 0.0 => (
+            IBig::from_str_radix(&format!("{f:.0}"), 10).expect("an integral float"),
+            CountKind::Float,
+        ),
+        Value::Fraction(r) if r.denominator().is_one() => (r.numerator().clone(), CountKind::Int),
+        Value::Float(_) | Value::Fraction(_) => {
+            return raise(Error::Value(
+                "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+            ))
+        }
+        v => return type_error(format!("bad operand type for abs(): '{}'", v.type_name())),
+    };
+    // Beyond i64, `_sum_all` recurses past Python's limit.
+    let count = i64::try_from(int).map_err(|_| {
+        PErr::Raise(Error::Value(
+            "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+        ))
+    })?;
+    Ok((count, kind))
 }
 
 /// `round(a, ndigits)`. For a die, `Die.round` rounds each outcome, so a bad `ndigits` only raises if there is an
@@ -218,6 +414,7 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         }
         PValue::Reroll => return type_error("'RerollType' object is not iterable"),
         PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
+        PValue::Again(_) => return type_error("'AgainExpression' object is not iterable"),
     })
 }
 
@@ -231,17 +428,39 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         PValue::Tuple(items) => map::tupleize(items),
         PValue::List(_) => type_error("unhashable type: 'list'"),
         PValue::Func(_) => Err(PErr::Unimplemented("a function as an outcome".into())),
+        // `Die(...)` replaces top-level expressions first (`die_with_agains`); one nested in a tuple is not handled.
+        PValue::Again(_) => Err(PErr::Unimplemented(
+            "an Again expression nested in an outcome".into(),
+        )),
     }
 }
 
 /// `icepool.Die(outcomes)` (nodes `die`, `die_typed`) and `icepool.Die(outcomes, times)` (node `die_times`).
 fn die(outcomes: PValue, times: Option<PValue>) -> Result<PValue, PErr> {
-    let (args, times) = itemize(outcomes, times)?;
-    new_die(args, &times)
+    die_with_agains(outcomes, times, None, PValue::Value(Value::None))
 }
 
-/// The rest of `Die.__new__` once the times are checked to be non-negative numbers.
-fn new_die(args: Vec<DieArg<Value>>, times: &[Value]) -> Result<PValue, PErr> {
+/// `icepool.Die(outcomes, times, again_depth=again_depth, again_end=again_end)`: outcomes that are `Again`
+/// expressions are rolled again (population/again.py, depth mode); without any, `again_depth` and `again_end` are
+/// ignored.
+pub(super) fn die_with_agains(
+    outcomes: PValue,
+    times: Option<PValue>,
+    again_depth: Option<PValue>,
+    again_end: PValue,
+) -> Result<PValue, PErr> {
+    let (objects, times) = itemize(outcomes, times)?;
+    if objects.iter().any(|x| matches!(x, PValue::Again(_))) {
+        // Count mode (`again_count`) is not ported yet; the default is depth mode with depth 1.
+        let depth = again_depth.unwrap_or(PValue::Value(Value::from(1)));
+        return again::evaluate_agains_using_depth(objects, times, depth, again_end);
+    }
+    new_die(objects, &times)
+}
+
+/// The rest of `Die.__new__` once the times are checked to be non-negative numbers and any `Again` is replaced.
+pub(super) fn new_die(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, PErr> {
+    let args: Vec<DieArg<Value>> = objects.into_iter().map(die_arg).collect::<Result<_, _>>()?;
     // A single die with weight 1 is returned as-is. Python tests `times[0] == 1`, so `1.0` and `True` count too;
     // they must be caught before `weight` would reject a non-int.
     if let ([DieArg::Die(d)], [t]) = (args.as_slice(), times) {
@@ -261,28 +480,22 @@ fn new_die(args: Vec<DieArg<Value>>, times: &[Value]) -> Result<PValue, PErr> {
 
 /// `creation_args.itemize(keys, times)`: a sequence of keys and one multiplier per key (a Python number, checked
 /// non-negative, but not yet checked to be a valid quantity: see `weight`).
-fn itemize(keys: PValue, times: Option<PValue>) -> Result<(Vec<DieArg<Value>>, Vec<Value>), PErr> {
+fn itemize(keys: PValue, times: Option<PValue>) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
     // A die is a Mapping: its outcomes become the keys and its quantities multiply the times. Each outcome then has
     // denominator 1, so zero quantities drop out.
-    let (args, base): (Vec<DieArg<Value>>, Option<Vec<Quantity>>) = match keys {
+    let (args, base): (Vec<PValue>, Option<Vec<Quantity>>) = match keys {
         PValue::Die(d) => {
             let (a, q) = d
                 .items()
                 .iter()
-                .map(|(o, q)| (DieArg::Outcome(o.clone()), q.clone()))
+                .map(|(o, q)| (PValue::Value(o.clone()), q.clone()))
                 .unzip();
             (a, Some(q))
         }
         // Any other sequence: each element once. `len()` of an int, float, None... raises TypeError.
         x @ (PValue::List(_)
         | PValue::Tuple(_)
-        | PValue::Value(Value::Str(_) | Value::Tuple(_))) => (
-            py_iter(x)?
-                .into_iter()
-                .map(die_arg)
-                .collect::<Result<_, _>>()?,
-            None,
-        ),
+        | PValue::Value(Value::Str(_) | Value::Tuple(_))) => (py_iter(x)?, None),
         PValue::Func(_) => return Err(PErr::Unimplemented("Die(mapping)".into())),
         _ => return type_error("Argument appears not to be a mapping or sequence."),
     };
@@ -417,11 +630,11 @@ pub(super) fn dict_items(items: PValue) -> Result<Vec<(Key, PValue)>, PErr> {
 /// `icepool.Die({outcome: quantity for outcome, quantity in items})`.
 fn weights(items: PValue) -> Result<PValue, PErr> {
     let (keys, values): (Vec<Key>, Vec<PValue>) = dict_items(items)?.into_iter().unzip();
-    let args: Vec<DieArg<Value>> = keys
+    let args: Vec<PValue> = keys
         .into_iter()
         .map(|k| match k {
-            Key::Value(v) => DieArg::Outcome(v),
-            Key::Die(d) => DieArg::Die(d),
+            Key::Value(v) => PValue::Value(v),
+            Key::Die(d) => PValue::Die(d),
         })
         .collect();
     // Die(mapping): itemize multiplies each quantity by 1, which leaves any number as it is, then checks `x < 0`.

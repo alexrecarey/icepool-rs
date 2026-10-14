@@ -37,3 +37,30 @@ impl Outcome for i64 {
         Ok(self < other)
     }
 }
+
+/// The arithmetic that `n @ die` (`Die._sum_all`) needs from an outcome type: `+`, unary `-`, and `x * 0`
+/// (`Population.zero`, which zeros an outcome by multiplying it by `0`).
+pub trait SumOutcome: Outcome {
+    /// Python's `self + other`.
+    fn add(&self, other: &Self) -> Result<Self>;
+    /// Python's `-self`.
+    fn neg(&self) -> Result<Self>;
+    /// Python's `self * 0`.
+    fn times_zero(&self) -> Result<Self>;
+}
+
+impl SumOutcome for i64 {
+    fn add(&self, other: &Self) -> Result<Self> {
+        self.checked_add(*other)
+            .ok_or_else(|| crate::Error::Overflow("i64 addition overflowed".into()))
+    }
+
+    fn neg(&self) -> Result<Self> {
+        self.checked_neg()
+            .ok_or_else(|| crate::Error::Overflow("i64 negation overflowed".into()))
+    }
+
+    fn times_zero(&self) -> Result<Self> {
+        Ok(0)
+    }
+}

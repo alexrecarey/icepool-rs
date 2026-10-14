@@ -31,11 +31,18 @@ impl Num<'_> {
 
     /// Python's `hash()` for numbers: equal numbers hash alike whatever their type, because each is its exact
     /// value reduced modulo 2**61 - 1 (CPython `Objects/object.c` `_Py_HashDouble`, `fractions.Fraction.__hash__`).
-    /// NaN hashes by object identity in Python; it is never equal to anything, so any constant will do.
+    /// NaN hashes by object identity in Python. It is never equal to anything, so any hash is consistent with
+    /// `==`; a fresh one per call keeps NaN keys from all landing in one bucket, as identity hashing does in
+    /// Python (sums of dice with NaN outcomes make many NaN outcomes, which a constant made quadratic).
     pub fn py_hash(&self) -> i64 {
         let h = match self {
             Num::Int(i) => hash_rational(i, &UBig::ONE),
-            Num::Float(f) if f.is_nan() => 0,
+            Num::Float(f) if f.is_nan() => {
+                static NAN_IDENTITY: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+                NAN_IDENTITY
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    .wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as i64)
+            }
             Num::Float(f) if f.is_infinite() => {
                 if *f > 0.0 {
                     HASH_INF

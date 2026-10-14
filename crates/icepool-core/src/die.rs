@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
 use crate::error::{value_error, Error, Result};
-use crate::outcome::Outcome;
+use crate::outcome::{Outcome, SumOutcome};
 use crate::Quantity;
 
 /// Dice are immutable; methods return new dice. Cloning is cheap (the items are shared).
@@ -222,6 +222,148 @@ impl<O: Outcome> Die<O> {
             data.add(new.clone(), quantity.clone());
         }
         Self::from_mapping(data)
+    }
+}
+
+impl<O: SumOutcome> Die<O> {
+    /// Zeros all outcomes of this die (`Population.zero`). This is done by multiplying all outcomes by `0`.
+    ///
+    /// The result will have the same denominator. Raises `ValueError` if the zeros did not resolve to a single
+    /// outcome (an empty die included).
+    pub fn zero(&self) -> Result<Self> {
+        let result = self.unary_operator(O::times_zero)?;
+        if result.len() != 1 {
+            return value_error("zero() did not resolve to a single outcome.");
+        }
+        Ok(result)
+    }
+
+    /// Divides all quantities by their greatest common denominator (`Die.simplify`, via `Counts.simplify`, then
+    /// `Die(counts)`, which drops zero quantities).
+    pub fn simplify(&self) -> Result<Self> {
+        let gcd = self
+            .items()
+            .iter()
+            .fold(Quantity::ZERO, |g, (_, q)| dashu_base::Gcd::gcd(g, q));
+        if gcd <= Quantity::ONE {
+            return Self::from_dict(self.items().to_vec());
+        }
+        Self::from_dict(
+            self.items()
+                .iter()
+                .map(|(o, q)| (o.clone(), q / &gcd))
+                .collect(),
+        )
+    }
+
+    /// Roll `counts` (the items of the left die of `@`, already checked to be integers), then roll this die that
+    /// many times and sum the outcomes (`Die.__matmul__`, with this die on the right).
+    ///
+    /// The sum is computed one at a time, with each additional item on the right, similar to `functools.reduce()`.
+    /// A negative count rolls `abs(count)` times and negates the result. Each count's sum is scaled by
+    /// `den**(max|count| - |count|)` so that every count's results share the denominator `den**max|count|`.
+    pub fn matmul(&self, counts: &[(i64, Quantity)]) -> Result<Self> {
+        let mut data = OrderedMerge::default();
+        for term in self.matmul_terms(counts)? {
+            for (outcome, quantity) in term {
+                data.add(outcome, quantity);
+            }
+        }
+        Self::from_mapping(data)
+    }
+
+    /// The terms `matmul` adds up, one per count in order: each outcome of the count's sum with its quantity
+    /// times the count's quantity times the count's factor (zero quantities included). For facades whose counts
+    /// may make non-int quantities (a Python float count), which only show once the terms are added.
+    pub fn matmul_terms(&self, counts: &[(i64, Quantity)]) -> Result<Vec<Vec<(O, Quantity)>>> {
+        let max_abs_die_count = match counts.iter().map(|(c, _)| c.unsigned_abs()).max() {
+            Some(m) => m,
+            // `max(abs(self.min_outcome()), ...)` of an empty die.
+            None => return Err(Error::Index("tuple index out of range".into())),
+        };
+        let max_abs = usize::try_from(max_abs_die_count)
+            .map_err(|_| Error::Overflow("die count too large".into()))?;
+        let mut sums = SumCache::new(self);
+        let denominator = self.denominator();
+        let mut terms = Vec::with_capacity(counts.len());
+        for (die_count, die_count_quantity) in counts {
+            let abs = die_count.unsigned_abs() as usize;
+            let factor = denominator.pow(max_abs - abs);
+            let subresult = sums.sum_all(*die_count)?;
+            terms.push(
+                subresult
+                    .items()
+                    .iter()
+                    .map(|(outcome, subresult_quantity)| {
+                        (
+                            outcome.clone(),
+                            subresult_quantity * die_count_quantity * &factor,
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        Ok(terms)
+    }
+}
+
+/// `Die._sum_all` with its `_sum_cache`: the sum of `rolls` rolls of a die, each sum computed at most once.
+///
+/// Python only computes what it is asked for, so a sum that would raise (`zero()` of mixed types, `-` of a str)
+/// raises only if some count needs it.
+struct SumCache<'a, O> {
+    die: &'a Die<O>,
+    /// `positive[k - 1]` is the sum of `k` rolls.
+    positive: Vec<Die<O>>,
+    zero: Option<Die<O>>,
+    negative: rustc_hash::FxHashMap<u64, Die<O>>,
+}
+
+impl<'a, O: SumOutcome> SumCache<'a, O> {
+    fn new(die: &'a Die<O>) -> Self {
+        SumCache {
+            die,
+            positive: Vec::new(),
+            zero: None,
+            negative: Default::default(),
+        }
+    }
+
+    /// Roll this die `rolls` times and sum the results. If `rolls` is negative, roll the die `abs(rolls)` times
+    /// and negate the result.
+    fn sum_all(&mut self, rolls: i64) -> Result<Die<O>> {
+        if rolls < 0 {
+            let k = rolls.unsigned_abs();
+            if let Some(d) = self.negative.get(&k) {
+                return Ok(d.clone());
+            }
+            let result = self.positive_sum(k as usize)?.unary_operator(O::neg)?;
+            self.negative.insert(k, result.clone());
+            Ok(result)
+        } else if rolls == 0 {
+            if self.zero.is_none() {
+                self.zero = Some(self.die.zero()?.simplify()?);
+            }
+            Ok(self.zero.clone().expect("just set"))
+        } else {
+            self.positive_sum(rolls as usize)
+        }
+    }
+
+    fn positive_sum(&mut self, rolls: usize) -> Result<Die<O>> {
+        if self.positive.is_empty() {
+            self.positive.push(self.die.clone());
+        }
+        while self.positive.len() < rolls {
+            // In addition to working similar to reduce(), this seems to perform better than binary split.
+            let next = self
+                .positive
+                .last()
+                .expect("not empty")
+                .binary_operator(self.die, O::add)?;
+            self.positive.push(next);
+        }
+        Ok(self.positive[rolls - 1].clone())
     }
 }
 

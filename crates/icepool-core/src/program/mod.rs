@@ -4,6 +4,7 @@
 //! harness/core/grammar_api.py `evaluate` does, unpacks Python-style arguments (lists, typed literals, dice) and
 //! calls the static core. Node implementations live in `ops.rs`, one per grammar node in harness/grammar/.
 
+mod again;
 mod catalogue;
 mod map;
 mod ops;
@@ -30,6 +31,8 @@ pub enum PValue {
     Tuple(Vec<PValue>),
     /// A callable or mapping from harness/catalogue.
     Func(Arc<catalogue::Func>),
+    /// An `AgainExpression`: `icepool.Again`, or an operator applied to one.
+    Again(Arc<again::AgainExpr>),
 }
 
 impl PValue {

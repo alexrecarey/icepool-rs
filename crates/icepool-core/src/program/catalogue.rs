@@ -279,6 +279,11 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         }
         PValue::List(xs) | PValue::Tuple(xs) => !xs.is_empty(),
         PValue::Reroll | PValue::Func(_) => true,
+        PValue::Again(_) => {
+            return raise(Error::Value(
+                "An `Again` only has a truth value if it is the result of == or !=.".into(),
+            ))
+        }
     })
 }
 
