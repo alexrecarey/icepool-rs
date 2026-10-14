@@ -5,6 +5,39 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **function.py helpers, reduce/accumulate, from_rv, Wallenius (S5b).** Core `function.rs`: `z`, `pointwise(dice,
+  max)` (= pointwise_max/min *after* `harmonize_denominators`), `weighted_lcm(denominators, weights: &[Value])`
+  (math.py's, with Python's `w > 0`, `math.gcd` TypeError for non-ints, `lcm * w // d` as Value ops, `zip`
+  truncation), `coin_data(n, d)` (the dict before `Die(data)`), `py_min_max` (builtin `min`/`max`: `item < best`,
+  ValueError when empty), `consecutive(first, second)` (the two chains Python iterates; ranges over 2**20
+  Unsupported), `one_hot`. `value/builtins.rs`: `fraction(x)` (= `Fraction(x)`; a str is Unsupported) and
+  `limit_denominator` (CPython 3.13's algorithm, unit-tested on its doctests).
+- Program layer `program/function.rs`, nodes in harness/grammar/function.py: `z`, `dz_attr` (`getattr(icepool,
+  name)` through function.py's module `__getattr__`: `int()` parsing of `d<...>` with sign / underscores / spaces,
+  a ValueError from `d(0)` swallowed into AttributeError, `''` IndexError; non-ASCII digits Unsupported; the
+  generator never makes a name icepool defines, e.g. `d`), `coin`, `stochastic_round`, `one_hot`, `pointwise`
+  (`args, max, spread`), `extreme_outcome` (min/max_outcome), `consecutive`, `sorted_union`,
+  `harmonize_denominators` (kind "value": a tuple of dice), `reduce` / `accumulate` (map per step; reduce of
+  nothing raises StopIteration, here `Error::Value("StopIteration")`: error types are informational), `from_rv`
+  (random variables from harness/catalogue/rvs.py: `discrete_uniform` / `continuous_uniform`, duck-typed like
+  scipy's; Rust mirror `Rv` in function.rs), `wallenius_deal` (`getattr(Wallenius(data).deal(n), method)()`).
+  Wallenius in the program layer: `Deck().append` via `deck_from_data`, `_wallenius_weights` with a per-call cache
+  (Python's `@cache` gives equal results), `map_to_pool` done inline (deals summed with `binary_op("+")`, inners
+  merged by `add_inner`), so it needs no `map_to_pool` node (S3c). Hands deeper than 40 cards are Unsupported
+  (Python's recursion limit). Fuzz: `--ops z,dz_attr,coin,stochastic_round,one_hot,pointwise,extreme_outcome,
+  consecutive,sorted_union,harmonize_denominators,reduce,accumulate,from_rv,wallenius_deal,d,fn,die_typed`; at
+  S5b 5000 fresh clean both ways, 218 edge-case fixtures in fixtures/s5b/function.
+- Facade python/icepool/function.py: `coin` (`Fraction(n)` / `limit_denominator` stay Python; `coin_data` then
+  `Die(dict)`), `one_hot`, `pointwise_max/min` (after the Python `harmonize_denominators`), `min/max_outcome`
+  (`_iter_outcomes` stays Python), `consecutive` (both chains materialised, so `consecutive(iterator)` still
+  raises as upstream: DIVERGENCES.md), `sorted_union` (`[list(arg) ...]`; order by first-seen, not set order, so
+  partially ordered outcomes may sort differently: the K5 gap) and `harmonize_denominators`' scale factors
+  (`weighted_lcm`) call icepool_rs (crates/icepool-py/src/function.rs). Unchanged because they only compose core
+  operations: `d`/`z`/`__getattr__` (`Die(range)`), `stochastic_round` (`math.floor` + `coin` + `int + Die`),
+  `from_cumulative` (subtraction loop over user ints, then `Die(dict)`), `from_rv` (`rv.cdf` is the user's),
+  `reduce` / `accumulate` (loops over the core `map`), `Wallenius` (Deck / Die / Deal / mixtures on the core;
+  its `map_to_pool` loop is Python until S3c). Facade audit: docs/FACADE-AUDIT.md.
+
 - **Vector and Symbols as native values (S5a).** Core `value/vector.rs` (`Vector { data: Option<Arc<[Value]>>,
   truth: Option<Arc<Value>> }`; `data: None` is `VectorWithTruthOnly`, whose every use but `bool()`/`repr()` raises
   ValueError) and `value/symbols.rs` (`Symbols { data: Arc<[(char, Value)]> }` in the *dict's insertion order*:

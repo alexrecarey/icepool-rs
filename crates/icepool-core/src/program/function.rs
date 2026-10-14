@@ -602,7 +602,7 @@ fn wallenius_weights(
                     unreachable!("tuples")
                 };
                 let sorted =
-                    crate::counts::py_sorted(x.to_vec(), |a, b| crate::Outcome::py_lt(a, b))?;
+                    crate::counts::py_sorted(x.to_vec(), crate::Outcome::py_lt)?;
                 Ok((PValue::Value(Value::tuple(sorted)), q.clone()))
             })
             .collect::<Result<Vec<_>, Error>>()?

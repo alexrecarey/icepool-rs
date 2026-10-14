@@ -354,3 +354,34 @@ def test_die_of_vectors_eq_different_lengths():
     assert not result
     assert result.equals(Die([False]))
 ```
+
+### `pointwise_max(die)` / `pointwise_min(die)` with a single die iterate its outcomes (S5b)
+
+function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iterable of dice, so
+`pointwise_max(d6)` is the pointwise max over `Die([1])` ... `Die([6])` (each outcome made a die by
+`harmonize_denominators`), i.e. `Die([6])`, and `pointwise_min(d6)` is `Die([1])`. The docstring says "Either an
+iterable of dice, or two or more dice as separate arguments", so this is documented, but a single die is surely
+meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest). The port copies it (program/function.rs
+`pointwise`, fixtures/s5b/function).
+
+Drafted upstream test:
+
+```python
+def test_pointwise_max_single_die():
+    assert icepool.pointwise_max(icepool.d6).equals(icepool.d6)
+    assert icepool.pointwise_min(icepool.d6).equals(icepool.d6)
+```
+
+### `consecutive(iterator)` raises ValueError (S5b)
+
+function.py `consecutive(*args)` chains its arguments twice (`min(itertools.chain(*args), default=None)`, then
+`max(itertools.chain(*args))`), so an iterator argument is exhausted by the `min` and the `max` raises `ValueError:
+max() iterable argument is empty`. The facade copies it by materialising both chains (python/icepool/function.py);
+the program language passes lists only.
+
+Drafted upstream test:
+
+```python
+def test_consecutive_iterator():
+    assert icepool.consecutive(iter([1, 3])) == (1, 2, 3)
+```
