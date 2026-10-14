@@ -92,7 +92,7 @@ fn items(deck: &Deck<Value>) -> Value {
     )
 }
 
-fn hand_groups(groups: &[(usize, usize)]) -> Value {
+pub(super) fn hand_groups(groups: &[(usize, usize)]) -> Value {
     Value::tuple(groups.iter().map(|&(h, g)| int_tuple([h, g])).collect())
 }
 

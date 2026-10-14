@@ -316,6 +316,14 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [d, deals] = args.exactly(["deck", "deals"])?;
             deck::deck_sequence(d, deals)
         }
+        "deck_method" => {
+            let [d, name, arg] = args.exactly(["deck", "name", "arg"])?;
+            deck::deck_method(d, name, arg)
+        }
+        "deal_str" => {
+            let [d] = args.exactly(["deal"])?;
+            deck::deal_str(d)
+        }
         "deck_info" => {
             let [d] = args.exactly(["deck"])?;
             deck::deck_info(d)

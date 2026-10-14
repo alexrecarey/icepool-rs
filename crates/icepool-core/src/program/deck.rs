@@ -14,6 +14,7 @@ use super::{raise, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::deck::{Counter, CounterOp};
 use crate::error::Error;
+use crate::format::Formatted;
 use crate::order::Order;
 use crate::population::Data;
 use crate::value::Num;
@@ -409,4 +410,76 @@ pub fn deal_pop(deal: PValue, order: PValue, outcome: PValue) -> Result<PValue, 
             })
             .collect(),
     )))
+}
+
+/// The rest of `Deck`'s methods (`deck_method`): the multi-argument forms of the operators, `deck[outcome]`,
+/// `keys()`, `values()` and iteration.
+pub fn deck_method(deck: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr> {
+    let deck = the_deck(deck)?;
+    let PValue::Value(Value::Str(name)) = name else {
+        return Err(PErr::Unimplemented(
+            "a deck method that is not a str".into(),
+        ));
+    };
+    match &*name {
+        // `functools.reduce(operator.add, args, initial=self)`: `reduce` takes no keyword arguments before
+        // Python 3.14, so these always raise there, even without arguments (DIVERGENCES.md).
+        "additive_union" | "difference" | "intersection" | "union" => {
+            raise(Error::Type("reduce() takes no keyword arguments".into()))
+        }
+        // `return self ^ other`.
+        "symmetric_difference" => deck_op(PValue::Value(Value::str("^")), PValue::Deck(deck), arg),
+        // `self._data[outcome]`: a dict lookup.
+        "getitem" => match arg {
+            PValue::Value(key) => match deck.population().position(&key) {
+                Some(i) => Ok(PValue::Value(int(deck.items()[i].1.clone()))),
+                None => raise(Error::Key(format!("{key}"))),
+            },
+            PValue::List(_) => type_error("unhashable type: 'list'"),
+            _ => Err(PErr::Unimplemented("deck[] of this object".into())),
+        },
+        "keys" | "iter" => Ok(PValue::Value(Value::tuple(
+            deck.outcomes().cloned().collect(),
+        ))),
+        "values" => Ok(PValue::Value(Value::tuple(
+            deck.items().iter().map(|(_, q)| int(q.clone())).collect(),
+        ))),
+        _ => Err(PErr::Unimplemented(format!("Deck.{name}"))),
+    }
+}
+
+/// `(repr(deal), str(deal))` for a `Deal` or `MultiDeal`: `str` is a header line, then `str(self.deck())`.
+pub fn deal_str(deal: PValue) -> Result<PValue, PErr> {
+    use super::wire::deck_repr;
+    let (repr, header, deck) = match &deal {
+        PValue::Deal(d) => (
+            format!(
+                "Deal({}, hand_size={})",
+                deck_repr(d.deck())?,
+                d.hand_size()
+            ),
+            format!("Deal of hand_size={}", d.hand_size()),
+            d.deck(),
+        ),
+        PValue::MultiDeal(md) => {
+            let groups = super::multi_deal::hand_groups(md.hand_groups());
+            (
+                super::multi_deal::repr(md, &deck_repr(md.deck())?)?,
+                format!(
+                    "MultiDeal of hand_groups={}",
+                    crate::value::pystr::py_repr(&groups)?
+                ),
+                md.deck(),
+            )
+        }
+        _ => return type_error("AttributeError: only deals have this method"),
+    };
+    let Formatted::Text(table) = crate::format::format(deck.population(), "Deck", "", false)?
+    else {
+        unreachable!("only csv_table asks for a table")
+    };
+    Ok(PValue::Value(Value::tuple(vec![
+        Value::str(&repr),
+        Value::str(&format!("{header} from deck:\n{table}")),
+    ])))
 }

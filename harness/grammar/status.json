@@ -190,5 +190,7 @@
   "is_in": "ported",
   "die_count": "ported",
   "if_else": "ported",
-  "die_repr": "ported"
+  "die_repr": "ported",
+  "deck_method": "ported",
+  "deal_str": "ported"
 }

@@ -196,6 +196,48 @@ def deck_sequence(deck, deals):
     return deck.sequence(deals)
 
 
+DECK_METHODS = ["additive_union", "difference", "intersection", "union", "symmetric_difference", "getitem",
+                "keys", "values", "iter"]
+
+
+def _gen_deck_method(g, depth):
+    name = g.rng.choice(DECK_METHODS)
+    arg = None
+    if name in ("additive_union", "difference", "intersection", "union"):
+        arg = [_other(g, depth) for _ in range(g.rng.randint(0, 2))]
+    elif name == "symmetric_difference":
+        arg = _other(g, depth)
+    elif name == "getitem":
+        r = g.rng.random()
+        if r < 0.9:
+            arg = _small_outcome(g)
+        elif r < 0.95:
+            arg = g.rng.choice([{"float": "1.0"}, {"bool": True}, {"str": "a"}, {"tuple": [1, 2]}])
+        else:
+            arg = []  # unhashable
+    return {"op": "deck_method", "deck": g.make("deck", depth), "name": {"str": name}, "arg": arg}
+
+
+@node("deck_method", "value", gen=_gen_deck_method, weight=0.5)
+def deck_method(deck, name, arg):
+    """The rest of Deck's methods: additive_union / difference / intersection / union(*arg) (functools.reduce with
+    initial= as a keyword: TypeError before Python 3.14, see DIVERGENCES.md), symmetric_difference(arg) (= deck ^
+    arg), deck[arg] (the quantity; KeyError if absent), and tuple(deck.keys()), tuple(deck.values()),
+    tuple(iter(deck))."""
+    match name:
+        case "additive_union" | "difference" | "intersection" | "union":
+            return getattr(deck, name)(*arg)
+        case "symmetric_difference":
+            return deck.symmetric_difference(arg)
+        case "getitem":
+            return deck[arg]
+        case "keys" | "values":
+            return tuple(getattr(deck, name)())
+        case "iter":
+            return tuple(deck)
+    raise ValueError(name)
+
+
 # --- Deals ------------------------------------------------------------------------------------------------------
 
 @node("deal", "deal")
@@ -319,6 +361,18 @@ def multi_deal_info(multi_deal):
     md = multi_deal
     return (tuple(md.deck().items()), md.hand_sizes(), md.total_cards_dealt(), len(md), md.denominator(),
             tuple(md.outcomes()))
+
+
+def _gen_deal_str(g, depth):
+    d = gen_deal(g, depth) if g.rng.random() < 0.5 else gen_multi_deal(g, depth)
+    return {"op": "deal_str", "deal": d}
+
+
+@node("deal_str", "value", gen=_gen_deal_str, weight=0.3)
+def deal_str(deal):
+    """(repr(deal), str(deal)) of a Deal or MultiDeal: `Deal(Deck({...}), hand_size=2)` and `Deal of
+    hand_size=2 from deck:` then the deck's table (`hand_groups=` for a MultiDeal)."""
+    return repr(deal), str(deal)
 
 
 def _gen_multi_deal_pop(g, depth):

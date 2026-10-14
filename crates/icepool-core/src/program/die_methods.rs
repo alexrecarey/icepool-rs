@@ -5,8 +5,8 @@
 use super::map::{contains, the_die};
 use super::ops::{die_with_agains, matmul, py_iter, to_die, type_error};
 use super::{PErr, PValue};
-use crate::value::BinOp;
 use crate::counts::OrderedMerge;
+use crate::value::BinOp;
 use crate::{Die, Value};
 
 /// `die.zero()`: every outcome times `0`, which must resolve to a single outcome.

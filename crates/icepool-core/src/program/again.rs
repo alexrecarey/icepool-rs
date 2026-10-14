@@ -242,7 +242,11 @@ pub fn explode(
     for ((outcome, quantity), &explodes) in die.items().iter().zip(&selected) {
         let outcome = PValue::Value(outcome.clone());
         objects.push(if explodes {
-            ops::binary(BinOp::Add, outcome, PValue::Again(Arc::new(Again::Again { is_additive: true })))?
+            ops::binary(
+                BinOp::Add,
+                outcome,
+                PValue::Again(Arc::new(Again::Again { is_additive: true })),
+            )?
         } else {
             outcome
         });

@@ -311,7 +311,7 @@ fn enc_object(v: &PValue) -> crate::Result<Option<Json>> {
 }
 
 /// `Deck.__repr__`: `Deck({outcome!r}: quantity, ...)`.
-fn deck_repr(d: &crate::Deck<Value>) -> crate::Result<String> {
+pub(super) fn deck_repr(d: &crate::Deck<Value>) -> crate::Result<String> {
     let items = d
         .items()
         .iter()
