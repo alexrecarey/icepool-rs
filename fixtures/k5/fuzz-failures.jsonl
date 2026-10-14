@@ -1,0 +1,1 @@
+{"program":{"op":"pool_pop","pool":{"op":"pool_keep","pool":{"op":"die_pool","die":{"op":"die_typed","outcomes":[{"bool":true},{"frac":[-5,3]}]},"rolls":0},"index":[0,1,{"op":"Ellipsis"},1,1]},"order":1,"outcome":{"frac":[-5,3]}},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[]},{"tuple":[{"bool":true}]},{"tuple":[]},0,1]}]}}}

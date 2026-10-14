@@ -5,6 +5,35 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Pools (K5).** Core: `pool.rs` `Pool<O>` (= `Pool`/`KeepGenerator`: `dice` as `(Die, count)` sorted by the
+  die's `hash_key` with `py_sorted`, `outcomes` = `sorted_union` including zero-times dice, `keep_tuple: [i64]`),
+  `keep` / `multiply_counts` / `additive_union` (`None` = not one pool), `source()` -> `PoolSource` (outcomes as a
+  shared `Arc<[O]>` plus a `lo..hi` window; `Eq`/`Hash` on dice + keep tuple only, as Python's `hash_key`), and
+  `enum MultisetSource { Pool }` for K6 to add variants to. `PoolSource::pop(order, outcome)` ports
+  `iter_die_pop_min/max` (binomial row from `math::comb_row`), the `itertools.product` order (last die fastest),
+  and the skip collapse (all-zero remaining keep tuple -> one empty source yielded last). `keep_tuple.rs`:
+  `make_keep_tuple` (all Ellipsis forms, incl. the center-`...` TypeError), `compose_keep_tuples`, pops, and
+  `lowest_slice`/`highest_slice`/`middle_slice`/`Slice::canonical`. `keep.rs`: `lowest_single`/`highest_single`
+  (free functions); `Die::{lowest_single, highest_single, pop_min, pop_max, quantities_le/ge, quantity_le/ge}`,
+  `die::from_cumulative`, `function::sorted_union`. Keep counts are `i64` (Unsupported past that).
+- A pool's repr has an address, so a pool is never a program result: the pool-building nodes (`pool`, `die_pool`,
+  `pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul/neg/add`, `Ellipsis`) have **no gen**; they
+  are generated inside `pool_info` (public accessors + `_dice`) and `pool_pop` (one pop of `_make_source()`) by
+  `grammar/pool.py` `gen_pool`. Any node returning a new kind with a gen becomes a fuzz root: keep that in mind.
+- `pool_pop` calls `icepool.Pool.clear_cache()`: `PoolSource._new_raw` is a global `@cache` keyed by `==`, so a
+  long-lived oracle merges `True`/`1` spellings across programs (DIVERGENCES.md). K6's evaluator will meet the
+  same: clear it in evaluator nodes too, or results depend on what the process ran before.
+- Everything that evaluates a pool (`pool[int]`, `.sum()`, the pool path of `die.highest` and `icepool.highest`)
+  says Unimplemented (`program/pool.rs` `evaluation_needed`) after doing what Python does first (so raises still
+  match). The die nodes' generators only produce keep/drop the port answers without a pool (`_keep_drop`), and
+  only a pool's last keep operation may make counts negative (keeping after that is a MultisetKeep expression).
+  Task K6b removes those filters.
+- `Pool.__new__` quirks copied: a float/Fraction in `times` raises TypeError (`(1,) * sum(times)`), even `0.0`;
+  `Pool(die)` raises ValueError; `Die.pool(-1)` raises (itemize). `middle(keep > size)` keeps only the top roll
+  (DIVERGENCES.md).
+- `sorted_union` dedupes in first-seen order then sorts; Python sorts the set in hash order. Same result for
+  totally ordered outcomes; with NaN or partly incomparable tuples Python's answer depends on set order.
+
 - **`@`, Again, explode (K4).** Core: `Die::matmul(&[(i64, Quantity)])` (= `__matmul__` with this die on the
   right) over the `SumOutcome` trait (`+`, unary `-`, `x * 0`; impls for `Value` and `i64`), with a per-call
   `SumCache` that computes only the sums Python's `_sum_all` would (a `zero()` of mixed types raises only if count

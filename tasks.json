@@ -134,5 +134,14 @@
     ],
     "milestone": null,
     "details": "Write harness/tools/oracle_coverage.py (not protected): run the fuzzer's programs plus all fixtures through the oracle under coverage.py and list oracle functions/branches never reached. Commit the report to docs-free location harness-reports/coverage.md. Then add todo tasks for grammar nodes that would reach the biggest uncovered areas of already-ported features."
+  },
+  {
+    "id": "K6b",
+    "title": "Pool paths that need the evaluator, and pool construction leftovers",
+    "deps": [
+      "K6"
+    ],
+    "milestone": null,
+    "details": "K5 ported Pool/keep tuples/popping but left everything that evaluates a pool unimplemented (program/pool.rs `evaluation_needed`): pool[int] (keep evaluator), the pool path of Die.highest/Die.lowest and icepool.highest/lowest (`_sum_slice` -> Pool(dice)[slice].sum()), Die.keep, Die.middle, icepool.middle. Once K6 lands: implement those, then remove the generator filter in harness/grammar/pool.py (`_keep_drop` / `_no_pool_needed`, which only generates keep/drop that avoid the pool) and let pool_keep generate int indices. Also: d_pool/z_pool, Pool(mapping), Pool(pool, times), and keep counts / multipliers beyond i64 (Python ints; the port says Unsupported). Keeping on a pool with negative counts (MultisetKeep) and adding pools with different counts (CompoundKeepGenerator) belong to S4 (multiset expressions)."
   }
 ]
