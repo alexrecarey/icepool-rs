@@ -220,13 +220,17 @@ pub enum Index {
     Slice(Value, Value, Value),
 }
 
-/// `PyNumber_AsSsize_t` for an index: `int`s and `bool`s (others raise `TypeError`); with `clamp`, values beyond
-/// the C range saturate, as slice indices do (`_PyEval_SliceIndex`), else they raise `IndexError`.
+/// `PyNumber_AsSsize_t` for an index: `int`s, `bool`s and host objects with `__index__` (others raise
+/// `TypeError`); with `clamp`, values beyond the C range saturate, as slice indices do (`_PyEval_SliceIndex`),
+/// else they raise `IndexError`.
 fn ssize(v: &Value, clamp: bool, what: &str) -> Result<i64> {
     let i = match v {
         Value::Int(i) => i.clone(),
         Value::Bool(b) => IBig::from(*b as u8),
-        Value::Host(_) => return Err(Error::Unsupported("a host object as an index".into())),
+        Value::Host(h) => match h.as_index()? {
+            Some(i) => i,
+            None => return type_error(what.to_string()),
+        },
         _ => return type_error(what.to_string()),
     };
     match i64::try_from(&i) {
@@ -304,9 +308,6 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
         _ => return type_error(format!("'{}' object is not subscriptable", x.type_name())),
     };
     let positions = match key {
-        Index::Item(Value::Host(_)) => {
-            return Err(Error::Unsupported("a host object as an index".into()))
-        }
         Index::Item(i) => {
             let msg = match x {
                 Value::Tuple(_) => format!(

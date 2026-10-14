@@ -9,6 +9,7 @@ mod evaluate;
 mod map;
 mod ops;
 mod pool;
+mod stats;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::program::PErr;
@@ -165,6 +166,7 @@ fn unary_operator(
     let kwargs = kwargs.filter(|k| !k.is_empty());
     let op = ops::unary(
         op,
+        args,
         if kwargs.is_some() {
             usize::MAX
         } else {
@@ -487,6 +489,30 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(evaluate::evaluate_builtin, m)?,
         wrap_pyfunction!(evaluate::evaluate_host, m)?,
         wrap_pyfunction!(pool::pool_additive_union, m)?,
+        wrap_pyfunction!(stats::quantities, m)?,
+        wrap_pyfunction!(stats::quantity, m)?,
+        wrap_pyfunction!(stats::probability, m)?,
+        wrap_pyfunction!(stats::probabilities, m)?,
+        wrap_pyfunction!(stats::nearest, m)?,
+        wrap_pyfunction!(stats::quantity_where, m)?,
+        wrap_pyfunction!(stats::probability_where, m)?,
+        wrap_pyfunction!(stats::mode, m)?,
+        wrap_pyfunction!(stats::modal_quantity, m)?,
+        wrap_pyfunction!(stats::denominator, m)?,
+        wrap_pyfunction!(stats::is_empty, m)?,
+        wrap_pyfunction!(stats::min_outcome, m)?,
+        wrap_pyfunction!(stats::max_outcome, m)?,
+        wrap_pyfunction!(stats::cdf_distance, m)?,
+        wrap_pyfunction!(stats::quantile, m)?,
+        wrap_pyfunction!(stats::statistic, m)?,
+        wrap_pyfunction!(stats::standardized_moment, m)?,
+        wrap_pyfunction!(stats::entropy, m)?,
+        wrap_pyfunction!(stats::marginals_len, m)?,
+        wrap_pyfunction!(stats::joint, m)?,
+        wrap_pyfunction!(stats::group_by, m)?,
+        wrap_pyfunction!(stats::quantities_op, m)?,
+        wrap_pyfunction!(stats::pad_to_denominator, m)?,
+        wrap_pyfunction!(stats::multiply_to_denominator, m)?,
     ] {
         m.add_function(f)?;
     }

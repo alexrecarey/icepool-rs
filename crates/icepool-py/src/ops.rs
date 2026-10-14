@@ -1,9 +1,11 @@
 //! The Python callables `Die.unary_operator` / `binary_operator` receive, mapped to the core's operators.
 //!
 //! The facade passes the very function Python icepool would call (`operator.add`, `math.floor`, `round`...). The
-//! known ones run on the core's `Value` semantics; any other callable (`operator.getitem` from `marginals`, a
-//! user's function) is a host callback, called on each outcome exactly as Python icepool calls it.
+//! known ones (`operator.getitem` from `marginals` too) run on the core's `Value` semantics; any other callable (a
+//! user's function, `operator.attrgetter`) is a host callback, called on each outcome exactly as Python icepool
+//! calls it.
 
+use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::{Error, Value};
 use pyo3::prelude::*;
@@ -25,6 +27,8 @@ pub enum Binary<'py> {
 pub enum Unary<'py> {
     Op(UnOp, Bound<'py, PyAny>),
     Round(Bound<'py, PyAny>),
+    /// `operator.getitem(outcome, key)` (`marginals[key]`), with the key as the core takes it.
+    GetItem(Index, Bound<'py, PyAny>),
     Call(Bound<'py, PyAny>),
 }
 
@@ -61,6 +65,7 @@ static BINARY_FNS: PyOnceLock<Vec<Py<PyAny>>> = PyOnceLock::new();
 static UNARY_FNS: PyOnceLock<Vec<Py<PyAny>>> = PyOnceLock::new();
 static EQ_FNS: PyOnceLock<[Py<PyAny>; 2]> = PyOnceLock::new();
 static ROUND: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+static GETITEM: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 
 fn binary_fns(py: Python<'_>) -> PyResult<&Vec<Py<PyAny>>> {
     BINARY_FNS.get_or_try_init(py, || {
@@ -117,8 +122,13 @@ pub fn binary<'py>(op: &Bound<'py, PyAny>, plain: bool) -> PyResult<Binary<'py>>
     Ok(Binary::Call(op.clone()))
 }
 
-/// Classifies `op` for `unary_operator(op, *args, **kwargs)`: `round(x, ndigits)` takes one extra argument.
-pub fn unary<'py>(op: &Bound<'py, PyAny>, nargs: usize) -> PyResult<Unary<'py>> {
+/// Classifies `op` for `unary_operator(op, *args, **kwargs)`: `round(x, ndigits)` and `operator.getitem(x, key)`
+/// take one extra argument.
+pub fn unary<'py>(
+    op: &Bound<'py, PyAny>,
+    args: &Bound<'py, PyTuple>,
+    nargs: usize,
+) -> PyResult<Unary<'py>> {
     let py = op.py();
     if nargs == 0 {
         if let Some(i) = unary_fns(py)?.iter().position(|f| op.is(f)) {
@@ -130,6 +140,15 @@ pub fn unary<'py>(op: &Bound<'py, PyAny>, nargs: usize) -> PyResult<Unary<'py>> 
     })?;
     if nargs == 1 && op.is(round) {
         return Ok(Unary::Round(op.clone()));
+    }
+    let getitem = GETITEM.get_or_try_init(py, || -> PyResult<_> {
+        Ok(py.import("operator")?.getattr("getitem")?.unbind())
+    })?;
+    if nargs == 1 && op.is(getitem) {
+        return Ok(Unary::GetItem(
+            crate::stats::index(&args.get_item(0)?)?,
+            op.clone(),
+        ));
     }
     Ok(Unary::Call(op.clone()))
 }
@@ -201,6 +220,7 @@ impl Unary<'_> {
                 }
                 a.round(&ndigits)
             }
+            Unary::GetItem(key, _) => getitem(a, key),
             Unary::Call(f) => return call(f, &[a], args, kwargs),
         };
         match r {
@@ -212,7 +232,7 @@ impl Unary<'_> {
 
     fn function(&self) -> &Bound<'_, PyAny> {
         match self {
-            Unary::Op(_, f) | Unary::Round(f) | Unary::Call(f) => f,
+            Unary::Op(_, f) | Unary::Round(f) | Unary::GetItem(_, f) | Unary::Call(f) => f,
         }
     }
 }

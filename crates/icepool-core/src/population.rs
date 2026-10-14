@@ -340,10 +340,9 @@ impl Die<Value> {
     }
 
     /// `sum(p * (outcome - mean)**k ...) / sd**k`.
-    pub fn standardized_moment(&self, k: i64) -> Result<Value> {
+    pub fn standardized_moment(&self, k: &Value) -> Result<Value> {
         let sd = self.standard_deviation()?;
         let mean = self.mean()?;
-        let k = Value::from(k);
         let probabilities = self.probabilities(Comparison::Eq, false)?;
         let ev = py_sum(
             self.outcomes().zip(probabilities).map(|(o, p)| {
@@ -358,11 +357,11 @@ impl Die<Value> {
     }
 
     pub fn skewness(&self) -> Result<Value> {
-        self.standardized_moment(3)
+        self.standardized_moment(&Value::from(3))
     }
 
     pub fn excess_kurtosis(&self) -> Result<Value> {
-        self.standardized_moment(4)?
+        self.standardized_moment(&Value::from(4))?
             .binary(BinOp::Sub, &Value::Float(3.0))
     }
 

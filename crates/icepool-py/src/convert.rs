@@ -93,6 +93,26 @@ impl HostObject for PyHost {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn to_float(&self) -> icepool_core::Result<f64> {
+        Python::attach(|py| crate::stats::host_to_float(self.obj.bind(py)))
+    }
+
+    fn as_rational(&self) -> icepool_core::Result<Option<dashu_ratio::RBig>> {
+        Python::attach(|py| crate::stats::host_as_rational(self.obj.bind(py)))
+    }
+
+    fn as_index(&self) -> icepool_core::Result<Option<IBig>> {
+        Python::attach(|py| crate::stats::host_as_index(self.obj.bind(py)))
+    }
+
+    fn getitem(&self, key: &icepool_core::value::builtins::Index) -> icepool_core::Result<Value> {
+        Python::attach(|py| crate::stats::host_getitem(self.obj.bind(py), key))
+    }
+
+    fn py_len(&self) -> icepool_core::Result<usize> {
+        Python::attach(|py| crate::stats::host_len(self.obj.bind(py)))
+    }
 }
 
 /// Python object -> `Value` (see the module comment for which types are native).

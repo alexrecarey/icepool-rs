@@ -46,6 +46,11 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     fn as_rational(&self) -> Result<Option<RBig>> {
         Err(Error::Unsupported("Fraction() of a host object".into()))
     }
+    /// `operator.index(self)` if `self` has `__index__` (`PyIndex_Check`), else `None`: how a native sequence
+    /// takes it as an index.
+    fn as_index(&self) -> Result<Option<dashu_int::IBig>> {
+        Err(Error::Unsupported("a host object as an index".into()))
+    }
     /// Python's `self[key]`.
     fn getitem(&self, _key: &Index) -> Result<Value> {
         Err(Error::Unsupported("indexing a host object".into()))

@@ -38,14 +38,13 @@ def _query(g):
 
 
 def _stat_die(g, depth):
-    """Mostly plain dice; sometimes typed ones (floats, Fractions, strs, tuples) or a die with zero quantities."""
+    """Mostly plain dice; sometimes typed ones (floats, Fractions, strs, tuples) or a mixture with uneven weights."""
     r = g.rng.random()
     if r < 0.7:
         return g.die(depth)
     if r < 0.85:
         kind = g.rng.choice(["num", "num", "num", "str", "tuple"])
         return {"op": "die_typed", "outcomes": [_typed_outcome(g, kind) for _ in range(g.rng.randint(1, 5))]}
-    # Zero quantities survive when a die is mixed in.
     return {"op": "die_times", "outcomes": [{"op": "weights", "items": [[g.outcome(), g.rng.choice([0, 1, 2])]
                                                                          for _ in range(g.rng.randint(1, 3))]},
                                             g.outcome()],
