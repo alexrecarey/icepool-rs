@@ -1,10 +1,12 @@
-//! Die methods that manage quantities and outcomes without a callable: `zero`, `simplify`, `_pop_min` /
-//! `_pop_max`, and `icepool.from_cumulative` (function.py).
+//! Die methods that manage quantities and outcomes without a callable: `zero`, `zero_outcome`, `simplify`,
+//! `_pop_min` / `_pop_max`, `sign`, `cmp`, `is_in`, `count`, `if_else`, `__repr__`, and `icepool.from_cumulative`
+//! (function.py).
 
-use super::map::the_die;
-use super::ops::{die_with_agains, py_iter, type_error};
+use super::map::{contains, the_die};
+use super::ops::{die_with_agains, matmul, py_iter, to_die, type_error};
 use super::{PErr, PValue};
 use crate::value::BinOp;
+use crate::counts::OrderedMerge;
 use crate::{Die, Value};
 
 /// `die.zero()`: every outcome times `0`, which must resolve to a single outcome.
@@ -96,4 +98,92 @@ pub fn from_cumulative(
         None,
         PValue::Value(Value::None),
     )
+}
+
+/// `die.zero_outcome()`: `self.zero().outcomes()[0]`.
+pub fn zero_outcome(die: PValue) -> Result<PValue, PErr> {
+    let zero = the_die(die)?.zero()?;
+    Ok(PValue::Value(zero.items()[0].0.clone()))
+}
+
+/// `die.sign()`: 1, -1 or 0 by comparing each outcome with its own `x * 0`.
+pub fn sign(die: PValue) -> Result<PValue, PErr> {
+    Ok(PValue::Die(the_die(die)?.sign()?))
+}
+
+/// `die.cmp(other)`: `other` goes through `implicit_convert_to_die` first.
+pub fn cmp(die: PValue, other: PValue) -> Result<PValue, PErr> {
+    let die = the_die(die)?;
+    Ok(PValue::Die(die.cmp(&to_die(other)?)?))
+}
+
+/// `die.is_in(outcomes)`: `self.map(lambda x: x in outcomes)`. `map` calls the lambda on every outcome in order
+/// (so the first one whose `in` raises decides the error) and passes the bools with their quantities to `Die`.
+pub fn is_in(die: PValue, outcomes: PValue) -> Result<PValue, PErr> {
+    Ok(PValue::Die(is_in_die(&the_die(die)?, &outcomes)?))
+}
+
+fn is_in_die(die: &Die<Value>, outcomes: &PValue) -> Result<Die<Value>, PErr> {
+    let mut data = OrderedMerge::default();
+    for (x, q) in die.items() {
+        data.add(Value::Bool(contains(outcomes, x)?), q.clone());
+    }
+    Ok(Die::from_mapping(data)?)
+}
+
+/// `die.count(rolls, outcomes)`: `rolls @ self.is_in(outcomes)`.
+pub fn count(die: PValue, rolls: PValue, outcomes: PValue) -> Result<PValue, PErr> {
+    let is_in = is_in_die(&the_die(die)?, &outcomes)?;
+    matmul(rolls, PValue::Die(is_in))
+}
+
+/// `die.if_else(outcome_if_true, outcome_if_false, again_count=, again_depth=, again_end=)`: icepool maps the die
+/// to `bool(x)` and then maps that through `{True: outcome_if_true, False: outcome_if_false}`. The bool die is
+/// sorted (`False` first), so the final constructor sees `Die([outcome_if_false, outcome_if_true], [quantity of
+/// False, quantity of True])`, leaving out a truth value no outcome has; the again arguments are forwarded to it.
+pub fn if_else(
+    die: PValue,
+    if_true: PValue,
+    if_false: PValue,
+    again_count: Option<PValue>,
+    again_depth: Option<PValue>,
+    again_end: PValue,
+) -> Result<PValue, PErr> {
+    let die = the_die(die)?;
+    let truths = die.unary_operator(|x| Ok(Value::Bool(x.truthy()?)))?;
+    let (mut outcomes, mut times) = (vec![], vec![]);
+    for (truth, q) in truths.items() {
+        outcomes.push(if *truth == Value::Bool(true) {
+            if_true.clone()
+        } else {
+            if_false.clone()
+        });
+        times.push(PValue::Value(Value::Int(q.clone().into())));
+    }
+    die_with_agains(
+        PValue::List(outcomes),
+        Some(PValue::List(times)),
+        again_count,
+        again_depth,
+        again_end,
+    )
+}
+
+/// `repr(die)`: `type(self).__qualname__ + '({' + 'outcome!r: quantity, ...' + '})'`, where the type is
+/// `DieWithTruth` for the result of `==` / `!=`.
+pub fn repr(die: PValue) -> Result<PValue, PErr> {
+    let name = match &die {
+        PValue::DieWithTruth(..) => "DieWithTruth",
+        _ => "Die",
+    };
+    let die = the_die(die)?;
+    let items = die
+        .items()
+        .iter()
+        .map(|(o, q)| Ok(format!("{}: {q}", crate::value::pystr::py_repr(o)?)))
+        .collect::<crate::Result<Vec<_>>>()?;
+    Ok(PValue::Value(Value::str(&format!(
+        "{name}({{{}}})",
+        items.join(", ")
+    ))))
 }

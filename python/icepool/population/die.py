@@ -1562,6 +1562,11 @@ class Die(Population[T_co], MaybeHashKeyed):
         """
         other = implicit_convert_to_die(other)
 
+        # icepool-rs: runs in the Rust core (`<`, `==`, `>` and the True lookups).
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.cmp(self._rust_die(), other._rust_die()))
+
         data = {}
 
         lt = self < other
@@ -1591,6 +1596,9 @@ class Die(Population[T_co], MaybeHashKeyed):
 
         Note that for `float`s, +0.0, -0.0, and nan all become 0.
         """
+        # icepool-rs: runs in the Rust core (each outcome against its own `x * 0`, no callback).
+        if icepool.backend.RUST:
+            return Die._new_rust(icepool.backend.RUST.sign(self._rust_die()))
         return self.unary_operator(Die._sign)
 
     # Equality and hashing.

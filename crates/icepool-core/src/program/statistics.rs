@@ -120,6 +120,12 @@ pub fn die_stat(die: PValue, stat: PValue) -> Result<PValue, PErr> {
     }))
 }
 
+/// `die.standardized_moment(k)`.
+pub fn standardized_moment(die: PValue, k: PValue) -> Result<PValue, PErr> {
+    let die = the_die(die)?;
+    Ok(PValue::Value(die.standardized_moment(&value(k)?)?))
+}
+
 /// `die.entropy(*base)`; the base defaults to `2.0`.
 pub fn entropy(die: PValue, base: PValue) -> Result<PValue, PErr> {
     let die = the_die(die)?;

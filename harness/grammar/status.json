@@ -182,5 +182,13 @@
   "reduce": "ported",
   "accumulate": "ported",
   "from_rv": "ported",
-  "wallenius_deal": "ported"
+  "wallenius_deal": "ported",
+  "zero_outcome": "ported",
+  "standardized_moment": "ported",
+  "sign": "ported",
+  "die_cmp": "ported",
+  "is_in": "ported",
+  "die_count": "ported",
+  "if_else": "ported",
+  "die_repr": "ported"
 }

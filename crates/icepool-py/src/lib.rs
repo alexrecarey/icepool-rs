@@ -492,6 +492,18 @@ fn simplify(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
     RsDie::wrap(py, die.get().die.simplify())
 }
 
+/// `Die.cmp` once `other` is a die: -1, 0, 1 weighted by the `True` quantities of `<`, `==`, `>`.
+#[pyfunction]
+fn cmp(py: Python<'_>, die: &Bound<'_, RsDie>, other: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    RsDie::wrap(py, die.get().die.cmp(&other.get().die))
+}
+
+/// `Die.sign`: 1, -1 or 0 by comparing each outcome with its own `x * 0`.
+#[pyfunction]
+fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    RsDie::wrap(py, die.get().die.sign())
+}
+
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RsDie>()?;
@@ -519,6 +531,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(die_keep_single, m)?,
         wrap_pyfunction!(keep_single, m)?,
         wrap_pyfunction!(zero, m)?,
+        wrap_pyfunction!(cmp, m)?,
+        wrap_pyfunction!(sign, m)?,
         wrap_pyfunction!(simplify, m)?,
         wrap_pyfunction!(map::map_simple, m)?,
         wrap_pyfunction!(again::evaluate_agains_using_depth, m)?,

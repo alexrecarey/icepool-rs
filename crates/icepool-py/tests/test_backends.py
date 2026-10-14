@@ -870,6 +870,19 @@ CASES = [
     'Wallenius({E.A: 2, 3: (1, 2)}).deal(2).sum()',
     'Wallenius([(Card(1), 1), (Card(2), 3)]).deal(1).expand()',
     'Wallenius([("a", 1), ("b", 2)]).deal(2).highest(1).sum()',
+    # S2: sign and cmp on the core, over host outcomes, vectors and outcomes that cannot be compared.
+    'Die([-2, 0, 3, -0.0, float("nan"), Fraction(-1, 2), True]).sign()',
+    'Die([(1, 2), ()]).sign()',
+    'Die(["a", ""]).sign()',
+    'Die([Vector((1, -2)), Vector((0, 0))]).sign()',
+    'Die([Card(3), Card(1)]).sign()',
+    'Die([E.A, E.B]).sign()',
+    'Die([None]).sign()',
+    'Die([Card(3), Card(1)]).cmp(Card(2))',
+    'Die([E.A, E.B]).cmp(Die([E.B]))',
+    'Die([1, 2]).cmp("a")',
+    'Die([Vector((1, 2)), Vector((3, 0))]).cmp(Vector((2, 2)))',
+    'Die([]).cmp(3)',
 ]
 
 SCRIPT = PRELUDE + '''

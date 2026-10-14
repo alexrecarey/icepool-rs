@@ -582,3 +582,47 @@ fn bisect<O>(items: &[(O, Quantity)], go_right: impl Fn(&O) -> Result<bool>) -> 
     }
     Ok(lo)
 }
+
+impl Die<crate::Value> {
+    /// A `Die` with outcomes 1, -1, and 0 (`Die.cmp`).
+    ///
+    /// The quantities are equal to the positive outcome of `self > other`, `self < other`, and the remainder
+    /// respectively. As in icepool, the three comparison dice are made in the order `<`, `==`, `>` (so the first
+    /// that raises decides the error), and each contributes the quantity of its `True` outcome if it has one
+    /// (`if True in lt: data[-1] = lt[True]`, a dict lookup, so an outcome equal to `True` such as `1` counts).
+    pub fn cmp(&self, other: &Self) -> Result<Self> {
+        use crate::value::BinOp;
+        use crate::Value;
+        let truth = Value::Bool(true);
+        let mut data = Vec::new();
+        let comparisons: [(i64, &dyn Fn(&Value, &Value) -> Result<Value>); 3] = [
+            (-1, &|a, b| a.binary(BinOp::Lt, b)),
+            (0, &|a, b| a.eq_op(b, false)),
+            (1, &|a, b| a.binary(BinOp::Gt, b)),
+        ];
+        for (sign, op) in comparisons {
+            let compared = self.binary_operator(other, op)?;
+            if let Some(i) = compared.position(&truth) {
+                data.push((Value::from(sign), compared.items()[i].1.clone()));
+            }
+        }
+        Die::from_dict(data)
+    }
+
+    /// Outcomes become 1 if greater than `zero()`, -1 if less than `zero()`, and 0 otherwise (`Die.sign`).
+    ///
+    /// Note that for `float`s, +0.0, -0.0, and nan all become 0. Each outcome is compared with its own zero,
+    /// `x * 0` (`Die._sign`), so a tuple compares with `()` and a str with `''`.
+    pub fn sign(&self) -> Result<Self> {
+        self.unary_operator(|x| {
+            let z = x.times_zero()?;
+            Ok(crate::Value::from(if x.py_gt(&z)? {
+                1
+            } else if x.py_lt(&z)? {
+                -1
+            } else {
+                0
+            }))
+        })
+    }
+}

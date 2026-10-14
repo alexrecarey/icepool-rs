@@ -200,7 +200,7 @@ pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
 
 /// `x in collection`, for the collections a program can give: lists, tuples, strs (substring), dice and mappings
 /// (keys).
-fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
+pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
     match collection {
         PValue::DieWithTruthError(e, _) => Err(e.clone().into()),
         PValue::List(items) | PValue::Tuple(items) => {

@@ -136,6 +136,40 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [die] = args.exactly(["die"])?;
             die_methods::zero(die)
         }
+        "zero_outcome" => {
+            let [die] = args.exactly(["die"])?;
+            die_methods::zero_outcome(die)
+        }
+        "sign" => {
+            let [die] = args.exactly(["die"])?;
+            die_methods::sign(die)
+        }
+        "die_cmp" => {
+            let [die, other] = args.exactly(["die", "other"])?;
+            die_methods::cmp(die, other)
+        }
+        "is_in" => {
+            let [die, outcomes] = args.exactly(["die", "outcomes"])?;
+            die_methods::is_in(die, outcomes)
+        }
+        "die_count" => {
+            let [die, rolls, outcomes] = args.exactly(["die", "rolls", "outcomes"])?;
+            die_methods::count(die, rolls, outcomes)
+        }
+        "if_else" => {
+            let [die, if_true, if_false, count, depth, end] =
+                args.exactly(["die", "if_true", "if_false", "count", "depth", "end"])?;
+            // `None` is the default for both again arguments.
+            let some = |x: PValue| match x {
+                PValue::Value(Value::None) => None,
+                x => Some(x),
+            };
+            die_methods::if_else(die, if_true, if_false, some(count), some(depth), end)
+        }
+        "die_repr" => {
+            let [die] = args.exactly(["die"])?;
+            die_methods::repr(die)
+        }
         "simplify" => {
             let [die] = args.exactly(["die"])?;
             die_methods::simplify(die)
@@ -416,6 +450,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "die_stat" => {
             let [die, stat] = args.exactly(["die", "stat"])?;
             statistics::die_stat(die, stat)
+        }
+        "standardized_moment" => {
+            let [die, k] = args.exactly(["die", "k"])?;
+            statistics::standardized_moment(die, k)
         }
         "entropy" => {
             let [die, base] = args.exactly(["die", "base"])?;

@@ -1,0 +1,75 @@
+{"program":{"op":"zero_outcome","die":{"op":"d","sides":6}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"zero_outcome","die":{"op":"die_typed","outcomes":[{"float":"1.5"},{"float":"-2.5"}]}},"expected":{"ok":true,"value":{"float":"-0.0"}}}
+{"program":{"op":"zero_outcome","die":{"op":"die_typed","outcomes":[{"str":"a"},{"str":"bb"}]}},"expected":{"ok":true,"value":{"str":""}}}
+{"program":{"op":"zero_outcome","die":{"op":"die_typed","outcomes":[{"tuple":[1,2]},{"tuple":[3,4]}]}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"zero_outcome","die":{"op":"die_typed","outcomes":[{"tuple":[1,2]},{"tuple":[3]}]}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"zero_outcome","die":{"op":"weights","items":[]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"zero_outcome","die":{"op":"eq","a":{"op":"d","sides":3},"b":2}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"zero_outcome","die":{"op":"die_typed","outcomes":[{"bool":true}]}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":3},"expected":{"ok":true,"value":{"float":"0.0"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":0},"expected":{"ok":true,"value":{"float":"1.0"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":-1},"expected":{"ok":true,"value":{"float":"0.0"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":1},"k":3},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"float":"2.0"}},"expected":{"ok":true,"value":{"float":"1.0"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die_typed","outcomes":[{"float":"inf"},1]},"k":3},"expected":{"ok":true,"value":{"float":"nan"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die_typed","outcomes":[{"frac":[1,3]},2]},"k":4},"expected":{"ok":true,"value":{"float":"0.9999999999999998"}}}
+{"program":{"op":"standardized_moment","die":{"op":"weights","items":[]},"k":3},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"standardized_moment","die":{"op":"die_typed","outcomes":[{"str":"a"}]},"k":2},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"sign","die":{"op":"sub","a":{"op":"d","sides":6},"b":3}},"expected":{"ok":true,"die":[[-1,2],[0,1],[1,3]]}}
+{"program":{"op":"sign","die":{"op":"die_typed","outcomes":[{"float":"-0.0"},{"float":"0.0"},{"float":"-inf"},{"float":"inf"},{"float":"0.5"}]}},"expected":{"ok":true,"die":[[0,4],[1,1]]}}
+{"program":{"op":"sign","die":{"op":"die_typed","outcomes":[{"frac":[-1,3]},{"frac":[0,1]}]}},"expected":{"ok":true,"die":[[-1,1],[0,1]]}}
+{"program":{"op":"sign","die":{"op":"die_typed","outcomes":[{"str":""},{"str":"a"}]}},"expected":{"ok":true,"die":[[0,1],[1,1]]}}
+{"program":{"op":"sign","die":{"op":"die_typed","outcomes":[{"tuple":[]},{"tuple":[0]},{"tuple":[-1]}]}},"expected":{"ok":true,"die":[[0,1],[1,2]]}}
+{"program":{"op":"sign","die":{"op":"die_typed","outcomes":[{"bool":false},{"bool":true}]}},"expected":{"ok":true,"die":[[0,1],[1,1]]}}
+{"program":{"op":"sign","die":{"op":"weights","items":[]}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"sign","die":{"op":"eq","a":{"op":"d","sides":3},"b":2}},"expected":{"ok":true,"die":[[0,2],[1,1]]}}
+{"program":{"op":"sign","die":{"op":"sub","a":{"op":"die_typed","outcomes":[{"float":"inf"}]},"b":{"float":"inf"}}},"expected":{"ok":true,"die":[[0,1]]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":6},"other":{"op":"d","sides":6}},"expected":{"ok":true,"die":[[-1,15],[0,6],[1,15]]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":6},"other":3},"expected":{"ok":true,"die":[[-1,2],[0,1],[1,3]]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":3},"other":10},"expected":{"ok":true,"die":[[-1,3]]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":3},"other":-1},"expected":{"ok":true,"die":[[1,3]]}}
+{"program":{"op":"die_cmp","die":{"op":"weights","items":[]},"other":3},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":3},"other":{"op":"weights","items":[]}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":3},"other":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_cmp","die":{"op":"die_typed","outcomes":[{"str":"a"},{"str":"b"}]},"other":{"str":"a"}},"expected":{"ok":true,"die":[[0,1],[1,1]]}}
+{"program":{"op":"die_cmp","die":{"op":"eq","a":{"op":"d","sides":3},"b":2},"other":1},"expected":{"ok":true,"die":[[-1,2],[0,1]]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":2},"other":{"float":"nan"}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_cmp","die":{"op":"die_typed","outcomes":[{"float":"nan"}]},"other":1},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_cmp","die":{"op":"d","sides":3},"other":{"op":"Reroll"}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":6},"outcomes":[1,2,7]},"expected":{"ok":true,"die":[[{"bool":false},4],[{"bool":true},2]]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":6},"outcomes":{"tuple":[]}},"expected":{"ok":true,"die":[[{"bool":false},6]]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":6},"outcomes":[]},"expected":{"ok":true,"die":[[{"bool":false},6]]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":6},"outcomes":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"is_in","die":{"op":"die_typed","outcomes":[{"str":"a"},{"str":"bc"}]},"outcomes":{"str":"abc"}},"expected":{"ok":true,"die":[[{"bool":true},2]]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":3},"outcomes":5},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"is_in","die":{"op":"weights","items":[]},"outcomes":5},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"is_in","die":{"op":"d","sides":3},"outcomes":{"op":"d","sides":2}},"expected":{"ok":true,"die":[[{"bool":false},1],[{"bool":true},2]]}}
+{"program":{"op":"is_in","die":{"op":"die_typed","outcomes":[{"float":"1.0"},{"bool":true}]},"outcomes":[1]},"expected":{"ok":true,"die":[[{"bool":true},2]]}}
+{"program":{"op":"is_in","die":{"op":"die_typed","outcomes":[{"tuple":[1,2]}]},"outcomes":[{"tuple":[1,2]}]},"expected":{"ok":true,"die":[[{"bool":true},1]]}}
+{"program":{"op":"die_count","die":{"op":"d","sides":6},"rolls":3,"outcomes":[5,6]},"expected":{"ok":true,"die":[[0,64],[1,96],[2,48],[3,8]]}}
+{"program":{"op":"die_count","die":{"op":"d","sides":6},"rolls":0,"outcomes":[1]},"expected":{"ok":true,"die":[[0,1]]}}
+{"program":{"op":"die_count","die":{"op":"d","sides":6},"rolls":-2,"outcomes":[1]},"expected":{"ok":true,"die":[[-2,1],[-1,10],[0,25]]}}
+{"program":{"op":"die_count","die":{"op":"d","sides":6},"rolls":{"op":"d","sides":2},"outcomes":[6]},"expected":{"ok":true,"die":[[{"bool":false},55],[{"bool":true},16],[2,1]]}}
+{"program":{"op":"die_count","die":{"op":"weights","items":[]},"rolls":2,"outcomes":[1]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_count","die":{"op":"d","sides":3},"rolls":2,"outcomes":4},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"if_else","die":{"op":"d","sides":6},"if_true":1,"if_false":0,"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[[1,6]]}}
+{"program":{"op":"if_else","die":{"op":"sub","a":{"op":"d","sides":3},"b":2},"if_true":{"str":"t"},"if_false":{"str":"f"},"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[[{"str":"f"},1],[{"str":"t"},2]]}}
+{"program":{"op":"if_else","die":{"op":"die_typed","outcomes":[{"float":"nan"},{"float":"0.0"}]},"if_true":1,"if_false":0,"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[[0,1],[1,1]]}}
+{"program":{"op":"if_else","die":{"op":"d","sides":2},"if_true":{"op":"Reroll"},"if_false":5,"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"if_else","die":{"op":"sub","a":{"op":"d","sides":2},"b":1},"if_true":{"op":"add","a":{"op":"Again"},"b":1},"if_false":0,"count":null,"depth":2,"end":null},"expected":{"ok":true,"die":[[0,4],[1,2],[2,1],[3,1]]}}
+{"program":{"op":"if_else","die":{"op":"sub","a":{"op":"d","sides":2},"b":1},"if_true":{"op":"add","a":{"op":"Again"},"b":1},"if_false":0,"count":2,"depth":null,"end":null},"expected":{"ok":true,"die":[[0,4],[1,2],[2,1],[3,1]]}}
+{"program":{"op":"if_else","die":{"op":"sub","a":{"op":"d","sides":2},"b":1},"if_true":{"op":"add","a":{"op":"Again"},"b":1},"if_false":0,"count":1,"depth":1,"end":null},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"if_else","die":{"op":"sub","a":{"op":"d","sides":2},"b":1},"if_true":{"op":"Again"},"if_false":{"op":"d","sides":4},"count":null,"depth":0,"end":{"op":"Reroll"}},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[4,1]]}}
+{"program":{"op":"if_else","die":{"op":"weights","items":[]},"if_true":1,"if_false":0,"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"if_else","die":{"op":"eq","a":{"op":"d","sides":3},"b":2},"if_true":{"op":"d","sides":4},"if_false":{"op":"d","sides":6},"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[[1,7],[2,7],[3,7],[4,7],[5,4],[6,4]]}}
+{"program":{"op":"if_else","die":{"op":"die_typed","outcomes":[{"tuple":[]},{"tuple":[1]}]},"if_true":{"str":"yes"},"if_false":{"str":"no"},"count":null,"depth":null,"end":null},"expected":{"ok":true,"die":[[{"str":"no"},1],[{"str":"yes"},1]]}}
+{"program":{"op":"if_else","die":{"op":"d","sides":3},"if_true":1,"if_false":0,"count":1,"depth":1,"end":null},"expected":{"ok":true,"die":[[1,3]]}}
+{"program":{"op":"die_repr","die":{"op":"d","sides":3}},"expected":{"ok":true,"value":{"str":"Die({1: 1, 2: 1, 3: 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"die_typed","outcomes":[{"str":"a"},{"float":"1.5"}]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_repr","die":{"op":"die_typed","outcomes":[{"tuple":[1,{"str":"x"}]}]}},"expected":{"ok":true,"value":{"str":"Die({(1, 'x'): 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"die_typed","outcomes":[{"frac":[1,3]}]}},"expected":{"ok":true,"value":{"str":"Die({Fraction(1, 3): 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"eq","a":{"op":"d","sides":3},"b":2}},"expected":{"ok":true,"value":{"str":"DieWithTruth({False: 2, True: 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"eq","a":{"op":"d","sides":3},"b":{"op":"d","sides":3}}},"expected":{"ok":true,"value":{"str":"DieWithTruth({False: 6, True: 3})"}}}
+{"program":{"op":"die_repr","die":{"op":"weights","items":[]}},"expected":{"ok":true,"value":{"str":"Die({})"}}}
+{"program":{"op":"die_repr","die":{"op":"ne","a":{"op":"d","sides":2},"b":1}},"expected":{"ok":true,"value":{"str":"DieWithTruth({False: 1, True: 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"die_typed","outcomes":[{"float":"inf"},{"float":"-0.0"}]}},"expected":{"ok":true,"value":{"str":"Die({-0.0: 1, inf: 1})"}}}
