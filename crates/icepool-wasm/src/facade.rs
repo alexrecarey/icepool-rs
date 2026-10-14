@@ -47,6 +47,9 @@ extern "C" {
     /// `f(*args, **kwargs)` for the JS function registered as `id`: JS-JSON in, a result envelope out.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = call)]
     fn host_call(id: u32, args: &str, kwargs: &str) -> String;
+    /// Forgets the JS function registered as `id`: the core dropped its last reference.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = release)]
+    fn host_release(id: u32);
     /// A method of the JS evaluator registered as `id`.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = evaluator)]
     fn host_evaluator(id: u32, method: &str, args: &str) -> String;
@@ -346,6 +349,14 @@ struct JsFunction {
     id: u32,
     /// `f.length`: the parameters before the first one with a default (or the rest parameter).
     length: usize,
+}
+
+/// Each `$fn` the core decodes registered the function once on the JS side; the core holds it (behind an `Arc`)
+/// as long as any value refers to it, e.g. a multiset expression with a `map_counts` function.
+impl Drop for JsFunction {
+    fn drop(&mut self) {
+        host_release(self.id);
+    }
 }
 
 impl HostFunction for JsFunction {

@@ -1,0 +1,32 @@
+{
+  "name": "icepool-wasm",
+  "version": "0.1.0",
+  "description": "Exact dice probabilities: the icepool library (Python) ported to Rust, as WASM with a JS API",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./icepool.d.ts",
+      "node": "./node.js",
+      "default": "./web.js"
+    }
+  },
+  "types": "./icepool.d.ts",
+  "files": [
+    "core.js",
+    "node.js",
+    "web.js",
+    "icepool.d.ts",
+    "pkg-node/icepool_wasm*",
+    "pkg-node/package.json",
+    "pkg-web/icepool_wasm*",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "./build.sh",
+    "test": "./build.sh --test"
+  }
+}
