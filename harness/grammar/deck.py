@@ -250,3 +250,107 @@ def deal_pop(deal, order, outcome):
     fresh_caches()
     return tuple((tuple(s.deck.items()), s.keep_tuple, count, weight)
                  for s, count, weight in deal._make_source().pop(icepool.Order(order), outcome))
+
+
+# --- MultiDeal (S4b) --------------------------------------------------------------------------------------------
+
+@node("multi_deal", "multi_deal")
+def multi_deal(deck, hand_sizes):
+    """deck.deal(hand_sizes) for a sequence of int hand sizes: a MultiDeal with one group (hand_size, 1) per
+    hand (ValueError if more cards are dealt than the deck has)."""
+    return deck.deal(hand_sizes)
+
+
+@node("deal_groups", "multi_deal")
+def deal_groups(deck, hand_groups):
+    """deck.deal_groups(*hand_groups), each group a (hand_size, group_size) pair: the hands of a group are
+    indistinguishable until they get different cards."""
+    return deck.deal_groups(*(tuple(group) for group in hand_groups))
+
+
+# Cards dealt in total stay small: popping an outcome deals its cards to the hands in every way.
+_MAX_DEALT = 6
+
+
+def gen_multi_deal(g, depth):
+    """A multi-deal from a modest deck: mostly hands that fit the deck (asks the oracle for its size), now and
+    then more cards than it has; a third of the time hand groups."""
+    d = g.make("deck", min(depth, 1))
+    room = g.rng.randint(0, 4)
+    try:
+        size = peek(d).size()
+        if g.rng.random() < 0.92:
+            room = min(size, _MAX_DEALT)
+    except Exception:  # noqa: BLE001 - a deck that raises is a fine program too
+        pass
+    if g.rng.random() < 0.35:
+        groups = []
+        for _ in range(g.rng.choice([0, 1, 1, 2, 2, 3])):
+            group_size = g.rng.choice([0, 1, 2, 2, 3])
+            hand_size = g.rng.randint(0, room // max(group_size, 1)) if room >= 0 else 0
+            room -= hand_size * group_size
+            groups.append([hand_size, group_size])
+        return {"op": "deal_groups", "deck": d, "hand_groups": groups}
+    hand_sizes = []
+    for _ in range(g.rng.choice([0, 1, 2, 2, 2, 3, 3])):
+        hand_size = g.rng.randint(0, max(room, 0))
+        room -= hand_size
+        hand_sizes.append(hand_size)
+    hand_sizes = hand_sizes if g.rng.random() < 0.8 else {"tuple": hand_sizes}
+    return {"op": "multi_deal", "deck": d, "hand_sizes": hand_sizes}
+
+
+@node("multi_deal_info", "value", gen=lambda g, depth: {"op": "multi_deal_info",
+                                                        "multi_deal": gen_multi_deal(g, depth)}, weight=0.4)
+def multi_deal_info(multi_deal):
+    """(tuple(deck items), hand_sizes(), total_cards_dealt(), len(md), denominator(), tuple(outcomes()))."""
+    md = multi_deal
+    return (tuple(md.deck().items()), md.hand_sizes(), md.total_cards_dealt(), len(md), md.denominator(),
+            tuple(md.outcomes()))
+
+
+def _gen_multi_deal_pop(g, depth):
+    md = gen_multi_deal(g, depth)
+    order = g.rng.choice([1, 1, -1, -1, 0])
+    outcome = g.outcome()
+    try:
+        outcomes = peek(md).outcomes()
+        if outcomes and g.rng.random() < 0.85:
+            outcome = enc(outcomes[0] if order > 0 else outcomes[-1])
+    except Exception:  # noqa: BLE001
+        pass
+    return {"op": "multi_deal_pop", "multi_deal": md, "order": order, "outcome": outcome}
+
+
+@node("multi_deal_pop", "value", gen=_gen_multi_deal_pop, weight=0.5)
+def multi_deal_pop(multi_deal, order, outcome):
+    """multi_deal._make_source().pop(Order(order), outcome) as a tuple of (deck items, hand_groups, counts,
+    weight): each way the popped outcome's cards go to the hands (counts sorted descending within a group), last
+    the ways that fill every hand."""
+    fresh_caches()
+    return tuple((tuple(s.deck.items()), s.hand_groups, counts, weight)
+                 for s, counts, weight in multi_deal._make_source().pop(icepool.Order(order), outcome))
+
+
+def _gen_multi_deal_evaluate(g, depth):
+    from harness.catalogue.evaluators import ENTRIES
+    from harness.grammar.evaluate import gen_pool
+    # Mostly the evaluators written for tuple counts; the others see a tuple where they expect an int.
+    name = g.rng.choice(["hand_sums", "record", "record"]) if g.rng.random() < 0.75 else g.rng.choice(
+        sorted(ENTRIES))
+    e = ENTRIES[name]
+    n = e.inputs(g) if name != "record" else g.rng.choice([1, 1, 1, 2])
+    args = [gen_multi_deal(g, depth)]
+    for _ in range(n - 1):
+        args.append(gen_multi_deal(g, depth) if g.rng.random() < 0.5 else gen_pool(g, 0))
+    g.rng.shuffle(args)
+    return {"op": "multi_deal_evaluate", "name": {"str": name}, "params": e.params(g), "args": args}
+
+
+@node("multi_deal_evaluate", "die", gen=_gen_multi_deal_evaluate, weight=0.5)
+def multi_deal_evaluate(name, params, args):
+    """EVALUATORS[name](*params).evaluate(*args) with a MultiDeal among the inputs: its count for each outcome is
+    a tuple (one count per hand), and its size the tuple of hand sizes."""
+    from harness.catalogue.evaluators import EVALUATORS
+    fresh_caches()
+    return EVALUATORS[name](*params).evaluate(*args)

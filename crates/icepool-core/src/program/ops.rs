@@ -14,6 +14,7 @@ use super::evaluate;
 use super::format;
 use super::map;
 use super::map_tools;
+use super::multi_deal;
 use super::pool;
 use super::statistics;
 use super::{raise, Args, PErr, PValue};
@@ -234,6 +235,22 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [d, hand_size] = args.exactly(["deck", "hand_size"])?;
             deck::deal(d, hand_size)
         }
+        "multi_deal" => {
+            let [d, hand_sizes] = args.exactly(["deck", "hand_sizes"])?;
+            deck::deal(d, hand_sizes)
+        }
+        "deal_groups" => {
+            let [d, groups] = args.exactly(["deck", "hand_groups"])?;
+            multi_deal::deal_groups(d, groups)
+        }
+        "multi_deal_info" => {
+            let [d] = args.exactly(["multi_deal"])?;
+            multi_deal::multi_deal_info(d)
+        }
+        "multi_deal_pop" => {
+            let [d, order, outcome] = args.exactly(["multi_deal", "order", "outcome"])?;
+            multi_deal::multi_deal_pop(d, order, outcome)
+        }
         "deal_info" => {
             let [d] = args.exactly(["deal"])?;
             deck::deal_info(d)
@@ -302,7 +319,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [p, index] = args.exactly(["pool", "index"])?;
             evaluate::keep_evaluate(p, index)
         }
-        "evaluate" => {
+        "evaluate" | "multi_deal_evaluate" => {
             let [name, params, a] = args.exactly(["name", "params", "args"])?;
             evaluate::catalogue(name, params, a, vec![])
         }
@@ -773,7 +790,7 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
         // A deck is a mapping: iterating it gives its outcomes.
         PValue::Deck(d) => d.outcomes().cloned().map(PValue::Value).collect(),
-        PValue::Pool(_) | PValue::Deal(_) => {
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => {
             return Err(PErr::Unimplemented("iterating a multiset generator".into()))
         }
     })
@@ -798,9 +815,9 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         PValue::Again(_) => Err(PErr::Unimplemented(
             "an Again expression nested in an outcome".into(),
         )),
-        PValue::Ellipsis | PValue::Pool(_) | PValue::Deal(_) => Err(PErr::Unimplemented(
-            "Ellipsis or a pool as an outcome".into(),
-        )),
+        PValue::Ellipsis | PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => Err(
+            PErr::Unimplemented("Ellipsis or a pool as an outcome".into()),
+        ),
     }
 }
 

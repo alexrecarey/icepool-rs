@@ -7,8 +7,10 @@
 //! intermediate "room" so that equal sub-problems are solved once.
 //!
 //! Only generator inputs are supported so far: each argument is one source whose count is passed straight
-//! through (Python's `MultisetFreeVariable` / `MultisetGeneratorQuestlet`, whose statelets are always `None`).
-//! Multiset expressions (operators between inputs, the dungeonlet / questlet trees) belong to a later task.
+//! through (Python's `MultisetFreeVariable` with a `MultisetGeneratorQuestlet` or a `MultisetTupleGeneratorQuestlet`,
+//! whose statelets are always `None`). A multiset tuple generator (`MultiDeal`) produces a tuple of counts per
+//! outcome and a tuple size ([`Count::Tuple`]). Multiset expressions (operators between inputs, the dungeonlet /
+//! questlet trees) belong to a later task.
 
 pub mod basic;
 pub mod comparison;
@@ -24,7 +26,7 @@ use crate::error::{Error, Result};
 use crate::function::sorted_union;
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
-use crate::pool::MultisetSource;
+use crate::pool::{Count, MultisetSource};
 use crate::Quantity;
 
 /// What `final_outcome` produced: an outcome for the result `Die`, `icepool.Reroll` (dropped), or `None` (which
@@ -83,6 +85,64 @@ pub trait MultisetEvaluator<O> {
         outcomes: &[O],
         sizes: &[Option<i64>],
     ) -> Result<Final<Self::Final>>;
+
+    /// What the driver calls: [`Self::initial_state`] with the sizes as the sources give them. An `int` size is
+    /// passed on; a tuple size (a `MultiDeal` input) reaches only evaluators that override this, the others say
+    /// `Unsupported`.
+    fn initial_state_counts(
+        &self,
+        order: Order,
+        outcomes: &[O],
+        sizes: &[Option<Count>],
+    ) -> Result<Self::State> {
+        self.initial_state(order, outcomes, &int_sizes(sizes)?)
+    }
+
+    /// What the driver calls: [`Self::next_state`] with the counts as the sources give them (see
+    /// [`Self::initial_state_counts`]).
+    fn next_state_counts(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &O,
+        counts: &[Count],
+    ) -> Result<Option<Self::State>> {
+        let counts = counts
+            .iter()
+            .map(|c| match c {
+                Count::Int(c) => Ok(*c),
+                Count::Tuple(_) => Err(tuple_unsupported()),
+            })
+            .collect::<Result<Vec<i64>>>()?;
+        self.next_state(state, order, outcome, &counts)
+    }
+
+    /// What the driver calls: [`Self::final_outcome`] with the sizes as the sources give them (see
+    /// [`Self::initial_state_counts`]).
+    fn final_outcome_counts(
+        &self,
+        final_state: &Self::State,
+        order: Order,
+        outcomes: &[O],
+        sizes: &[Option<Count>],
+    ) -> Result<Final<Self::Final>> {
+        self.final_outcome(final_state, order, outcomes, &int_sizes(sizes)?)
+    }
+}
+
+fn tuple_unsupported() -> Error {
+    Error::Unsupported("a multiset tuple input (MultiDeal) to this evaluator".into())
+}
+
+fn int_sizes(sizes: &[Option<Count>]) -> Result<Vec<Option<i64>>> {
+    sizes
+        .iter()
+        .map(|s| match s {
+            None => Ok(None),
+            Some(Count::Int(s)) => Ok(Some(*s)),
+            Some(Count::Tuple(_)) => Err(tuple_unsupported()),
+        })
+        .collect()
 }
 
 /// A Python `defaultdict(int)` from state to weight: insertion order, and a state equal to an earlier one adds to
@@ -138,7 +198,7 @@ struct Dungeon<'a, O, E: MultisetEvaluator<O>> {
 }
 
 /// One way the sources can produce the popped outcome: `(remaining sources, counts, weight)`.
-type RoomPop<O> = (Vec<MultisetSource<O>>, Vec<i64>, Quantity);
+type RoomPop<O> = (Vec<MultisetSource<O>>, Vec<Count>, Quantity);
 
 impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     fn new(evaluator: &'a E, outcomes: &'a [O], initial_state: E::State) -> Self {
@@ -181,7 +241,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
                     let mut sources = sources.clone();
                     sources.push(source.clone());
                     let mut counts = counts.clone();
-                    counts.push(*count);
+                    counts.push(count.clone());
                     next.push((sources, counts, weight * w));
                 }
             }
@@ -216,7 +276,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
                 for (prev_state, prev_weight) in prev.items() {
                     let state = self
                         .evaluator
-                        .next_state(prev_state, eval_order, outcome, &counts)?;
+                        .next_state_counts(prev_state, eval_order, outcome, &counts)?;
                     if let Some(state) = state {
                         result.add(state, prev_weight * &weight);
                     }
@@ -250,7 +310,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
             for (next_sources, counts, weight) in pops {
                 let next_state = self
                     .evaluator
-                    .next_state(&key.3, pop_order, outcome, &counts)?;
+                    .next_state_counts(&key.3, pop_order, outcome, &counts)?;
                 if let Some(next_state) = next_state {
                     let fin = self.evaluate_forward(
                         pop_order,
@@ -322,7 +382,7 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
             Algorithm::Backward => -pop_order,
             Algorithm::Forward => pop_order,
         };
-        let initial_state = evaluator.initial_state(eval_order, &all_outcomes, &sizes)?;
+        let initial_state = evaluator.initial_state_counts(eval_order, &all_outcomes, &sizes)?;
         let mut dungeon = Dungeon::new(evaluator, &all_outcomes, initial_state.clone());
         let n = all_outcomes.len();
         check_depth(n)?;
@@ -366,11 +426,11 @@ fn finalize_evaluation<O, E: MultisetEvaluator<O>>(
     final_states: &StateWeights<E::State>,
     order: Order,
     outcomes: &[O],
-    sizes: &[Option<i64>],
+    sizes: &[Option<Count>],
 ) -> Result<Vec<(E::Final, Quantity)>> {
     let mut result = Vec::new();
     for (state, weight) in final_states.items() {
-        match evaluator.final_outcome(state, order, outcomes, sizes)? {
+        match evaluator.final_outcome_counts(state, order, outcomes, sizes)? {
             Final::None => {
                 return Err(Error::Type(
                     "None is not a valid final outcome.\nThis may have been a result of not supplying any \

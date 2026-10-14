@@ -136,5 +136,10 @@
   "deck_sequence": "ported",
   "deal": "ported",
   "deal_info": "ported",
-  "deal_pop": "ported"
+  "deal_pop": "ported",
+  "multi_deal": "ported",
+  "deal_groups": "ported",
+  "multi_deal_info": "ported",
+  "multi_deal_pop": "ported",
+  "multi_deal_evaluate": "ported"
 }

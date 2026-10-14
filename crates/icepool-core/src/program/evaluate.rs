@@ -209,9 +209,13 @@ pub fn catalogue(
         return raise(Error::Key("catalogue names are strs".into()));
     };
     let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?.with_kwargs(kwargs)?;
-    let pools = py_iter(args)?
+    let sources = py_iter(args)?
         .into_iter()
-        .map(implicit_convert)
+        .map(|arg| match arg {
+            // A multiset tuple generator is an expression already.
+            PValue::MultiDeal(md) => Ok(MultisetSource::MultiDeal(md.source())),
+            arg => implicit_convert(arg).map(|g| g.source()),
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    super::catalogue_evaluators::run(&evaluator, &pools)
+    super::catalogue_evaluators::run(&evaluator, &sources)
 }

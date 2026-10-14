@@ -53,6 +53,11 @@ class MultiDeal(MultisetTupleGenerator[T, IntTupleOut]):
             raise ValueError(
                 'The total number of cards dealt cannot exceed the size of the deck.'
             )
+        # icepool-rs: the hand groups and the check above stay Python; the
+        # denominator and the source are the Rust core's.
+        if icepool.backend.RUST:
+            self._rs = icepool.backend.RUST.multi_deal_new(
+                deck._rust_deck(), [tuple(group) for group in hand_groups])
 
     @classmethod
     def _new_raw(
@@ -103,9 +108,15 @@ class MultiDeal(MultisetTupleGenerator[T, IntTupleOut]):
         return d_total * d_split
 
     def denominator(self) -> int:
+        # icepool-rs: computed in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.denominator()
         return self._denominator
 
     def _make_source(self) -> 'MultisetTupleSource[T, IntTupleOut]':
+        # icepool-rs: the source pops outcomes in the Rust core.
+        if icepool.backend.RUST:
+            return MultiDealSource._new_rust(self._rs.source())
         return MultiDealSource(self._deck, self._hand_groups)
 
     @property
@@ -131,13 +142,49 @@ class MultiDealSource(MultisetTupleSource[T, IntTupleOut]):
         self.deck = deck
         self.hand_groups = hand_groups
 
+    @classmethod
+    def _new_rust(cls, rs) -> 'MultiDealSource[T, IntTupleOut]':
+        """icepool-rs: wraps a source of the Rust core (`icepool_rs.MultiDealSource`).
+
+        `deck` and `hand_groups` are converted from it on first use (see
+        `__getattr__`); the evaluator only needs the outcomes.
+        """
+        self = super(MultiDealSource, cls).__new__(cls)
+        self._rs = rs
+        return self
+
+    def __getattr__(self, name: str):
+        """icepool-rs: only called for an attribute not set yet; see `_new_rust`."""
+        rs = self.__dict__.get('_rs')
+        if rs is not None:
+            if name == 'deck':
+                self.deck = icepool.Deck._new_rust(rs.deck())
+                return self.deck
+            if name == 'hand_groups':
+                self.hand_groups = rs.hand_groups()
+                return self.hand_groups
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'")
+
     def outcomes(self):
+        # icepool-rs: read off the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.outcomes()
         return self.deck.outcomes()
 
     def size(self):
+        # icepool-rs: read off the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.size()
         return self.hand_sizes()
 
     def pop(self, order: Order, outcome: T):
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            for rs, counts, weight in self._rs.pop(order, outcome):
+                yield MultiDealSource._new_rust(rs), counts, weight
+            return
+
         if not self.outcomes():
             yield self, (0, ) * self.hand_count(), 1
             return
@@ -197,6 +244,10 @@ class MultiDealSource(MultisetTupleSource[T, IntTupleOut]):
 
     @property
     def hash_key(self):
+        # icepool-rs: the Rust source hashes and compares its deck and hand
+        # groups, as this tuple does.
+        if icepool.backend.RUST:
+            return MultiDealSource, self._rs
         return MultiDealSource, self.deck, self.hand_groups
 
     @cached_property
@@ -208,6 +259,9 @@ class MultiDealSource(MultisetTupleSource[T, IntTupleOut]):
         return d_total * d_split
 
     def denominator(self) -> int:
+        # icepool-rs: computed in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.denominator()
         return self._denominator
 
     def hand_sizes(self) -> IntTupleOut:
@@ -228,4 +282,7 @@ class MultiDealSource(MultisetTupleSource[T, IntTupleOut]):
                    for hand_size, group_size in self.hand_groups)
 
     def is_resolvable(self) -> bool:
+        # icepool-rs: read off the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.is_resolvable()
         return len(self.outcomes()) != 0

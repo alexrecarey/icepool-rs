@@ -2,15 +2,17 @@
 
 Not part of upstream icepool. `MultisetEvaluatorBase.evaluate` keeps its argument conversion, `_prepare`, the
 `_cache` of dungeons and the final `Die(final_data)`; for each prepared evaluation whose inputs are all generators
-backed by core sources (a `Pool` or a `Deal`, or a sequence / mapping converted to a pool), `Dungeon.evaluate` runs in Rust:
+backed by core sources (a `Pool`, a `Deal` or a `MultiDeal`, or a sequence / mapping converted to a pool),
+`Dungeon.evaluate` runs in Rust:
 
 * A built-in evaluator the core has (`builtin_spec`) runs entirely in Rust.
 * Any other `MultisetEvaluator`, user subclasses included, runs on the core driver with its `next_state`,
-  `initial_state`, `extra_outcomes` and `final_outcome` called back in Python.
+  `initial_state`, `extra_outcomes` and `final_outcome` called back in Python. So does any evaluation with a
+  `MultiDeal` input, whose counts and size are tuples (the core's built-ins take `int` counts).
 
-Inputs that are multiset expressions (operators between multisets, `unique`, `keep` of an expression...), other
-generators (`MultiDeal`, mixtures...) and `@multiset_function`s are not ported yet (Phase S4): their evaluation is still
-upstream's `Dungeon.evaluate`.
+Inputs that are multiset expressions (operators between multisets, `unique`, `keep` of an expression, a hand of a
+`MultiDeal` such as `deal[0]`...), other generators (mixtures...) and `@multiset_function`s are not ported yet (Phase
+S4): their evaluation is still upstream's `Dungeon.evaluate`.
 
 Rooms are cached per call in the core (ANALYSIS.md decision 5); a dungeon's `ascending_cache` /
 `descending_cache` are not filled by these evaluations.
@@ -23,6 +25,7 @@ import sys
 import icepool
 from icepool.expression.multiset_expression_base import MultisetFreeVariable
 from icepool.generator.multiset_generator import MultisetGeneratorQuestlet
+from icepool.generator.multiset_tuple_generator import MultisetTupleGeneratorQuestlet
 from icepool.order import Order
 
 from typing import Any, Mapping
@@ -47,7 +50,8 @@ def is_rust_evaluable(dungeon, quest, sources) -> bool:
     """Whether `dungeon.evaluate(quest, sources, kwargs)` can run on the core driver.
 
     It can when the evaluator is a plain `MultisetEvaluator` (no `@multiset_function` calls) and every input is a
-    generator (one free variable, one generator questlet) whose source is the core's.
+    generator (one free variable, one generator questlet) whose source is the core's: a pool or deal source with a
+    `MultisetGeneratorQuestlet`, a multi-deal source with a `MultisetTupleGeneratorQuestlet`.
     """
     from icepool.evaluator.multiset_evaluator import MultisetEvaluatorDungeon, MultisetEvaluatorQuest
     if type(dungeon) is not MultisetEvaluatorDungeon or type(
@@ -56,13 +60,20 @@ def is_rust_evaluable(dungeon, quest, sources) -> bool:
     if len(dungeon.dungeonlet_flats) != len(sources) or len(
             quest.questlet_flats) != len(sources):
         return False
+    def generator(q, source) -> bool:
+        if type(q) is MultisetGeneratorQuestlet:
+            return isinstance(source, (icepool.generator.pool.PoolSource,
+                                       icepool.generator.deal.DealSource))
+        if type(q) is MultisetTupleGeneratorQuestlet:
+            return isinstance(source,
+                              icepool.generator.multi_deal.MultiDealSource)
+        return False
+
     return all(
         len(d) == 1 and type(d[0]) is MultisetFreeVariable and len(q) == 1
-        and type(q[0]) is MultisetGeneratorQuestlet
-        and isinstance(source, (icepool.generator.pool.PoolSource,
-                                icepool.generator.deal.DealSource))
-        and '_rs' in source.__dict__ for d, q, source in zip(
-            dungeon.dungeonlet_flats, quest.questlet_flats, sources))
+        and generator(q[0], source) and '_rs' in source.__dict__
+        for d, q, source in zip(dungeon.dungeonlet_flats,
+                                quest.questlet_flats, sources))
 
 
 def _exact_int(x) -> bool:
@@ -140,7 +151,10 @@ def evaluate(evaluator, dungeon, quest, sources,
     rust = icepool.backend.RUST
     rs_sources = [source._rs for source in sources]
     budget = _depth_budget()
-    spec = builtin_spec(evaluator, len(sources), kwargs)
+    spec = None if any(
+        isinstance(source, icepool.generator.multi_deal.MultiDealSource)
+        for source in sources) else builtin_spec(evaluator, len(sources),
+                                                 kwargs)
     if spec is not None:
         name, params = spec
         final_outcomes, final_weights = rust.evaluate_builtin(

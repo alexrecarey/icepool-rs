@@ -214,6 +214,10 @@ fn enc_object(v: &PValue) -> Option<Json> {
             deck_repr(d.deck()).ok()?,
             d.hand_size()
         )}),
+        PValue::MultiDeal(d) => json!({"repr": format!(
+            "MultiDeal: {}",
+            super::multi_deal::repr(d, &deck_repr(d.deck()).ok()?).ok()?
+        )}),
         // A pool's repr, like an `AgainExpression`'s, holds an address.
         PValue::List(_)
         | PValue::Func(_)

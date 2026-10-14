@@ -1,5 +1,6 @@
 //! The evaluation driver of evaluator/multiset_evaluator_base.py (`Dungeon.evaluate`) on the core, for generator
-//! inputs: every input is a `Pool` whose `PoolSource` is the core's.
+//! inputs: every input is a `Pool`, `Deal` or `MultiDeal` whose source is the core's. A `MultiDeal`'s counts and
+//! size are tuples; only [`evaluate_host`] takes them (the facade never names a built-in for one).
 //!
 //! The facade's `MultisetEvaluatorBase.evaluate` keeps its argument conversion, `_prepare` and the outer
 //! `Die(final_data)`; for each prepared evaluation over core sources it calls in here instead of
@@ -28,7 +29,7 @@ use icepool_core::evaluator::poker::{
 };
 use icepool_core::evaluator::{evaluate_with_depth_check, Final, MultisetEvaluator};
 use icepool_core::order::Order;
-use icepool_core::pool::MultisetSource;
+use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::{Error, Quantity, Value};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -37,6 +38,7 @@ use pyo3::IntoPyObjectExt;
 
 use crate::convert::{from_py, host_error, quantity_to_py, to_py, to_py_err};
 use crate::deck::RsDealSource;
+use crate::multi_deal::RsMultiDealSource;
 use crate::pool::RsPoolSource;
 
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`), so it raises
@@ -55,13 +57,16 @@ fn depth_check(depth_budget: isize) -> impl Fn(usize) -> icepool_core::Result<()
     }
 }
 
-/// The core sources of the facade's `PoolSource`s and `DealSource`s (their `_rs`).
+/// The core sources of the facade's `PoolSource`s, `DealSource`s and `MultiDealSource`s (their `_rs`).
 fn sources(sources: &[Bound<'_, PyAny>]) -> PyResult<Vec<MultisetSource<Value>>> {
     sources
         .iter()
         .map(|s| {
             if let Ok(s) = s.cast::<RsPoolSource>() {
                 return Ok(MultisetSource::Pool(s.get().source.clone()));
+            }
+            if let Ok(s) = s.cast::<RsMultiDealSource>() {
+                return Ok(MultisetSource::MultiDeal(s.get().source.clone()));
             }
             Ok(MultisetSource::Deal(
                 s.cast::<RsDealSource>()?.get().source.clone(),
@@ -221,7 +226,7 @@ impl<'py> HostEvaluator<'py> {
         &self,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Count>],
     ) -> icepool_core::Result<Vec<Bound<'py, PyAny>>> {
         let py = self.py();
         let mut args = vec![
@@ -231,7 +236,10 @@ impl<'py> HostEvaluator<'py> {
                 .into_any(),
         ];
         for s in sizes {
-            args.push(s.into_bound_py_any(py).map_err(host_error)?);
+            args.push(match s {
+                None => py.None().into_bound(py),
+                Some(c) => count_py(py, c)?,
+            });
         }
         Ok(args)
     }
@@ -249,6 +257,23 @@ impl<'py> HostEvaluator<'py> {
     fn is_reroll(&self, x: &Bound<'py, PyAny>) -> icepool_core::Result<bool> {
         self.reroll_types.contains(x).map_err(host_error)
     }
+}
+
+/// A count or size as Python gets it: an `int`, or a tuple of `int`s for a `MultiDeal` input.
+fn count_py<'py>(py: Python<'py>, c: &Count) -> icepool_core::Result<Bound<'py, PyAny>> {
+    match c {
+        Count::Int(c) => c.into_bound_py_any(py),
+        Count::Tuple(cs) => PyTuple::new(py, cs.iter()).map(Bound::into_any),
+    }
+    .map_err(host_error)
+}
+
+fn int_counts(counts: &[i64]) -> Vec<Count> {
+    counts.iter().map(|&c| Count::Int(c)).collect()
+}
+
+fn int_sizes(sizes: &[Option<i64>]) -> Vec<Option<Count>> {
+    sizes.iter().map(|s| s.map(Count::Int)).collect()
 }
 
 fn values_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
@@ -273,10 +298,7 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
         outcomes: &[Value],
         sizes: &[Option<i64>],
     ) -> icepool_core::Result<Value> {
-        // `quest.initial_state_main(order, outcomes, *arg_sizes, **kwargs)`
-        let args = self.order_outcomes_sizes(order, outcomes, sizes)?;
-        let state = self.call(&self.initial_state, args, self.kwargs.as_ref())?;
-        from_py(&state).map_err(host_error)
+        self.initial_state_counts(order, outcomes, &int_sizes(sizes))
     }
 
     fn next_state(
@@ -286,6 +308,38 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
         outcome: &Value,
         counts: &[i64],
     ) -> icepool_core::Result<Option<Value>> {
+        self.next_state_counts(state, order, outcome, &int_counts(counts))
+    }
+
+    fn final_outcome(
+        &self,
+        final_state: &Value,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<i64>],
+    ) -> icepool_core::Result<Final<Py<PyAny>>> {
+        self.final_outcome_counts(final_state, order, outcomes, &int_sizes(sizes))
+    }
+
+    fn initial_state_counts(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> icepool_core::Result<Value> {
+        // `quest.initial_state_main(order, outcomes, *arg_sizes, **kwargs)`
+        let args = self.order_outcomes_sizes(order, outcomes, sizes)?;
+        let state = self.call(&self.initial_state, args, self.kwargs.as_ref())?;
+        from_py(&state).map_err(host_error)
+    }
+
+    fn next_state_counts(
+        &self,
+        state: &Value,
+        order: Order,
+        outcome: &Value,
+        counts: &[Count],
+    ) -> icepool_core::Result<Option<Value>> {
         // `self.next_state_main(prev_state_main, eval_order, outcome, *count_tree)`
         let py = self.py();
         let mut args = vec![
@@ -294,7 +348,7 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
             to_py(py, outcome).map_err(host_error)?,
         ];
         for c in counts {
-            args.push(c.into_bound_py_any(py).map_err(host_error)?);
+            args.push(count_py(py, c)?);
         }
         let next = self.call(&self.next_state, args, None)?;
         // `if state_main not in icepool.REROLL_TYPES`: a Reroll drops this branch.
@@ -315,12 +369,12 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
             .map_err(host_error)
     }
 
-    fn final_outcome(
+    fn final_outcome_counts(
         &self,
         final_state: &Value,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Count>],
     ) -> icepool_core::Result<Final<Py<PyAny>>> {
         // `self.final_outcome(state, order, outcomes, *arg_sizes, **kwargs)`
         let mut args = vec![to_py(self.py(), final_state).map_err(host_error)?];

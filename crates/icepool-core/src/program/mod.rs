@@ -13,6 +13,7 @@ mod evaluate;
 mod format;
 mod map;
 mod map_tools;
+mod multi_deal;
 mod ops;
 mod pool;
 mod statistics;
@@ -53,6 +54,8 @@ pub enum PValue {
     Deck(crate::Deck<Value>),
     /// An `icepool.Deal` (a `KeepGenerator`).
     Deal(crate::Deal<Value>),
+    /// An `icepool.MultiDeal` (a `MultisetTupleGenerator`).
+    MultiDeal(crate::MultiDeal<Value>),
     /// `...`, for keep indices.
     Ellipsis,
     /// A `DieWithTruth`: what `die == x` and `die != x` return. A die everywhere (`the_die`, `to_die`), except

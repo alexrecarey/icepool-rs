@@ -438,7 +438,7 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         | PValue::Ellipsis => true,
         // A deck is a mapping: truthy unless empty.
         PValue::Deck(d) => !d.is_empty(),
-        PValue::Pool(_) | PValue::Deal(_) => {
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => {
             return Err(PErr::Unimplemented("the truth value of a pool".into()))
         }
         PValue::Again(_) => {

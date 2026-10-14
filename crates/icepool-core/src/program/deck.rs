@@ -353,13 +353,13 @@ pub fn deck_pad_to_denominator(
     )
 }
 
-/// `deck.deal(hand_size)` for an int: a `Deal`. (An iterable of hand sizes makes a `MultiDeal`: not ported.)
+/// `deck.deal(hand_size)` for an int: a `Deal`. Anything else is an iterable of hand sizes: a `MultiDeal`.
 pub fn deal(deck: PValue, hand_size: PValue) -> Result<PValue, PErr> {
     let deck = the_deck(deck)?;
     let hand_size = match hand_size {
         PValue::Value(Value::Int(i)) => i,
         PValue::Value(Value::Bool(b)) => IBig::from(b as u8),
-        _ => return Err(PErr::Unimplemented("MultiDeal".into())),
+        hand_sizes => return super::multi_deal::deal(deck, hand_sizes),
     };
     Ok(PValue::Deal(Deal::new(deck, &hand_size)?))
 }

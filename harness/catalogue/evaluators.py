@@ -150,3 +150,29 @@ class ScaledSize(MultisetEvaluator):
 
     def final_outcome(self, final_state, order, outcomes, *sizes, start=0, scale=1):
         return final_state * scale
+
+
+# --- S4b: evaluators written for multiset tuple inputs (MultiDeal), whose counts and sizes are tuples ------------
+
+@evaluator("hand_sums", inputs=lambda g: 1)
+class HandSums(MultisetEvaluator):
+    """For a tuple input (a MultiDeal), the sum of the cards of each hand. Given a pool, initial_state raises
+    TypeError (an int size is not iterable)."""
+
+    def initial_state(self, order, outcomes, *sizes):
+        return tuple(0 for _ in sizes[0])
+
+    def next_state(self, state, order, outcome, counts):
+        return tuple(x + outcome * c for x, c in zip(state, counts))
+
+
+@evaluator("record", inputs=lambda g: g.rng.choice([1, 1, 2]))
+class Record(MultisetEvaluator):
+    """Every (outcome, *counts) in the order next_state sees them, finalized as (record, sizes): shows the counts
+    and sizes exactly as the driver passes them (ints, tuples, None)."""
+
+    def next_state(self, state, order, outcome, *counts):
+        return (state or ()) + ((outcome,) + counts,)
+
+    def final_outcome(self, final_state, order, outcomes, *sizes):
+        return (final_state, sizes)

@@ -18,6 +18,7 @@ use crate::keep_tuple::{
     self, pop_max_from_keep_tuple, pop_min_from_keep_tuple, sum_counts, KeepIndex,
 };
 use crate::math::comb_row;
+use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::Quantity;
@@ -210,30 +211,56 @@ impl<O: Outcome> Pool<O> {
 }
 
 /// What the evaluator pops outcomes from: one variant per kind of multiset generator (`MultisetSource`), each a
-/// small immutable value that hashes for the evaluator's memo.
+/// small immutable value that hashes for the evaluator's memo. `Pool` and `Deal` produce an `int` count per
+/// outcome; `MultiDeal` (a `MultisetTupleSource`) a tuple of counts, one per hand.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
     Pool(PoolSource<O>),
     Deal(DealSource<O>),
+    MultiDeal(MultiDealSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
 pub type Popped<S> = (S, i64, Quantity);
+
+/// What a source produces for one outcome, and its size: an `int` (multiset generators) or a tuple of `int`s
+/// (multiset tuple generators). The evaluator's `next_state` receives it as is.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Count {
+    Int(i64),
+    Tuple(Arc<[i64]>),
+}
+
+/// A source's possibilities as the driver sees them.
+pub type SourcePopped<O> = (MultisetSource<O>, Count, Quantity);
+
+fn int_popped<S, O>(
+    popped: Vec<Popped<S>>,
+    f: impl Fn(S) -> MultisetSource<O>,
+) -> Vec<SourcePopped<O>> {
+    popped
+        .into_iter()
+        .map(|(s, c, w)| (f(s), Count::Int(c), w))
+        .collect()
+}
 
 impl<O: Outcome> MultisetSource<O> {
     pub fn outcomes(&self) -> &[O] {
         match self {
             MultisetSource::Pool(s) => s.outcomes(),
             MultisetSource::Deal(s) => s.outcomes(),
+            MultisetSource::MultiDeal(s) => s.outcomes(),
         }
     }
 
     /// The total number of elements output by this source, if only non-negative counts are output (else `None`).
-    pub fn size(&self) -> Result<Option<i64>> {
-        match self {
-            MultisetSource::Pool(s) => s.size(),
-            MultisetSource::Deal(s) => s.size(),
-        }
+    /// A tuple source's size is the tuple of its hands' sizes.
+    pub fn size(&self) -> Result<Option<Count>> {
+        Ok(match self {
+            MultisetSource::Pool(s) => s.size()?.map(Count::Int),
+            MultisetSource::Deal(s) => s.size()?.map(Count::Int),
+            MultisetSource::MultiDeal(s) => Some(Count::Tuple(s.size())),
+        })
     }
 
     /// Whether this source contains any probability.
@@ -241,6 +268,7 @@ impl<O: Outcome> MultisetSource<O> {
         match self {
             MultisetSource::Pool(s) => s.is_resolvable(),
             MultisetSource::Deal(s) => s.is_resolvable(),
+            MultisetSource::MultiDeal(s) => s.is_resolvable(),
         }
     }
 
@@ -249,24 +277,23 @@ impl<O: Outcome> MultisetSource<O> {
         match self {
             MultisetSource::Pool(s) => s.order_preference(),
             MultisetSource::Deal(s) => s.order_preference(),
+            MultisetSource::MultiDeal(s) => s.order_preference(),
         }
     }
 
     /// Yields `(this source with the outcome popped, count of that outcome, weight)` for each possibility. If
-    /// `outcome` is not the one this source pops in `order`, the only possibility is `(self, 0, 1)`.
-    pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
-        match self {
-            MultisetSource::Pool(s) => Ok(s
+    /// `outcome` is not the one this source pops in `order`, the only possibility is `(self, 0, 1)` (a tuple of
+    /// zeros for a tuple source).
+    pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<SourcePopped<O>>> {
+        Ok(match self {
+            MultisetSource::Pool(s) => int_popped(s.pop(order, outcome)?, MultisetSource::Pool),
+            MultisetSource::Deal(s) => int_popped(s.pop(order, outcome)?, MultisetSource::Deal),
+            MultisetSource::MultiDeal(s) => s
                 .pop(order, outcome)?
                 .into_iter()
-                .map(|(s, c, w)| (MultisetSource::Pool(s), c, w))
-                .collect()),
-            MultisetSource::Deal(s) => Ok(s
-                .pop(order, outcome)?
-                .into_iter()
-                .map(|(s, c, w)| (MultisetSource::Deal(s), c, w))
-                .collect()),
-        }
+                .map(|(s, c, w)| (MultisetSource::MultiDeal(s), Count::Tuple(c), w))
+                .collect(),
+        })
     }
 }
 

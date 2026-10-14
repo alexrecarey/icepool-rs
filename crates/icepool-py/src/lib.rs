@@ -11,6 +11,7 @@ mod evaluate;
 mod format;
 mod map;
 mod map_tools;
+mod multi_deal;
 mod ops;
 mod pool;
 mod stats;
@@ -496,6 +497,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<deck::RsDeck>()?;
     m.add_class::<deck::RsDeal>()?;
     m.add_class::<deck::RsDealSource>()?;
+    m.add_class::<multi_deal::RsMultiDeal>()?;
+    m.add_class::<multi_deal::RsMultiDealSource>()?;
     m.add_function(wrap_pyfunction!(expand_args_for_die, m)?)?;
     m.add_function(wrap_pyfunction!(from_counts_items, m)?)?;
     m.add_function(wrap_pyfunction!(unary_operator, m)?)?;
@@ -527,6 +530,7 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(deck::deck_from_counts_items, m)?,
         wrap_pyfunction!(deck::deck_counter_op, m)?,
         wrap_pyfunction!(deck::deal_new, m)?,
+        wrap_pyfunction!(multi_deal::multi_deal_new, m)?,
         wrap_pyfunction!(stats::quantities, m)?,
         wrap_pyfunction!(stats::quantity, m)?,
         wrap_pyfunction!(stats::probability, m)?,

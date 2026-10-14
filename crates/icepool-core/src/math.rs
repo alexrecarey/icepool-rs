@@ -63,6 +63,38 @@ pub fn comb(n: &Quantity, k: usize) -> Quantity {
     result
 }
 
+/// `iter_hypergeom(deck, draws)`: iterates over the `(hand, weight)`s in the given `Deck`.
+///
+/// `deck` is the number of duplicates of each card in the `Deck`, `draws` the total number of cards to draw. Each
+/// `hand` says how many of each card were drawn; `weight` is the weight of drawing that hand. In Python's order: the
+/// first card's count varies slowest.
+pub fn iter_hypergeom(deck: &[usize], draws: usize) -> Vec<(Vec<usize>, Quantity)> {
+    fn go(
+        deck: &[usize],
+        draws: usize,
+        prefix: &mut Vec<usize>,
+        weight: &Quantity,
+        out: &mut Vec<(Vec<usize>, Quantity)>,
+    ) {
+        let Some((&deck_count, tail)) = deck.split_first() else {
+            out.push((prefix.clone(), weight.clone()));
+            return;
+        };
+        let deck_size: usize = deck.iter().sum(); // assume deck is small?
+        let min_count = (deck_count + draws).saturating_sub(deck_size);
+        let max_count = deck_count.min(draws);
+        for count in min_count..=max_count {
+            let w = weight * comb(&Quantity::from(draws), count);
+            prefix.push(count);
+            go(tail, draws - count, prefix, &w, out);
+            prefix.pop();
+        }
+    }
+    let mut out = Vec::new();
+    go(deck, draws, &mut Vec::new(), &Quantity::ONE, &mut out);
+    out
+}
+
 pub fn lcm(a: &Quantity, b: &Quantity) -> Quantity {
     if a.is_zero() || b.is_zero() {
         return Quantity::ZERO;
