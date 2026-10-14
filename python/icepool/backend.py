@@ -9,8 +9,8 @@ imported:
     imported, importing icepool fails.
 
 `RUST` is the extension module when the backend is `rust`, else `None`; switched code tests `if RUST:`.
-Switched so far: Die construction (`Die.__new__`'s merge and sort) and Die arithmetic (`unary_operator`,
-`binary_operator`).
+Which modules are switched, and what work still runs in Python under `rust` (with the task that covers it), is
+listed in FACADE-AUDIT.md at the repository root.
 """
 
 import os

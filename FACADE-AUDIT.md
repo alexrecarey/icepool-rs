@@ -1,6 +1,8 @@
 # Facade audit (S5b)
 
-Every module of `python/icepool` under `ICEPOOL_BACKEND=rust`, at the end of S5b. Status:
+Every module of `python/icepool` under `ICEPOOL_BACKEND=rust`, at the end of S5b, rechecked by S5 (no change in
+status: the exports S5 gave grammar nodes, `tupleize` / `middle` / `map_function` / Die's `Counts` views, already
+ran on the core or composed core calls). Status:
 
 - **core**: its computational work runs in `icepool_rs` (Python only juggles arguments, builds objects or holds data);
 - **via**: no switch of its own, but it only composes operations that are on the core, or it is declarations / base
@@ -11,7 +13,7 @@ Every module of `python/icepool` under `ICEPOOL_BACKEND=rust`, at the end of S5b
 | module | status | notes |
 |---|---|---|
 | `__init__.py` | via | imports / exports, `Reroll` / `Restart` constants |
-| `backend.py` | core | the switch itself (its docstring's "switched so far" is out of date) |
+| `backend.py` | core | the switch itself (its docstring points here) |
 | `collection/__init__.py` | via | empty |
 | `collection/counts.py` | core | holds the Python copy of core-made items (`_from_sorted_items`); sorting / `remove_min` only on Python paths |
 | `collection/symbols.py` | core | operators, comparisons, `count_subset`, `size`, `_str` via icepool_rs |

@@ -402,3 +402,23 @@ Drafted upstream test:
 def test_consecutive_iterator():
     assert icepool.consecutive(iter([1, 3])) == (1, 2, 3)
 ```
+
+### `d` / `z` are `@cache`d and keyed by `==`, so `z(Fraction(1))` succeeds after `z(True)` (S5)
+
+function.py `d(sides)` and `z(sides)` are wrapped in `functools.cache`, which looks arguments up by hash and `==`
+before the body runs. A lone `int` argument is its own key, but any other type is keyed as a one-element list, and
+`[True] == [1.0] == [Fraction(1)]` (equal hashes too). So once `z(True)` is cached, `z(1.0)` and `z(Fraction(1))`
+return that die instead of raising `TypeError('sides must be an int.')`; in a fresh process (or after only `z(1)`)
+they raise. Results then depend on what the process computed before (the fresh-seed fuzz met it: a long-lived
+oracle). The port has no cross-call cache and gives what a fresh process gives; the `d`, `z`, `dz_attr`, `d_pool`
+and `z_pool` nodes call `fresh_dz()` (harness/grammar/basic.py: `d.cache_clear()`, `z.cache_clear()`) first so the
+oracle does too (fixtures/s5/dz-cache runs the sequence in one process). The facade keeps upstream's `@cache`.
+
+Drafted upstream test:
+
+```python
+def test_d_rejects_non_int_after_cache():
+    icepool.d(True)
+    with pytest.raises(TypeError):
+        icepool.d(1.0)  # fails: returns the cached d(True)
+```

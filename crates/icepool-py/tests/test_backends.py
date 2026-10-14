@@ -891,6 +891,28 @@ CASES = [
     'Die([1, 2]).cmp("a")',
     'Die([Vector((1, 2)), Vector((3, 0))]).cmp(Vector((2, 2)))',
     'Die([]).cmp(3)',
+    # S5: exports without a node before (middle, tupleize, map_function, Die's Counts views), host outcomes.
+    'middle([d(6), d(8), Die([Card(1), Card(2)])])',
+    'middle([d(6), d(8), d(10)], keep=2)',
+    'middle(d(6), d(8), tie="low")',
+    'middle([], default=Card(3))',
+    'Die([E.A, E.B]).middle(3)',
+    'd(6).middle(4, 2, tie="high")',
+    'tupleize(Die([E.A, E.B]), Card(1))',
+    'tupleize(d(2), Reroll, d(3))',
+    'tupleize(Card(1), 2)',
+    'map_function(lambda x, y: (x, y), star=True)(Die([P(1, 2), P(3, 4)]))',
+    'map_function(lambda x, y: x + y)(Die([P(1, 2), P(3, 4)]))',
+    'map_function(star=False)(lambda x, y: x + y)(Die([P(1, 2)]))',
+    'map_function(again_depth=1)(lambda x: 6 + Again if x == 6 else x)(d(6))',
+    'map_function(lambda x, *, k: x + k, k=Card(1))(d(2))',
+    'Die([Card(2), Card(1)]).keys()[0]',
+    'Die([Card(2), Card(1)]).items()[::-1]',
+    'Die([E.A, E.B]).values() == (1, 1)',
+    'Die([E.A, E.B]).keys() == [E.A, E.B]',
+    'Card(1) in Die([Card(1)])',
+    '[1] in d(6)',
+    'd(6)[7]',
 ]
 
 SCRIPT = PRELUDE + '''

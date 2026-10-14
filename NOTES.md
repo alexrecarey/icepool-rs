@@ -5,6 +5,19 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **S5: the check that nothing of Vector / Symbols / wallenius / function.py / `__init__` exports is left.** S5a/S5b
+  covered the area; the open Python work is all in tasks (FACADE-AUDIT.md: S3c, S4e, S4f, K6c, S5c). S5 compared
+  `__all__` with the grammar and added nodes for the exports that had none: `tupleize` (collection.py; Rust
+  `collection::cartesian_product`, shared with `vectorize`), `middle` and `die_middle` (pool.py; compose `pool` /
+  `pool_middle` / the sum evaluation), `map_function` (maps.py; given `f` directly upstream binds only `**kwargs`,
+  so `star` is dropped, the decorator form keeps it) and `die_method` (die_methods.py: `die[x]`, `x in die`, `len`,
+  iteration, the `CountsKeysView` / `ValuesView` / `ItemsView` indexing, slicing and `==`, min/max_outcome,
+  is_empty). `map_to_pool` still has no node (S3c). Fuzz `die_method` together with die nodes
+  (`--ops die_method,d,die,...`): alone the generator cannot build its die argument and tests nothing.
+- **icepool.d / icepool.z are `@functools.cache`d** (keyed by `==` for non-int arguments): in the long-lived fuzz
+  oracle `z(True)` made `z(Fraction(1))` return a die. Nodes calling d / z run `basic.fresh_dz()` first
+  (DIVERGENCES.md). Any new node calling them, or another `@cache`d upstream function, must clear the cache too.
+
 - **S4: the check that nothing of Deck / Deal / MultiDeal / multiset operators / expressions is left.** S4a-S4d
   covered the area; what is still open is all in tasks: weightless generators (S4e), operators over tuple counts,
   mixture inner equality, @multiset_function kwargs (S4f), evaluators called back from the driver incl. argsort,
