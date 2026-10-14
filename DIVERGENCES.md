@@ -290,3 +290,67 @@ def test_tuple_index_hash_key_includes_child():
     assert not a.equals(b)
     assert MultisetMixture([a, b]).sum().equals(Die([1, 2, 5, 6]))
 ```
+
+### `Symbols.isdisjoint` returns whether the two *intersect* (S5a)
+
+`Symbols.isdisjoint(other)` (collection/symbols.py) is `any(self[s] > 0 and other[s] > 0 for s in self)`: True when
+some symbol is positive in both, the opposite of what the name and the set API mean (`{1}.isdisjoint({1})` is
+False). Copied (core `Symbols::isdisjoint`).
+
+Drafted upstream test:
+
+```python
+def test_symbols_isdisjoint():
+    assert not Symbols('ab').isdisjoint('bc')
+    assert Symbols('ab').isdisjoint('c')
+```
+
+### `Symbols.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S5a)
+
+They are `functools.reduce(operator.add, args, initial=self)`, and `reduce` only accepts `initial` as a keyword
+from Python 3.14: on the oracle's Python (3.13) every call raises `TypeError: reduce() takes no keyword arguments`,
+even with no arguments. Copied (program/collection.rs); the facade runs the same Python, so it raises the same way.
+`reduce(operator.add, args, self)` works everywhere.
+
+Drafted upstream test:
+
+```python
+def test_symbols_multi_argument_methods():
+    assert Symbols('a').additive_union('b', 'b') == Symbols('abb')
+    assert Symbols('abc').difference('a', 'b') == Symbols('c')
+    assert Symbols('aab').intersection('ab') == Symbols('ab')
+    assert Symbols('a').union() == Symbols('a')
+```
+
+### A die of nested vectors cannot be sorted (S5a)
+
+A comparison of two vectors of the same length takes its truth value from `op(self._data, other._data)`, a tuple
+comparison, and Python's tuple comparison returns the comparison of the first differing elements *as is*. For
+vectors of vectors that is again a `Vector`, so `bool()` of the outer result raises `TypeError: __bool__ should
+return bool, returned Vector`. Hence `vectorize(die_of_vectors)`, `Die([Vector((Vector((1,)),)),
+Vector((Vector((2,)),))])` and `d4 ** Die([Vector((-1,))])` vectorized all raise "Items do not appear to be
+sortable". Copied (core `Vector`'s truth value is the raw object, `Value::binary` on tuples returns the element
+comparison's object).
+
+Drafted upstream test:
+
+```python
+def test_nested_vectors_sort():
+    die = Die([Vector((Vector((2,)),)), Vector((Vector((1,)),))])
+    assert die.outcomes() == (Vector((Vector((1,)),)), Vector((Vector((2,)),)))
+```
+
+### `==` between dice of vectors of different lengths only has a truth value (S5a)
+
+`Vector((1,)) == Vector((1, 2))` is a `VectorWithTruthOnly`, whose hash raises `ValueError` (it reads `_data`), so
+the data of `Die([Vector((1,))]) == Die([Vector((1, 2))])` raises, while its truth value (`equals`) works. The port
+keeps the error for whoever reads the data (`PValue::DieWithTruthError`).
+
+Drafted upstream test:
+
+```python
+def test_die_of_vectors_eq_different_lengths():
+    result = Die([Vector((1,))]) == Vector((1, 2))
+    assert not result
+    assert result.equals(Die([False]))
+```

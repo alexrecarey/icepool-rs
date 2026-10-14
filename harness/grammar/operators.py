@@ -22,12 +22,16 @@ def scalar(g):
 
 
 def operand(g, depth):
-    """The other operand of a binary operator: a die (any generator), an int-kind node, or a typed scalar."""
+    """The other operand of a binary operator: a die (any generator), an int-kind node, a typed scalar, or now and
+    then a Vector or Symbols."""
+    from harness.grammar.collection import collection_lit
     r = g.rng.random()
     if r < 0.2:
         return g.make("int", depth)
-    if r < 0.35:
+    if r < 0.33:
         return scalar(g)
+    if r < 0.35:
+        return collection_lit(g)
     return g.die(depth)
 
 

@@ -5,6 +5,50 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Vector and Symbols as native values (S5a).** Core `value/vector.rs` (`Vector { data: Option<Arc<[Value]>>,
+  truth: Option<Arc<Value>> }`; `data: None` is `VectorWithTruthOnly`, whose every use but `bool()`/`repr()` raises
+  ValueError) and `value/symbols.rs` (`Symbols { data: Arc<[(char, Value)]> }` in the *dict's insertion order*:
+  the constructor sorts, operators build with `_new_raw` and do not; zero counts stay keys, so `len`/`bool` count
+  them while `==`/`str`/hash do not; counts are `Value`s with Python's arithmetic). `ops::collection_binary` is
+  Python's dispatch when either operand is one (left method, then the right one's reflected method or swapped
+  comparison, then TypeError; `str % x` formats first). `Value::eq_op` is the operator `==` (a Vector compares
+  elementwise, `Symbols('ab') == 'ab'` is True, a failed `Symbols(other)` falls back to identity = unequal);
+  `PartialEq` stays *dict* equality (a Vector/Symbols only equals its own kind, as their hashes differ from
+  everything else's). `Outcome::py_eq` is `bool(a == b)`: `Counts::new` sorts `(outcome, quantity)` pairs with it,
+  as Python's `sorted(items)` does, so `Die([Symbols('a'), 'a'])` keeps both, ordered by quantity.
+  `Value::truthy()` now returns `Result` (a Vector without a truth value raises; so do host objects), and
+  `HostObject::truthy` too. A vector's truth value is the raw object of `op(self._data, other._data)`:
+  `Value::binary` on two tuples returns the first differing elements' comparison *object* (Python's tuple
+  comparison), so nested vectors don't sort (DIVERGENCES.md). `Die::hash_key_compare` returns a `Value` likewise.
+  `Value::check_hashable` (VWTO anywhere inside) is part of `check_key`. `wire::enc` is fallible (encoding a VWTO
+  raises, as encode.py's iteration does).
+- Program layer `program/collection.rs`, grammar harness/grammar/collection.py: `die_vectors`, `die_symbols`
+  (plain `Die(outcomes)` of literals; "die" kind, so every die node gets them), `vectorize` (no Reroll in the
+  generator: Reroll would flow into other die nodes), and on kind "collection": `vector`, `symbols`, `coll_binary`
+  (`operator.<name>`, incl. eq/ne), `coll_unary` (incl. round), `coll_truth`, `vector_method`, `symbols_method`
+  (`keys`/`values`/`len`/`repr` expose dict order and zero counts, which the wire format's `str()` hides).
+  `operators.operand` returns a vector/symbols literal 2% of the time. `py_iter` iterates vectors (elements) and
+  Symbols (keys). `Symbols // die` is `count_subset` over the die's items (a die is an iterable mapping).
+  `PValue::DieWithTruthError(err, truth)`: Python's `DieWithTruth` computes its data lazily, so `bool(die_of_vectors
+  == other_length_vector)` works while its data raises; `eval` raises the error for any node but `truth` /
+  `coll_truth`, and so do list elements and the result encoder. Catalogue `is_even` returns `x % 2 == 0` as is.
+- Facade: python/icepool/collection/vector.py routes `binary_operator`, `reverse_binary_operator`,
+  `unary_operator` to `icepool_rs.vector_*` (after the Population/AgainExpression `NotImplemented` check; the op
+  is classified like `Die`'s: standard operators native, anything else a host callback per element, the truth value
+  `op(tuple, tuple)` through the same callback). symbols.py: constructor (`symbols_from_str/_iter/_mapping` return
+  the sorted items; the facade builds the `defaultdict`), every operator and method (`symbols_op`, `symbols_unary`,
+  `symbols_count_subset`, `symbols_getitem`) after Python's own juggling (`Symbols(other)`, `isinstance(other,
+  int)`, `Counter(divisor)`). Container protocol, `__hash__` (Python's own formula), `__bool__`, `append`,
+  `concatenate`, `__getattr__` stay Python. `expand.cartesian_product(outcome_type=Vector)` uses
+  `icepool_rs.vectorize`. convert.rs: *exact* `Vector`, `VectorWithTruthOnly`, `Symbols` cross as native values
+  (truth value included; back via `Vector(items, truth_value=...)`, `VectorWithTruthOnly(t)`, `Symbols._new_raw(
+  defaultdict(int, items))`); a `Symbols` with a non-character key (only `s[tuple]` makes one) stays a host object
+  and its methods raise NotImplementedError, as does `s[key]` for a non-str key of length != 1.
+- Gaps: tuple equality inside the core is `PartialEq`, so `(Symbols('a'),) == ('a',)` is False where Python says
+  True (only reachable with Symbols next to equal strs in tuples). Python's identity shortcut in `==` is not
+  modelled (as for NaN). The pinned oracle's `Symbols.__getitem__` already uses `.get` (ANALYSIS.md's "inserts
+  missing keys" bug is fixed there), so there is no defaultdict-insertion quirk left to copy.
+
 - **@multiset_function, tuple expressions, mixtures on the core (S4d).** Core `expression.rs` drives a `CallTree`
   (`flats` + `calls`, = Python's Dungeonlet/QuestletCallTree) with two new dungeonlets: `Parameter{arg_index,
   star_index}` (reads the *enclosing call's* output counts/sizes, `arg[star]` with Python subscript errors) and
@@ -459,7 +503,7 @@ turns out wrong. Newest decisions at the top of each section.
   (Rust hashes str/tuple its own way). Program results never contain a host value.
 - **`icepool_rs` (crates/icepool-py)**, pyo3 0.29 (no `extension-module` feature: workspace build/test/clippy
   link fine). `convert.rs`: exact `bool/int/float/Fraction/str/tuple/None` become native values, everything else
-  (subclasses, `complex`, Vector, Symbols, user classes) a `PyHost` (hash taken on entry: unhashable raises
+  (subclasses, `complex`, user classes; Vector/Symbols are native since S5a) a `PyHost` (hash taken on entry: unhashable raises
   TypeError like the dict insertion). Big ints cross as hex (exempt from Python's int/str digit limit). `ops.rs`:
   the callable the facade passes is matched by identity against `operator.*`, `math.trunc/floor/ceil`, `round`;
   `operator.eq/ne` use `Value ==` unless a host object is inside (then Python's `==`); anything else, or any
@@ -653,8 +697,8 @@ turns out wrong. Newest decisions at the top of each section.
     Python's `==`/`hash`. The core is generic over it; `i64` implements it too (typed fast path later).
   - `value/`: `enum Value { None, Bool, Int(IBig), Float(f64), Fraction(RBig), Str(Arc<str>), Tuple(Arc<[Value]>) }`,
     the dynamic outcome both bindings use. `number.rs`: exact int/float/Fraction comparison and CPython's numeric
-    hash (mod 2**61-1, so equal numbers of any type hash alike). `repr.rs`: Python `repr(float)`. Add Vector,
-    Symbols, Die-as-value, Host here as new variants.
+    hash (mod 2**61-1, so equal numbers of any type hash alike). `repr.rs`: Python `repr(float)`. Vector,
+    Symbols (S5a) and Host are variants here; add Die-as-value the same way.
   - `error.rs`: `Error::{Type, Value, ZeroDivision, Overflow}` named after the Python exception (facade re-raises).
   - `counts.rs`: `Counts<O>` (sorted items, zeros kept), `py_sorted` (stable merge sort using only `<`, stops on the
     first raising comparison), `OrderedMerge` (= `defaultdict(int)`: insertion order, first key spelling kept).
@@ -719,6 +763,5 @@ turns out wrong. Newest decisions at the top of each section.
 - Operator generators: `operators.py` `operand(g, depth)` / `scalar(g)` (die, int node, or typed scalar incl.
   float/Fraction/bool/str/tuple/None) are shared with basic.py's `_binary`. `pow`/`lshift`/`rshift` use a small
   right operand (`_small`) so programs stay cheap.
-- Vector and Symbols literals decode to `unimplemented` (task S5).
 - The oracle drops zero quantities passed to `Die({...})` at construction: `Die({1: 0, 3: 5})` has one outcome.
   Zero quantities still survive when mixing a die that has them (`Die([X, 3])` keeps X's zeros; `Die([X])` is X).

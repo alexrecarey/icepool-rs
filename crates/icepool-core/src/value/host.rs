@@ -1,5 +1,5 @@
 //! `Value::Host`: an outcome owned by the host language, for which the core has no native variant (in Python:
-//! `Vector`, `Symbols`, namedtuples, enums, user classes...). See docs/ANALYSIS.md, "Outcome type": the escape hatch
+//! namedtuples, enums, user classes...). See docs/ANALYSIS.md, "Outcome type": the escape hatch
 //! that keeps the core static while any Python outcome still works.
 //!
 //! The core never looks inside a host object. Whenever an operator or comparison has a host object on either side,
