@@ -100,8 +100,16 @@ class MultisetEvaluatorBase(ABC, Generic[T, U_co]):
                 else:
                     self._cache[dungeon] = dungeon
 
-            result: 'icepool.Die[U_co]' = dungeon.evaluate(
-                quest, sources, kwargs)
+            result: 'icepool.Die[U_co]'
+            from icepool.evaluator import evaluator_rust
+            if icepool.backend.RUST and evaluator_rust.is_rust_evaluable(
+                    dungeon, quest, sources):
+                # icepool-rs: generator inputs evaluate on the core driver
+                # (evaluator_rust.py); multiset expressions are not ported yet.
+                result = evaluator_rust.evaluate(self, dungeon, quest,
+                                                 sources, kwargs)
+            else:
+                result = dungeon.evaluate(quest, sources, kwargs)
             final_data[result] += weight
 
         return icepool.Die(final_data)

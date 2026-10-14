@@ -5,6 +5,7 @@
 //! the facade's `Counts`.
 
 mod convert;
+mod evaluate;
 mod map;
 mod ops;
 mod pool;
@@ -483,6 +484,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(map::map_simple, m)?,
         wrap_pyfunction!(map::tupleize, m)?,
         wrap_pyfunction!(pool::pool_new, m)?,
+        wrap_pyfunction!(evaluate::evaluate_builtin, m)?,
+        wrap_pyfunction!(evaluate::evaluate_host, m)?,
         wrap_pyfunction!(pool::pool_additive_union, m)?,
     ] {
         m.add_function(f)?;

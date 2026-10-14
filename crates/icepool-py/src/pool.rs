@@ -2,8 +2,7 @@
 //!
 //! The facade's `Pool.__new__` keeps the argument juggling (`Pool(pool, times)`, `itemize`,
 //! `implicit_convert_to_die`) and holds the core pool made here as `_rs`; keeping, multiplying counts, merging
-//! pools and popping run in the core. The evaluation driver is still the facade's Python (task S1e): it pops a
-//! `PoolSource` wrapping the `icepool_rs.PoolSource` made here.
+//! pools and popping run in the core, and so does the evaluation driver over these sources (evaluate.rs).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -29,7 +28,7 @@ pub struct RsPool {
 /// What the evaluator pops outcomes from, held by the facade's `PoolSource` as `_rs`.
 #[pyclass(frozen, name = "PoolSource", module = "icepool_rs")]
 pub struct RsPoolSource {
-    source: PoolSource<Value>,
+    pub(crate) source: PoolSource<Value>,
 }
 
 /// One die count of `Pool(dice, times)`. Python adds the counts up and builds `(1, ) * sum(times)`, which raises

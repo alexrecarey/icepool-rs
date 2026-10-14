@@ -45,6 +45,80 @@ class Card:
     def __add__(self, other): raise Boom()
     def __neg__(self): return Card(-self.rank)
 
+class HostState(MultisetEvaluator):
+    """States are frozensets (host objects to the core)."""
+    def next_state(self, state, order, outcome, count):
+        s = state or frozenset()
+        return s | {outcome} if count > 0 else s
+    def final_outcome(self, final_state, order, outcomes, *sizes):
+        return tuple(sorted(final_state or ()))
+
+class KwEval(MultisetEvaluator):
+    def initial_state(self, order, outcomes, *sizes, start=0, scale=1):
+        return start
+    def next_state(self, state, order, outcome, count):
+        return state + count
+    def final_outcome(self, final_state, order, outcomes, *sizes, start=0, scale=1):
+        return final_state * scale
+
+class BoomEval(MultisetEvaluator):
+    def next_state(self, state, order, outcome, count):
+        if outcome == 3:
+            raise Boom()
+        return outcome
+
+class MyUnsupported(UnsupportedOrder):
+    pass
+
+class AscOnly(MultisetEvaluator):
+    def initial_state(self, order, outcomes, *sizes):
+        if order < 0:
+            raise MyUnsupported('ascending only')
+        return ()
+    def next_state(self, state, order, outcome, count):
+        return state + (outcome,) * count
+
+class AscOnly2(AscOnly):
+    def next_state(self, state, order, outcome, *counts):
+        return state + (outcome,) * sum(counts)
+
+class NeverOrder(MultisetEvaluator):
+    def initial_state(self, order, outcomes, *sizes):
+        raise MyUnsupported('never')
+    def next_state(self, state, order, outcome, count):
+        return state
+
+class ListState(MultisetEvaluator):
+    def next_state(self, state, order, outcome, count):
+        return [outcome]
+
+class OrderSeen(MultisetEvaluator):
+    """What the callbacks receive: the Order member, the outcomes tuple, the sizes."""
+    def initial_state(self, order, outcomes, *sizes):
+        return (type(order).__name__, int(order), type(outcomes).__name__, outcomes, sizes)
+    def next_state(self, state, order, outcome, *counts):
+        return state + ((type(order).__name__, int(order), outcome, counts),)
+
+class ExtraBoom(MultisetEvaluator):
+    def extra_outcomes(self, outcomes):
+        raise MyUnsupported('extra')
+    def next_state(self, state, order, outcome, count):
+        return outcome
+
+class ExtraRange(MultisetEvaluator):
+    def extra_outcomes(self, outcomes):
+        return range(0, 5, 2)
+    def next_state(self, state, order, outcome, count):
+        return (state or ()) + (outcome,)
+
+class RestartState(MultisetEvaluator):
+    def next_state(self, state, order, outcome, count):
+        return Restart if outcome == 2 and count == 2 else (state or 0) + count * outcome
+
+class SubSum(evaluator.SumEvaluator):
+    def final_outcome(self, final_state, order, outcomes, *sizes):
+        return final_state * 10
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -229,6 +303,58 @@ CASES = [
     '[(s.dice, s.outcomes(), s.keep_tuple, c, w) for s, c, w in Pool([d(2), d(3)])._make_source().pop(Order.Descending, 3)]',
     'Pool([d(4), d(6)]).middle(1, tie="low").sum()',
     'Pool([d(4), Die([E.A, E.B])]).highest(1).sum()',
+    # Evaluation (S1e): built-ins on the core, any other evaluator's methods as host callbacks.
+    'HostState().evaluate(d(4).pool(2))',
+    'KwEval().evaluate(d(4).pool(2), start=E.B, scale=Fraction(1, 2))',
+    'KwEval().evaluate(d(4).pool(2), bad=1)',
+    'BoomEval().evaluate(d(4).pool(2))',
+    'AscOnly().evaluate(d(3).pool(2))',
+    'AscOnly2().evaluate(d(3).pool(2), d(3).pool(2)[1:])',
+    'NeverOrder().evaluate(d(3).pool(2))',
+    'ListState().evaluate(d(3).pool(1))',
+    'OrderSeen().evaluate(d(2).pool(2), -d(3).pool(1))',
+    'ExtraBoom().evaluate(d(3).pool(1))',
+    'ExtraRange().evaluate(d(3).pool(1))',
+    'RestartState().evaluate(d(2).pool(2))',
+    'SubSum().evaluate(d(3).pool(2))',
+    'evaluator.SumEvaluator(lambda x: x * 2).evaluate(d(3).pool(2))',
+    'evaluator.SumEvaluator({1: 10}).evaluate(d(3).pool(2))',
+    'evaluator.sum_evaluator(d(3).pool(2))',
+    'evaluator.sum_evaluator.evaluate(d(3).pool(2), d(3).pool(1))',
+    'evaluator.sum_evaluator.evaluate(d(3).pool(2), foo=1)',
+    'evaluator.sum_evaluator.evaluate()',
+    'evaluator.size_evaluator.evaluate(d(3).pool(2), foo=1)',
+    'Pool([Die([E.A, E.B])] * 2).sum()',
+    'Pool([Card(3), Card(1), Card(3)]).largest_count_and_outcome()',
+    'Pool([Card(3), Card(1)]).sum()',
+    'Pool([Card(3), Card(1), Card(3)]).sum()',
+    'Pool([Vector((1, 2)), Vector((0, 5))]).sum()',
+    'd(4).pool(2).expand(order=Order.Descending)',
+    'd(4).pool(2).expand(order=E.A)',
+    'evaluator.ExpandEvaluator().evaluate(d(3).pool(2), order=-1)',
+    'evaluator.empty_evaluator.evaluate(d(2).pool(1), any=1)',
+    'evaluator.empty_evaluator.evaluate(d(2).pool(1), any=False, other=1)',
+    'evaluator.keep_evaluator.evaluate(d(4).pool(3), index=-1)',
+    'evaluator.keep_evaluator.evaluate(-d(4).pool(3), index=-1)',
+    'evaluator.keep_evaluator.evaluate(d(4).pool(3), index=E.A)',
+    'evaluator.keep_evaluator.evaluate(d(4).pool(3), index=2**70)',
+    'evaluator.keep_evaluator.evaluate(d(4).pool(3), index=5)',
+    'evaluator.keep_evaluator.evaluate(d(4).pool(3))',
+    'd(6).pool(2).count_subset([1], empty_divisor=None)',
+    'd(6).pool(2).count_subset([])',
+    'd(6).pool(2).count_subset([], empty_divisor=E.B)',
+    'd(6).pool(2).all_counts(filter=E.B)',
+    'd(6).pool(2).all_counts(filter="x")',
+    'd(6).pool(3).largest_straight_and_outcome("low")',
+    'd(3).pool(2) < [1, 2]',
+    'd(3).pool(2) > [1]',
+    'd(3).pool(2) == [1, 2]',
+    'd(3).pool(2) != [1]',
+    'bool(d(3).pool(2) == d(3).pool(2))',
+    'Die(range(400)).pool(1).sum()',
+    'Die(range(3000)).pool(1).sum()',
+    'HostState().evaluate(Die(range(3000)).pool(1))',
+    'Pool([Die([])]).sum()',
 ]
 
 SCRIPT = PRELUDE + '''
