@@ -145,12 +145,16 @@ class KeepGenerator(MultisetGenerator[T]):
             return icepool.MultisetExpression.keep(self, index)  # type: ignore
 
         convert_to_die = isinstance(index, int)
-        relative_keep_tuple = make_keep_tuple(self.keep_size(), index)
+        # icepool-rs: a pool's keep tuple is made and composed in the Rust core.
+        if icepool.backend.RUST and isinstance(self, icepool.Pool):
+            result = icepool.Pool._new_rust(self._rs.keep(index))
+        else:
+            relative_keep_tuple = make_keep_tuple(self.keep_size(), index)
 
-        keep_tuple = compose_keep_tuples(self.keep_tuple(),
-                                         relative_keep_tuple)
+            keep_tuple = compose_keep_tuples(self.keep_tuple(),
+                                             relative_keep_tuple)
 
-        result = self._set_keep_tuple(keep_tuple)
+            result = self._set_keep_tuple(keep_tuple)
 
         if convert_to_die:
             return cast(

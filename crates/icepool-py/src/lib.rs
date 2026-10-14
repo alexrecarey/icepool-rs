@@ -7,6 +7,7 @@
 mod convert;
 mod map;
 mod ops;
+mod pool;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::program::PErr;
@@ -461,6 +462,8 @@ fn simplify(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RsDie>()?;
+    m.add_class::<pool::RsPool>()?;
+    m.add_class::<pool::RsPoolSource>()?;
     m.add_function(wrap_pyfunction!(expand_args_for_die, m)?)?;
     m.add_function(wrap_pyfunction!(from_counts_items, m)?)?;
     m.add_function(wrap_pyfunction!(unary_operator, m)?)?;
@@ -479,6 +482,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(simplify, m)?,
         wrap_pyfunction!(map::map_simple, m)?,
         wrap_pyfunction!(map::tupleize, m)?,
+        wrap_pyfunction!(pool::pool_new, m)?,
+        wrap_pyfunction!(pool::pool_additive_union, m)?,
     ] {
         m.add_function(f)?;
     }

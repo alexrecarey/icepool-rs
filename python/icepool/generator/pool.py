@@ -87,6 +87,13 @@ class Pool(KeepGenerator[T]):
         dice, times = icepool.creation_args.itemize(dice, times)
         converted_dice = [icepool.implicit_convert_to_die(die) for die in dice]
 
+        # icepool-rs: merging the dice, the keep tuple and the outcomes run in
+        # the Rust core.
+        if icepool.backend.RUST:
+            return Pool._new_rust(
+                icepool.backend.RUST.pool_new(
+                    [die._rust_die() for die in converted_dice], times))
+
         dice_counts: MutableMapping['icepool.Die[T]', int] = defaultdict(int)
         for die, qty in zip(converted_dice, times):
             if qty == 0:
@@ -115,6 +122,34 @@ class Pool(KeepGenerator[T]):
         return self
 
     @classmethod
+    def _new_rust(cls, rs) -> 'Pool[T]':
+        """icepool-rs: wraps a pool of the Rust core (`icepool_rs.Pool`).
+
+        The pool is kept as `_rs`; `_dice` and `_outcomes` are converted from
+        it on first use (see `__getattr__`).
+        """
+        self = super(Pool, cls).__new__(cls)
+        self._rs = rs
+        self._keep_tuple = rs.keep_tuple()
+        return self
+
+    def __getattr__(self, name: str):
+        """icepool-rs: only called for an attribute not set yet. A pool made by
+        the Rust core converts `_dice` (into the facade's dice) and `_outcomes`
+        the first time they are read."""
+        rs = self.__dict__.get('_rs')
+        if rs is not None:
+            if name == '_dice':
+                self._dice = tuple((icepool.Die._new_rust(die), count)
+                                   for die, count in rs.dice())
+                return self._dice
+            if name == '_outcomes':
+                self._outcomes = rs.outcomes()
+                return self._outcomes
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    @classmethod
     def clear_cache(cls):
         """Clears the global PoolSource cache."""
         PoolSource._new_raw.cache_clear()
@@ -134,10 +169,16 @@ class Pool(KeepGenerator[T]):
         return Pool._new_raw(dice, outcomes, keep_tuple)
 
     def _make_source(self):
+        # icepool-rs: the source pops outcomes in the Rust core.
+        if icepool.backend.RUST:
+            return PoolSource._new_rust(self._rs.source())
         return PoolSource(self._dice, self._outcomes, self._keep_tuple)
 
     @cached_property
     def _raw_size(self) -> int:
+        # icepool-rs: read off the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.raw_size()
         return sum(count for _, count in self._dice)
 
     def raw_size(self) -> int:
@@ -146,6 +187,9 @@ class Pool(KeepGenerator[T]):
 
     @cached_property
     def _denominator(self) -> int:
+        # icepool-rs: computed in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.denominator()
         return math.prod(die.denominator()**count for die, count in self._dice)
 
     def denominator(self) -> int:
@@ -179,6 +223,13 @@ class Pool(KeepGenerator[T]):
             implicit_convert_to_expression(arg) for arg in args)
         if all(isinstance(arg, Pool) for arg in args):
             pools = cast(tuple[Pool[T], ...], args)
+            # icepool-rs: the check and the merge run in the Rust core.
+            if icepool.backend.RUST:
+                merged = icepool.backend.RUST.pool_additive_union(
+                    [pool._rs for pool in pools])
+                if merged is not None:
+                    return Pool._new_rust(merged)
+                return KeepGenerator.additive_union(*args)
             keep_tuple: tuple[int, ...] = tuple(
                 reduce(operator.add, (pool.keep_tuple() for pool in pools),
                        ()))
@@ -195,8 +246,18 @@ class Pool(KeepGenerator[T]):
                 return Pool._new_from_mapping(dice, outcomes, keep_tuple)
         return KeepGenerator.additive_union(*args)
 
+    def multiply_counts(self, constant: int, /) -> 'KeepGenerator[T]':
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return Pool._new_rust(self._rs.multiply_counts(constant))
+        return super().multiply_counts(constant)
+
     @property
     def hash_key(self):
+        # icepool-rs: the Rust pool hashes and compares its dice and keep
+        # tuple, as this tuple does.
+        if icepool.backend.RUST:
+            return Pool, self._rs
         return Pool, self._dice, self._keep_tuple
 
     def __str__(self) -> str:
@@ -235,6 +296,35 @@ class PoolSource(KeepSource[T]):
         return self
 
     @classmethod
+    def _new_rust(cls, rs) -> 'PoolSource[T]':
+        """icepool-rs: wraps a source of the Rust core (`icepool_rs.PoolSource`).
+
+        `dice`, `_outcomes` and `keep_tuple` are converted from it on first
+        use (see `__getattr__`); the evaluator only needs them for the first
+        source's outcomes.
+        """
+        self = super(PoolSource, cls).__new__(cls)
+        self._rs = rs
+        return self
+
+    def __getattr__(self, name: str):
+        """icepool-rs: only called for an attribute not set yet; see `_new_rust`."""
+        rs = self.__dict__.get('_rs')
+        if rs is not None:
+            if name == 'dice':
+                self.dice = tuple((icepool.Die._new_rust(die), count)
+                                  for die, count in rs.dice())
+                return self.dice
+            if name == '_outcomes':
+                self._outcomes = rs.outcomes()
+                return self._outcomes
+            if name == 'keep_tuple':
+                self.keep_tuple = rs.keep_tuple()
+                return self.keep_tuple
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    @classmethod
     def _new_from_mapping(cls, dice_counts: Mapping['icepool.Die[T]', int],
                           outcomes: tuple[T, ...],
                           keep_tuple: Sequence[int]) -> 'PoolSource[T]':
@@ -252,6 +342,11 @@ class PoolSource(KeepSource[T]):
         return self._outcomes
 
     def pop(self, order: Order, outcome: T):
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            for rs, count, weight in self._rs.pop(order, outcome):
+                yield PoolSource._new_rust(rs), count, weight
+            return
         if not self._outcomes:
             yield self, 0, 1
             return
@@ -303,6 +398,10 @@ class PoolSource(KeepSource[T]):
             yield popped_pool, sum(self.keep_tuple), skip_weight
 
     def order_preference(self) -> tuple[Order, OrderReason]:
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            order, reason = self._rs.order_preference()
+            return Order(order), OrderReason(reason)
         can_truncate_min, can_truncate_max = icepool.order.can_truncate(
             self.unique_dice())
         if can_truncate_min and not can_truncate_max:
@@ -320,12 +419,24 @@ class PoolSource(KeepSource[T]):
 
     @cached_property
     def _denominator(self) -> int:
+        # icepool-rs: computed in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.denominator()
         return math.prod(die.denominator()**count for die, count in self.dice)
 
     def denominator(self) -> int:
         return self._denominator
 
+    def size(self):
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.size()
+        return super().size()
+
     def is_resolvable(self) -> bool:
+        # icepool-rs: runs in the Rust core.
+        if icepool.backend.RUST:
+            return self._rs.is_resolvable()
         return all(len(die) for die, _ in self.dice)
 
     @cached_property
@@ -338,6 +449,10 @@ class PoolSource(KeepSource[T]):
 
     @property
     def hash_key(self):
+        # icepool-rs: the Rust source hashes and compares its dice and keep
+        # tuple, as this tuple does.
+        if icepool.backend.RUST:
+            return PoolSource, self._rs
         return PoolSource, self.dice, self.keep_tuple
 
 
