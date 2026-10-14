@@ -60,15 +60,36 @@ fn new_deck(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, PErr> {
             return Ok(PValue::Deck(d.clone()));
         }
     }
-    let args = objects
-        .into_iter()
-        .map(die_arg)
-        .collect::<Result<Vec<_>, _>>()?;
+    // Every argument is expanded before any is merged. A tuple holding `Reroll` expands to `Reroll` itself
+    // (`cartesian_product`), which `merge_duplicates` only touches (`subdata.items()`: AttributeError) if its dup
+    // is not zero.
+    let mut args = Vec::with_capacity(objects.len());
+    let mut reroll_tuples = Vec::new();
+    for (i, x) in objects.into_iter().enumerate() {
+        if let PValue::Tuple(items) = &x {
+            if items
+                .iter()
+                .any(|x| matches!(x, PValue::Reroll | PValue::Restart))
+            {
+                reroll_tuples.push(i);
+                args.push(DieArg::Reroll);
+                continue;
+            }
+        }
+        args.push(die_arg(x)?);
+    }
     let duplicates = args
         .iter()
         .zip(times)
         .map(|(a, t)| duplicate(a, t))
         .collect::<Result<Vec<_>, _>>()?;
+    if reroll_tuples.iter().any(|&i| {
+        !times[i]
+            .as_num()
+            .is_some_and(|n| n == Num::Int(Cow::Owned(IBig::ZERO)))
+    }) {
+        return type_error("AttributeError: 'RerollType' object has no attribute 'items'");
+    }
     Ok(PValue::Deck(Deck::new(&args, &duplicates)?))
 }
 
