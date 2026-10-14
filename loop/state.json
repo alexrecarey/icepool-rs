@@ -2,6 +2,9 @@
   "tasks": {
     "K1": {
       "status": "done"
+    },
+    "K2": {
+      "status": "done"
     }
   },
   "merges": 1,
