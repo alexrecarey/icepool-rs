@@ -936,3 +936,22 @@ pub fn force_order(e: PValue, order: PValue) -> Result<PValue, PErr> {
     }
     Ok(into_pvalue(MExpr::op(Operator::ForceOrder(order), vec![e])))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_names_the_python_class() {
+        let p = MExpr::Param {
+            arg_index: 1,
+            star_index: None,
+        };
+        assert_eq!(format!("{p:?}"), "MultisetParameter(1)");
+        let index = MExpr::TupleIndex(Arc::new((p, 0)));
+        assert_eq!(
+            format!("{index:?}"),
+            "MultisetTupleIndex(MultisetParameter(1))"
+        );
+    }
+}

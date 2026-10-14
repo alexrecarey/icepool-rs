@@ -498,3 +498,28 @@ pub fn py_eq(a: &PValue, b: &PValue) -> Result<bool, PErr> {
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::program::host::HostFunction;
+
+    #[derive(Debug)]
+    struct TwoArgs;
+
+    impl HostFunction for TwoArgs {
+        fn positional(&self) -> (usize, Option<usize>) {
+            (1, Some(2))
+        }
+        fn call(&self, args: Vec<PValue>, _: Vec<(String, PValue)>) -> Result<PValue, PErr> {
+            Ok(args.into_iter().next().unwrap_or(PValue::Value(Value::None)))
+        }
+    }
+
+    #[test]
+    fn host_functions_report_their_own_parameters() {
+        // `map` infers `star` from these, so they must be the host's, not a default.
+        let f = Func::Host(std::sync::Arc::new(TwoArgs));
+        assert_eq!(f.positional(), Some((1, Some(2))));
+    }
+}

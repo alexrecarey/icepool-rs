@@ -175,6 +175,9 @@ mod tests {
         fn as_any(&self) -> &dyn Any {
             self
         }
+        fn as_index(&self) -> Result<Option<dashu_int::IBig>> {
+            Ok(Some(self.0.into()))
+        }
     }
 
     fn host(x: i64) -> Value {
@@ -207,5 +210,11 @@ mod tests {
         let err = d.unary_operator(|o| o.unary(UnOp::Neg)).unwrap_err();
         assert!(matches!(err, Error::Host(_)));
         assert!(!host(0).truthy().unwrap() && host(2).truthy().unwrap());
+    }
+
+    #[test]
+    fn host_objects_with_index_are_ints_to_range() {
+        // `range(sides)` takes `operator.index(sides)`.
+        assert_eq!(crate::function::one_hot(&host(3)).unwrap().len(), 3);
     }
 }

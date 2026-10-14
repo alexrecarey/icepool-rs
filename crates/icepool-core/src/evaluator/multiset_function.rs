@@ -444,3 +444,25 @@ impl<'a, O: Outcome, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
         self.finish(&self.call, final_state, order, outcomes, sizes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+
+    fn h(s: &AnyState) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        s.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn erased_states_hash_as_their_type_does() {
+        // The driver keys its state tables by these: equal states must hash alike, and distinct ones should not
+        // all collide.
+        let state = |x: i64| AnyState(Arc::new(x));
+        assert_eq!(h(&state(3)), h(&state(3)));
+        assert_ne!(h(&state(3)), h(&state(4)));
+        assert!(state(3) == state(3) && state(3) != state(4));
+    }
+}

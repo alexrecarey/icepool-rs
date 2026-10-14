@@ -383,4 +383,39 @@ mod tests {
         let b = Value::tuple(vec![Value::from(2), Value::from(3)]);
         assert_eq!(a.py_lt(&b), Ok(true));
     }
+
+    #[test]
+    fn type_names_are_pythons() {
+        let names: Vec<&str> = [
+            Value::None,
+            Value::Bool(true),
+            Value::from(1),
+            Value::Float(0.5),
+            Value::str("a"),
+            Value::tuple(vec![]),
+            Value::Complex(0.0, 1.0),
+            Value::Vector(Vector::new(vec![])),
+        ]
+        .iter()
+        .map(Value::type_name)
+        .collect();
+        assert_eq!(
+            names,
+            ["NoneType", "bool", "int", "float", "str", "tuple", "complex", "Vector"]
+        );
+    }
+
+    #[test]
+    fn collections_hash_by_their_contents() {
+        // Not needed for correctness (unequal values may collide), but dice of vectors or symbols would degrade
+        // to linear lookups if every one hashed alike.
+        let v = |xs: &[i64]| Value::Vector(Vector::new(xs.iter().map(|&x| Value::from(x)).collect()));
+        assert_eq!(h(&v(&[1, 2])), h(&v(&[1, 2])));
+        assert_ne!(h(&v(&[1, 2])), h(&v(&[2, 1])));
+        assert_ne!(h(&v(&[0])), h(&Value::from(0)));
+        let s = |x: &str| Value::Symbols(Symbols::convert(&Value::str(x)).unwrap());
+        assert_eq!(h(&s("ab")), h(&s("ba")));
+        assert_ne!(h(&s("ab")), h(&s("abb")));
+        assert_ne!(h(&s("")), h(&Value::from(0)));
+    }
 }

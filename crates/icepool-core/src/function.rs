@@ -217,3 +217,48 @@ pub fn one_hot(sides: &Value) -> Result<Die<Value>> {
         .collect();
     Die::from_dict(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ints(xs: &[i64]) -> Vec<Value> {
+        xs.iter().map(|&x| Value::from(x)).collect()
+    }
+
+    fn consecutive_of(xs: &[i64]) -> Result<Value> {
+        consecutive(ints(xs), ints(xs))
+    }
+
+    #[test]
+    fn consecutive_builds_ranges_up_to_the_limit() {
+        // Exactly `MAX_RANGE` steps is still built; one more is refused.
+        let max = MAX_RANGE as i64;
+        match consecutive_of(&[-1, max - 2]).unwrap() {
+            Value::Tuple(t) => assert_eq!(t.len(), MAX_RANGE),
+            v => panic!("not a tuple: {v}"),
+        }
+        assert!(matches!(
+            consecutive_of(&[-1, max - 1]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            consecutive_of(&[0, 1 << 40]),
+            Err(Error::Unsupported(_))
+        ));
+        // Far from zero, only the length counts.
+        assert_eq!(
+            consecutive_of(&[1 << 40, (1 << 40) + 1]).unwrap(),
+            Value::tuple(ints(&[1 << 40, (1 << 40) + 1]))
+        );
+    }
+
+    #[test]
+    fn one_hot_refuses_huge_sides() {
+        assert!(matches!(
+            one_hot(&Value::from(4097)),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(one_hot(&Value::from(3)).unwrap().len(), 3);
+    }
+}

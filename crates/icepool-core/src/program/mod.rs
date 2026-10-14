@@ -225,3 +225,49 @@ impl Args<'_> {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The exception type and message a program raises. Fixtures only check *that* both sides raised, so the
+    /// Python messages and types the port copies are checked here.
+    fn raised(program: &str) -> (String, String) {
+        let r = run(&serde_json::from_str(program).unwrap());
+        assert_eq!(r["ok"], json!(false), "{program} should raise, got {r}");
+        let field = |k: &str| r[k].as_str().unwrap_or_default().to_string();
+        (field("error"), field("message"))
+    }
+
+    #[test]
+    fn attribute_errors_name_the_type_and_the_attribute() {
+        // `getattr(3, 'values')`: the attribute asked for, not "getattr".
+        let (_, msg) = raised(r#"{"op":"symbols_method","s":3,"name":{"str":"getattr"},"arg":{"str":"values"}}"#);
+        assert_eq!(msg, "AttributeError: 'int' object has no attribute 'values'");
+        let (_, msg) = raised(r#"{"op":"symbols_method","s":{"float":"1.5"},"name":{"str":"size"},"arg":null}"#);
+        assert_eq!(msg, "AttributeError: 'float' object has no attribute 'size'");
+    }
+
+    #[test]
+    fn missing_die_key_is_a_key_error_naming_the_key() {
+        let (ty, msg) = raised(r#"{"op":"die_method","die":{"op":"d","sides":4},"name":{"str":"getitem"},"arg":0}"#);
+        assert_eq!((ty.as_str(), msg.as_str()), ("KeyError", "0"));
+    }
+
+    #[test]
+    fn again_count_rejects_a_die_with_negative_outcomes_matmul_again() {
+        // `__rmatmul__`: `d @ Again` is additive only if `d.min_outcome() >= 0`, so count mode raises the
+        // ValueError up front (an additive one would fail later, with TypeError, at `die @ int`).
+        let again = |die: &str| {
+            format!(
+                r#"{{"op":"again_count","outcomes":[1,2,{{"op":"matmul","n":{die},"die":{{"op":"Again"}}}}],"count":1,"depth":null,"end":null}}"#
+            )
+        };
+        let (ty, msg) = raised(&again(r#"{"op":"die","outcomes":[-1,2]}"#));
+        assert_eq!(ty, "ValueError");
+        assert!(msg.contains("non-additive"), "{msg}");
+        assert_eq!(raised(&again(r#"{"op":"die","outcomes":[0,2]}"#)).0, "TypeError");
+        // `min_outcome()` of an empty die raises first.
+        assert_eq!(raised(&again(r#"{"op":"die","outcomes":[]}"#)).0, "IndexError");
+    }
+}
