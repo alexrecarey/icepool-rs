@@ -157,5 +157,6 @@
   "mf_call": "ported",
   "mx_tuple_index": "ported",
   "mx_tuple_slice": "ported",
-  "mx_tuple_evaluate": "ported"
+  "mx_tuple_evaluate": "ported",
+  "mx_mixture": "ported"
 }

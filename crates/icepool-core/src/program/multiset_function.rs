@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value as Json};
 
-use super::expression::{prepare, MExpr};
+use super::expression::{prepare, product, MExpr};
 use super::ops::{new_die, py_iter, type_error};
 use super::{eval, raise, PErr, PValue};
 use crate::error::Error;
@@ -24,7 +24,7 @@ use crate::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
 use crate::expression::CallTree;
 use crate::order::Order;
 use crate::pool::MultisetSource;
-use crate::Value;
+use crate::{Quantity, Value};
 
 /// An evaluator called in a function body, type-erased, with final outcomes as program values.
 pub type Leaf = Arc<dyn DynEvaluator<Value, PValue> + Send + Sync>;
@@ -205,25 +205,49 @@ fn core_error(e: PErr) -> Error {
     }
 }
 
-/// One prepared evaluation: the call tree, its main side, and the sources of its free variables.
+/// The main side of a prepared call ([`Call`], which holds its evaluators uniquely), shared between preparations.
+#[derive(Clone)]
+enum CallSpec {
+    Leaf(Leaf),
+    Function(Box<CallSpec>),
+    Joint(Vec<CallSpec>),
+}
+
+impl CallSpec {
+    fn call(&self) -> Call<'static, Value, PValue> {
+        match self {
+            CallSpec::Leaf(leaf) => Call::Evaluator(Box::new(leaf.clone())),
+            CallSpec::Function(inner) => Call::Function(Box::new(inner.call())),
+            CallSpec::Joint(inners) => Call::Joint(inners.iter().map(CallSpec::call).collect()),
+        }
+    }
+}
+
+/// One prepared evaluation (`_prepare` yields several with a mixture): the call tree, its main side, the sources
+/// of its free variables, and its weight.
+#[derive(Clone)]
 struct Prepared {
     tree: CallTree<Value>,
-    call: Call<'static, Value, PValue>,
+    call: CallSpec,
     sources: Vec<MultisetSource<Value>>,
+    weight: Quantity,
 }
 
 /// `MultisetEvaluator._prepare(input_exps)` of a leaf evaluator in a body.
-fn prepare_leaf(leaf: &Leaf, exprs: &[MExpr]) -> Result<Prepared, PErr> {
-    let (flats, sources) = prepare(exprs)?;
-    Ok(Prepared {
-        tree: CallTree::leaf(flats),
-        call: Call::Evaluator(Box::new(leaf.clone())),
-        sources,
-    })
+fn prepare_leaf(leaf: &Leaf, exprs: &[MExpr]) -> Result<Vec<Prepared>, PErr> {
+    Ok(prepare(exprs)?
+        .into_iter()
+        .map(|(flats, sources, weight)| Prepared {
+            tree: CallTree::leaf(flats),
+            call: CallSpec::Leaf(leaf.clone()),
+            sources,
+            weight,
+        })
+        .collect())
 }
 
 /// `MultisetFunctionRawResult.prepare_inner`: the recorded evaluator's `_prepare`.
-fn prepare_raw(raw: &RawResult) -> Result<Prepared, PErr> {
+fn prepare_raw(raw: &RawResult) -> Result<Vec<Prepared>, PErr> {
     match &raw.evaluator {
         RawEvaluator::Leaf(leaf) => prepare_leaf(leaf, &raw.exprs),
         RawEvaluator::Function(f) => prepare_function(f, &raw.exprs, &raw.kwargs),
@@ -274,7 +298,7 @@ fn prepare_function(
     f: &FunctionDef,
     inputs: &[MExpr],
     kwargs: &[(String, PValue)],
-) -> Result<Prepared, PErr> {
+) -> Result<Vec<Prepared>, PErr> {
     let star = match kwargs.iter().find(|(k, _)| k == "star") {
         Some((_, star)) => truthy(star)?,
         // `infer_star`: more required parameters than inputs.
@@ -334,46 +358,63 @@ fn prepare_function(
     }
 }
 
-/// `prepare_multiset_function`: the inputs' flats, then one call.
-fn prepare_single(outer: &[MExpr], raw: RawResult) -> Result<Prepared, PErr> {
-    let (flats, mut sources) = prepare(outer)?;
-    let inner = prepare_raw(&raw)?;
-    sources.extend(inner.sources);
-    Ok(Prepared {
-        tree: CallTree {
-            flats,
-            calls: vec![inner.tree],
-        },
-        call: Call::Function(Box::new(inner.call)),
-        sources,
-    })
+/// `prepare_multiset_function`: for each preparation of the inputs, their flats and then one call, prepared
+/// again for each.
+fn prepare_single(outer: &[MExpr], raw: RawResult) -> Result<Vec<Prepared>, PErr> {
+    let mut result = Vec::new();
+    for (flats, sources, weight) in prepare(outer)? {
+        for inner in prepare_raw(&raw)? {
+            result.push(Prepared {
+                tree: CallTree {
+                    flats: flats.clone(),
+                    calls: vec![inner.tree],
+                },
+                call: CallSpec::Function(Box::new(inner.call)),
+                sources: sources.iter().cloned().chain(inner.sources).collect(),
+                weight: &weight * inner.weight,
+            });
+        }
+    }
+    Ok(result)
 }
 
-/// `prepare_multiset_joint_function`: the inputs' flats, then one call per result.
-fn prepare_joint(outer: &[MExpr], raws: Vec<RawResult>) -> Result<Prepared, PErr> {
-    let (flats, mut sources) = prepare(outer)?;
-    if raws.is_empty() {
-        // `zip(*inner)` over the one empty product: nothing to unpack into four names.
-        return raise(Error::Value(
-            "not enough values to unpack (expected 4, got 0)".into(),
-        ));
+/// `prepare_multiset_joint_function`: for each preparation of the inputs, their flats and then one call per
+/// result (each combination of the results' preparations).
+fn prepare_joint(outer: &[MExpr], raws: Vec<RawResult>) -> Result<Vec<Prepared>, PErr> {
+    let mut result = Vec::new();
+    for (flats, sources, weight) in prepare(outer)? {
+        let inners = raws
+            .iter()
+            .map(prepare_raw)
+            .collect::<Result<Vec<_>, _>>()?;
+        for combination in product(&inners) {
+            if combination.is_empty() {
+                // `zip(*inner)` over the one empty product: nothing to unpack into four names.
+                return raise(Error::Value(
+                    "not enough values to unpack (expected 4, got 0)".into(),
+                ));
+            }
+            let mut prepared = Prepared {
+                tree: CallTree {
+                    flats: flats.clone(),
+                    calls: Vec::new(),
+                },
+                call: CallSpec::Joint(Vec::new()),
+                sources: sources.clone(),
+                weight: weight.clone(),
+            };
+            let mut calls = Vec::new();
+            for inner in combination {
+                prepared.tree.calls.push(inner.tree.clone());
+                calls.push(inner.call.clone());
+                prepared.sources.extend(inner.sources.iter().cloned());
+                prepared.weight *= &inner.weight;
+            }
+            prepared.call = CallSpec::Joint(calls);
+            result.push(prepared);
+        }
     }
-    let mut calls = Vec::with_capacity(raws.len());
-    let mut trees = Vec::with_capacity(raws.len());
-    for raw in &raws {
-        let inner = prepare_raw(raw)?;
-        sources.extend(inner.sources);
-        calls.push(inner.call);
-        trees.push(inner.tree);
-    }
-    Ok(Prepared {
-        tree: CallTree {
-            flats,
-            calls: trees,
-        },
-        call: Call::Joint(calls),
-        sources,
-    })
+    Ok(result)
 }
 
 /// Node `mf_call`: `f(*args)`, or `f(*args, star=star)` unless `star` is `None`.
@@ -397,22 +438,21 @@ pub fn mf_call(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
             kwargs,
         })));
     }
-    let Prepared {
-        tree,
-        call,
-        sources,
-    } = prepare_function(&f, &exprs, &kwargs)?;
-    let evaluator = MultisetFunction {
-        call,
-        tupleize: Box::new(tupleize),
-    };
-    let finals = evaluate_call_tree(
-        &evaluator,
-        &tree,
-        &sources,
-        super::evaluate::check_recursion,
-    )?;
-    let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
-    let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
-    new_die(outcomes, &weights)
+    let mut results = Vec::new();
+    for prepared in prepare_function(&f, &exprs, &kwargs)? {
+        let evaluator = MultisetFunction {
+            call: prepared.call.call(),
+            tupleize: Box::new(tupleize),
+        };
+        let finals = evaluate_call_tree(
+            &evaluator,
+            &prepared.tree,
+            &prepared.sources,
+            super::evaluate::check_recursion,
+        )?;
+        let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
+        let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
+        results.push((new_die(outcomes, &weights)?, prepared.weight));
+    }
+    super::evaluate::mix(results)
 }

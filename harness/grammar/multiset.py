@@ -92,6 +92,13 @@ def mx_versus(expr, all, comparison, other):
     return expr.versus_all(comparison, other) if all else expr.versus_any(comparison, other)
 
 
+@node("mx_mixture", "mexpr")
+def mx_mixture(inners):
+    """icepool.MultisetMixture(inners): one evaluation per inner expression (equal ones counted together), the
+    results mixed by weight. keep and multiply_counts apply to each inner when all are keep generators."""
+    return icepool.MultisetMixture(inners)
+
+
 @node("mx_force_order", "mexpr")
 def mx_force_order(expr, order):
     """expr.force_order(Order(order)): UnsupportedOrder for the other order when evaluated."""
@@ -132,7 +139,14 @@ def gen_expression(g, depth, budget=None, leaf=None):
     if budget is None:
         budget = g.rng.choice([1, 1, 2, 2, 3])
     if budget <= 0 or g.rng.random() < 0.15:
-        return (leaf or _leaf)(g, depth)
+        e = (leaf or _leaf)(g, depth)
+        if g.rng.random() < 0.08:
+            # A mixture of leaves, now and then one of them twice (equal inners are counted together).
+            inners = [e] + [(leaf or _leaf)(g, depth) for _ in range(g.rng.choice([0, 1, 1, 2]))]
+            if g.rng.random() < 0.3:
+                inners.append(e)
+            e = {"op": "mx_mixture", "inners": inners}
+        return e
     r = g.rng
     budget -= 1
     sub = lambda: gen_expression(g, depth, budget // 2, leaf)

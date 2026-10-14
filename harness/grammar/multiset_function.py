@@ -181,7 +181,7 @@ def _call(g, depth, args, kinds, nested=True):
         params = g.rng.randint(0, params)
     if g.rng.random() < 0.04:
         params = max(params + g.rng.choice([-1, 1]), 0)  # TypeError from the arity
-    elif star is None and (params > len(args)) != bool(starred):
+    if star is None and (params > len(args)) != bool(starred):
         star = {"bool": bool(starred)}
     f = {"op": "mf_def", "params": params, "var": {"bool": var}, "body": _body(g, depth, var_kinds, nested)}
     return {"op": "mf_call", "f": f, "args": args, "star": star}

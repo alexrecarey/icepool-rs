@@ -22,7 +22,7 @@ PRELUDE = '''
 import enum, collections, math, operator
 from fractions import Fraction
 from icepool import *
-from icepool import AgainExpression
+from icepool import AgainExpression, MultisetMixture
 
 class E(enum.IntEnum):
     A = 1
@@ -132,6 +132,55 @@ def boom_count(outcome, *counts):
 
 def boom_pred(outcome):
     raise Boom()
+
+@multiset_function
+def mf_kw(x, *, target):
+    return x.keep_outcomes([target]).size()
+
+@multiset_function
+def mf_inner_kw(x, *, k):
+    return x.keep_outcomes([k]).size()
+
+@multiset_function
+def mf_outer_kw(x):
+    return mf_inner_kw(x, k=2), x.sum()
+
+@multiset_function
+def mf_user(a, b):
+    return HostState().evaluate(a - b), KwEval().evaluate(a, start=10, scale=2)
+
+@multiset_function
+def mf_asc(a):
+    return AscOnly().evaluate(a), a.sum()
+
+@multiset_function
+def mf_extra(a):
+    return ExtraRange().evaluate(a), a.largest_straight()
+
+@multiset_function
+def mf_boom(a):
+    return a.sum(), BoomEval().evaluate(a)
+
+@multiset_function
+def mf_restart(a):
+    return RestartState().evaluate(a), a.size()
+
+@multiset_function
+def mf_hands(hands):
+    a, b = hands
+    return OrderSeen().evaluate(a, b), (a & b).size()
+
+@multiset_function
+def mf_never(a):
+    return NeverOrder().evaluate(a)
+
+@multiset_function
+def mf_const(a):
+    return Die([E.A, E.B]), a.size()
+
+@multiset_function
+def mf_joint(x):
+    return x.sum(), x.size()
 
 def items(x):
     if isinstance(x, Population):
@@ -683,6 +732,33 @@ CASES = [
     'd(6).pool(2).force_order(Order.Ascending).force_order(Order.Descending).sum()',
     "Pool([Card(1), Card(3)]).versus_all('>', [Card(2)]).expand()",
     "Pool([Card(1), Card(3)]).max_pair_keep('>=', [Card(2)], 'high').expand()",
+    # S4d: @multiset_function on the core: keyword arguments bound per call, user evaluators (host callbacks) in
+    # the body, UnsupportedOrder retries, extra outcomes and Restart in joint results, constants, MultiDeal hands.
+    'mf_kw(d(6).pool(2), target=3)',
+    'mf_outer_kw(d(4).pool(2))',
+    'mf_user(d(6).pool(2), d(4).pool(1))',
+    'mf_user(Pool([Card(1), Card(2)]), Pool([Card(2)]))',
+    'mf_asc(d(4).pool(3))',
+    'mf_extra(d(4).pool(2))',
+    'mf_extra(Pool([1.5, 2]))',
+    'mf_boom(d(4).pool(2))',
+    'mf_restart(d(3).pool(3))',
+    'mf_hands(Deck([1, 2, 2, 3]).deal((1, 2)))',
+    'mf_hands(Deck([1, 2, 2, 3]).deal((1, 2)), star=False)',
+    'mf_hands(Deck([1, 2, 2, 3]).deal((1, 2)), star=True)',
+    'mf_never(d(4).pool(1))',
+    'mf_const(d(4).pool(1))',
+    'mf_joint(d(6).pool(2)), mf_joint(d(6).pool(3)), mf_joint(d(6).pool(2))',
+    'mf_joint(Pool([E.A, E.B, 2]))',
+    # Mixtures: each inner expression is an ordinary evaluation on the core.
+    'mf_joint(MultisetMixture([d(6).pool(1), d(6).pool(2)]))',
+    'MultisetMixture([d(6).pool(1), d(4).pool(2)]).sum()',
+    'MultisetMixture({d(6).pool(1): 2, d(4).pool(1): 1}).expand()',
+    'MultisetMixture([d(6).pool(2), d(4).pool(2)]).keep(1)',
+    'MultisetMixture([d(6).pool(2), d(4).pool(2)])[1:].sum()',
+    '(MultisetMixture([d(6).pool(2), d(4).pool(2)]) * 2).sum()',
+    '(MultisetMixture([d(6).pool(2), d(4).pool(2)]) - [1]).sum()',
+    'MultisetMixture([]).sum()',
 ]
 
 SCRIPT = PRELUDE + '''

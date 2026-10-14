@@ -25,7 +25,7 @@ use crate::operator::{
 };
 use crate::pool::{MultisetSource, Pool};
 use crate::value::builtins::{getitem, Index};
-use crate::{MultiDeal, Value};
+use crate::{MultiDeal, Quantity, Value};
 
 /// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
 #[derive(Clone)]
@@ -47,6 +47,8 @@ pub enum MExpr {
     TupleIndex(Arc<(MExpr, i64)>),
     /// `MultisetTupleSlice`: `child[start:stop:step]`, a multiset tuple expression.
     TupleSlice(Arc<(MExpr, [Value; 3])>),
+    /// `MultisetMixture`: inner expressions with their weights (equal inners merged, the first kept).
+    Mixture(Arc<Vec<(MExpr, Quantity)>>),
 }
 
 impl fmt::Debug for MExpr {
@@ -60,6 +62,7 @@ impl fmt::Debug for MExpr {
             }
             MExpr::TupleIndex(node) => write!(f, "MultisetTupleIndex({:?})", node.0),
             MExpr::TupleSlice(node) => write!(f, "MultisetTupleSlice({:?})", node.0),
+            MExpr::Mixture(inners) => write!(f, "MultisetMixture({inners:?})"),
         }
     }
 }
@@ -69,63 +72,80 @@ impl MExpr {
         MExpr::Op(Arc::new((operator, children)))
     }
 
-    /// `_prepare`: appends this expression's dungeonlets (postfix order) to `flat` and its sources to `sources`.
-    fn prepare(
-        &self,
-        flat: &mut Vec<Dungeonlet<Value>>,
-        sources: &mut Vec<MultisetSource<Value>>,
-    ) -> Result<(), PErr> {
+    /// `_prepare`: each way to prepare this expression (one, unless a mixture is inside): its dungeonlets (postfix
+    /// order), the sources of its free variables and the weight.
+    fn prepare(&self) -> Result<Vec<Part>, PErr> {
+        let one = |dungeonlet, sources| Ok(vec![(vec![dungeonlet], sources, Quantity::ONE)]);
         match self {
-            MExpr::Gen(g) => {
-                flat.push(Dungeonlet::FreeVariable);
-                sources.push(g.source()?);
-            }
-            MExpr::MultiDeal(md) => {
-                flat.push(Dungeonlet::FreeVariable);
-                sources.push(MultisetSource::MultiDeal(md.source()));
-            }
+            MExpr::Gen(g) => one(Dungeonlet::FreeVariable, vec![g.source()?]),
+            MExpr::MultiDeal(md) => one(
+                Dungeonlet::FreeVariable,
+                vec![MultisetSource::MultiDeal(md.source())],
+            ),
             MExpr::Op(node) => {
                 let (operator, children) = &**node;
-                let mut positions = Vec::with_capacity(children.len());
-                for child in children {
-                    child.prepare(flat, sources)?;
-                    positions.push(flat.len() - 1);
-                }
-                // With no children `positions[-1]` is never evaluated (it is inside a generator expression): an
-                // operator without children is fine until `next_state` reduces nothing.
-                flat.push(Dungeonlet::Operator {
-                    operator: operator.clone(),
-                    children: positions,
-                });
+                let children = children
+                    .iter()
+                    .map(MExpr::prepare)
+                    .collect::<Result<Vec<_>, _>>()?;
+                // `itertools.product` over the children's preparations.
+                Ok(product(&children)
+                    .into_iter()
+                    .map(|parts| {
+                        let mut flat = Vec::new();
+                        let mut sources = Vec::new();
+                        let mut weight = Quantity::ONE;
+                        let mut positions = Vec::with_capacity(parts.len());
+                        for (child_flat, child_sources, child_weight) in parts {
+                            let offset = flat.len();
+                            flat.extend(child_flat.iter().map(|d| shifted(d, offset)));
+                            sources.extend(child_sources.iter().cloned());
+                            weight *= child_weight;
+                            positions.push(flat.len() - 1);
+                        }
+                        // With no children `positions[-1]` is never evaluated (it is inside a generator
+                        // expression): an operator without children is fine until `next_state` reduces nothing.
+                        flat.push(Dungeonlet::Operator {
+                            operator: operator.clone(),
+                            children: positions,
+                        });
+                        (flat, sources, weight)
+                    })
+                    .collect())
             }
             MExpr::Param {
                 arg_index,
                 star_index,
-            } => flat.push(Dungeonlet::Parameter {
-                arg_index: *arg_index,
-                star_index: *star_index,
-            }),
-            MExpr::TupleParam { arg_index, .. } => flat.push(Dungeonlet::Parameter {
-                arg_index: *arg_index,
-                star_index: None,
-            }),
-            MExpr::TupleIndex(node) => {
-                node.0.prepare(flat, sources)?;
-                flat.push(Dungeonlet::TupleItem {
-                    child: flat.len() - 1,
-                    index: Index::Item(Value::from(node.1)),
-                });
-            }
+            } => one(
+                Dungeonlet::Parameter {
+                    arg_index: *arg_index,
+                    star_index: *star_index,
+                },
+                Vec::new(),
+            ),
+            MExpr::TupleParam { arg_index, .. } => one(
+                Dungeonlet::Parameter {
+                    arg_index: *arg_index,
+                    star_index: None,
+                },
+                Vec::new(),
+            ),
+            MExpr::TupleIndex(node) => tuple_item(&node.0, Index::Item(Value::from(node.1))),
             MExpr::TupleSlice(node) => {
-                node.0.prepare(flat, sources)?;
                 let [start, stop, step] = node.1.clone();
-                flat.push(Dungeonlet::TupleItem {
-                    child: flat.len() - 1,
-                    index: Index::Slice(start, stop, step),
-                });
+                tuple_item(&node.0, Index::Slice(start, stop, step))
+            }
+            // `MultisetMixture._prepare`: each inner's preparations, weighted by the inner's weight.
+            MExpr::Mixture(inners) => {
+                let mut parts = Vec::new();
+                for (inner, weight) in inners.iter() {
+                    for (flat, sources, inner_weight) in inner.prepare()? {
+                        parts.push((flat, sources, inner_weight * weight));
+                    }
+                }
+                Ok(parts)
             }
         }
-        Ok(())
     }
 
     /// `_has_parameter`: whether this expression contains a `@multiset_function` parameter (then evaluating it
@@ -137,6 +157,7 @@ impl MExpr {
             MExpr::Op(node) => node.1.iter().any(MExpr::has_parameter),
             MExpr::TupleIndex(node) => node.0.has_parameter(),
             MExpr::TupleSlice(node) => node.0.has_parameter(),
+            MExpr::Mixture(inners) => inners.iter().any(|(inner, _)| inner.has_parameter()),
         }
     }
 
@@ -171,19 +192,80 @@ impl MExpr {
     }
 }
 
-/// Prepared evaluation inputs: one flat per expression, and the sources of all their free variables.
-pub type Prepared = (Vec<Flat<Value>>, Vec<MultisetSource<Value>>);
+/// One way to prepare an expression: its dungeonlets, the sources of its free variables, and the weight.
+type Part = (Vec<Dungeonlet<Value>>, Vec<MultisetSource<Value>>, Quantity);
 
-/// `MultisetEvaluatorBase._prepare`'s inputs: one flat per expression, and all their sources.
-pub fn prepare(exprs: &[MExpr]) -> Result<Prepared, PErr> {
-    let mut flats = Vec::with_capacity(exprs.len());
-    let mut sources = Vec::new();
-    for e in exprs {
-        let mut flat = Vec::new();
-        e.prepare(&mut flat, &mut sources)?;
-        flats.push(Flat::from(flat));
+/// A dungeonlet moved `offset` places later in a flat: its children's positions move with it (Python's relative
+/// child indexes need no change).
+fn shifted(d: &Dungeonlet<Value>, offset: usize) -> Dungeonlet<Value> {
+    match d {
+        Dungeonlet::Operator { operator, children } => Dungeonlet::Operator {
+            operator: operator.clone(),
+            children: children.iter().map(|c| c + offset).collect(),
+        },
+        Dungeonlet::TupleItem { child, index } => Dungeonlet::TupleItem {
+            child: child + offset,
+            index: index.clone(),
+        },
+        d => d.clone(),
     }
-    Ok((flats, sources))
+}
+
+/// `MultisetTupleIndex._prepare` / `MultisetTupleSlice._prepare`: the child's, then the item node.
+fn tuple_item(child: &MExpr, index: Index) -> Result<Vec<Part>, PErr> {
+    let mut parts = child.prepare()?;
+    for (flat, _, _) in &mut parts {
+        flat.push(Dungeonlet::TupleItem {
+            child: flat.len() - 1,
+            index: index.clone(),
+        });
+    }
+    Ok(parts)
+}
+
+/// `itertools.product(*lists)`: every combination of one element from each list, the last varying fastest.
+pub fn product<T>(lists: &[Vec<T>]) -> Vec<Vec<&T>> {
+    let mut result: Vec<Vec<&T>> = vec![Vec::new()];
+    for list in lists {
+        result = result
+            .into_iter()
+            .flat_map(|prefix| {
+                list.iter().map(move |x| {
+                    let mut combination = prefix.clone();
+                    combination.push(x);
+                    combination
+                })
+            })
+            .collect();
+    }
+    result
+}
+
+/// One prepared evaluation's inputs: one flat per expression, the sources of all their free variables, and the
+/// weight of this preparation.
+pub type Prepared = (Vec<Flat<Value>>, Vec<MultisetSource<Value>>, Quantity);
+
+/// `MultisetEvaluator._prepare`'s inputs: for each combination of the expressions' preparations (one, unless a
+/// mixture is among them), one flat per expression, their sources and the product of their weights.
+pub fn prepare(exprs: &[MExpr]) -> Result<Vec<Prepared>, PErr> {
+    let parts = exprs
+        .iter()
+        .map(MExpr::prepare)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(product(&parts)
+        .into_iter()
+        .map(|combination| {
+            let mut flats = Vec::with_capacity(combination.len());
+            let mut sources = Vec::new();
+            let mut weight = Quantity::ONE;
+            for (flat, s, w) in combination {
+                flats.push(Flat::from(flat.clone()));
+                sources.extend(s.iter().cloned());
+                weight *= w;
+            }
+            (flats, sources, weight)
+        })
+        .collect())
 }
 
 /// A program value that is a multiset expression, as one (a multiset tuple expression is not one).
@@ -414,6 +496,12 @@ fn int_constant(x: &PValue) -> Result<i64, PErr> {
 /// `expr * n` and `-expr` on a keep generator change its keep tuple; on any other expression they build
 /// `MultisetMultiplyCounts`.
 fn multiply_counts(e: MExpr, n: i64) -> Result<MExpr, PErr> {
+    if let Some(inners) = keepable_mixture(&e) {
+        let mixture = map_mixture(inners, |inner| {
+            Ok(into_pvalue(multiply_counts(the_expression(inner)?, n)?))
+        })?;
+        return the_expression(mixture);
+    }
     Ok(match e {
         MExpr::Gen(g) => MExpr::Gen(g.multiply_counts(n)?),
         e => MExpr::op(Operator::MultiplyCounts(n), vec![e]),
@@ -560,6 +648,136 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
         Operator::FilterOutcomes { filter, invert }
     };
     Ok(into_pvalue(MExpr::op(operator, vec![e])))
+}
+
+/// Whether a dict holding expression `a` finds it equal to `b` (`MultisetMixture` counts its inners in one): their
+/// `hash_key`s. Expressions of different classes have different hash keys and are never compared; the port only
+/// compares generators and parameters.
+fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
+    Ok(match (a, b) {
+        (MExpr::Gen(KeepGen::Pool(a)), MExpr::Gen(KeepGen::Pool(b))) => {
+            a.dice() == b.dice() && a.keep_tuple() == b.keep_tuple()
+        }
+        (MExpr::Gen(KeepGen::Deal(a)), MExpr::Gen(KeepGen::Deal(b))) => a == b,
+        (MExpr::Gen(KeepGen::Compound(a)), MExpr::Gen(KeepGen::Compound(b))) => a == b,
+        (MExpr::Gen(_), MExpr::Gen(_)) => false,
+        (MExpr::MultiDeal(a), MExpr::MultiDeal(b)) => a == b,
+        (
+            MExpr::Param {
+                arg_index: a,
+                star_index: sa,
+            },
+            MExpr::Param {
+                arg_index: b,
+                star_index: sb,
+            },
+        ) => (a, sa) == (b, sb),
+        (MExpr::TupleParam { arg_index: a, .. }, MExpr::TupleParam { arg_index: b, .. }) => a == b,
+        // Their `hash_key` is `(type, index)`: the child is left out, so hands of different deals compare equal
+        // (DIVERGENCES.md).
+        (MExpr::TupleIndex(a), MExpr::TupleIndex(b)) => a.1 == b.1,
+        (MExpr::TupleSlice(a), MExpr::TupleSlice(b)) => a.1 == b.1,
+        // `(MultisetMixture, tuple(inners.items()))`.
+        (MExpr::Mixture(a), MExpr::Mixture(b)) => {
+            if a.len() != b.len() {
+                return Ok(false);
+            }
+            for ((a, wa), (b, wb)) in a.iter().zip(b.iter()) {
+                if !same_expression(a, b)? || wa != wb {
+                    return Ok(false);
+                }
+            }
+            true
+        }
+        // `(_expression_key, tuple(child.hash_key ...))`: only operators over equal children can be equal.
+        (MExpr::Op(a), MExpr::Op(b)) => {
+            if a.1.len() != b.1.len() {
+                return Ok(false);
+            }
+            for (a, b) in a.1.iter().zip(&b.1) {
+                if !same_expression(a, b)? {
+                    return Ok(false);
+                }
+            }
+            match (&a.0, &b.0) {
+                // `(MultisetKeep, index)`.
+                (Operator::Keep(a), Operator::Keep(b)) => a == b,
+                _ => {
+                    return Err(PErr::Unimplemented(
+                        "comparing multiset operators over equal children".into(),
+                    ))
+                }
+            }
+        }
+        (a, b) if std::mem::discriminant(a) != std::mem::discriminant(b) => false,
+        _ => {
+            return Err(PErr::Unimplemented(
+                "comparing multiset expressions other than generators".into(),
+            ))
+        }
+    })
+}
+
+/// `data[inner] += weight` for a mixture's `defaultdict(int)` of inners.
+fn add_inner(data: &mut Vec<(MExpr, Quantity)>, inner: MExpr, weight: Quantity) -> Result<(), PErr> {
+    for (key, w) in data.iter_mut() {
+        if same_expression(key, &inner)? {
+            *w += weight;
+            return Ok(());
+        }
+    }
+    data.push((inner, weight));
+    Ok(())
+}
+
+/// `icepool.MultisetMixture(inners)` for a sequence of expressions (node `mx_mixture`): each counted once, equal
+/// ones together.
+pub fn mixture(inners: PValue) -> Result<PValue, PErr> {
+    let mut data = Vec::new();
+    for x in py_iter(inners)? {
+        let Some(inner) = as_expression(&x).or_else(|| as_tuple_expression(&x)) else {
+            return Err(PErr::Unimplemented(
+                "a mixture of something other than expressions".into(),
+            ));
+        };
+        add_inner(&mut data, inner, Quantity::ONE)?;
+    }
+    Ok(PValue::Expr(MExpr::Mixture(Arc::new(data))))
+}
+
+/// `_static_keepable`: keep generators are, and mixtures of them.
+fn static_keepable(e: &MExpr) -> bool {
+    match e {
+        MExpr::Gen(_) => true,
+        MExpr::Mixture(inners) => inners.iter().all(|(inner, _)| static_keepable(inner)),
+        _ => false,
+    }
+}
+
+/// A `MultisetMixture`'s inners if it is `_static_keepable`: then `keep` and `multiply_counts` apply to each inner
+/// instead.
+pub fn keepable_mixture(e: &MExpr) -> Option<&[(MExpr, Quantity)]> {
+    match e {
+        MExpr::Mixture(inners) if static_keepable(e) => Some(inners),
+        _ => None,
+    }
+}
+
+/// `MultisetMixture._unary_operation(op)`: `op` applied to each inner (in order), the results counted with the
+/// inners' weights into a new mixture.
+pub fn map_mixture(
+    inners: &[(MExpr, Quantity)],
+    op: impl Fn(PValue) -> Result<PValue, PErr>,
+) -> Result<PValue, PErr> {
+    let mut data = Vec::new();
+    for (inner, weight) in inners {
+        let result = op(into_pvalue(inner.clone()))?;
+        let Some(result) = as_expression(&result) else {
+            return Err(PErr::Unimplemented("a mixture of non-expressions".into()));
+        };
+        add_inner(&mut data, result, weight.clone())?;
+    }
+    Ok(PValue::Expr(MExpr::Mixture(Arc::new(data))))
 }
 
 /// `MultisetKeep(expr, index=index)` for a slice or a sequence of counts and `...`.

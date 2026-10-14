@@ -7,8 +7,8 @@ use dashu_int::IBig;
 
 use super::evaluate::run;
 use super::expression::{
-    as_expression, binary_op, counts, into_pvalue, multiset_keep, multiset_keep_seq,
-    the_expression, MExpr,
+    as_expression, binary_op, counts, into_pvalue, keepable_mixture, map_mixture, multiset_keep,
+    multiset_keep_seq, the_expression, MExpr,
 };
 use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
@@ -129,6 +129,9 @@ impl KeepGen {
 /// A keep-like operation (`keep`, `[]`, `lowest`, `highest`, `middle`) on an expression: a keep generator without
 /// negative keeps stays one; anything else falls back to the less-capable `MultisetKeep` expression.
 fn keep_slice(e: MExpr, slice: Slice) -> Result<PValue, PErr> {
+    if let Some(inners) = keepable_mixture(&e) {
+        return map_mixture(inners, |inner| keep_slice(the_expression(inner)?, slice));
+    }
     let result = match &e {
         MExpr::Gen(g) if !g.has_negative_keeps() => {
             MExpr::Gen(g.keep(&KeepIndex::Slice { slice, step: false })?)
@@ -348,6 +351,28 @@ fn sequence_index(index: PValue) -> Result<KeepIndex, PErr> {
 /// `MultisetKeep`.
 pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
     let e = the_expression(pool)?;
+    if let Some(inners) = keepable_mixture(&e) {
+        if int_value(&index).is_none() {
+            return map_mixture(inners, |inner| {
+                let kept = pool_keep(inner, index.clone())?;
+                // An inner with negative keeps makes a `MultisetKeep` whose hash key holds the index itself: a
+                // list cannot be hashed into the mixture's dict.
+                if matches!(index, PValue::List(_)) && matches!(kept, PValue::Expr(MExpr::Op(_))) {
+                    return type_error("unhashable type: 'list'");
+                }
+                Ok(kept)
+            });
+        }
+        // Each inner's `keep(int)` is a die; `keep_evaluator.evaluate(MultisetMixture({die: weight}), index=None)`
+        // then asks the first die for `_has_parameter` (an empty mixture evaluates to an empty die).
+        for (inner, _) in inners {
+            pool_keep(into_pvalue(inner.clone()), index.clone())?;
+        }
+        if inners.is_empty() {
+            return Ok(PValue::Die(Die::new(Vec::new(), Vec::new())?));
+        }
+        return type_error("AttributeError: 'Die' object has no attribute '_has_parameter'");
+    }
     match (&e, int_value(&index)) {
         (MExpr::Gen(g), Some(i)) if !g.has_negative_keeps() => {
             let i = i64::try_from(i).unwrap_or(i64::MAX);
@@ -370,6 +395,11 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
 /// `pool[start:stop:step]`.
 pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Result<PValue, PErr> {
     let e = the_expression(pool)?;
+    if let Some(inners) = keepable_mixture(&e) {
+        return map_mixture(inners, |inner| {
+            pool_slice(inner, start.clone(), stop.clone(), step.clone())
+        });
+    }
     let step = !matches!(step, PValue::Value(Value::None));
     let pool = match &e {
         MExpr::Gen(g) if !g.has_negative_keeps() => g,

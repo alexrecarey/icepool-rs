@@ -392,20 +392,23 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
     }
 }
 
-/// `EVALUATORS[name](*params).evaluate(*inputs)`: `Die(final_outcomes, final_weights)` through `new_die`, which
-/// mixes in final outcomes that are dice.
+/// `EVALUATORS[name](*params).evaluate(*inputs)`: per prepared evaluation `Die(final_outcomes, final_weights)`
+/// through `new_die`, which mixes in final outcomes that are dice; then those mixed by weight.
 pub fn run(
     evaluator: &CatalogueEvaluator,
     exprs: &[super::expression::MExpr],
 ) -> std::result::Result<PValue, PErr> {
-    let (flats, sources) = super::expression::prepare(exprs)?;
-    let finals = evaluate_expressions(
-        evaluator,
-        &flats,
-        &sources,
-        super::evaluate::check_recursion,
-    )?;
-    let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
-    let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
-    new_die(outcomes, &weights)
+    let mut results = Vec::new();
+    for (flats, sources, weight) in super::expression::prepare(exprs)? {
+        let finals = evaluate_expressions(
+            evaluator,
+            &flats,
+            &sources,
+            super::evaluate::check_recursion,
+        )?;
+        let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
+        let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
+        results.push((new_die(outcomes, &weights)?, weight));
+    }
+    super::evaluate::mix(results)
 }

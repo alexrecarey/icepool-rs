@@ -269,3 +269,24 @@ def test_multi_deal_denominator_three_hands():
         deal = Deck(range(5)).deal(sizes)
         assert deal.denominator() == Counts().evaluate(deal).denominator()
 ```
+
+### Hands of different multi-deals are equal expressions (S4d)
+
+`MultisetTupleIndex.hash_key` (expression/multiset_tuple_expression.py) is `(type(self), self._index)`, and
+`MultisetTupleSlice`'s is the type and the slice bounds: the child expression is left out. `equals` (and the truth
+value of `==`, which a dict uses) compares hash keys, so `Deck([1, 2]).deal((1, 1))[0].equals(Deck([5,
+6]).deal((2,))[0])`, and a `MultisetMixture` of two such hands counts them as one inner with weight 2, evaluating only
+the first:
+`MultisetMixture([Deck([1, 2]).deal((1, 1))[0], Deck([5, 6]).deal((1, 1))[0]]).sum()` is `Die({1: 1, 2: 1})`
+instead of a mixture of 1, 2, 5 and 6. Copied (program/expression.rs `same_expression`); the facade runs upstream's
+mixture code unchanged.
+
+Drafted upstream test:
+
+```python
+def test_tuple_index_hash_key_includes_child():
+    a = Deck([1, 2]).deal((1, 1))[0]
+    b = Deck([5, 6]).deal((1, 1))[0]
+    assert not a.equals(b)
+    assert MultisetMixture([a, b]).sum().equals(Die([1, 2, 5, 6]))
+```

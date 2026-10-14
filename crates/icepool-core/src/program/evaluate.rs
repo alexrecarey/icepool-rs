@@ -5,7 +5,8 @@
 use super::catalogue_evaluators::CatalogueEvaluator;
 use super::multiset_function::{in_function, raw_result};
 use super::expression::{as_expression, as_tuple_expression, prepare, the_expression, MExpr};
-use super::ops::{die_arg, py_iter, type_error};
+use super::map::the_die;
+use super::ops::{die_arg, new_die, py_iter, type_error};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -20,7 +21,7 @@ use crate::evaluator::poker::{
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
 use crate::evaluator::{evaluate_expressions, MultisetEvaluator};
-use crate::{Die, Value};
+use crate::{Die, Quantity, Value};
 
 /// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
 /// die is a mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
@@ -79,9 +80,9 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// `evaluator.evaluate(*expressions)`: each prepared (`_prepare`), and `Die(final_outcomes, final_weights)` (the
-/// outer `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself). Inside a
-/// `@multiset_function` body, the raw result recording the evaluation instead.
+/// `evaluator.evaluate(*expressions)`: each prepared evaluation (`_prepare`; several with a mixture) gives
+/// `Die(final_outcomes, final_weights)`, and those are mixed by weight ([`mix`]). Inside a `@multiset_function`
+/// body, the raw result recording the evaluation instead.
 pub fn run<E>(evaluator: E, exprs: &[MExpr]) -> Result<PValue, PErr>
 where
     E: MultisetEvaluator<Value, Final = Value> + Send + Sync + 'static,
@@ -90,14 +91,36 @@ where
     if in_function(exprs) {
         return Ok(raw_result(evaluator, exprs));
     }
-    let (flats, sources) = prepare(exprs)?;
-    let finals = evaluate_expressions(&evaluator, &flats, &sources, check_recursion)?;
-    let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
-    let outcomes = outcomes
-        .into_iter()
-        .map(|o| die_arg(PValue::Value(o)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(PValue::Die(Die::new(outcomes, weights)?))
+    let mut results = Vec::new();
+    for (flats, sources, weight) in prepare(exprs)? {
+        let finals = evaluate_expressions(&evaluator, &flats, &sources, check_recursion)?;
+        let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
+        let outcomes = outcomes
+            .into_iter()
+            .map(|o| die_arg(PValue::Value(o)))
+            .collect::<Result<Vec<_>, _>>()?;
+        results.push((PValue::Die(Die::new(outcomes, weights)?), weight));
+    }
+    mix(results)
+}
+
+/// The end of `MultisetEvaluatorBase.evaluate`: `final_data[result] += weight` for each prepared evaluation's die
+/// (equal dice merge, the first kept), then `Die(final_data)` (one die with weight 1 is itself).
+pub(super) fn mix(results: Vec<(PValue, Quantity)>) -> Result<PValue, PErr> {
+    let mut data: Vec<(PValue, Quantity)> = Vec::new();
+    for (result, weight) in results {
+        let key = the_die(result.clone())?;
+        match data
+            .iter_mut()
+            .find(|(d, _)| matches!(the_die(d.clone()), Ok(d) if d == key))
+        {
+            Some((_, w)) => *w += weight,
+            None => data.push((result, weight)),
+        }
+    }
+    let (dice, weights): (Vec<_>, Vec<_>) = data.into_iter().unzip();
+    let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
+    new_die(dice, &weights)
 }
 
 fn die<E>(evaluator: E, pools: &[MExpr]) -> Result<PValue, PErr>

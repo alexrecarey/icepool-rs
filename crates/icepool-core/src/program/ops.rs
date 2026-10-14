@@ -235,6 +235,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [e, order] = args.exactly(["expr", "order"])?;
             expression::force_order(e, order)
         }
+        "mx_mixture" => {
+            let [inners] = args.exactly(["inners"])?;
+            expression::mixture(inners)
+        }
         "mx_tuple_index" => {
             let [e, index] = args.exactly(["expr", "index"])?;
             expression::tuple_index(e, index)
