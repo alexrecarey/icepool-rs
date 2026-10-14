@@ -5,6 +5,36 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **WASM facade (K8).** `crates/icepool-wasm` (wasm-bindgen only; JSON/BigInt/Reflect are declared as externs
+  rather than pulling in js-sys): `run(programJson) -> string` = one icepool-run line; `calculate(engineInput)` =
+  `f2f.calculate` (input object in, `{rolls, outcomes:[{player, wounds, chance}]}` out, throws where Python raises;
+  `rolls` is a Number up to 2**53-1 and a BigInt beyond, as Pyodide's `to_js` converts a Python int).
+  `build.sh [OUT]` = wasm-pack `--target web` and `--target nodejs` into `$CARGO_TARGET_DIR/icepool-wasm/{web,node}`.
+  `run-wasm.sh` rebuilds the node package when any core/wasm source is newer (about 6 s once cargo has built the
+  wasm32 target; a cold build including the wasm-pack tool download took 70 s, more than the harness's 20 s
+  per-program timeout, so build first if in doubt), then speaks the icepool-run protocol; `--test` checks
+  `calculate` against the 40 recorded `f2f.calculate` outputs, `--bench` times khepri. A panic is a trap in WASM
+  (no unwinding): run-wasm.mjs answers like icepool-run's panic guard and reloads the instance.
+- **Float `pow` under WASM** (`value/pow.rs`). CPython's `float ** float` ends in glibc `pow`; wasm32's
+  `f64::powf` is another libm and was 1 ULP off (`7 ** -2`). `pow::pow` is `powf` natively and on wasm32 a port of
+  Arm's pow (= glibc >= 2.28), with the FMA contractions glibc's x86_64 `__pow_fma` has (read off its disassembly:
+  GCC fuses each `a*b + c` whose product has no other use; specialcase's k<0 branch is not fused). The native test
+  `matches_platform_pow` checks it bit for bit against glibc (1.2M inputs; 3M passed once). This ties the WASM
+  results to the oracle running on an FMA x86_64 machine with glibc; a non-FMA oracle would differ in rare cases.
+  Complex powers (`cos`/`sin`/`atan2`, also a different libm in WASM) never surface: every die holding a complex
+  raises when it sorts, in Python too. Any new transcendental (`exp`, `log`, ...) needs the same treatment.
+- **Measurements (K8)**, on this machine, inputs in `crates/icepool-wasm/bench-cases.json` (heavy = 6+2 vs 6+2,
+  both EXP + Continuous: 536-bit denominator, heavier than ANALYSIS.md's 258-bit case):
+
+  | | CPython 3.12 (oracle) | Rust native (icepool-run) | WASM in node 22 (first call / warm) |
+  |---|---|---|---|
+  | typical, 3 vs 1 | 11.5 ms | all three cases 30 ms, | 12.0 / 1.2 ms (first includes compile) |
+  | mid, 4 vs 2 DA | 24.4 ms | process start | 3.7 / 2.5 ms |
+  | heavy | 377 ms | included | 53 / 46 ms |
+
+  WASM size: 1,075,543 bytes (381 KB gzipped) after wasm-opt -O3, against Pyodide's 5.6 MB; instantiate 6 ms. The
+  release profile is speed-tuned (workspace-wide); `opt-level = "s"` for the wasm build is an option if size matters.
+
 - **khepri engine (K7).** `src/khepri.rs` ports f2f.py natively and typed: dice are `Die<i64>` (`d20 > save` is
   0/1 ints: equal hash/order/sums to Python's bools, and every result outcome is an int anyway), the roll is
   `Die<Roll = [i64; 4]>` (`Outcome` for `[i64; N]` is in outcome.rs), the result `Die<(Player, i64)>` with
