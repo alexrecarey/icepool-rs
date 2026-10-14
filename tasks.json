@@ -79,40 +79,178 @@
     "details": "crates/icepool-py (PyO3 + maturin, module icepool_rs). python/icepool: a copy of the oracle's src/icepool with a backend switch (ICEPOOL_BACKEND=python|rust). With nothing switched yet, harness/core/upstream_suite.sh (the gate runs it once crates/icepool-py exists) must pass the whole upstream suite; then switch the first module (Die construction + arithmetic) to Rust behind the unchanged API. Then split Phase S into iteration-sized tasks in tasks.json, in dependency order, each switching one module and adding its grammar nodes."
   },
   {
-    "id": "S2",
-    "title": "Strangler: remaining Population/Die surface and statistics",
+    "id": "S1b",
+    "title": "Strangler: switch the Die methods the core already has",
     "deps": [
       "S1"
     ],
     "milestone": null,
-    "details": "Coarse task: split it before starting. Everything in population/base.py and die.py not yet in Rust: quantities/probabilities with comparators, marginals, group_by, statistics (mean/variance/sd/skewness/kurtosis/entropy/KS/CvM), nearest/quantile/median, format (md/csv/bbcode/html), sample (seeded), DieWithTruth via the facade. Grammar nodes for each."
+    "details": "Switch to the core (K3/K4 code, through icepool_rs): reroll/filter/split/truncate/clip (the facade computes the outcome selection with Python's own `_select_outcomes`, or passes the callable as a host callback; the core does the rest), `n @ die` / `_sum_all` (Die.__matmul__/__rmatmul__, Die.sum via @), pop_min/pop_max, lowest/highest of one die (keep.py `lowest`/`highest` single-die paths), zero/simplify, from_cumulative, explode (depth-mode Again only if the expression maps onto the core's AgainOp; otherwise leave explode for S3a). Add grammar nodes for any variant not yet expressible (e.g. reroll depth / mode arguments). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S1c",
+    "title": "Strangler: switch map (non-repeat) and mixtures",
+    "deps": [
+      "S1b"
+    ],
+    "milestone": null,
+    "details": "population/die.py map/map_simple/map_and_time's non-repeat path and map_tools/function.py `map` with repeat=None: Python callables as host callbacks from Rust (PyO3), `star` inference stays in Python (infer_star), the Cartesian product over dice/tuples (expand.py iter_cartesian_product, tupleize, cartesian_product) and the mixing of results in the core. Reroll/Restart/Break returned by the callable. Die-valued results mix with weighted_lcm as in K3. Grammar: catalogue functions for the new shapes. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S1d",
+    "title": "Strangler: switch Pool and keep tuples",
+    "deps": [
+      "S1b"
+    ],
+    "milestone": null,
+    "details": "generator/pool.py, generator/keep.py, population/keep.py (pool paths): the facade's Pool holds a core Pool<Value> (like Die holds `_rs`), keep tuples, Ellipsis handling, multiply/add/neg of pools, PoolSource popping. Python API unchanged (Pool(dice, times), d_pool/z_pool, Pool(mapping), Pool(pool, times) are also K6b leftovers: port what K6b has not). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S1e",
+    "title": "Strangler: switch the evaluation driver and built-in evaluators",
+    "deps": [
+      "S1d"
+    ],
+    "milestone": null,
+    "details": "evaluator/multiset_evaluator_base.py and the built-in evaluators already in the core (sum, size, keep, count_subset, straights, poker...): MultisetEvaluator.evaluate over generator inputs runs the core driver. User-defined MultisetEvaluator subclasses: next_state/final_outcome/extra_outcomes/initial_state as host callbacks with states as Value::Host. Per-call caches: shim evaluator_cache_test.py in harness/upstream_shims if its `_cache` assertions cannot hold (ANALYSIS.md decision 5). Add the khepri sweep through the facade (f2f.py on the facade, the third leg in LOOP-PLAN.md check 5) to NOTES as a documented command. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S2a",
+    "title": "Strangler: Population statistics and probabilities",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "population/base.py: quantities/probabilities (with comparators, percent), quantity/probability, marginals, group_by, mean/variance/standard_deviation/sd/skewness/excess_kurtosis/entropy, kolmogorov_smirnov/cramer_von_mises, nearest/quantile/median/min/max/mode, covariance/correlation, modal_quantity, denominator/multiply_quantities/divide_quantities/pad_to_denominator/multiply_to_denominator, has_zero_quantities, is_empty. Exact Fraction results where Python gives Fractions, floats bit for bit (math.sqrt, log via the glibc-equivalent ports noted in NOTES.md for WASM). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S2b",
+    "title": "Strangler: formatting, sampling, DieWithTruth",
+    "deps": [
+      "S2a"
+    ],
+    "milestone": null,
+    "details": "population/format.py (markdown/csv/bbcode/html, __format__ specs, format_probability_inverse), Population.sample (seeded: match Python's random.Random consumption exactly or keep sampling in the facade over core cumulative quantities), DieWithTruth (truth value stays in the facade, its data from the core), Die.equals/hash_key through the core. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S3a",
+    "title": "Strangler: Again in both modes",
+    "deps": [
+      "S1c"
+    ],
+    "milestone": null,
+    "details": "population/again.py: AgainExpression mapped onto the core's Again tree (closed enum over the operator set, callables as host callbacks), depth mode switched, count mode (again_count, is_additive) ported to the core. explode/explode_to_pool if S1b left them. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S3b",
+    "title": "Strangler: map(repeat), Markov chains, map_and_time",
+    "deps": [
+      "S3a"
+    ],
+    "milestone": null,
+    "details": "map_tools/markov_chain.py absorbing chain with exact integer elimination, map(repeat=n) and repeat='inf', map_and_time, mean_time_to_absorb, time_to_sum, Break/Restart sentinels, host callbacks discovering states incrementally (ANALYSIS.md decision 4). Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S4a",
+    "title": "Strangler: Deck and Deal",
+    "deps": [
+      "S1e"
+    ],
+    "milestone": null,
+    "details": "population/deck.py (construction via merge_duplicates, arithmetic, deal), generator/deal.py (hypergeometric popping), Deck/Deal evaluation through the core driver. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S4b",
+    "title": "Strangler: MultiDeal and multiset tuple generators",
+    "deps": [
+      "S4a"
+    ],
+    "milestone": null,
+    "details": "generator/multi_deal.py, generator/multiset_tuple_generator.py, the tuple-source side of the driver. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S4c",
+    "title": "Strangler: multiset operators as core expressions",
+    "deps": [
+      "S1e"
+    ],
+    "milestone": null,
+    "details": "operator/*.py (binary union/intersection/difference/symmetric difference/additive union, adjust_counts, filter_outcomes, keep incl. the generic MultisetKeep and negative counts, pair, versus): the dungeonlet/questlet expression tree in the core, CompoundKeepGenerator. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S4d",
+    "title": "Strangler: expressions, @multiset_function, lexi",
+    "deps": [
+      "S4c",
+      "S4b"
+    ],
+    "milestone": null,
+    "details": "expression/* (mixtures, tuple expressions, parameters), evaluator/multiset_function.py (@multiset_function: tracing stays in the facade, the core runs the DAG), lexi.py, the remaining evaluators (argsort, comparisons, sum(map=), wild largest_count) if K6c has not. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S5a",
+    "title": "Strangler: Vector and Symbols as native values",
+    "deps": [
+      "S1"
+    ],
+    "milestone": null,
+    "details": "collection/vector.py (incl. VectorWithTruthOnly) and symbols.py as Value variants in the core (they are Value::Host today): elementwise arithmetic, ordering, hashing equal to Python's, Symbols' quirks (defaultdict __getitem__, see ANALYSIS.md). Wire encoding: the program language decodes them (currently unimplemented); grammar nodes for both. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S5b",
+    "title": "Strangler: wallenius, function.py helpers, remaining exports",
+    "deps": [
+      "S5a",
+      "S2a"
+    ],
+    "milestone": null,
+    "details": "wallenius.py, function.py (pointwise_max/min, from_rv, one_hot, consecutive, sorted_union, harmonize_denominators, min/max_outcome, coin, stochastic_round, z/d variants), map_tools/function.py reduce/accumulate, everything else in __init__.py's exports. Finish with an audit listing every facade module and whether it runs on the core. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "S2",
+    "title": "Strangler: remaining Population/Die surface and statistics",
+    "deps": [
+      "S1",
+      "S2a",
+      "S2b"
+    ],
+    "milestone": null,
+    "details": "Coarse task: split it before starting. Everything in population/base.py and die.py not yet in Rust: quantities/probabilities with comparators, marginals, group_by, statistics (mean/variance/sd/skewness/kurtosis/entropy/KS/CvM), nearest/quantile/median, format (md/csv/bbcode/html), sample (seeded), DieWithTruth via the facade. Grammar nodes for each. (S1 split this into S2a, S2b; this task is now the check that nothing of its area is left.)"
   },
   {
     "id": "S3",
     "title": "Strangler: Again count mode, map(repeat), Markov chains",
     "deps": [
-      "S1"
+      "S1",
+      "S3a",
+      "S3b"
     ],
     "milestone": null,
-    "details": "Coarse task: split it before starting. population/again.py count mode, map(repeat=n) and repeat='inf' (map_tools/markov_chain.py absorbing chain with exact integer elimination), map_and_time, mean_time_to_absorb, time_to_sum, Break/Restart sentinels. Host callbacks for map functions from Python (PyO3) and JS."
+    "details": "Coarse task: split it before starting. population/again.py count mode, map(repeat=n) and repeat='inf' (map_tools/markov_chain.py absorbing chain with exact integer elimination), map_and_time, mean_time_to_absorb, time_to_sum, Break/Restart sentinels. Host callbacks for map functions from Python (PyO3) and JS. (S1 split this into S3a, S3b; this task is now the check that nothing of its area is left.)"
   },
   {
     "id": "S4",
     "title": "Strangler: Deck, Deal, MultiDeal, multiset operators and expressions",
     "deps": [
-      "S1"
+      "S1",
+      "S4a",
+      "S4b",
+      "S4c",
+      "S4d"
     ],
     "milestone": null,
-    "details": "Coarse task: split it before starting. population/deck.py, generator/deal.py, multi_deal.py, operator/*.py (binary, adjust_counts, filter_outcomes, keep incl. the generic MultisetKeep, pair, versus), expression/* (mixtures, tuple expressions, parameters), evaluator/multiset_function.py (@multiset_function: tracing stays in the Python facade, Rust executes the DAG), lexi.py, user-defined MultisetEvaluator subclasses via host callbacks."
+    "details": "Coarse task: split it before starting. population/deck.py, generator/deal.py, multi_deal.py, operator/*.py (binary, adjust_counts, filter_outcomes, keep incl. the generic MultisetKeep, pair, versus), expression/* (mixtures, tuple expressions, parameters), evaluator/multiset_function.py (@multiset_function: tracing stays in the Python facade, Rust executes the DAG), lexi.py, user-defined MultisetEvaluator subclasses via host callbacks. (S1 split this into S4a, S4b, S4c, S4d; this task is now the check that nothing of its area is left.)"
   },
   {
     "id": "S5",
     "title": "Strangler: Vector, Symbols, wallenius, remaining exports",
     "deps": [
-      "S1"
+      "S1",
+      "S5a",
+      "S5b"
     ],
     "milestone": null,
-    "details": "Coarse task: split it before starting. collection/vector.py, symbols.py, wallenius.py, function.py helpers, everything left in __init__.py's exports. When this and S2-S4 are done, every upstream test passes with the rust backend and no facade module falls back to Python."
+    "details": "Coarse task: split it before starting. collection/vector.py, symbols.py, wallenius.py, function.py helpers, everything left in __init__.py's exports. When this and S2-S4 are done, every upstream test passes with the rust backend and no facade module falls back to Python. (S1 split this into S5a, S5b; this task is now the check that nothing of its area is left.)"
   },
   {
     "id": "S6",
