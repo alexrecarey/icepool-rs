@@ -74,8 +74,20 @@ pub fn map_simple<'py>(
 /// each arg is `(1, rs_die)` or `(0, outcome)` (an argument that is not a population, used as-is).
 #[pyfunction]
 pub fn tupleize(py: Python<'_>, args: Vec<(u8, Bound<'_, PyAny>)>) -> PyResult<RsDie> {
-    let parts = args
-        .iter()
+    RsDie::wrap(py, tupleize_dice(&cartesian_parts(&args)?))
+}
+
+/// `cartesian_product(*args, outcome_type=Vector)` (`vectorize`), as `tupleize`.
+#[pyfunction]
+pub fn vectorize(py: Python<'_>, args: Vec<(u8, Bound<'_, PyAny>)>) -> PyResult<RsDie> {
+    RsDie::wrap(
+        py,
+        icepool_core::expand::vectorize_dice(&cartesian_parts(&args)?),
+    )
+}
+
+fn cartesian_parts(args: &[(u8, Bound<'_, PyAny>)]) -> PyResult<Vec<Vec<(Value, Quantity)>>> {
+    args.iter()
         .map(|(kind, x)| -> PyResult<Vec<(Value, Quantity)>> {
             Ok(if *kind == 1 {
                 x.cast::<RsDie>()?.get().die.items().to_vec()
@@ -83,6 +95,5 @@ pub fn tupleize(py: Python<'_>, args: Vec<(u8, Bound<'_, PyAny>)>) -> PyResult<R
                 vec![(from_py(x)?, Quantity::ONE)]
             })
         })
-        .collect::<PyResult<Vec<_>>>()?;
-    RsDie::wrap(py, tupleize_dice(&parts))
+        .collect()
 }

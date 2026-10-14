@@ -165,7 +165,7 @@ impl Symbols {
     }
 
     /// `Symbols._new_raw` of these items, in this order.
-    fn raw(items: Vec<(char, Value)>) -> Symbols {
+    pub fn raw(items: Vec<(char, Value)>) -> Symbols {
         Symbols {
             data: Arc::from(items),
         }
@@ -288,7 +288,7 @@ impl Symbols {
     }
 
     /// `Symbols(...)` of every count mapped.
-    fn map_counts(&self, f: impl Fn(&Value) -> Result<Value>) -> Result<Value> {
+    pub fn map_counts(&self, f: impl Fn(&Value) -> Result<Value>) -> Result<Value> {
         let items = self
             .items()
             .iter()
@@ -298,7 +298,7 @@ impl Symbols {
     }
 
     /// `__lt__` / `__gt__`: the counts of each character in alphabetical order; the first difference decides.
-    fn lexicographic(&self, op: BinOp, other: &Symbols) -> Result<bool> {
+    pub fn lexicographic(&self, op: BinOp, other: &Symbols) -> Result<bool> {
         let mut keys: Vec<char> = self
             .items()
             .iter()
@@ -325,7 +325,7 @@ impl Symbols {
     }
 
     /// `all(self[s] <op> other[s] for s in itertools.chain(self, other))`.
-    fn all_counts(&self, other: &Symbols, op: BinOp) -> Result<bool> {
+    pub fn all_counts(&self, other: &Symbols, op: BinOp) -> Result<bool> {
         for (k, _) in self.items().iter().chain(other.items()) {
             if !self.count(*k).binary(op, &other.count(*k))?.truthy()? {
                 return Ok(false);

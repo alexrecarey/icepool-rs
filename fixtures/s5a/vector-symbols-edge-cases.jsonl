@@ -1,0 +1,172 @@
+{"program":{"op":"die_vectors","outcomes":[{"vector":[1,{"str":"a"}]},{"vector":[]}]},"expected":{"ok":true,"die":[[{"vector":[]},1],[{"vector":[1,{"str":"a"}]},1]]}}
+{"program":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[1]},{"vector":[0,5,5]},{"vector":[1,2,0]}]},"expected":{"ok":true,"die":[[{"vector":[0,5,5]},1],[{"vector":[1]},1],[{"vector":[1,2]},1],[{"vector":[1,2,0]},1]]}}
+{"program":{"op":"die_vectors","outcomes":[{"vector":[1,{"str":"a"}]},{"vector":[1,2]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[{"float":"1.0"},2]},{"vector":[{"frac":[2,2]},{"bool":true}]}]},"expected":{"ok":true,"die":[[{"vector":[{"frac":[1,1]},{"bool":true}]},1],[{"vector":[1,2]},2]]}}
+{"program":{"op":"die_vectors","outcomes":[{"vector":[{"vector":[1]}]},{"vector":[{"vector":[2]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_typed","outcomes":[{"vector":[1,2]},3]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_typed","outcomes":[{"vector":[1,2]},{"tuple":[1,2]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"add","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,4]}]},"b":{"vector":[10,20]}},"expected":{"ok":true,"die":[[{"vector":[11,22]},1],[{"vector":[13,24]},1]]}}
+{"program":{"op":"sub","a":5,"b":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,4]}]}},"expected":{"ok":true,"die":[[{"vector":[2,1]},1],[{"vector":[4,3]},1]]}}
+{"program":{"op":"mul","a":{"op":"d","sides":2},"b":{"vector":[1,{"str":"a"}]}},"expected":{"ok":true,"die":[[{"vector":[1,{"str":"a"}]},1],[{"vector":[2,{"str":"aa"}]},1]]}}
+{"program":{"op":"truediv","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"vector":[0,1]}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"pow","a":{"op":"die_vectors","outcomes":[{"vector":[2,3]}]},"b":2},"expected":{"ok":true,"die":[[{"vector":[4,9]},1]]}}
+{"program":{"op":"add","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"vector":[1,2,3]}},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mod","a":{"str":"abc"},"b":{"op":"die_vectors","outcomes":[{"vector":[1]}]}},"expected":{"ok":true,"value":{"str":"abc"}}}
+{"program":{"op":"neg","a":{"op":"die_vectors","outcomes":[{"vector":[1,-2]},{"vector":[0,0]}]}},"expected":{"ok":true,"die":[[{"vector":[-1,2]},1],[{"vector":[0,0]},1]]}}
+{"program":{"op":"invert","a":{"op":"die_vectors","outcomes":[{"vector":[{"float":"1.5"}]}]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"trunc","a":{"op":"die_vectors","outcomes":[{"vector":[{"float":"1.5"},{"frac":[-7,2]}]}]}},"expected":{"ok":true,"die":[[{"vector":[1,-3]},1]]}}
+{"program":{"op":"lt","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,0]}]},"b":{"vector":[2,2]}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"lt","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,0]}]},"b":{"vector":[2,2,2]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"le","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":1},"expected":{"ok":true,"die":[[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"eq","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,0]}]},"b":{"vector":[1,2]}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":true},{"bool":true}]},1]]}}
+{"program":{"op":"truth","x":{"op":"eq","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"vector":[1,2]}}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"truth","x":{"op":"ne","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"op":"die_vectors","outcomes":[{"vector":[1,2,3]}]}}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"format","die":{"op":"eq","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"vector":[1]}},"spec":null},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"hash_key_compare","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]}]},"b":{"op":"die_vectors","outcomes":[{"vector":[1,3]}]},"cmp":{"str":"<"}},"expected":{"ok":true,"value":{"vector":[{"bool":false},{"bool":true}]}}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[3,4]},"name":{"str":"lt"}},"expected":{"ok":true,"value":{"vector":[{"bool":true},{"bool":true}]}}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[3,4]},"name":{"str":"lt"}}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[1,2,0]},"name":{"str":"lt"}}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"vector_method","v":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[1,2,0]},"name":{"str":"lt"}},"name":{"str":"repr"},"arg":null},"expected":{"ok":true,"value":{"str":"VectorWithTruthOnly(True)"}}}
+{"program":{"op":"vector_method","v":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[1,2,0]},"name":{"str":"lt"}},"name":{"str":"len"},"arg":null},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":3,"name":{"str":"lt"}}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"tuple":[1,2]},"name":{"str":"eq"}}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"tuple":[1,2]},"name":{"str":"ne"}}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"str":"a"},"name":{"str":"lt"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[3]},"name":{"str":"add"}},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[]},"b":{"op":"vector","items":[]},"name":{"str":"add"}},"expected":{"ok":true,"value":{"vector":[]}}}
+{"program":{"op":"coll_truth","x":{"op":"vector","items":[]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[{"vector":[1]}]},"b":{"op":"vector","items":[{"vector":[2]}]},"name":{"str":"lt"}}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vector_method","v":{"op":"coll_binary","a":{"op":"vector","items":[{"vector":[1]}]},"b":{"op":"vector","items":[{"vector":[1,2]}]},"name":{"str":"lt"}},"name":{"str":"repr"},"arg":null},"expected":{"ok":true,"value":{"str":"Vector((VectorWithTruthOnly(True),))"}}}
+{"program":{"op":"coll_binary","a":{"tuple":[1]},"b":{"op":"vector","items":[{"tuple":[2]}]},"name":{"str":"add"}},"expected":{"ok":true,"value":{"vector":[{"tuple":[1,2]}]}}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"vector":[{"symbols":"ab"},{"symbols":"aabb"}]}}}
+{"program":{"op":"coll_unary","a":{"op":"vector","items":[{"float":"1.25"},{"float":"2.5"},3]},"name":{"str":"round"},"ndigits":1},"expected":{"ok":true,"value":{"vector":[{"float":"1.2"},{"float":"2.5"},3]}}}
+{"program":{"op":"coll_unary","a":{"op":"vector","items":[{"float":"2.5"},{"frac":[7,2]}]},"name":{"str":"round"},"ndigits":null},"expected":{"ok":true,"value":{"vector":[2,4]}}}
+{"program":{"op":"coll_unary","a":{"op":"vector","items":[-1,{"float":"-0.5"}]},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"vector":[1,{"float":"0.5"}]}}}
+{"program":{"op":"coll_unary","a":{"op":"vector","items":[{"str":"a"}]},"name":{"str":"neg"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2]},"name":{"str":"append"},"arg":{"op":"vector","items":[3]}},"expected":{"ok":true,"value":{"vector":[1,2,{"vector":[3]}]}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2]},"name":{"str":"concatenate"},"arg":{"str":"ab"}},"expected":{"ok":true,"value":{"vector":[1,2,{"str":"a"},{"str":"b"}]}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2]},"name":{"str":"concatenate"},"arg":{"symbols":"ba"}},"expected":{"ok":true,"value":{"vector":[1,2,{"str":"a"},{"str":"b"}]}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2]},"name":{"str":"concatenate"},"arg":3},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2,3]},"name":{"str":"getitem"},"arg":{"bool":true}},"expected":{"ok":true,"value":2}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2,3]},"name":{"str":"getitem"},"arg":-4},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2,3]},"name":{"str":"getitem"},"arg":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2,3]},"name":{"str":"slice"},"arg":[null,null,-1]},"expected":{"ok":true,"value":{"vector":[3,2,1]}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2,3]},"name":{"str":"slice"},"arg":[null,null,0]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[{"str":"a"},{"tuple":[1]}]},"name":{"str":"str"},"arg":null},"expected":{"ok":true,"value":{"str":"Vector(('a', (1,)))"}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1]},"name":{"str":"repr"},"arg":null},"expected":{"ok":true,"value":{"str":"Vector((1,))"}}}
+{"program":{"op":"vector_method","v":{"op":"vector","items":[1,2]},"name":{"str":"iter"},"arg":null},"expected":{"ok":true,"value":{"tuple":[1,2]}}}
+{"program":{"op":"vector_method","v":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"append"},"arg":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"d","sides":2},0,{"op":"d","sides":2}]},"expected":{"ok":true,"die":[[{"vector":[1,0,1]},1],[{"vector":[1,0,2]},1],[{"vector":[2,0,1]},1],[{"vector":[2,0,2]},1]]}}
+{"program":{"op":"vectorize","args":[1,2]},"expected":{"ok":true,"value":{"vector":[1,2]}}}
+{"program":{"op":"vectorize","args":[]},"expected":{"ok":true,"value":{"vector":[]}}}
+{"program":{"op":"vectorize","args":[{"op":"d","sides":2},{"op":"Reroll"}]},"expected":{"ok":true,"value":{"repr":"RerollType: <RerollType.Reroll: 'Reroll'>"}}}
+{"program":{"op":"vectorize","args":[{"op":"die","outcomes":[1,{"bool":true}]},{"op":"d","sides":1}]},"expected":{"ok":true,"die":[[{"vector":[1,1]},2]]}}
+{"program":{"op":"map","f":{"op":"fn","name":"is_even","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[0,-1]},{"vector":[2,3]}]}],"star":null},"expected":{"ok":true,"die":[[{"vector":[{"bool":true},{"bool":false}]},2]]}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"ab - c"},{"symbols":""},{"symbols":"-ab"},{"symbols":"ab-"},{"symbols":"aa -  a"},{"symbols":" - b"}]},"expected":{"ok":true,"die":[[{"symbols":"-ab"},1],[{"symbols":"-b"},1],[{"symbols":""},1],[{"symbols":"a"},1],[{"symbols":"ab - c"},1],[{"symbols":"ab"},1]]}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"a-b-c"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"a b"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":" a"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"a\u001cb"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"a\u00a0b"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"a_b"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":["b","a","b"]},{"symbols":{"b":2,"a":-1}}]},"expected":{"ok":true,"die":[[{"symbols":"bb - a"},1],[{"symbols":"abb"},1]]}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":["ab"]}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":[1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":{"ab":1}}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":null}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols","x":{"tuple":[{"str":"a"},{"str":"ab"}]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"symbols","x":{"tuple":[1,{"str":"ab"}]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols","x":{"op":"vector","items":[{"str":"b"},{"str":"a"}]}},"expected":{"ok":true,"value":{"symbols":"ab"}}}
+{"program":{"op":"symbols","x":{"op":"symbols","x":{"str":"ba - c"}}},"expected":{"ok":true,"value":{"symbols":"ab - c"}}}
+{"program":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"ba"},{"symbols":"b"},{"symbols":"a - b"},{"symbols":"c"}]},"expected":{"ok":true,"die":[[{"symbols":"c"},1],[{"symbols":"b"},1],[{"symbols":"a - b"},1],[{"symbols":"ab"},2]]}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":"a"},{"str":"a"}]},"expected":{"ok":true,"die":[[{"symbols":"a"},1],[{"str":"a"},1]]}}
+{"program":{"op":"die_typed","outcomes":[{"symbols":"a"},{"str":"b"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"add","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"b"}]},"b":{"str":"a"}},"expected":{"ok":true,"die":[[{"symbols":"ab"},1],[{"symbols":"aab"},1]]}}
+{"program":{"op":"sub","a":{"str":"a"},"b":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"b"}]}},"expected":{"ok":true,"die":[[{"symbols":"-b"},1],[{"symbols":"a - b"},1]]}}
+{"program":{"op":"mul","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"}]},"b":{"op":"d","sides":2}},"expected":{"ok":true,"die":[[{"symbols":"ab"},1],[{"symbols":"aabb"},1]]}}
+{"program":{"op":"floordiv","a":{"op":"die_symbols","outcomes":[{"symbols":"aab"},{"symbols":"b"}]},"b":{"symbols":"ab"}},"expected":{"ok":true,"die":[[0,1],[1,1]]}}
+{"program":{"op":"floordiv","a":{"symbols":"ab"},"b":{"op":"die_symbols","outcomes":[{"symbols":"ab"}]}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"floordiv","a":{"symbols":"ab"},"b":{"op":"d","sides":2}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"le","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"c"}]},"b":{"str":"abc"}},"expected":{"ok":true,"die":[[{"bool":true},2]]}}
+{"program":{"op":"lt","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"c"}]},"b":{"str":"abc"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"eq","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"c"}]},"b":{"str":"ba"}},"expected":{"ok":true,"die":[[{"bool":false},1],[{"bool":true},1]]}}
+{"program":{"op":"neg","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"},{"symbols":"c"}]}},"expected":{"ok":true,"die":[[{"symbols":"-ab"},1],[{"symbols":"-c"},1]]}}
+{"program":{"op":"abs","a":{"op":"die_symbols","outcomes":[{"symbols":"ab"}]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"str":"bc"},"name":{"str":"add"}},"expected":{"ok":true,"value":{"symbols":"abbc"}}}
+{"program":{"op":"coll_binary","a":{"str":"bc"},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"add"}},"expected":{"ok":true,"value":{"symbols":"abbc"}}}
+{"program":{"op":"vector_method","v":{"op":"coll_binary","a":{"str":"bc"},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"add"}},"name":{"str":"iter"},"arg":null},"expected":{"ok":true,"value":{"tuple":[{"str":"a"},{"str":"b"},{"str":"c"}]}}}
+{"program":{"op":"coll_binary","a":{"str":"bc"},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"sub"}},"expected":{"ok":true,"value":{"symbols":"c - a"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab"}},"b":{"str":"abc"},"name":{"str":"and"}},"expected":{"ok":true,"value":{"symbols":"ab"}}}
+{"program":{"op":"symbols_method","s":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab"}},"b":{"str":"bc"},"name":{"str":"and"}},"name":{"str":"keys"},"arg":null},"expected":{"ok":true,"value":{"tuple":[{"str":"b"},{"str":"c"}]}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab - c"}},"b":{"str":"abbc"},"name":{"str":"or"}},"expected":{"ok":true,"value":{"symbols":"aabbc"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab - c"}},"b":{"str":"abbc"},"name":{"str":"xor"}},"expected":{"ok":true,"value":{"symbols":"abcc"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":3,"name":{"str":"mul"}},"expected":{"ok":true,"value":{"symbols":"aaabbb"}}}
+{"program":{"op":"coll_binary","a":{"bool":true},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"symbols":"ab"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"float":"2.0"},"name":{"str":"mul"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"str":"a"},"name":{"str":"mul"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab"}},"b":2,"name":{"str":"mod"}},"expected":{"ok":true,"value":{"symbols":"b"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab"}},"b":0,"name":{"str":"mod"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":""}},"b":0,"name":{"str":"mod"}},"expected":{"ok":true,"value":{"symbols":""}}}
+{"program":{"op":"coll_binary","a":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"str":"a"},"name":{"str":"sub"}},"b":0,"name":{"str":"floordiv"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aab"}},"b":2,"name":{"str":"floordiv"}},"expected":{"ok":true,"value":{"symbols":"a"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aaab"}},"b":{"str":"ab"},"name":{"str":"floordiv"}},"expected":{"ok":true,"value":1}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aaab"}},"b":{"tuple":[{"str":"a"},1]},"name":{"str":"floordiv"}},"expected":{"ok":true,"value":0}}
+{"program":{"op":"coll_binary","a":{"str":"aaab"},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"floordiv"}},"expected":{"ok":true,"value":1}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aaab"}},"b":{"float":"1.5"},"name":{"str":"floordiv"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":2,"name":{"str":"pow"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":2,"name":{"str":"truediv"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":2,"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"mod"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"str":"x"},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"mod"}},"expected":{"ok":true,"value":{"str":"x"}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"op":"symbols","x":{"str":"bb"}},"name":{"str":"gt"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a - b"}},"b":{"op":"symbols","x":{"str":""}},"name":{"str":"lt"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"str":"a"},"name":{"str":"lt"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"str":"ab"},"name":{"str":"le"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"str":"ab"},"b":{"op":"symbols","x":{"str":"a"}},"name":{"str":"le"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":1,"name":{"str":"le"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"str":"ba"},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":1,"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":1,"name":{"str":"ne"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"str":"a b"},"name":{"str":"ne"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"op":"vector","items":[{"str":"b"},{"str":"a"}]},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"vector","items":[{"str":"b"},{"str":"a"}]},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"vector":[{"bool":false},{"bool":false}]}}}
+{"program":{"op":"coll_unary","a":{"op":"symbols","x":{"str":"a - bb"}},"name":{"str":"pos"},"ndigits":null},"expected":{"ok":true,"value":{"symbols":"a"}}}
+{"program":{"op":"coll_unary","a":{"op":"symbols","x":{"str":"a - bb"}},"name":{"str":"neg"},"ndigits":null},"expected":{"ok":true,"value":{"symbols":"bb - a"}}}
+{"program":{"op":"coll_unary","a":{"op":"symbols","x":{"str":"a"}},"name":{"str":"invert"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_unary","a":{"op":"symbols","x":{"str":"a"}},"name":{"str":"round"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"coll_truth","x":{"op":"symbols","x":{"str":""}}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"str":"a"},"name":{"str":"sub"}}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"str":"a"},"name":{"str":"sub"}},"name":{"str":"len"},"arg":null},"expected":{"ok":true,"value":1}}
+{"program":{"op":"symbols_method","s":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"b"}},"b":{"str":"a"},"name":{"str":"add"}},"name":{"str":"keys"},"arg":null},"expected":{"ok":true,"value":{"tuple":[{"str":"b"},{"str":"a"}]}}}
+{"program":{"op":"symbols_method","s":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"ab"}},"b":{"str":"ab"},"name":{"str":"sub"}},"name":{"str":"values"},"arg":null},"expected":{"ok":true,"value":{"tuple":[0,0]}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab - c"}},"name":{"str":"repr"},"arg":null},"expected":{"ok":true,"value":{"str":"Symbols('ab - c')"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab - c"}},"name":{"str":"str"},"arg":null},"expected":{"ok":true,"value":{"str":"ab - c"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getitem"},"arg":{"str":"ba"}},"expected":{"ok":true,"value":{"symbols":"aab"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getitem"},"arg":{"str":"ba"}},"name":{"str":"keys"},"arg":null},"expected":{"ok":true,"value":{"tuple":[{"str":"b"},{"str":"a"}]}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getitem"},"arg":{"str":""}},"expected":{"ok":true,"value":{"symbols":""}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getitem"},"arg":{"str":"a"}},"expected":{"ok":true,"value":2}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getitem"},"arg":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getattr"},"arg":{"str":"ab"}},"expected":{"ok":true,"value":{"symbols":"aab"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getattr"},"arg":{"str":""}},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"getattr"},"arg":{"str":"_x"}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"symbols_method","s":{"op":"vector","items":[1]},"name":{"str":"getattr"},"arg":{"str":"a"}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"count_subset"},"arg":[{"str":"ab"},null]},"expected":{"ok":true,"value":1}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"count_subset"},"arg":[{"str":""},null]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"count_subset"},"arg":[{"str":""},7]},"expected":{"ok":true,"value":7}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"count_subset"},"arg":[{"op":"symbols","x":{"str":"a - b"}},null]},"expected":{"ok":true,"value":-1}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"count_subset"},"arg":[{"tuple":[{"str":"a"},{"str":"a"},3]},null]},"expected":{"ok":true,"value":0}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"divide_counts"},"arg":2},"expected":{"ok":true,"value":{"symbols":"a"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"divide_counts"},"arg":{"float":"2.0"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"multiply_counts"},"arg":2},"expected":{"ok":true,"value":{"symbols":"aaaabb"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"modulo_counts"},"arg":2},"expected":{"ok":true,"value":{"symbols":"b"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a - b"}},"name":{"str":"has_negative_counts"},"arg":null},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a - bb"}},"name":{"str":"size"},"arg":null},"expected":{"ok":true,"value":-1}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"bc"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"c"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":3},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"issubset"},"arg":{"str":"abc"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"issuperset"},"arg":{"str":"abc"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"symmetric_difference"},"arg":{"str":"bc"}},"expected":{"ok":true,"value":{"symbols":"ac"}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"additive_union"},"arg":[{"str":"c"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"union"},"arg":[]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"size"},"arg":null},"expected":{"ok":true,"value":2}}
+{"program":{"op":"symbols_method","s":{"op":"vector","items":[1]},"name":{"str":"size"},"arg":null},"expected":{"ok":false,"error":"AttributeError"}}

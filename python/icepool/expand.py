@@ -87,19 +87,19 @@ def cartesian_product(
 
     if population_type is None:
         return outcome_type(args)  # type: ignore
-    # icepool-rs: a die of tuples is built in the Rust core, when every
-    # argument is a die or a plain outcome (anything else that expands, such as
-    # a multiset expression, stays on the Python path).
+    # icepool-rs: a die of tuples or Vectors is built in the Rust core, when
+    # every argument is a die or a plain outcome (anything else that expands,
+    # such as a multiset expression, stays on the Python path).
     elif (icepool.backend.RUST and population_type is icepool.Die
-          and outcome_type is tuple and all(
+          and outcome_type in (tuple, icepool.Vector) and all(
               isinstance(arg, icepool.Die)
               or not hasattr(arg, '_items_for_cartesian_product')
               for arg in args)):
+        build = (icepool.backend.RUST.tupleize if outcome_type is tuple else
+                 icepool.backend.RUST.vectorize)
         return icepool.Die._new_rust(
-            icepool.backend.RUST.tupleize([
-                (1, arg._rust_die()) if isinstance(arg, icepool.Die) else
-                (0, arg) for arg in args
-            ]))
+            build([(1, arg._rust_die()) if isinstance(arg, icepool.Die) else
+                   (0, arg) for arg in args]))
     else:
         data = {}
         for outcomes, final_quantity in iter_cartesian_product(

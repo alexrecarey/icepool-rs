@@ -8,7 +8,7 @@ use icepool_core::format::{self as core_format, Formatted};
 use icepool_core::value::{BinOp, LenKind};
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
-use pyo3::types::{PyBool, PyString};
+use pyo3::types::PyString;
 
 use crate::convert::{from_py, to_py, to_py_err};
 use crate::RsDie;
@@ -87,12 +87,12 @@ pub fn richcmp(die: &RsDie, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult
     };
     let (a, b) = (&die.die, &other.get().die);
     let result = match op {
-        CompareOp::Eq => a == b,
-        CompareOp::Ne => a != b,
+        CompareOp::Eq => icepool_core::Value::Bool(a == b),
+        CompareOp::Ne => icepool_core::Value::Bool(a != b),
         CompareOp::Lt => a.hash_key_compare(b, BinOp::Lt).map_err(to_py_err)?,
         CompareOp::Le => a.hash_key_compare(b, BinOp::Le).map_err(to_py_err)?,
         CompareOp::Gt => a.hash_key_compare(b, BinOp::Gt).map_err(to_py_err)?,
         CompareOp::Ge => a.hash_key_compare(b, BinOp::Ge).map_err(to_py_err)?,
     };
-    Ok(PyBool::new(py, result).to_owned().into_any().unbind())
+    Ok(crate::convert::to_py(py, &result)?.unbind())
 }

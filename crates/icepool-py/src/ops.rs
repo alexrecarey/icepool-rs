@@ -17,8 +17,8 @@ use crate::convert::{from_py, host_error, to_py};
 /// What `binary_operator` does per pair of outcomes.
 pub enum Binary<'py> {
     Op(BinOp, Bound<'py, PyAny>),
-    /// `operator.eq` / `operator.ne`: `==` is `Value`'s `PartialEq` (the core has no `BinOp` for it, since
-    /// it never raises); the flag is `true` for `!=`.
+    /// `operator.eq` / `operator.ne`: the core's `Value::eq_op` (the core has no `BinOp` for it); the flag is
+    /// `true` for `!=`.
     Eq(bool, Bound<'py, PyAny>),
     Call(Bound<'py, PyAny>),
 }
@@ -172,11 +172,15 @@ pub fn call(
     .map_err(host_error)
 }
 
-/// A value containing a host object anywhere (inside tuples too).
+/// A value containing a host object anywhere (inside tuples, vectors and counts too).
 fn has_host(v: &Value) -> bool {
     match v {
         Value::Host(_) => true,
         Value::Tuple(t) => t.iter().any(has_host),
+        Value::Vector(x) => {
+            x.data().map_or(false, |d| d.iter().any(has_host)) || x.truth().is_some_and(has_host)
+        }
+        Value::Symbols(s) => s.items().iter().any(|(_, n)| has_host(n)),
         _ => false,
     }
 }
@@ -198,7 +202,7 @@ impl Binary<'_> {
             },
             // `==` on host objects is Python's own (it need not be an equivalence, nor return a bool).
             Binary::Eq(_, f) if has_host(a) || has_host(b) => call(f, &[a, b], args, kwargs),
-            Binary::Eq(ne, _) => Ok(Value::Bool((a == b) != *ne)),
+            Binary::Eq(ne, _) => a.eq_op(b, *ne),
             Binary::Call(f) => call(f, &[a, b], args, kwargs),
         }
     }

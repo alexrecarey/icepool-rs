@@ -14,17 +14,20 @@ pub struct Counts<O> {
 }
 
 impl<O: Outcome> Counts<O> {
-    /// `Counts(items)`: sorts the items (as Python sorts `(key, value)` tuples: by key, then value for equal keys),
-    /// then merges equal keys, keeping the first. Raises `TypeError` if the keys are not mutually comparable;
+    /// `Counts(items)`: sorts the items (as Python sorts `(key, value)` tuples: by key, then value for keys that
+    /// are `==`), then merges equal keys (as a dict does), keeping the first. Raises `TypeError` if the keys are not mutually comparable;
     /// a single key is compared with itself so that even a one-outcome die checks its outcome is orderable.
     pub fn new(items: Vec<(O, Quantity)>) -> Result<Self> {
         if let [(k, _)] = items.as_slice() {
             k.py_lt(k)?;
         }
-        let sorted = py_sorted(
-            items,
-            |(ka, qa), (kb, qb)| if ka == kb { Ok(qa < qb) } else { ka.py_lt(kb) },
-        )?;
+        let sorted = py_sorted(items, |(ka, qa), (kb, qb)| {
+            if ka.py_eq(kb)? {
+                Ok(qa < qb)
+            } else {
+                ka.py_lt(kb)
+            }
+        })?;
         let mut merged: Vec<(O, Quantity)> = Vec::with_capacity(sorted.len());
         for (k, q) in sorted {
             k.check_key()?;

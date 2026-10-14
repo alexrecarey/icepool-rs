@@ -548,8 +548,9 @@ impl Die<Value> {
     /// `self.hash_key <op> other.hash_key` for `<`, `<=`, `>`, `>=`: `(Die, tuple(items))` compared as Python
     /// compares tuples. The classes are the same object, so it comes down to the items: the first `(outcome,
     /// quantity)` pair that differs (by `==`) decides, by `op` on the outcomes if those differ (which may raise),
-    /// else on the quantities; if one is a prefix of the other, by `op` on the lengths.
-    pub fn hash_key_compare(&self, other: &Die<Value>, op: BinOp) -> Result<bool> {
+    /// else on the quantities; if one is a prefix of the other, by `op` on the lengths. Like Python's tuple
+    /// comparison, it returns what the deciding comparison returned: not a bool for vector outcomes.
+    pub fn hash_key_compare(&self, other: &Die<Value>, op: BinOp) -> Result<Value> {
         fn cmp<T: PartialOrd>(op: BinOp, a: T, b: T) -> bool {
             match op {
                 BinOp::Lt => a < b,
@@ -560,12 +561,12 @@ impl Die<Value> {
         }
         for ((oa, qa), (ob, qb)) in self.items().iter().zip(other.items()) {
             if oa != ob {
-                return Ok(oa.binary(op, ob)?.truthy()?);
+                return oa.binary(op, ob);
             }
             if qa != qb {
-                return Ok(cmp(op, qa, qb));
+                return Ok(Value::Bool(cmp(op, qa, qb)));
             }
         }
-        Ok(cmp(op, self.len(), other.len()))
+        Ok(Value::Bool(cmp(op, self.len(), other.len())))
     }
 }

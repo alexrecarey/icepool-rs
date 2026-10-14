@@ -155,13 +155,13 @@ pub fn hash_key_compare(a: PValue, b: PValue, cmp: PValue) -> Result<PValue, PEr
         return Err(PErr::Unimplemented("a hash_key comparison by name".into()));
     };
     let result = match &*cmp {
-        "==" => a == b,
-        "!=" => a != b,
+        "==" => Value::Bool(a == b),
+        "!=" => Value::Bool(a != b),
         "<" => a.hash_key_compare(b, BinOp::Lt)?,
         "<=" => a.hash_key_compare(b, BinOp::Le)?,
         ">" => a.hash_key_compare(b, BinOp::Gt)?,
         ">=" => a.hash_key_compare(b, BinOp::Ge)?,
         _ => return Err(PErr::Unimplemented(format!("hash_key comparison {cmp}"))),
     };
-    Ok(PValue::Value(Value::Bool(result)))
+    Ok(PValue::Value(result))
 }

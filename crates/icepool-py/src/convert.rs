@@ -1,16 +1,17 @@
 //! Python objects <-> core `Value`s, host objects, and errors.
 //!
 //! Exact instances of the types the core models natively (`bool`, `int`, `float`, `fractions.Fraction`, `str`,
-//! `tuple`, `None`) become native values, so the core's own port of Python's semantics does the work (and the
-//! upstream test suite exercises it). Everything else, subclasses included (`IntEnum`, namedtuples, `Vector`,
-//! `Symbols`, user classes, `complex`), becomes a `Value::Host` whose operators and comparisons call back into
-//! Python: the core never decides how a host object behaves.
+//! `tuple`, `None`, and icepool's `Vector`, `VectorWithTruthOnly` and `Symbols`) become native values, so the
+//! core's own port of Python's semantics does the work (and the upstream test suite exercises it). Everything else,
+//! subclasses included (`IntEnum`, namedtuples, user classes, `complex`), becomes a `Value::Host` whose operators
+//! and comparisons call back into Python: the core never decides how a host object behaves. (A `Symbols` whose
+//! keys are not all single characters, which only `symbols[tuple]` makes, is a host object too.)
 
 use std::any::Any;
 use std::sync::Arc;
 
 use dashu_int::{IBig, UBig};
-use icepool_core::value::{BinOp, HostError, HostObject, HostRef, UnOp};
+use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
 use icepool_core::{Error, Value};
 use pyo3::exceptions::{
     PyAttributeError, PyIndexError, PyKeyError, PyNotImplementedError, PyOverflowError,
@@ -19,12 +20,64 @@ use pyo3::exceptions::{
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBool, PyFloat, PyInt, PyString, PyTuple, PyType};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType};
 
 static FRACTION: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static VECTOR: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static TRUTH_ONLY: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static SYMBOLS: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static DEFAULTDICT: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 fn fraction_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
     FRACTION.import(py, "fractions", "Fraction")
+}
+
+pub fn vector_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    VECTOR.import(py, "icepool.collection.vector", "Vector")
+}
+
+fn truth_only_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    TRUTH_ONLY.import(
+        py,
+        "icepool.collection.vector_with_truth_only",
+        "VectorWithTruthOnly",
+    )
+}
+
+pub fn symbols_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    SYMBOLS.import(py, "icepool.collection.symbols", "Symbols")
+}
+
+/// A facade `Symbols` as a core one, if every key is a single character.
+fn symbols_from_py(x: &Bound<'_, PyAny>) -> PyResult<Option<Symbols>> {
+    let data = x.getattr("_data")?;
+    let mut items = Vec::new();
+    for item in data.call_method0("items")?.try_iter()? {
+        let (k, n): (Bound<'_, PyAny>, Bound<'_, PyAny>) = item?.extract()?;
+        let c = match k.cast::<PyString>() {
+            Ok(s) if k.is_exact_instance_of::<PyString>() => {
+                let mut chars = s.to_str()?.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => c,
+                    _ => return Ok(None),
+                }
+            }
+            _ => return Ok(None),
+        };
+        items.push((c, from_py(&n)?));
+    }
+    Ok(Some(Symbols::raw(items)))
+}
+
+/// A core `Symbols` as the facade's: `Symbols._new_raw(defaultdict(int, data))`, keeping the dict's order.
+pub fn symbols_to_py<'py>(py: Python<'py>, s: &Symbols) -> PyResult<Bound<'py, PyAny>> {
+    let dict = PyDict::new(py);
+    for (c, n) in s.items() {
+        dict.set_item(c.to_string(), to_py(py, n)?)?;
+    }
+    let defaultdict = DEFAULTDICT.import(py, "collections", "defaultdict")?;
+    let data = defaultdict.call1((py.get_type::<PyInt>(), dict))?;
+    symbols_type(py)?.call_method1("_new_raw", (data,))
 }
 
 /// A Python object outcome. Its hash is taken once, when it enters the core: Python hashes dict keys on insertion
@@ -79,8 +132,8 @@ impl HostObject for PyHost {
         .map_err(host_error)
     }
 
-    fn truthy(&self) -> bool {
-        Python::attach(|py| self.obj.bind(py).is_truthy().unwrap_or(false))
+    fn truthy(&self) -> icepool_core::Result<bool> {
+        Python::attach(|py| self.obj.bind(py).is_truthy()).map_err(host_error)
     }
 
     fn repr(&self) -> String {
@@ -143,6 +196,24 @@ pub fn from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
     } else if x.is_exact_instance_of::<PyTuple>() {
         let t = x.cast::<PyTuple>()?;
         Value::tuple(t.iter().map(|e| from_py(&e)).collect::<PyResult<_>>()?)
+    } else if x.get_type().is(vector_type(py)?) {
+        let data = x.getattr("_data")?;
+        let items = data
+            .cast::<PyTuple>()?
+            .iter()
+            .map(|e| from_py(&e))
+            .collect::<PyResult<Vec<_>>>()?;
+        let truth = x.getattr("_truth_value")?;
+        let truth = if truth.is_none() {
+            None
+        } else {
+            Some(from_py(&truth)?)
+        };
+        Value::Vector(Vector::from_parts(items, truth))
+    } else if x.get_type().is(truth_only_type(py)?) {
+        Value::Vector(Vector::truth_only(from_py(&x.getattr("_truth_value")?)?))
+    } else if x.get_type().is(symbols_type(py)?) && symbols_from_py(x)?.is_some() {
+        Value::Symbols(symbols_from_py(x)?.expect("checked"))
     } else if x.get_type().is(fraction_type(py)?) {
         let n = int_from_py(&x.getattr("numerator")?)?;
         let d = int_from_py(&x.getattr("denominator")?)?;
@@ -178,6 +249,27 @@ pub fn to_py<'py>(py: Python<'py>, v: &Value) -> PyResult<Bound<'py, PyAny>> {
         )?
         .into_any(),
         Value::Complex(re, im) => pyo3::types::PyComplex::from_doubles(py, *re, *im).into_any(),
+        Value::Vector(v) => match v.data() {
+            Ok(items) => {
+                let items = PyTuple::new(
+                    py,
+                    items
+                        .iter()
+                        .map(|e| to_py(py, e))
+                        .collect::<PyResult<Vec<_>>>()?,
+                )?;
+                let kwargs = PyDict::new(py);
+                if let Some(t) = v.truth() {
+                    kwargs.set_item("truth_value", to_py(py, t)?)?;
+                }
+                vector_type(py)?.call((items,), Some(&kwargs))?
+            }
+            Err(_) => truth_only_type(py)?.call1((to_py(
+                py,
+                v.truth().expect("a VectorWithTruthOnly has a truth value"),
+            )?,))?,
+        },
+        Value::Symbols(s) => symbols_to_py(py, s)?,
         Value::Host(h) => h
             .as_any()
             .downcast_ref::<PyHost>()

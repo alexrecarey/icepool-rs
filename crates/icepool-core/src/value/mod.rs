@@ -263,6 +263,13 @@ impl Outcome for Value {
         ops::compare(BinOp::Le, self, other)
     }
 
+    fn py_eq(&self, other: &Self) -> Result<bool> {
+        if self.is_collection() || other.is_collection() {
+            return self.eq_op(other, false)?.truthy();
+        }
+        Ok(self == other)
+    }
+
     fn py_ge(&self, other: &Self) -> Result<bool> {
         ops::compare(BinOp::Ge, self, other)
     }

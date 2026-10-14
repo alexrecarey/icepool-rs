@@ -5,6 +5,7 @@
 //! the facade's `Counts`.
 
 mod again;
+mod collection;
 mod convert;
 mod deck;
 mod evaluate;
@@ -522,6 +523,7 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(again::evaluate_agains_using_depth, m)?,
         wrap_pyfunction!(again::evaluate_agains_using_count, m)?,
         wrap_pyfunction!(map::tupleize, m)?,
+        wrap_pyfunction!(map::vectorize, m)?,
         wrap_pyfunction!(map_tools::map_repeat, m)?,
         wrap_pyfunction!(map_tools::map_and_time, m)?,
         wrap_pyfunction!(map_tools::absorbing_markov_chain, m)?,
@@ -565,6 +567,16 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(format::common_outcome_length, m)?,
         wrap_pyfunction!(format::sample_at, m)?,
         wrap_pyfunction!(format::die_equals, m)?,
+        wrap_pyfunction!(collection::vector_binary_operator, m)?,
+        wrap_pyfunction!(collection::vector_reverse_binary_operator, m)?,
+        wrap_pyfunction!(collection::vector_unary_operator, m)?,
+        wrap_pyfunction!(collection::symbols_from_str, m)?,
+        wrap_pyfunction!(collection::symbols_from_iter, m)?,
+        wrap_pyfunction!(collection::symbols_from_mapping, m)?,
+        wrap_pyfunction!(collection::symbols_op, m)?,
+        wrap_pyfunction!(collection::symbols_unary, m)?,
+        wrap_pyfunction!(collection::symbols_count_subset, m)?,
+        wrap_pyfunction!(collection::symbols_getitem, m)?,
     ] {
         m.add_function(f)?;
     }

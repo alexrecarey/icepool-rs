@@ -31,6 +31,13 @@ pub trait Outcome: Clone + Debug + Hash + Eq {
         other.py_le(self)
     }
 
+    /// Python's `bool(self == other)`, as a comparison of tuples asks it. `Eq` is the equality of dict keys, which
+    /// also requires equal hashes: the two differ for a few Python types (`Symbols('a') == 'a'`, but their hashes
+    /// differ).
+    fn py_eq(&self, other: &Self) -> Result<bool> {
+        Ok(self == other)
+    }
+
     /// `Counts` rejects some keys outright (`None`, `Reroll`) with `TypeError`. Most types accept everything.
     fn check_key(&self) -> Result<()> {
         Ok(())

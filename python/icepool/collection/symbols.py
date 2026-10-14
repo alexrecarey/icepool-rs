@@ -82,6 +82,18 @@ class Symbols(Mapping[str, int]):
         `a - b` has one positive a and one negative b.
         """
         self = super(Symbols, cls).__new__(cls)
+        # icepool-rs: the core parses, validates and sorts; the facade only
+        # tells it which kind of argument this is.
+        if icepool.backend.RUST:
+            rs = icepool.backend.RUST
+            if isinstance(symbols, str):
+                items = rs.symbols_from_str(symbols)
+            elif isinstance(symbols, Mapping):
+                items = rs.symbols_from_mapping(list(symbols.items()))
+            else:
+                items = rs.symbols_from_iter(tuple(symbols))
+            self._data = defaultdict(int, items)
+            return self
         if isinstance(symbols, str):
             data: MutableMapping[str, int] = defaultdict(int)
             positive, *negative = re.split(r'\s*-\s*', symbols)
@@ -121,6 +133,15 @@ class Symbols(Mapping[str, int]):
     # Mapping interface.
 
     def __getitem__(self, key: str) -> 'int | Symbols':  # type: ignore
+        # icepool-rs: a str key on the core. Any other key (a tuple, which
+        # would make a Symbols with non-character keys) is not ported.
+        if icepool.backend.RUST:
+            if isinstance(key, str):
+                return icepool.backend.RUST.symbols_getitem(self, key)
+            if len(key) == 1:
+                return self._data.get(key, 0)
+            raise NotImplementedError(
+                'icepool_rs: Symbols indexed by something other than a str')
         if len(key) == 1:
             return self._data.get(key, 0)
         else:
@@ -149,6 +170,9 @@ class Symbols(Mapping[str, int]):
     def __add__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('add', self, Symbols(other))
         data = defaultdict(int, self._data)
         for s, count in Symbols(other).items():
             data[s] += count
@@ -164,6 +188,9 @@ class Symbols(Mapping[str, int]):
     def __sub__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('sub', self, Symbols(other))
         data = defaultdict(int, self._data)
         for s, count in Symbols(other).items():
             data[s] -= count
@@ -172,6 +199,9 @@ class Symbols(Mapping[str, int]):
     def __rsub__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('rsub', self, Symbols(other))
         data = defaultdict(int, Symbols(other)._data)
         for s, count in self.items():
             data[s] -= count
@@ -185,6 +215,9 @@ class Symbols(Mapping[str, int]):
     def __and__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('and', self, Symbols(other))
         data: defaultdict[str, int] = defaultdict(int)
         for s, count in Symbols(other).items():
             data[s] = min(self.get(s, 0), count)
@@ -199,6 +232,9 @@ class Symbols(Mapping[str, int]):
     def __or__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('or', self, Symbols(other))
         data = defaultdict(int, self._data)
         for s, count in Symbols(other).items():
             data[s] = max(data[s], count)
@@ -214,6 +250,9 @@ class Symbols(Mapping[str, int]):
     def __xor__(self, other: Iterable[str] | Mapping[str, int]) -> 'Symbols':
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('xor', self, Symbols(other))
         data = defaultdict(int, self._data)
         for s, count in Symbols(other).items():
             data[s] = abs(data[s] - count)
@@ -228,6 +267,9 @@ class Symbols(Mapping[str, int]):
     def __mul__(self, other: int) -> 'Symbols':
         if not isinstance(other, int):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('mul', self, other)
         data = defaultdict(int, {
             s: count * other
             for s, count in self.items()
@@ -238,6 +280,9 @@ class Symbols(Mapping[str, int]):
 
     def divide_counts(self, other: int) -> 'Symbols':
         """Divides all counts by an integer, rounding down."""
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('divide_counts', self, other)
         data = defaultdict(int, {
             s: count // other
             for s, count in self.items()
@@ -251,6 +296,10 @@ class Symbols(Mapping[str, int]):
         """The number of times the divisor is contained in this multiset."""
         if not isinstance(divisor, Mapping):
             divisor = Counter(divisor)
+        # icepool-rs: on the core, given the divisor's items.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_count_subset(
+                self, list(divisor.items()), empty_divisor)
         result = None
         for s, count in divisor.items():
             current = self._data.get(s, 0) // count
@@ -297,6 +346,9 @@ class Symbols(Mapping[str, int]):
     def __mod__(self, other: int) -> 'Symbols':
         if not isinstance(other, int):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('mod', self, other)
         data = defaultdict(int, {
             s: count % other
             for s, count in self.items()
@@ -306,6 +358,9 @@ class Symbols(Mapping[str, int]):
     def __lt__(self, other: 'Symbols') -> bool:
         if not isinstance(other, Symbols):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('lt', self, other)
         keys = sorted(set(self.keys()) | set(other.keys()))
         for k in keys:
             if self[k] < other[k]:  # type: ignore
@@ -317,6 +372,9 @@ class Symbols(Mapping[str, int]):
     def __gt__(self, other: 'Symbols') -> bool:
         if not isinstance(other, Symbols):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('gt', self, other)
         keys = sorted(set(self.keys()) | set(other.keys()))
         for k in keys:
             if self[k] > other[k]:  # type: ignore
@@ -339,6 +397,9 @@ class Symbols(Mapping[str, int]):
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
         other = Symbols(other)
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('le', self, other)
         return all(self[s] <= other[s]  # type: ignore
                    for s in itertools.chain(self, other))
 
@@ -356,6 +417,9 @@ class Symbols(Mapping[str, int]):
         if isinstance(other, (icepool.Population, icepool.AgainExpression)):
             return NotImplemented  # delegate to the other
         other = Symbols(other)
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('ge', self, other)
         return all(self[s] >= other[s]  # type: ignore
                    for s in itertools.chain(self, other))
 
@@ -366,6 +430,9 @@ class Symbols(Mapping[str, int]):
             ValueError if either has negative elements.
         """
         other = Symbols(other)
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('isdisjoint', self, other)
         return any(self[s] > 0 and other[s] > 0  # type: ignore
                    for s in self)
 
@@ -376,6 +443,9 @@ class Symbols(Mapping[str, int]):
             other = Symbols(other)
         except (TypeError, ValueError):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('eq', self, other)
         return all(self[s] == other[s]  # type: ignore
                    for s in itertools.chain(self, other))
 
@@ -386,6 +456,9 @@ class Symbols(Mapping[str, int]):
             other = Symbols(other)
         except (TypeError, ValueError):
             return NotImplemented
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_op('ne', self, other)
         return any(self[s] != other[s]  # type: ignore
                    for s in itertools.chain(self, other))
 
@@ -393,9 +466,16 @@ class Symbols(Mapping[str, int]):
 
     def has_negative_counts(self) -> bool:
         """Whether any counts are negative."""
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_unary('has_negative_counts',
+                                                      self)
         return any(c < 0 for c in self.values())
 
     def __pos__(self) -> 'Symbols':
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_unary('pos', self)
         data = defaultdict(int, {
             s: count
             for s, count in self.items() if count > 0
@@ -403,6 +483,9 @@ class Symbols(Mapping[str, int]):
         return Symbols._new_raw(data)
 
     def __neg__(self) -> 'Symbols':
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_unary('neg', self)
         data = defaultdict(int, {s: -count for s, count in self.items()})
         return Symbols._new_raw(data)
 
@@ -415,10 +498,16 @@ class Symbols(Mapping[str, int]):
 
     def size(self) -> int:
         """The total number of elements."""
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_unary('size', self)
         return sum(self._data.values())
 
     @cached_property
     def _str(self) -> str:
+        # icepool-rs: on the core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.symbols_unary('str', self)
         sorted_keys = sorted(self)
         positive = ''.join(s * self._data[s] for s in sorted_keys
                            if self._data[s] > 0)

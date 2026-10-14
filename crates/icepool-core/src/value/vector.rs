@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use super::{ops, BinOp, UnOp, Value};
+use super::{BinOp, UnOp, Value};
 use crate::error::{Error, Result};
 
 #[derive(Clone, Debug)]
@@ -116,53 +116,110 @@ impl Vector {
         Ok(Value::Vector(Vector::new(items)))
     }
 
-    /// `Vector.binary_operator(other, op)` with `self` on the left. `None` is `NotImplemented` (never returned for
-    /// values: icepool returns it only for a `Population` or an `AgainExpression`, which are not values).
+    /// `Vector.binary_operator(other, op)` with `self` on the left, for the standard operators: the comparators
+    /// give the result a truth value (for a non-vector: `False` for `==`, `True` for `!=`, none for the orderings).
     pub fn binary(&self, op: VecOp, other: &Value) -> Result<Value> {
+        let compare_non_vector = match op {
+            VecOp::Eq(ne) => Some(Value::Bool(ne)),
+            _ => None,
+        };
+        self.binary_operator(
+            other,
+            |x, y| op.apply(x, y),
+            op.is_comparison(),
+            compare_non_vector,
+        )
+    }
+
+    /// `Vector.binary_operator(other, op, compare_for_truth=..., compare_non_vector=...)` for any `op`.
+    ///
+    /// If the other operand is also a `Vector`, the operator is applied to each pair of elements from `self` and
+    /// `other`. Both must have the same length. Otherwise the other operand is broadcast to each element of `self`.
+    /// For a comparison (`compare_for_truth`), the result also has a truth value based on lexicographic ordering:
+    /// `op(self._data, other._data)`, computed first.
+    pub fn binary_operator(
+        &self,
+        other: &Value,
+        op: impl Fn(&Value, &Value) -> Result<Value>,
+        compare_for_truth: bool,
+        compare_non_vector: Option<Value>,
+    ) -> Result<Value> {
         let data = self.data()?;
-        // The comparators also give the result a truth value: lexicographic for two vectors, and for a non-vector
-        // `False` for `==`, `True` for `!=`, none for the orderings.
-        if let Value::Vector(o) = other {
-            let odata = o.data()?;
-            let truth = if op.is_comparison() {
-                Some(tuple_op(op, data, odata)?)
-            } else {
-                None
-            };
-            if data.len() == odata.len() {
-                let items = data
-                    .iter()
-                    .zip(odata.iter())
-                    .map(|(x, y)| op.apply(x, y))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Value::Vector(Vector::with_truth(items, truth)))
-            } else if let Some(truth) = truth {
-                Ok(Value::Vector(Vector::truth_only(truth)))
-            } else {
-                Err(Error::Index(format!(
-                    "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",
-                    data.len(),
-                    odata.len()
-                )))
-            }
-        } else {
-            let truth = match op {
-                VecOp::Eq(ne) => Some(Value::Bool(ne)),
-                _ => None,
-            };
+        let Value::Vector(o) = other else {
             let items = data
                 .iter()
-                .map(|x| op.apply(x, other))
+                .map(|x| op(x, other))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Value::Vector(Vector::with_truth(items, compare_non_vector)));
+        };
+        let odata = o.data()?;
+        let truth = if compare_for_truth {
+            Some(op(
+                &Value::Tuple(data.clone()),
+                &Value::Tuple(odata.clone()),
+            )?)
+        } else {
+            None
+        };
+        if data.len() == odata.len() {
+            let items = data
+                .iter()
+                .zip(odata.iter())
+                .map(|(x, y)| op(x, y))
                 .collect::<Result<Vec<_>>>()?;
             Ok(Value::Vector(Vector::with_truth(items, truth)))
+        } else if let Some(truth) = truth {
+            Ok(Value::Vector(Vector::truth_only(truth)))
+        } else {
+            Err(Error::Index(format!(
+                "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",
+                data.len(),
+                odata.len()
+            )))
         }
     }
 
-    /// `Vector.reverse_binary_operator(other, op)`: `other op self` where `other` is not a vector (two vectors
-    /// always use the left one's `binary_operator`). Comparisons never get here: Python reflects `x < v` to
-    /// `v > x`, a forward operator.
+    /// `Vector.reverse_binary_operator(other, op)`: `op(other, x)` for each element. Two vectors always use the
+    /// left one's `binary_operator` in Python's dispatch; called directly, they must have the same length.
+    /// Comparisons never get here from an operator: Python reflects `x < v` to `v > x`.
+    pub fn reverse_binary_operator(
+        &self,
+        other: &Value,
+        op: impl Fn(&Value, &Value) -> Result<Value>,
+    ) -> Result<Value> {
+        let data = self.data()?;
+        if let Value::Vector(o) = other {
+            let odata = o.data()?;
+            if data.len() != odata.len() {
+                return Err(Error::Index(format!(
+                    "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",
+                    odata.len(),
+                    data.len()
+                )));
+            }
+            let items = data
+                .iter()
+                .zip(odata.iter())
+                .map(|(x, y)| op(y, x))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Value::Vector(Vector::new(items)));
+        }
+        self.map(|x| op(other, x))
+    }
+
+    /// `other <op> self` for a standard arithmetic operator.
     pub fn reverse_binary(&self, op: BinOp, other: &Value) -> Result<Value> {
-        self.map(|x| other.binary(op, x))
+        self.reverse_binary_operator(other, |x, y| x.binary(op, y))
+    }
+
+    /// `self._truth_value`.
+    pub fn truth(&self) -> Option<&Value> {
+        self.truth.as_deref()
+    }
+
+    /// A vector as the facade holds it: its elements and truth value.
+    pub fn from_parts(items: Vec<Value>, truth: Option<Value>) -> Self {
+        Vector::with_truth(items, truth)
     }
 
     /// Python's `repr()` / `str()` (the same for a vector: `str(tuple)` shows its elements' reprs).
@@ -186,25 +243,6 @@ impl Vector {
                 })
             }
         }
-    }
-}
-
-/// `op(self._data, other._data)`: Python's tuple comparison. `==` and `!=` give a bool; an ordering gives the
-/// comparison of the first elements that differ (by `==`), whatever it returns, or compares the lengths.
-fn tuple_op(op: VecOp, a: &Arc<[Value]>, b: &Arc<[Value]>) -> Result<Value> {
-    match op {
-        VecOp::Eq(ne) => Ok(Value::Bool(
-            (Value::Tuple(a.clone()) == Value::Tuple(b.clone())) != ne,
-        )),
-        VecOp::Bin(op) => match a.iter().zip(b.iter()).find(|(x, y)| x != y) {
-            Some((x, y)) => x.binary(op, y),
-            None => ops::compare(
-                op,
-                &Value::from(a.len() as i64),
-                &Value::from(b.len() as i64),
-            )
-            .map(Value::Bool),
-        },
     }
 }
 

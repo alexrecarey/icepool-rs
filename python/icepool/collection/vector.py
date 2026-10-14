@@ -170,6 +170,11 @@ class Vector(Outcome, Sequence[T_co]):
         This is used for the standard unary operators
         `-, +, abs, ~, round, trunc, floor, ceil`
         """
+        # icepool-rs: elementwise on the Rust core (`op` a host callback
+        # unless it is a standard operator).
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.vector_unary_operator(
+                self, op, args, kwargs)
         return Vector(op(x, *args, **kwargs) for x in self)
 
     def __neg__(self) -> 'Vector[T_co]':
@@ -234,6 +239,14 @@ class Vector(Outcome, Sequence[T_co]):
         In this case, the result also has a truth value based on lexicographic
         ordering.
         """
+        # icepool-rs: elementwise on the Rust core, once a population has been
+        # handed back to its own operator.
+        if icepool.backend.RUST:
+            if isinstance(other, (icepool.Population, icepool.AgainExpression)):
+                return NotImplemented  # delegate to the other
+            return icepool.backend.RUST.vector_binary_operator(
+                self, other, op, args, kwargs, compare_for_truth,
+                compare_non_vector)
         if isinstance(other, Vector):
             if len(self) == len(other):
                 if compare_for_truth:
@@ -260,6 +273,12 @@ class Vector(Outcome, Sequence[T_co]):
     def reverse_binary_operator(self, other, op: Callable[..., U], *args,
                                 **kwargs) -> 'Vector[U]':
         """Reverse version of `binary_operator()`."""
+        # icepool-rs: as `binary_operator`.
+        if icepool.backend.RUST:
+            if isinstance(other, (icepool.Population, icepool.AgainExpression)):
+                return NotImplemented  # delegate to the other
+            return icepool.backend.RUST.vector_reverse_binary_operator(
+                self, other, op, args, kwargs)
         if isinstance(other, Vector):
             if len(self) == len(other):
                 return Vector(

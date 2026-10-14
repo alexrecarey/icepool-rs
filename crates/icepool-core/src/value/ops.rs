@@ -166,6 +166,19 @@ impl Value {
             return collection_binary(op, self, other);
         }
         if matches!(op, Lt | Le | Gt | Ge) {
+            // Python's tuple comparison returns the comparison of the first elements that differ (by `==`) as is,
+            // which for vectors is not a bool; equal prefixes compare the lengths.
+            if let (Value::Tuple(x), Value::Tuple(y)) = (self, other) {
+                return match x.iter().zip(y.iter()).find(|(p, q)| p != q) {
+                    Some((p, q)) => p.binary(op, q),
+                    None => compare(
+                        op,
+                        &Value::from(x.len() as i64),
+                        &Value::from(y.len() as i64),
+                    )
+                    .map(Value::Bool),
+                };
+            }
             return compare(op, self, other).map(Value::Bool);
         }
         if matches!(self, Value::Complex(..)) || matches!(other, Value::Complex(..)) {

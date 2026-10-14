@@ -1,0 +1,16 @@
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"aba"}},"b":{"op":"symbols","x":{"str":"ac- "}},"name":{"str":"ne"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"coll_binary","a":{"op":"symbols","x":{"str":"a"}},"b":{"op":"vector","items":[]},"name":{"str":"ne"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"eq","a":1,"b":{"op":"Reroll"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"ne","a":{"op":"Reroll"},"b":{"op":"Reroll"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"vectorize","args":[{"op":"vectorize","args":[{"op":"d","sides":9}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"pow","a":{"op":"die_vectors","outcomes":[{"vector":[-1]}]},"b":{"op":"d","sides":4}}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"truth","x":{"op":"eq","a":{"op":"die_vectors","outcomes":[{"vector":[]}]},"b":{"op":"die_vectors","outcomes":[{"vector":[1]}]}}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"truth","x":{"op":"eq","a":{"op":"die_vectors","outcomes":[{"vector":[]}]},"b":{"op":"die_vectors","outcomes":[{"vector":[3]}]}}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"vectorize","args":[{"op":"die_vectors","outcomes":[{"vector":[]},{"vector":[5]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"die_vectors","outcomes":[{"vector":[]},{"vector":[8]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"and","a":{"op":"die","outcomes":[6,1]},"b":{"op":"die_vectors","outcomes":[{"vector":[6]}]}}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"die_vectors","outcomes":[{"vector":[]},{"vector":[2]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"vectorize","args":[{"op":"die_symbols","outcomes":[{"symbols":"bb-a"},{"symbols":"a-"}]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"vectorize","args":[{"op":"die_vectors","outcomes":[{"vector":[]},{"vector":[3]}]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"hash_key_compare","a":{"op":"vectorize","args":[{"op":"d","sides":6}]},"b":{"op":"d","sides":2},"cmp":{"str":">="}},"expected":{"ok":true,"value":{"vector":[{"bool":true}]}}}
+{"program":{"op":"map","f":{"op":"fn","name":"is_even","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[0,-1]}]}],"star":null},"expected":{"ok":true,"die":[[{"vector":[{"bool":true},{"bool":false}]},1]]}}
