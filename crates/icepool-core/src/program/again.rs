@@ -1,5 +1,5 @@
 //! `icepool.Again` in the program layer (population/again.py): building `AgainExpression`s with Python's
-//! operators, `Die(..., again_depth=, again_end=)` in depth mode, and `Die.explode`.
+//! operators, `Die(..., again_depth=, again_count=, again_end=)` in both modes, and `Die.explode`.
 //!
 //! The expression itself is the core's closed enum (`crate::again::Again`), over this layer's operations and
 //! objects; evaluating it calls back into the same Python operator dispatch as the operator nodes (`ops::binary`),
