@@ -163,7 +163,9 @@ def _candidates(prog):
         yield _replace(prog, path, new)
 
 
-def shrink(prog, port, budget=300):
+def shrink(prog, port, budget=300, seconds=60):
+    deadline = time.time() + seconds
+
     def fails(p):
         e = oracle(p)
         return e is not None and not same(e, port.run(p))[0]
@@ -173,7 +175,8 @@ def shrink(prog, port, budget=300):
         improved = False
         for c in _candidates(best):
             budget -= 1
-            if budget <= 0:
+            if budget <= 0 or time.time() > deadline:
+                budget = 0
                 break
             if len(json.dumps(c)) < len(json.dumps(best)) and fails(c):
                 best, improved = c, True

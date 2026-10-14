@@ -28,6 +28,9 @@ CLAUDE=(claude -p --dangerously-skip-permissions --setting-sources project,local
 
 mkdir -p "$LOGS" "$WTROOT"
 cd "$REPO"
+# One loop at a time (the watchdog may try to start another).
+exec 9> "$LOGS/../loop.lock"
+flock -n 9 || { echo "another loop.sh is already running"; exit 0; }
 T() { python3 loop/tasks.py "$@"; }
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOGS/loop.log"; }
 status() { echo "$(date '+%F %T') $*" > "$STATUS_FILE"; }
@@ -161,16 +164,20 @@ BASE=$BASE  HEAD=$HEAD_SHA  task $ID: $(T field "$ID" title)") > "$LOGS/$TAG-rev
         log "usage limit during review; sleeping (attempt not counted)"; sleep "$LIMIT_SLEEP"; continue
       fi
       result_text "$LOGS/$TAG-review.jsonl" > "$LOGS/$TAG-review.txt"
-      if grep -q '^VERDICT: APPROVE' "$LOGS/$TAG-review.txt"; then
+      # Tolerant of markdown around the verdict line (**VERDICT: APPROVE**, indentation, ...).
+      LAST_VERDICT="$(grep -iE 'VERDICT:?[[:space:]*_]*(APPROVE|REJECT)' "$LOGS/$TAG-review.txt" | tail -1)"
+      if echo "$LAST_VERDICT" | grep -qiE 'VERDICT:?[[:space:]*_]*APPROVE'; then
         VERDICT=APPROVE
       else
-        VERDICT="review: $(grep '^VERDICT' "$LOGS/$TAG-review.txt" | tail -1)"
+        VERDICT="review: $LAST_VERDICT"
         [ "$VERDICT" = "review: " ] && VERDICT="review: no verdict (see $TAG-review.txt)"
       fi
     fi
   fi
 
   if [ "$VERDICT" = APPROVE ]; then
+    # Drop anything the reviewer may have touched: merge exactly what was checked.
+    git -C "$WT" reset -q --hard "$HEAD_SHA" && git -C "$WT" clean -fdq -e .venv -e .loop -e harness-out
     # Rebase onto main (only loop bookkeeping can have landed there), then fast-forward.
     if git -C "$WT" rebase -q main && git merge -q --ff-only "task/$ID"; then
       T status "$ID" done
@@ -215,5 +222,5 @@ BASE=$BASE  HEAD=$HEAD_SHA  task $ID: $(T field "$ID" title)") > "$LOGS/$TAG-rev
     commit_main "loop: $ID attempt $N failed"
   fi
 
-  [ "$ONCE" = 1 ] && { status "stopped after --once"; exit 0; }
+  [ "$ONCE" = 1 ] && { status "stopped: after --once"; exit 0; }
 done
