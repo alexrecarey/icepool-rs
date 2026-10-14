@@ -75,6 +75,9 @@
     },
     "S2": {
       "status": "done"
+    },
+    "S3": {
+      "status": "done"
     }
   },
   "merges": 25,
