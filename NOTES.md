@@ -5,6 +5,18 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **S4: the check that nothing of Deck / Deal / MultiDeal / multiset operators / expressions is left.** S4a-S4d
+  covered the area; what is still open is all in tasks: weightless generators (S4e), operators over tuple counts,
+  mixture inner equality, @multiset_function kwargs (S4f), evaluators called back from the driver incl. argsort,
+  leximin/leximax, sum(map=), wild largest_count (K6c), `Deck.map` and MultiDeal built-ins (S5c). S4 added the
+  last uncovered public API as nodes (harness/grammar/deck.py): `deck_method` (`additive_union` / `difference` /
+  `intersection` / `union(*args)`, which always raise TypeError on 3.13, see DIVERGENCES.md; `symmetric_difference`
+  = `^`; `deck[outcome]` via `Die::position`, KeyError / unhashable TypeError; `keys` / `values` / `iter`) and
+  `deal_str` (`(repr, str)` of a Deal or MultiDeal; `str` is a header plus `crate::format::format(deck, "Deck",
+  "")`). `wire::deck_repr` and `multi_deal::hand_groups` are `pub(super)` for it. Fuzzing these needs the deck
+  nodes allowed too: `fuzz --ops deck_method,deal_str,deck,d,die,deck_op,deck_mul,add` (with only the new ops,
+  `g.make("deck")` has nothing to build and 0 programs run). Fixtures: fixtures/s4/deck-methods-deal-str.
+
 - **S3: the check that nothing of Again count mode / map(repeat) / Markov chains is left.** The facade side was
   complete (FACADE-AUDIT.md: again.py, map_tools/* on the core) except a bare `AgainExpression()` in count mode,
   which raised NotImplementedError: the core's bare `Again` now carries `is_additive` (`Again::Again {

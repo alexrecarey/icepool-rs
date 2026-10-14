@@ -322,6 +322,23 @@ def test_symbols_multi_argument_methods():
     assert Symbols('a').union() == Symbols('a')
 ```
 
+### `Deck.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S4)
+
+The same `functools.reduce(..., initial=self)` as `Symbols`' (above), in population/deck.py: on the oracle's
+Python 3.13 every call raises `TypeError: reduce() takes no keyword arguments`. Copied (program/deck.rs
+`deck_method`); the facade runs upstream's Python here, so it raises the same way.
+
+Drafted upstream test:
+
+```python
+def test_deck_multi_argument_methods():
+    deck = Deck([1, 2, 2])
+    assert deck.additive_union([3], [3]) == Deck([1, 2, 2, 3, 3])
+    assert deck.difference([2], [1]) == Deck([2])
+    assert deck.intersection([2, 2, 3]) == Deck([2, 2])
+    assert deck.union() == deck
+```
+
 ### A die of nested vectors cannot be sorted (S5a)
 
 A comparison of two vectors of the same length takes its truth value from `op(self._data, other._data)`, a tuple
