@@ -1,5 +1,9 @@
 {
-  "tasks": {},
+  "tasks": {
+    "K1": {
+      "status": "done"
+    }
+  },
   "merges": 0,
   "last_long": null
 }
