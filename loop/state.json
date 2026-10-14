@@ -29,6 +29,9 @@
     },
     "S1b": {
       "status": "done"
+    },
+    "S1c": {
+      "status": "done"
     }
   },
   "merges": 10,
