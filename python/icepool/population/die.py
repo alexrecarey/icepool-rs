@@ -1610,6 +1610,10 @@ class Die(Population[T_co], MaybeHashKeyed):
         Apart from being hashable and totally orderable, this is not guaranteed
         to be in any particular format or have any other properties.
         """
+        # icepool-rs: the Rust die stands in for `tuple(self.items())`: it
+        # hashes, compares equal and orders as that tuple would.
+        if icepool.backend.RUST:
+            return Die, self._rust_die()
         return Die, tuple(self.items())
 
     __hash__ = MaybeHashKeyed.__hash__
@@ -1640,6 +1644,12 @@ class Die(Population[T_co], MaybeHashKeyed):
 
         if not isinstance(other, Die):
             return False
+
+        # icepool-rs: compared (and simplified) in the Rust core.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.die_equals(self._rust_die(),
+                                                   other._rust_die(),
+                                                   bool(simplify))
 
         if simplify:
             return self.simplify().hash_key == other.simplify().hash_key

@@ -9,6 +9,7 @@ mod catalogue;
 mod catalogue_evaluators;
 mod die_methods;
 mod evaluate;
+mod format;
 mod map;
 mod ops;
 mod pool;
@@ -48,6 +49,10 @@ pub enum PValue {
     Pool(crate::Pool<Value>),
     /// `...`, for keep indices.
     Ellipsis,
+    /// A `DieWithTruth`: what `die == x` and `die != x` return. A die everywhere (`the_die`, `to_die`), except
+    /// that it has a truth value and its type name is `DieWithTruth`. Python computes both lazily; the port
+    /// eagerly, which only differs if computing one raises, and neither does.
+    DieWithTruth(Die<Value>, bool),
 }
 
 impl PValue {

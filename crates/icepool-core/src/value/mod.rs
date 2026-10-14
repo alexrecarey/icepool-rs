@@ -13,6 +13,7 @@ pub mod libm;
 mod number;
 pub mod ops;
 pub mod pow;
+pub mod pystr;
 mod repr;
 
 use std::cmp::Ordering;
@@ -26,7 +27,7 @@ use dashu_ratio::RBig;
 use crate::error::{type_error, Result};
 use crate::outcome::Outcome;
 
-pub use host::{HostError, HostObject, HostRef};
+pub use host::{HostError, HostObject, HostRef, LenKind};
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;

@@ -369,6 +369,20 @@ impl<O: SumOutcome> Die<O> {
         Ok(result)
     }
 
+    /// `Die.equals(other, simplify=...)` with `other` a die: the same outcomes and quantities (`hash_key`s equal).
+    /// Truth value does not matter. A zero-quantity outcome the other die lacks makes them unequal. With
+    /// `simplify`, both are simplified first (otherwise a 2:2 coin is not `equals()` to a 1:1 coin).
+    pub fn equals(&self, other: &Die<O>, simplify: bool) -> Result<bool> {
+        if Arc::ptr_eq(&self.data, &other.data) {
+            return Ok(true);
+        }
+        if simplify {
+            Ok(self.simplify()? == other.simplify()?)
+        } else {
+            Ok(self == other)
+        }
+    }
+
     /// Divides all quantities by their greatest common denominator (`Die.simplify`, via `Counts.simplify`, then
     /// `Die(counts)`, which drops zero quantities).
     pub fn simplify(&self) -> Result<Self> {

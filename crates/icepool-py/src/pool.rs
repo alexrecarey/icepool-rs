@@ -142,7 +142,7 @@ fn dice_list<'py>(
     )
 }
 
-fn hash_of(x: &impl Hash) -> isize {
+pub fn hash_of(x: &impl Hash) -> isize {
     let mut h = DefaultHasher::new();
     x.hash(&mut h);
     h.finish() as isize

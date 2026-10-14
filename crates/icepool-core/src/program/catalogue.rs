@@ -328,6 +328,7 @@ fn first(t: PValue) -> Result<PValue, PErr> {
 pub fn truthy(x: &PValue) -> Result<bool, PErr> {
     Ok(match x {
         PValue::Value(v) => v.truthy(),
+        PValue::DieWithTruth(_, truth) => *truth,
         PValue::Die(_) => {
             return type_error("A `Die` only has a truth value if it is the result of == or !=")
         }

@@ -193,7 +193,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
 
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
     match die {
-        PValue::Die(d) => Ok(d),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d),
         _ => type_error("AttributeError: only dice have this method"),
     }
 }
@@ -220,7 +220,7 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
             "argument of type '{}' is not iterable",
             v.type_name()
         )),
-        PValue::Die(d) => Ok(d.outcomes().any(|o| o == x)),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d.outcomes().any(|o| o == x)),
         PValue::Func(f) => match &**f {
             Func::Mapping(m) => Ok(m.contains_key(&Key::Value(x.clone()))),
             _ => type_error("argument of type 'function' is not iterable"),

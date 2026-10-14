@@ -10,6 +10,7 @@ use super::again::{self, AgainOp};
 use super::catalogue::Func;
 use super::die_methods;
 use super::evaluate;
+use super::format;
 use super::map;
 use super::pool;
 use super::statistics;
@@ -311,6 +312,38 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
             round(a, ndigits)
         }
+        "format" => {
+            let [die, spec] = args.exactly(["die", "spec"])?;
+            format::format(die, spec)
+        }
+        "format_probability_inverse" => {
+            let [probability, a] = args.exactly(["probability", "args"])?;
+            format::format_probability_inverse(probability, a)
+        }
+        "common_outcome_length" => {
+            let [die] = args.exactly(["die"])?;
+            format::common_outcome_length(die)
+        }
+        "sample" => {
+            let [die, seed, n] = args.exactly(["die", "seed", "n"])?;
+            format::sample(die, seed, n)
+        }
+        "eq" | "ne" => {
+            let [a, b] = args.exactly(["a", "b"])?;
+            format::eq(a, b, op == "ne")
+        }
+        "truth" => {
+            let [x] = args.exactly(["x"])?;
+            format::truth(x)
+        }
+        "equals" => {
+            let [a, b, simplify] = args.exactly(["a", "b", "simplify"])?;
+            format::equals(a, b, simplify)
+        }
+        "hash_key_compare" => {
+            let [a, b, cmp] = args.exactly(["a", "b", "cmp"])?;
+            format::hash_key_compare(a, b, cmp)
+        }
         _ => {
             if let Some(bin) = binary_op(op) {
                 let [a, b] = args.exactly(["a", "b"])?;
@@ -367,7 +400,7 @@ fn unary_op(op: &str) -> Option<UnOp> {
 /// for a list, which is unhashable; `Reroll` gives the empty die).
 pub(super) fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
     match x {
-        PValue::Die(d) => Ok(d),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d),
         x => Ok(Die::new(vec![die_arg(x)?], vec![Quantity::ONE])?),
     }
 }
@@ -643,7 +676,9 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
             .chars()
             .map(|c| PValue::Value(Value::str(c.encode_utf8(&mut [0; 4]))))
             .collect(),
-        PValue::Die(d) => d.outcomes().cloned().map(PValue::Value).collect(),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => {
+            d.outcomes().cloned().map(PValue::Value).collect()
+        }
         PValue::Value(v) => {
             return type_error(format!("'{}' object is not iterable", v.type_name()))
         }
@@ -663,7 +698,7 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
 pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
     match x {
         PValue::Value(v) => Ok(DieArg::Outcome(v)),
-        PValue::Die(d) => Ok(DieArg::Die(d)),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(DieArg::Die(d)),
         // `arg in icepool.REROLL_TYPES`.
         PValue::Reroll | PValue::Restart => Ok(DieArg::Reroll),
         // `map` unwraps a `Break`; nothing else returns one.
@@ -706,16 +741,16 @@ pub(super) fn die_with_agains(
 
 /// The rest of `Die.__new__` once the times are checked to be non-negative numbers and any `Again` is replaced.
 pub(super) fn new_die(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, PErr> {
-    let args: Vec<DieArg<Value>> = objects.into_iter().map(die_arg).collect::<Result<_, _>>()?;
-    // A single die with weight 1 is returned as-is. Python tests `times[0] == 1`, so `1.0` and `True` count too;
-    // they must be caught before `weight` would reject a non-int.
-    if let ([DieArg::Die(d)], [t]) = (args.as_slice(), times) {
+    // A single die with weight 1 is returned as-is (a `DieWithTruth` keeps its type). Python tests
+    // `times[0] == 1`, so `1.0` and `True` count too; they must be caught before `weight` would reject a non-int.
+    if let ([d @ (PValue::Die(_) | PValue::DieWithTruth(..))], [t]) = (objects.as_slice(), times) {
         if t.as_num()
             .is_some_and(|n| n == Num::Int(Cow::Owned(IBig::ONE)))
         {
-            return Ok(PValue::Die(d.clone()));
+            return Ok(d.clone());
         }
     }
+    let args: Vec<DieArg<Value>> = objects.into_iter().map(die_arg).collect::<Result<_, _>>()?;
     let quantities = args
         .iter()
         .zip(times)
@@ -733,7 +768,7 @@ pub(super) fn itemize(
     // A die is a Mapping: its outcomes become the keys and its quantities multiply the times. Each outcome then has
     // denominator 1, so zero quantities drop out.
     let (args, base): (Vec<PValue>, Option<Vec<Value>>) = match keys {
-        PValue::Die(d) => {
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => {
             let (a, q) = d
                 .items()
                 .iter()

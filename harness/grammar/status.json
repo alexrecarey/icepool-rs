@@ -109,5 +109,14 @@
   "pad_to_denominator": "ported",
   "multiply_to_denominator": "ported",
   "quantity_where": "ported",
-  "probability_where": "ported"
+  "probability_where": "ported",
+  "format": "ported",
+  "format_probability_inverse": "ported",
+  "common_outcome_length": "ported",
+  "sample": "ported",
+  "eq": "ported",
+  "ne": "ported",
+  "truth": "ported",
+  "equals": "ported",
+  "hash_key_compare": "ported"
 }

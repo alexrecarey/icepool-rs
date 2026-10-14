@@ -113,6 +113,18 @@ impl HostObject for PyHost {
     fn py_len(&self) -> icepool_core::Result<usize> {
         Python::attach(|py| crate::stats::host_len(self.obj.bind(py)))
     }
+
+    fn py_repr(&self) -> icepool_core::Result<String> {
+        Python::attach(|py| Ok(self.obj.bind(py).repr()?.to_string())).map_err(host_error)
+    }
+
+    fn py_str(&self) -> icepool_core::Result<String> {
+        Python::attach(|py| Ok(self.obj.bind(py).str()?.to_string())).map_err(host_error)
+    }
+
+    fn len_kind(&self) -> icepool_core::Result<icepool_core::value::LenKind> {
+        Python::attach(|py| crate::format::host_len_kind(self.obj.bind(py))).map_err(host_error)
+    }
 }
 
 /// Python object -> `Value` (see the module comment for which types are native).

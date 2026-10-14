@@ -200,7 +200,7 @@ fn die_items(d: &Die<Value>) -> Vec<Json> {
 fn enc_object(v: &PValue) -> Option<Json> {
     Some(match v {
         PValue::Value(x) => enc(x),
-        PValue::Die(d) => json!({"die": die_items(d)}),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => json!({"die": die_items(d)}),
         PValue::Tuple(items) => {
             json!({"tuple": items.iter().map(enc_object).collect::<Option<Vec<_>>>()?})
         }
@@ -220,7 +220,7 @@ fn enc_object(v: &PValue) -> Option<Json> {
 /// `encode.result_of`.
 pub fn result_of(v: &PValue) -> Json {
     match v {
-        PValue::Die(d) => json!({"ok": true, "die": die_items(d)}),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => json!({"ok": true, "die": die_items(d)}),
         other => match enc_object(other) {
             Some(value) => json!({"ok": true, "value": value}),
             None => json!({"ok": false, "error": "unimplemented: this kind of program result"}),

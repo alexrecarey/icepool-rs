@@ -75,6 +75,10 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
 
     @cached_property
     def _common_outcome_length(self) -> int | None:
+        # icepool-rs: a die's runs in the Rust core (format.rs).
+        if icepool.backend.RUST and isinstance(self, icepool.Die):
+            return icepool.backend.RUST.common_outcome_length(
+                self._rust_die())
         result = None
         for outcome in self.outcomes():
             if isinstance(outcome, Mapping):
@@ -1105,6 +1109,10 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         """
         # We don't use random.choices since that is based on floats rather than ints.
         r = random.randrange(self.denominator())
+        # icepool-rs: the draw stays with Python's `random` (the user seeds
+        # it); the bisect over the CDF runs in the Rust core.
+        if icepool.backend.RUST and isinstance(self, icepool.Die):
+            return icepool.backend.RUST.sample_at(self._rust_die(), r)
         index = bisect.bisect_right(self.quantities('<='), r)
         return self.outcomes()[index]
 
@@ -1135,6 +1143,17 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         the probabilities. The quantities are omitted from the default columns 
         if any individual quantity is 10**30 or greater.
         """
+        # icepool-rs: a die's spec parsing and table run in the Rust core
+        # (format.rs). Given csv writer arguments, the core makes the table and
+        # Python's csv module writes it with them.
+        if icepool.backend.RUST and isinstance(self, icepool.Die):
+            result = icepool.backend.RUST.format(self._rust_die(),
+                                                 type(self).__name__,
+                                                 format_spec, bool(kwargs))
+            if isinstance(result, str):
+                return result
+            headers, rows = result
+            return icepool.population.format.write_csv(headers, rows, **kwargs)
         if not self.is_empty() and self.modal_quantity() < 10**30:
             default_column_spec = '*oq==%=='
         else:

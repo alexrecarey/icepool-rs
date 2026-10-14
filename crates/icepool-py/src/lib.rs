@@ -6,6 +6,7 @@
 
 mod convert;
 mod evaluate;
+mod format;
 mod map;
 mod ops;
 mod pool;
@@ -43,6 +44,20 @@ impl RsDie {
 
     fn __len__(&self) -> usize {
         self.die.len()
+    }
+
+    /// As the second element of the facade die's `hash_key` `(Die, rs)`: hashed as the core hashes dice.
+    fn __hash__(&self) -> isize {
+        pool::hash_of(&self.die)
+    }
+
+    /// `==` is the core's die equality, `<` etc. compare as `tuple(items)` would (`format::richcmp`).
+    fn __richcmp__(
+        &self,
+        other: &Bound<'_, PyAny>,
+        op: pyo3::pyclass::CompareOp,
+    ) -> PyResult<Py<PyAny>> {
+        format::richcmp(self, other, op)
     }
 }
 
@@ -513,6 +528,11 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(stats::quantities_op, m)?,
         wrap_pyfunction!(stats::pad_to_denominator, m)?,
         wrap_pyfunction!(stats::multiply_to_denominator, m)?,
+        wrap_pyfunction!(format::format, m)?,
+        wrap_pyfunction!(format::format_probability_inverse, m)?,
+        wrap_pyfunction!(format::common_outcome_length, m)?,
+        wrap_pyfunction!(format::sample_at, m)?,
+        wrap_pyfunction!(format::die_equals, m)?,
     ] {
         m.add_function(f)?;
     }

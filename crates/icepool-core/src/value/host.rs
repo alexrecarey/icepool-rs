@@ -59,6 +59,30 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     fn py_len(&self) -> Result<usize> {
         Err(Error::Unsupported("len() of a host object".into()))
     }
+    /// Python's `repr(self)`, which may raise (`repr` above is for messages and cannot).
+    fn py_repr(&self) -> Result<String> {
+        Ok(self.repr())
+    }
+    /// Python's `str(self)`.
+    fn py_str(&self) -> Result<String> {
+        Err(Error::Unsupported("str() of a host object".into()))
+    }
+    /// What `Population.common_outcome_length` asks of an outcome: `isinstance(self, Mapping)` first, then
+    /// `isinstance(self, Sized)` and `len(self)`.
+    fn len_kind(&self) -> Result<LenKind> {
+        Err(Error::Unsupported("the length of a host object".into()))
+    }
+}
+
+/// An outcome's kind for `common_outcome_length`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LenKind {
+    /// A `Mapping`: the population has no common outcome length.
+    Mapping,
+    /// A `Sized` object of this length.
+    Len(usize),
+    /// Neither: such outcomes are skipped.
+    Unsized,
 }
 
 /// A shared reference to a host object.

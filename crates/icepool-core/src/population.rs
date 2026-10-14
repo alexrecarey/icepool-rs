@@ -533,4 +533,38 @@ impl Die<Value> {
         }
         self.multiply_quantities(&denominator.binary(BinOp::FloorDiv, &den)?)
     }
+
+    /// `self.outcomes()[bisect.bisect_right(self.quantities('<='), r)]`: the outcome `Population.sample` picks for
+    /// `r = random.randrange(self.denominator())` (the draw stays with the caller, whose generator it is).
+    pub fn sample_at(&self, r: &Quantity) -> Result<Value> {
+        let index = self.quantities_le().partition_point(|q| q <= r);
+        match self.items().get(index) {
+            Some((outcome, _)) => Ok(outcome.clone()),
+            None => Err(Error::Index("tuple index out of range".into())),
+        }
+    }
+
+    /// `self.hash_key <op> other.hash_key` for `<`, `<=`, `>`, `>=`: `(Die, tuple(items))` compared as Python
+    /// compares tuples. The classes are the same object, so it comes down to the items: the first `(outcome,
+    /// quantity)` pair that differs (by `==`) decides, by `op` on the outcomes if those differ (which may raise),
+    /// else on the quantities; if one is a prefix of the other, by `op` on the lengths.
+    pub fn hash_key_compare(&self, other: &Die<Value>, op: BinOp) -> Result<bool> {
+        fn cmp<T: PartialOrd>(op: BinOp, a: T, b: T) -> bool {
+            match op {
+                BinOp::Lt => a < b,
+                BinOp::Le => a <= b,
+                BinOp::Gt => a > b,
+                _ => a >= b,
+            }
+        }
+        for ((oa, qa), (ob, qb)) in self.items().iter().zip(other.items()) {
+            if oa != ob {
+                return Ok(oa.binary(op, ob)?.truthy());
+            }
+            if qa != qb {
+                return Ok(cmp(op, qa, qb));
+            }
+        }
+        Ok(cmp(op, self.len(), other.len()))
+    }
 }

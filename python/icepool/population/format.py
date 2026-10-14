@@ -1,5 +1,6 @@
 __docformat__ = 'google'
 
+import icepool
 from icepool.population.base import Population
 
 import csv as csv_lib
@@ -27,6 +28,10 @@ def format_probability_inverse(probability, /, int_start: int = 20):
             times this value it will be formatted as an integer. Otherwise it 
             be formatted asa float with precision at least 1 part in int_start.
     """
+    # icepool-rs: runs in the Rust core (format.rs), with Python's operators on the arguments.
+    if icepool.backend.RUST:
+        return icepool.backend.RUST.format_probability_inverse(
+            probability, int_start)
     max_precision = math.ceil(math.log10(int_start))
     if probability <= 0 or probability > 1:
         return 'n/a'
@@ -205,6 +210,21 @@ def csv(population: Population,
     headers = make_headers(population, format_tokens)
     rows = make_rows(population, format_tokens)
 
+    with io.StringIO() as out:
+        writer = csv_lib.writer(out, dialect=dialect, **fmtparams)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow(row)
+
+        return out.getvalue()
+
+
+def write_csv(headers: Sequence[str],
+              rows: Sequence[Sequence[str]],
+              *,
+              dialect: str = 'excel',
+              **fmtparams) -> str:
+    """icepool-rs: the writing half of `csv()`, for a table made by the Rust core."""
     with io.StringIO() as out:
         writer = csv_lib.writer(out, dialect=dialect, **fmtparams)
         writer.writerow(headers)

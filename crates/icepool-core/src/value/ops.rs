@@ -324,7 +324,7 @@ fn floor_divmod(a: &IBig, b: &IBig) -> (IBig, IBig) {
 }
 
 /// `int(f)` for an integral float: `OverflowError` for infinities, `ValueError` for NaN.
-fn float_to_int(f: f64) -> Result<IBig> {
+pub(crate) fn float_to_int(f: f64) -> Result<IBig> {
     if f.is_nan() {
         return Err(Error::Value("cannot convert float NaN to integer".into()));
     }

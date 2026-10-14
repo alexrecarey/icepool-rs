@@ -1,0 +1,159 @@
+//! The formatting, sampling and equality nodes (harness/grammar/format.py): `format(die, spec)` / `str(die)`,
+//! `format_probability_inverse`, `common_outcome_length`, seeded `sample`, `==` / `!=` (`DieWithTruth`) and their
+//! truth values, `equals`, and `hash_key` comparisons.
+
+use super::catalogue::truthy;
+use super::ops::{py_iter, to_die, type_error};
+use super::{PErr, PValue};
+use crate::format::{
+    common_outcome_length as outcome_length, format as format_population, Formatted,
+};
+use crate::random::Random;
+use crate::value::BinOp;
+use crate::{Die, Quantity, Value};
+
+/// A die argument with Python's `type(die).__name__`.
+fn named_die(die: &PValue) -> Result<(&Die<Value>, &'static str), PErr> {
+    match die {
+        PValue::Die(d) => Ok((d, "Die")),
+        PValue::DieWithTruth(d, _) => Ok((d, "DieWithTruth")),
+        _ => Err(PErr::Unimplemented(
+            "format() of something not a die".into(),
+        )),
+    }
+}
+
+/// `format(die, spec)`; `None` for `str(die)` (which is `format(die, '')`). For a plain value only `str()` is
+/// ported (its own format mini-language is not).
+pub fn format(die: PValue, spec: PValue) -> Result<PValue, PErr> {
+    let spec = match spec {
+        PValue::Value(Value::None) => String::new(),
+        PValue::Value(Value::Str(s)) => s.to_string(),
+        _ => return type_error("format() argument 2 must be str"),
+    };
+    if let (PValue::Value(v), "") = (&die, spec.as_str()) {
+        return Ok(PValue::Value(Value::str(&crate::value::pystr::py_str(v)?)));
+    }
+    let (d, type_name) = named_die(&die)?;
+    match format_population(d, type_name, &spec, false)? {
+        Formatted::Text(s) => Ok(PValue::Value(Value::str(&s))),
+        Formatted::CsvTable(..) => unreachable!("only asked for with csv writer arguments"),
+    }
+}
+
+/// `icepool.format_probability_inverse(probability, *args)`: `args` is `[]` or `[int_start]`.
+pub fn format_probability_inverse(probability: PValue, args: PValue) -> Result<PValue, PErr> {
+    let PValue::Value(p) = probability else {
+        return Err(PErr::Unimplemented(
+            "format_probability_inverse of a non-value".into(),
+        ));
+    };
+    let int_start = match &py_iter(args)?[..] {
+        [] => Value::from(20),
+        [PValue::Value(v)] => v.clone(),
+        [_] => return Err(PErr::Unimplemented("a non-value int_start".into())),
+        _ => {
+            return type_error(
+                "format_probability_inverse() takes from 1 to 2 positional arguments",
+            )
+        }
+    };
+    Ok(PValue::Value(Value::str(
+        &crate::format::format_probability_inverse(&p, &int_start)?,
+    )))
+}
+
+/// `die.common_outcome_length()`: an int or `None`.
+pub fn common_outcome_length(die: PValue) -> Result<PValue, PErr> {
+    let (d, _) = named_die(&die)?;
+    Ok(PValue::Value(match outcome_length(d)? {
+        Some(n) => Value::from(n as i64),
+        None => Value::None,
+    }))
+}
+
+/// `random.seed(seed); tuple(die.sample() for _ in range(n))`.
+pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
+    let (d, _) = named_die(&die)?;
+    // `random.seed` takes a bool as the int it is; other seed types hash or convert differently (not ported).
+    let seed = match seed {
+        PValue::Value(Value::Int(i)) => i,
+        PValue::Value(Value::Bool(b)) => (b as u8).into(),
+        _ => return Err(PErr::Unimplemented("a non-int random seed".into())),
+    };
+    let n = match n {
+        PValue::Value(Value::Int(n)) => i64::try_from(&n).unwrap_or(i64::MAX).max(0),
+        _ => return Err(PErr::Unimplemented("a non-int sample count".into())),
+    };
+    let mut random = Random::new(&seed);
+    let den: Quantity = d.denominator();
+    let mut out = Vec::new();
+    for _ in 0..n {
+        out.push(d.sample_at(&random.randrange(&den)?)?);
+    }
+    Ok(PValue::Value(Value::tuple(out)))
+}
+
+/// `a == b` (`ne`: `a != b`). With a die on either side, a `DieWithTruth`: its data is the outcome-wise `==` of
+/// the die and the other operand converted to a die (Python reflects `x == die` to `die == x`), its truth value
+/// whether the die `equals()` the *unconverted* operand (so a die is never equal to a plain outcome). Between plain
+/// values, Python's `==`.
+pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
+    let is_die = |x: &PValue| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..));
+    let (die, other) = match (a, b) {
+        (PValue::Again(_), _) | (_, PValue::Again(_)) => {
+            return Err(PErr::Unimplemented("== with an Again expression".into()))
+        }
+        (a, b) if is_die(&a) => (a, b),
+        (a, b) if is_die(&b) => (b, a),
+        (PValue::Value(a), PValue::Value(b)) => {
+            return Ok(PValue::Value(Value::Bool((a == b) != ne)))
+        }
+        _ => return Err(PErr::Unimplemented("== between non-values".into())),
+    };
+    let die = to_die(die)?;
+    let equals = match &other {
+        PValue::Die(o) | PValue::DieWithTruth(o, _) => die.equals(o, false)?,
+        _ => false,
+    };
+    let other = to_die(other)?;
+    let data = die.binary_operator(&other, |x, y| Ok(Value::Bool((x == y) != ne)))?;
+    Ok(PValue::DieWithTruth(data, equals != ne))
+}
+
+/// `bool(x)`: a `DieWithTruth`'s truth value; a plain die raises.
+pub fn truth(x: PValue) -> Result<PValue, PErr> {
+    Ok(PValue::Value(Value::Bool(truthy(&x)?)))
+}
+
+/// `a.equals(b, simplify=simplify)`: `False` if `b` is not a die.
+pub fn equals(a: PValue, b: PValue, simplify: PValue) -> Result<PValue, PErr> {
+    let Ok((a, _)) = named_die(&a) else {
+        return type_error("AttributeError: 'equals'");
+    };
+    let simplify = truthy(&simplify)?;
+    Ok(PValue::Value(Value::Bool(match &b {
+        PValue::Die(b) | PValue::DieWithTruth(b, _) => a.equals(b, simplify)?,
+        _ => false,
+    })))
+}
+
+/// `a.hash_key <cmp> b.hash_key` for two dice.
+pub fn hash_key_compare(a: PValue, b: PValue, cmp: PValue) -> Result<PValue, PErr> {
+    let (Ok((a, _)), Ok((b, _))) = (named_die(&a), named_die(&b)) else {
+        return type_error("AttributeError: 'hash_key'");
+    };
+    let PValue::Value(Value::Str(cmp)) = cmp else {
+        return Err(PErr::Unimplemented("a hash_key comparison by name".into()));
+    };
+    let result = match &*cmp {
+        "==" => a == b,
+        "!=" => a != b,
+        "<" => a.hash_key_compare(b, BinOp::Lt)?,
+        "<=" => a.hash_key_compare(b, BinOp::Le)?,
+        ">" => a.hash_key_compare(b, BinOp::Gt)?,
+        ">=" => a.hash_key_compare(b, BinOp::Ge)?,
+        _ => return Err(PErr::Unimplemented(format!("hash_key comparison {cmp}"))),
+    };
+    Ok(PValue::Value(Value::Bool(result)))
+}

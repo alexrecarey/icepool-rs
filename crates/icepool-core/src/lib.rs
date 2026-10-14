@@ -14,6 +14,7 @@ pub mod die;
 pub mod error;
 pub mod evaluator;
 pub mod expand;
+pub mod format;
 pub mod function;
 pub mod keep;
 pub mod keep_tuple;
@@ -25,6 +26,7 @@ pub mod pool;
 pub mod population;
 pub mod program;
 pub mod pysort;
+pub mod random;
 pub mod value;
 
 pub use creation_args::DieArg;

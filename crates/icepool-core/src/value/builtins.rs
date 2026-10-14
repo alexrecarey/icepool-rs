@@ -159,9 +159,29 @@ fn m_log(x: f64) -> f64 {
     }
 }
 
-/// CPython's `loghelper(arg, m_log)`. An `int` is handled directly (so a huge one still has a logarithm:
-/// `log(x) + log(2) * e` from its `frexp`); anything else goes through `math_1`.
-fn loghelper(x: &Value) -> Result<f64> {
+/// CPython's `m_log10`: `log10` for positive finite arguments, the special values as `m_log`. Natively this is
+/// glibc's `log10`, as in CPython; under WASM it is another libm (no port yet, see NOTES.md), which only matters
+/// in the last bit.
+fn m_log10(x: f64) -> f64 {
+    if x.is_finite() {
+        if x > 0.0 {
+            x.log10()
+        } else if x == 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            f64::NAN
+        }
+    } else if x.is_nan() || x > 0.0 {
+        x
+    } else {
+        f64::NAN
+    }
+}
+
+/// CPython's `loghelper(arg, func)`. An `int` is handled directly (so a huge one still has a logarithm:
+/// `func(x) + func(2) * e` from its `frexp`); anything else goes through `math_1`.
+fn loghelper(x: &Value, func: fn(f64) -> f64) -> Result<f64> {
+    let m_log = func;
     let int = match x {
         Value::Int(i) => i.clone(),
         Value::Bool(b) => IBig::from(*b as u8),
@@ -204,12 +224,22 @@ fn frexp_int(int: &IBig) -> (f64, i64) {
 
 /// `math.log(x)` (natural) or `math.log(x, base)`: `log(x) / log(base)`, `ZeroDivisionError` for base 1.
 pub fn math_log(x: &Value, base: Option<&Value>) -> Result<Value> {
-    let num = loghelper(x)?;
+    let num = loghelper(x, m_log)?;
     let Some(base) = base else {
         return Ok(Value::Float(num));
     };
-    let den = loghelper(base)?;
+    let den = loghelper(base, m_log)?;
     Value::Float(num).binary(BinOp::TrueDiv, &Value::Float(den))
+}
+
+/// `math.log10(x)`.
+pub fn math_log10(x: &Value) -> Result<f64> {
+    loghelper(x, m_log10)
+}
+
+/// `math.ceil(x)` of a float: an int, `OverflowError` for an infinity, `ValueError` for NaN.
+pub fn float_ceil(x: f64) -> Result<IBig> {
+    super::ops::float_to_int(x.ceil())
 }
 
 /// The key of `x[key]` (`operator.getitem`): any object, or a slice.
