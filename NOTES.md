@@ -5,6 +5,22 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **khepri engine (K7).** `src/khepri.rs` ports f2f.py natively and typed: dice are `Die<i64>` (`d20 > save` is
+  0/1 ints: equal hash/order/sums to Python's bools, and every result outcome is an int anyway), the roll is
+  `Die<Roll = [i64; 4]>` (`Outcome` for `[i64; N]` is in outcome.rs), the result `Die<(Player, i64)>` with
+  `Player` variants in Python's str order. Each step uses the core op Python uses, so quantities are exact:
+  `map` = `Die::new(results, quantities)` (helper `map`), `explode` = core `evaluate_agains_using_depth` with a
+  one-op `Again` (`o + Again`), `n @ die` = `Die::matmul(&[(n, 1)])`, `Pool.highest`, `FaceToFace` and a native
+  `Sum` evaluator through `evaluator::evaluate`. `engine_values` converts to `Die<Value>` for the `khepri` node
+  (special-cased in `program::eval`: its `input` is lazy raw JSON). `Input::from_json` only accepts ints / bools /
+  null as khepri sends them; anything else (missing key, float, bool in an int field, negative dice count) is
+  `Unsupported`, since Python reads keys lazily and its answer would depend on which keys it reached.
+- `khepri::calculate` / `calculate_json` = `f2f.calculate` for the WASM facade (`rolls` as an exact JSON integer,
+  it passes 2**53; `chance` via `ratio_to_f64` = `float(Fraction)`). tests/khepri_calculate.rs checks it bit for
+  bit against 40 `f2f.calculate` outputs recorded from the oracle (khepri_calculate.json).
+- `value/ops.rs` `MAX_INT_BITS` is a `u64` now: `1 << 32` did not compile for wasm32. `cargo check --target
+  wasm32-unknown-unknown -p icepool-core --lib` builds.
+
 - **Multiset evaluation (K6).** Core `evaluator/mod.rs` = multiset_evaluator_base.py: trait `MultisetEvaluator<O>`
   (`State: Clone+Eq+Hash`, `Final`; `initial_state`/`next_state`/`extra_outcomes`/`final_outcome`; `Ok(None)` from
   `next_state` is Reroll; `Final::{Outcome, Reroll, None}`; `Err(Error::UnsupportedOrder)` triggers the retry) and
