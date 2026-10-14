@@ -1,6 +1,6 @@
 """The facade on the Rust backend against the oracle, for what the program language cannot express: host outcomes
 (enums, namedtuples, user classes, Vector, Symbols), exceptions raised by them, big ints, callables with extra
-arguments.
+arguments, user-defined evaluators (host states, keyword arguments, UnsupportedOrder subclasses).
 
     uv run python -m pytest crates/icepool-py/tests -q -p no:cacheprovider
     (after `maturin develop`, which harness/core/upstream_suite.sh and run-facade.sh do)

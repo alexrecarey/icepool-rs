@@ -5,6 +5,44 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Evaluation driver on the core (S1e).** Under `ICEPOOL_BACKEND=rust`, `MultisetEvaluatorBase.evaluate` keeps
+  its argument conversion, `_prepare`, the `_cache` bookkeeping of dungeons (so upstream's evaluator_cache_test.py
+  holds unshimmed: it only counts dungeons) and the outer `Die(final_data)`; per prepared evaluation,
+  `evaluator/evaluator_rust.py is_rust_evaluable` (a `MultisetEvaluatorDungeon`/`Quest`, every input one
+  `MultisetFreeVariable` + `MultisetGeneratorQuestlet`, every source a `PoolSource` with `_rs`) sends it to
+  crates/icepool-py/src/evaluate.rs instead of `Dungeon.evaluate`. `builtin_spec` names the core built-ins
+  (`type(evaluator) is` the exact class, its `next_state` arity, only the kwargs it reads with exact types:
+  `SumEvaluator()` without map, size, product_of_counts, empty(any: bool), expand(order: Order/int/bool), keep(index:
+  None or i64), poker ones, all_counts, count_subset, largest_straight_and_outcome, the seven comparisons) ->
+  `evaluate_builtin`, all in Rust. Anything else (subclasses, `SumEvaluator(map)`, wild/reduce counts, lexi,
+  argsort, wrong arity, extra kwargs) -> `evaluate_host`: the core driver with the evaluator's bound methods as host
+  callbacks (`HostEvaluator`), states as `Value` (native where possible, `Value::Host` otherwise), `Order` members
+  and the `outcomes` tuple passed as Python does, `x in REROLL_TYPES` asked of Python, `UnsupportedOrder` (and
+  subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it
+  propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
+  cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
+- Still upstream's Python driver (by input kind, not a fallback): multiset expressions (BodyDungeonlet: `unique`,
+  `+` of pools, keep of an expression...), `Deal`/`MultiDeal`/`CompoundKeep`/weightless sources, and
+  `@multiset_function` dungeons. In the upstream suite: 775 evaluations on the core, ~1070 still Python (S4).
+- Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
+  (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
+  at top level and 20 frames deep). The oracle's real limit also depends on warm `_popped_max` and on the shared
+  evaluators' persistent room caches (a shared `sum_evaluator` that saw a superset of rooms before recurses less),
+  which the facade does not reproduce.
+- Nodes added: `pool_compare` (`cmp` = proper_subset / proper_superset / equal_set / not_equal_set: the evaluator
+  called directly, no DieWithTruth), `keep_evaluate` (`keep_evaluator.evaluate(pool, index=)`, any small index or
+  None), `evaluate_kw` (catalogue evaluators with `kw=True`; only `scaled_size`, whose unexpected keyword is a
+  TypeError raised lazily from initial_state, i.e. not at all when an input has no probability).
+- **khepri sweep through the facade** (LOOP-PLAN check 5, third leg: f2f.py on the Rust facade). Build the
+  extension first (`uv run maturin develop --release -m crates/icepool-py/Cargo.toml`), or the rebuild inside
+  run-facade.sh eats the first program's 20 s timeout and shows up as one failure with reason None:
+
+  ```bash
+  ICEPOOL_RUN=$PWD/crates/icepool-py/run-facade.sh uv run python -m harness.core.tool fuzz --ops khepri --seed 70 --count 5000
+  ```
+
+  At S1e: 5000/5000 clean in 166 s (the oracle side included). FaceToFace is a user evaluator, so this exercises the host-callback path.
+
 - **Pools on the core (S1d).** Under `ICEPOOL_BACKEND=rust` the facade's `Pool` holds an `icepool_rs.Pool` as
   `_rs` (`Pool._new_rust`, crates/icepool-py/src/pool.rs) and its `PoolSource` an `icepool_rs.PoolSource`
   (`PoolSource._new_rust`). `Pool.__new__` keeps its juggling (`Pool(pool, times)` via `_dice`, the Die/Deck
@@ -14,8 +52,8 @@ turns out wrong. Newest decisions at the top of each section.
   Python), `Pool.multiply_counts` (so `*`, `-`), `Pool.additive_union` of pools (`None` from Rust -> Python's
   `KeepGenerator.additive_union`, i.e. CompoundKeepGenerator), `_make_source`, `raw_size`, `denominator`,
   `hash_key` (`(Pool, _rs)`: the Rust object hashes/compares dice + keep tuple), and all of `PoolSource` (`pop`,
-  `order_preference`, `size`, `is_resolvable`, `denominator`, `hash_key`). The evaluator driving the pops is still
-  Python (S1e). `_dice`/`_outcomes` (Pool) and `dice`/`_outcomes`/`keep_tuple` (PoolSource) are converted lazily
+  `order_preference`, `size`, `is_resolvable`, `denominator`, `hash_key`). Evaluations over these sources run
+  on the core driver since S1e. `_dice`/`_outcomes` (Pool) and `dice`/`_outcomes`/`keep_tuple` (PoolSource) are converted lazily
   by `__getattr__` (facade dice are new `Die._new_rust` objects, equal but not identical to the dice passed in).
   Under rust, `Pool._set_keep_tuple`, `_new_raw`, `_new_from_mapping` and `PoolSource._new_raw`'s `@cache` are
   unused (`clear_cache` is harmless). `make_keep_tuple` / `compose_keep_tuples` stay Python for `Deal`/compound.
