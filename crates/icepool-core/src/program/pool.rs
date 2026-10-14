@@ -475,6 +475,32 @@ pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PE
     keep_slice(MExpr::Gen(pool), slice)
 }
 
+/// `die.middle(rolls, keep, tie=tie)`: `self.pool(rolls).middle(keep, tie=tie).sum()`.
+pub fn die_middle(die: PValue, rolls: PValue, keep: PValue, tie: PValue) -> Result<PValue, PErr> {
+    let pool = die_pool(die, rolls)?;
+    super::evaluate::evaluation("pool_sum", pool_middle(pool, keep, tie)?)
+}
+
+/// `icepool.middle(args, keep=keep, tie=tie, default=default)` with the dice (or outcomes) in one iterable.
+pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Result<PValue, PErr> {
+    // `len(args) == 0`, before anything else looks at the arguments.
+    let empty = match &args {
+        PValue::List(a) | PValue::Tuple(a) => a.is_empty(),
+        _ => return Err(PErr::Unimplemented("middle() of this argument".into())),
+    };
+    if empty {
+        return match default {
+            PValue::Value(Value::None) => raise(Error::Value(
+                "middle() arg is an empty sequence and no default was provided.".into(),
+            )),
+            default => new_die(vec![default], &[int(1)]),
+        };
+    }
+    // `icepool.Pool(args).middle(keep, tie=tie).sum()`.
+    let pool = pool(args, PValue::Value(int(1)))?;
+    super::evaluate::evaluation("pool_sum", pool_middle(pool, keep, tie)?)
+}
+
 /// `pool * n` (without a pool, the plain operator): an int multiplies every count. Anything else is `NotImplemented` for the pool, and then for the
 /// other operand too (a die's `__rmul__` would make a die of pools: not ported).
 pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {

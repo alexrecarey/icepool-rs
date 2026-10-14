@@ -73,6 +73,22 @@ def map_kw(f, args, star, kwargs):
     return icepool.map(f, *args, star=star, **{k: v for k, v in kwargs})
 
 
+def _gen_map_function(g, depth):
+    p = _gen_map_kw(g, depth) if g.rng.random() < 0.4 else dict(_gen_map(g, depth), kwargs=[])
+    return dict(p, op="map_function", decorator=g.rng.random() < 0.5)
+
+
+@node("map_function", "die", gen=_gen_map_function, weight=0.4)
+def map_function(f, args, star, kwargs, decorator):
+    """icepool.map_function(star=star, **dict(kwargs))(f)(*args) if decorator else
+    icepool.map_function(f, star=star, **dict(kwargs))(*args): given f directly, star is dropped (only kwargs are
+    bound)."""
+    kw = {k: v for k, v in kwargs}
+    if decorator:
+        return icepool.map_function(star=star, **kw)(f)(*args)
+    return icepool.map_function(f, star=star, **kw)(*args)
+
+
 def _which(g, depth, none_ok):
     """What to select: a catalogue predicate, a collection of outcomes, or (reroll only) None."""
     r = g.rng.random()

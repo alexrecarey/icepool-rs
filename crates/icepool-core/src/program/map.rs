@@ -103,6 +103,27 @@ pub(super) fn expand_arg(arg: PValue) -> Result<PValue, PErr> {
     }
 }
 
+/// `icepool.map_function(f, star=star, **kwargs)(*args)` or, as a decorator with arguments,
+/// `icepool.map_function(star=star, **kwargs)(f)(*args)`: both are `functools.partial(map, f, ...)`.
+///
+/// Given the function directly, map_function binds only `**kwargs` (`partial(map, function, **kwargs)`): `star`,
+/// `repeat` and the `again_*` arguments are dropped, so `star` is inferred as for a plain `map`. The decorator
+/// form binds them all.
+pub fn map_function(
+    f: PValue,
+    args: PValue,
+    star: PValue,
+    kw: PValue,
+    decorator: PValue,
+) -> Result<PValue, PErr> {
+    let star = match decorator {
+        PValue::Value(Value::Bool(true)) => star,
+        PValue::Value(Value::Bool(false)) => PValue::Value(Value::None),
+        _ => return Err(PErr::Unimplemented("map_function decorator flag".into())),
+    };
+    map(f, args, star, kwargs(kw)?)
+}
+
 /// `icepool.map(repl, *args, star=star)` (no `repeat`, no `Again`).
 ///
 /// `repl` is called with every joint outcome of `args` (dice expand into their outcomes, zero quantities

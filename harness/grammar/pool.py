@@ -13,6 +13,7 @@ import icepool
 
 from harness.core.encode import enc
 from harness.core.grammar_api import node
+from harness.grammar.basic import fresh_dz
 from harness.grammar import peek
 
 
@@ -38,12 +39,14 @@ def pool_dict(items, times):
 @node("d_pool", "pool")
 def d_pool(die_sizes, mapping):
     """icepool.d_pool(dict(die_sizes) if mapping else die_sizes): one d(size) per size, or [size, count] pairs."""
+    fresh_dz()
     return icepool.d_pool(dict(die_sizes) if mapping else die_sizes)
 
 
 @node("z_pool", "pool")
 def z_pool(die_sizes, mapping):
     """icepool.z_pool(dict(die_sizes) if mapping else die_sizes): as d_pool with z(size)."""
+    fresh_dz()
     return icepool.z_pool(dict(die_sizes) if mapping else die_sizes)
 
 
@@ -365,3 +368,36 @@ def lowest(args, keep, drop, default):
     """icepool.lowest(args, keep=keep, drop=drop, default=default)"""
     fresh_caches()
     return icepool.lowest(args, keep=keep, drop=drop, default=default)
+
+
+def _tie(g):
+    return {"str": g.rng.choice(["error", "high", "high", "low", "low", "bad"])}
+
+
+def _middle_keep(g):
+    """keep for middle: usually 0..4, rarely negative (which raises)."""
+    return g.rng.randint(-1 if g.rng.random() < 0.05 else 0, 4)
+
+
+@node("die_middle", "die", weight=0.4,
+      gen=lambda g, depth: {"op": "die_middle", "die": _die_without_nan(g, depth), "rolls": g.rng.randint(0, 5),
+                            "keep": _middle_keep(g), "tie": _tie(g)})
+def die_middle(die, rolls, keep, tie):
+    """die.middle(rolls, keep, tie=tie): roll rolls of die, sum the keep sorted rolls in the middle."""
+    fresh_caches()
+    return die.middle(rolls, keep, tie=tie)
+
+
+def _gen_middle(g, depth):
+    n = g.rng.choice([0, 1, 2, 3, 3, 4])
+    args = [_die_without_nan(g, depth) if g.rng.random() < 0.8 else g.outcome() for _ in range(n)]
+    default = g.outcome() if n == 0 and g.rng.random() < 0.6 else None
+    return {"op": "middle", "args": args, "keep": _middle_keep(g), "tie": _tie(g), "default": default}
+
+
+@node("middle", "die", gen=_gen_middle, weight=0.4)
+def middle(args, keep, tie, default):
+    """icepool.middle(args, keep=keep, tie=tie, default=default): Pool(args).middle(keep, tie=tie).sum(), the
+    dice (or outcomes) in one list."""
+    fresh_caches()
+    return icepool.middle(args, keep=keep, tie=tie, default=default)

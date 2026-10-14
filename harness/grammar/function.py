@@ -11,6 +11,7 @@ import icepool
 from harness.catalogue.functions import fn_node
 from harness.catalogue.rvs import RVS
 from harness.core.grammar_api import node
+from harness.grammar.basic import fresh_dz
 from harness.grammar.construction import _typed_outcome
 
 
@@ -27,6 +28,7 @@ def _sides(g):
 @node("z", "die", gen=lambda g, depth: {"op": "z", "sides": _sides(g)}, leaf=True, weight=0.3)
 def z(sides):
     """icepool.z(sides): a fair die numbered 0..sides-1 (TypeError for a non-int, ValueError below 1)."""
+    fresh_dz()
     return icepool.z(sides)
 
 
@@ -49,6 +51,7 @@ def _gen_dz_attr(g, depth):
 def dz_attr(name):
     """getattr(icepool, name) for names icepool does not define: function.py's module __getattr__ makes d<int> /
     z<int> dice; anything else (incl. d0: d's ValueError is swallowed) is AttributeError."""
+    fresh_dz()
     return getattr(icepool, name)
 
 

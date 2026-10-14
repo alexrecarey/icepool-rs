@@ -41,9 +41,10 @@ fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PErr> {
     ))
 }
 
-/// `icepool.vectorize(*args)`: `Reroll` among the arguments is the result; with no die, a `Vector` of the
-/// arguments; otherwise the Cartesian product as a die of vectors.
-pub fn vectorize(args: PValue) -> Result<PValue, PErr> {
+/// `icepool.vectorize(*args)` (or `tupleize` when `tuple`), i.e. `cartesian_product(*args, outcome_type=...)`:
+/// `Reroll` among the arguments is the result; with no die, a `Vector` (or tuple) of the arguments; otherwise the
+/// Cartesian product as a die of vectors (or tuples).
+pub fn cartesian_product(args: PValue, tuple: bool) -> Result<PValue, PErr> {
     let args = py_iter(args)?;
     // `if arg in icepool.REROLL_TYPES: return arg`, checked argument by argument.
     if let Some(r) = args
@@ -56,7 +57,13 @@ pub fn vectorize(args: PValue) -> Result<PValue, PErr> {
         .iter()
         .any(|x| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..)))
     {
-        return Ok(PValue::Value(Value::Vector(Vector::new(values(args)?))));
+        // `outcome_type(args)`.
+        let items = values(args)?;
+        return Ok(PValue::Value(if tuple {
+            Value::tuple(items)
+        } else {
+            Value::Vector(Vector::new(items))
+        }));
     }
     let parts = args
         .into_iter()
@@ -65,7 +72,11 @@ pub fn vectorize(args: PValue) -> Result<PValue, PErr> {
             x => Ok(vec![(value(x)?, Quantity::ONE)]),
         })
         .collect::<Result<Vec<_>, PErr>>()?;
-    Ok(PValue::Die(crate::expand::vectorize_dice(&parts)?))
+    Ok(PValue::Die(if tuple {
+        crate::expand::tupleize_dice(&parts)?
+    } else {
+        crate::expand::vectorize_dice(&parts)?
+    }))
 }
 
 /// `icepool.Vector(items)`.

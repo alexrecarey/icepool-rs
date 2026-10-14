@@ -99,6 +99,11 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [f, args, star] = args.exactly(["f", "args", "star"])?;
             map::map(f, args, star, vec![])
         }
+        "map_function" => {
+            let [f, args_, star, kwargs, decorator] =
+                args.exactly(["f", "args", "star", "kwargs", "decorator"])?;
+            map::map_function(f, args_, star, kwargs, decorator)
+        }
         "map_kw" => {
             let [f, args, star, kwargs] = args.exactly(["f", "args", "star", "kwargs"])?;
             map::map(f, args, star, map::kwargs(kwargs)?)
@@ -220,6 +225,18 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "pool_middle" => {
             let [p, keep, tie] = args.exactly(["pool", "keep", "tie"])?;
             pool::pool_middle(p, keep, tie)
+        }
+        "die_method" => {
+            let [die, name, arg] = args.exactly(["die", "name", "arg"])?;
+            die_methods::die_method(die, name, arg)
+        }
+        "die_middle" => {
+            let [die, rolls, keep, tie] = args.exactly(["die", "rolls", "keep", "tie"])?;
+            pool::die_middle(die, rolls, keep, tie)
+        }
+        "middle" => {
+            let [a, keep, tie, default] = args.exactly(["args", "keep", "tie", "default"])?;
+            pool::middle(a, keep, tie, default)
         }
         "pool_mul" => {
             let [p, n] = args.exactly(["pool", "n"])?;
@@ -614,9 +631,9 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
                 args.exactly(["data", "mapping", "hand_size", "method"])?;
             function::wallenius_deal(data, mapping, hand_size, method)
         }
-        "vectorize" => {
+        "vectorize" | "tupleize" => {
             let [a] = args.exactly(["args"])?;
-            collection::vectorize(a)
+            collection::cartesian_product(a, op == "tupleize")
         }
         "vector" => {
             let [items] = args.exactly(["items"])?;

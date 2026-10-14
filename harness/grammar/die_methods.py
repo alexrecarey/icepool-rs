@@ -75,3 +75,66 @@ def _gen_from_cumulative(g, depth):
 def from_cumulative(outcomes, cumulative, reverse):
     """icepool.from_cumulative(outcomes, cumulative, reverse=reverse) with int cumulative quantities."""
     return icepool.from_cumulative(outcomes, cumulative, reverse=reverse)
+
+
+DIE_METHODS = ["getitem", "contains", "len", "iter", "keys", "values", "items", "keys_index", "values_index",
+               "items_index", "keys_eq", "values_eq", "items_eq", "min_outcome", "max_outcome", "is_empty"]
+
+
+def _view_arg(g, name, die):
+    r = g.rng
+    if name in ("getitem", "contains"):
+        x = r.random()
+        if x < 0.85:
+            return _typed_outcome(g, "num") if r.random() < 0.3 else g.outcome()
+        if x < 0.95:
+            return r.choice([{"str": "a"}, {"tuple": [1, 2]}, None])
+        return []  # unhashable
+    if name.endswith("_index"):
+        if r.random() < 0.7:
+            return r.choice([0, 0, 1, -1, 2, -3, 7, {"bool": True}, {"str": "a"}, None])
+        return [r.choice([None, -2, -1, 0, 1, 3]) for _ in range(2)] + [r.choice([None, 1, 2, -1, 0])]
+    if name.endswith("_eq"):
+        x = r.random()
+        if x < 0.5:
+            # The die's own view (or another die's) as a tuple.
+            other = die if r.random() < 0.7 else g.die(0)
+            return {"op": "die_method", "die": other, "name": {"str": name[:-3]}, "arg": None}
+        if x < 0.8:
+            return {"tuple": [g.outcome() for _ in range(r.randint(0, 3))]}
+        return [1, 2] if r.random() < 0.5 else 3
+    return None
+
+
+def _gen_die_method(g, depth):
+    from harness.grammar.pool import _die_without_nan
+    name = g.rng.choice(DIE_METHODS)
+    # No NaN outcomes: dict lookups and tuple == compare NaN by identity first.
+    die = _die_without_nan(g, depth)
+    return {"op": "die_method", "die": die, "name": {"str": name}, "arg": _view_arg(g, name, die)}
+
+
+@node("die_method", "value", gen=_gen_die_method, weight=0.5)
+def die_method(die, name, arg):
+    """Die's mapping protocol and its Counts views (CountsKeysView / CountsValuesView / CountsItemsView, both views
+    and sequences): die[arg] (KeyError if absent), arg in die, len(die), tuple(die), tuple(die.keys() / values() /
+    items()), view[arg] (an int, or slice(*arg) for a list), view == arg, min_outcome(), max_outcome(),
+    is_empty()."""
+    match name:
+        case "getitem":
+            return die[arg]
+        case "contains":
+            return arg in die
+        case "len":
+            return len(die)
+        case "iter":
+            return tuple(die)
+        case "keys" | "values" | "items":
+            return tuple(getattr(die, name)())
+        case "keys_index" | "values_index" | "items_index":
+            return getattr(die, name[:-6])()[slice(*arg) if isinstance(arg, list) else arg]
+        case "keys_eq" | "values_eq" | "items_eq":
+            return getattr(die, name[:-3])() == arg
+        case "min_outcome" | "max_outcome" | "is_empty":
+            return getattr(die, name)()
+    raise ValueError(name)

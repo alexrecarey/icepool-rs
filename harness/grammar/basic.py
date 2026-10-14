@@ -14,9 +14,18 @@ def _gen_d(g, depth):
     return {"op": "d", "sides": g.rng.randint(1, 12)}
 
 
+def fresh_dz():
+    """Clear the @cache of icepool.d and icepool.z. It is keyed by ==, so in a long-lived oracle process z(True)
+    makes a later z(Fraction(1)) (or z(1.0)) return the cached die instead of raising TypeError: the result would
+    depend on what the process computed before (DIVERGENCES.md). Called by every node that calls d or z."""
+    icepool.d.cache_clear()
+    icepool.z.cache_clear()
+
+
 @node("d", "die", gen=_gen_d, leaf=True, weight=3)
 def d(sides):
     """icepool.d(sides): a fair die numbered 1..sides."""
+    fresh_dz()
     return icepool.d(sides)
 
 

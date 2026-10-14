@@ -187,3 +187,96 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
         items.join(", ")
     ))))
 }
+
+/// Die's mapping protocol and its `Counts` views (`CountsKeysView` / `CountsValuesView` / `CountsItemsView`, which
+/// are both views and sequences): `die[arg]`, `arg in die`, `len(die)`, `tuple(die)`, `tuple(die.keys())` (and
+/// values / items), `view[arg]` for an int or a `[start, stop, step]` slice, `view == arg`, and `min_outcome()` /
+/// `max_outcome()` / `is_empty()`.
+pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr> {
+    use crate::value::builtins::{getitem, Index};
+    let die = the_die(die)?;
+    let PValue::Value(Value::Str(name)) = name else {
+        return Err(PErr::Unimplemented("a die method that is not a str".into()));
+    };
+    let int = |n: &crate::Quantity| Value::Int(n.clone().into());
+    // `self._mapping._keys` / `_values` / `_items`: tuples.
+    let view = |v: &str| -> Value {
+        Value::tuple(match v {
+            "keys" => die.outcomes().cloned().collect(),
+            "values" => die.items().iter().map(|(_, q)| int(q)).collect(),
+            _ => die
+                .items()
+                .iter()
+                .map(|(o, q)| Value::tuple(vec![o.clone(), int(q)]))
+                .collect(),
+        })
+    };
+    // `self._data[key]` / `key in self._data`: a dict lookup, which hashes the key first.
+    let lookup = |arg: PValue| -> Result<Option<usize>, PErr> {
+        match arg {
+            PValue::Value(key) => {
+                key.check_hashable()?;
+                Ok(die.position(&key))
+            }
+            PValue::List(_) => type_error("unhashable type: 'list'"),
+            _ => Err(PErr::Unimplemented("die[] of this object".into())),
+        }
+    };
+    let value = |v: Value| Ok(PValue::Value(v));
+    match &*name {
+        "getitem" => match lookup(arg.clone())? {
+            Some(i) => value(int(&die.items()[i].1)),
+            None => super::raise(crate::error::Error::Key(match arg {
+                PValue::Value(key) => format!("{key}"),
+                _ => String::new(),
+            })),
+        },
+        "contains" => value(Value::Bool(lookup(arg)?.is_some())),
+        "len" => value(Value::from(die.len() as i64)),
+        "iter" => value(view("keys")),
+        "keys" | "values" | "items" => value(view(&name)),
+        "keys_index" | "values_index" | "items_index" => {
+            let index = match arg {
+                PValue::Value(i) => Index::Item(i),
+                PValue::List(s) => {
+                    let [a, b, c]: [PValue; 3] = s
+                        .try_into()
+                        .map_err(|_| PErr::Unimplemented("a slice that is not 3 values".into()))?;
+                    let v = |x: PValue| match x {
+                        PValue::Value(v) => Ok(v),
+                        _ => Err(PErr::Unimplemented(
+                            "a slice bound that is not a value".into(),
+                        )),
+                    };
+                    Index::Slice(v(a)?, v(b)?, v(c)?)
+                }
+                _ => return Err(PErr::Unimplemented("this view index".into())),
+            };
+            value(getitem(&view(&name[..name.len() - 6]), &index)?)
+        }
+        // `self._mapping._keys == other`: a tuple against the argument (a list is never equal to a tuple).
+        "keys_eq" | "values_eq" | "items_eq" => match arg {
+            PValue::List(_) => value(Value::Bool(false)),
+            arg => value(Value::Bool(super::catalogue::py_eq(
+                &PValue::Value(view(&name[..name.len() - 3])),
+                &arg,
+            )?)),
+        },
+        // `self.outcomes()[0]` / `[-1]`: IndexError for an empty die.
+        "min_outcome" | "max_outcome" => {
+            let outcome = if &*name == "min_outcome" {
+                die.items().first()
+            } else {
+                die.items().last()
+            };
+            match outcome {
+                Some((o, _)) => value(o.clone()),
+                None => super::raise(crate::error::Error::Index(
+                    "tuple index out of range".into(),
+                )),
+            }
+        }
+        "is_empty" => value(Value::Bool(die.is_empty())),
+        _ => Err(PErr::Unimplemented(format!("Die.{name}"))),
+    }
+}

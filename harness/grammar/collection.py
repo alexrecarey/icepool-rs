@@ -95,6 +95,17 @@ def vectorize(args):
     return icepool.vectorize(*args)
 
 
+def _gen_tupleize(g, depth):
+    return dict(_gen_vectorize(g, depth), op="tupleize")
+
+
+@node("tupleize", "die", gen=_gen_tupleize, weight=0.3)
+def tupleize(args):
+    """icepool.tupleize(*args): the Cartesian product of dice as a die of tuples (Reroll among them: Reroll; no
+    die: a tuple)."""
+    return icepool.tupleize(*args)
+
+
 @node("vector", "collection", leaf=True, weight=1.0,
       gen=lambda g, depth: {"op": "vector", "items": vector_lit(g)["vector"]})
 def vector(items):

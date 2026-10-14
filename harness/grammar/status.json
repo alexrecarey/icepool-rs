@@ -192,5 +192,10 @@
   "if_else": "ported",
   "die_repr": "ported",
   "deck_method": "ported",
-  "deal_str": "ported"
+  "deal_str": "ported",
+  "tupleize": "ported",
+  "middle": "ported",
+  "die_middle": "ported",
+  "map_function": "ported",
+  "die_method": "ported"
 }
