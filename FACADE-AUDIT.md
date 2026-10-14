@@ -67,7 +67,7 @@ Every module of `python/icepool` under `ICEPOOL_BACKEND=rust`, at the end of S5b
 | `population/again.py` | core | both modes; expression functions are callbacks |
 | `population/base.py` | partly | statistics, quantities, format, sample, group_by on the core; `append` / `remove` / `to_one_hot` and the Deck paths of `zero` / `split` are Python (S5c) |
 | `population/deck.py` | core | `map` is a Python per-outcome loop before `Deck(...)` (S5c) |
-| `population/die.py` | core | `map_to_pool` / `explode_to_pool` / `reroll_to_pool` end in the Python `map_to_pool` (S3c); `mean_time_to_sum` is a Python recursion over core calls (S5c) |
+| `population/die.py` | core | `sign` / `cmp` native (S2); `is_in` / `count` / `if_else` compose `map` as upstream does; `map_to_pool` / `explode_to_pool` / `reroll_to_pool` end in the Python `map_to_pool` (S3c); `mean_time_to_sum` is a Python recursion over core calls (S5c) |
 | `population/die_with_truth.py` | via | lazy calls into the core |
 | `population/format.py` | core | csv writing by Python's csv module by design |
 | `population/keep.py` | via | `_sum_slice` dispatches to core `+`, `_lowest/_highest_single`, pools |
