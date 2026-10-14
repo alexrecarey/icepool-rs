@@ -822,6 +822,21 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Gotchas
 
+- **Oracle coverage report (T1).** `uv run python -m harness.tools.oracle_coverage` (~2 min) runs every fixture
+  plus the gate's fixed-seed fuzz programs (seed 1 x 2000, seed 11 x 10000 at depth 4, khepri seed 7 x 150; same
+  generation as `tool fuzz`) through the oracle under coverage.py with branches, and rewrites
+  `harness-reports/coverage.md` (generated: never edit by hand, rerun and commit it after adding nodes).
+  `--fuzz SEED:COUNT[:DEPTH]` / `--fuzz khepri:SEED:COUNT` pick other programs, `--json F` saves the raw data and
+  `--from-json F` re-renders without rerunning. `coverage` is a harness dependency in pyproject.toml. At T1:
+  90% of oracle statements, 83% of branches. Triage of the gaps: the biggest are features with a todo task already
+  (K6c: argsort, leximin/leximax, comparisons of expressions, largest_count wild, all_straights_reduce_counts,
+  sum(map=); K6b: Die.keep; S3c: explode_to_pool / reroll_to_pool / map_to_pool; S4e: weightless; S5c: to_one_hot,
+  remove). Dead in the oracle (nothing calls them): order.py `pool_pop_order` and `Order.merge`, the module-level
+  `cartesian_product` / `iter_cartesian_product` / `tupleize` / `vectorize` in collection/vector.py (the public ones
+  are in expand.py / function.py), Vector.reverse_binary_operator with a Vector. Gaps in ported features became
+  tasks T1a (Again over every operator), T1b (multiset operators with reflected / non-multiset operands), T1c
+  (str/repr of expressions), T1d (Die/Population branches), T1e (Die method forms of ported functions).
+
 - **Long gate L202610141124 (task P1 fixed here too).** (1) `Die` caches what Python caches: `position` (an
   `FxHashMap` standing in for the dict behind `outcome in self`; the first of equal outcomes wins, and NaN is never
   found, as before), `cumulative_quantities` (`_cumulative_quantities`) and `denominator` (`_denominator`). Without
