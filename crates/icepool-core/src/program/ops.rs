@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 
 use super::again::{self, AgainOp};
 use super::catalogue::Func;
+use super::die_methods;
 use super::evaluate;
 use super::map;
 use super::pool;
@@ -86,6 +87,23 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "clip" | "truncate" => {
             let [die, min, max] = args.exactly(["die", "min", "max"])?;
             map::clip_or_truncate(op == "clip", die, min, max)
+        }
+        "zero" => {
+            let [die] = args.exactly(["die"])?;
+            die_methods::zero(die)
+        }
+        "simplify" => {
+            let [die] = args.exactly(["die"])?;
+            die_methods::simplify(die)
+        }
+        "die_pop" => {
+            let [die, max] = args.exactly(["die", "max"])?;
+            die_methods::pop(die, max)
+        }
+        "from_cumulative" => {
+            let [outcomes, cumulative, reverse] =
+                args.exactly(["outcomes", "cumulative", "reverse"])?;
+            die_methods::from_cumulative(outcomes, cumulative, reverse)
         }
         "Ellipsis" => {
             let [] = args.exactly([])?;
@@ -352,6 +370,13 @@ pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
         (n, PValue::Die(die)) => (to_die(n)?, die),
         _ => return type_error("unsupported operand type(s) for @"),
     };
+    matmul_dice(&n, &die).map(PValue::Die)
+}
+
+/// `n.__matmul__(die)` once both operands are dice (`Die.__matmul__` after `implicit_convert_to_die`). Public for
+/// the Python facade, whose `@` is this too: the counts' Python types (float counts, Fractions) matter as they do
+/// here.
+pub fn matmul_dice(n: &Die<Value>, die: &Die<Value>) -> Result<Die<Value>, PErr> {
     // `max(abs(self.min_outcome()), abs(self.max_outcome()))`, then `_sum_all(die_count)` for each outcome.
     let mut counts = Vec::with_capacity(n.len());
     let mut kinds = Vec::with_capacity(n.len());
@@ -362,7 +387,7 @@ pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
     }
     check_sum_all_recursion(&counts)?;
     if kinds.iter().all(|k| *k == CountKind::Int) {
-        return Ok(PValue::Die(die.matmul(&counts)?));
+        return Ok(die.matmul(&counts)?);
     }
     // Some count is a float (with an integral value: others raised above). `_sum_all` treats it as the equal
     // int, but the factor `den**(max_abs_die_count - abs(die_count))` is then a float, and so is every quantity it
@@ -415,7 +440,7 @@ pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
         }
         items.push((outcome, quantity));
     }
-    Ok(PValue::Die(Die::from_dict(items)?))
+    Ok(Die::from_dict(items)?)
 }
 
 /// Whether a count in `n @ die` is a float in Python, which makes its factor a float.
@@ -440,6 +465,12 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
         Value::Float(_) | Value::Fraction(_) => {
             return raise(Error::Value(
                 "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+            ))
+        }
+        // Only the Python facade has these (an `IntEnum` count, a numpy int): Python's answer depends on the type.
+        Value::Host(_) => {
+            return Err(PErr::Unimplemented(
+                "a count of a host type in n @ die".into(),
             ))
         }
         v => return type_error(format!("bad operand type for abs(): '{}'", v.type_name())),

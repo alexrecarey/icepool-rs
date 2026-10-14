@@ -78,5 +78,9 @@
   "pool_issuperset": "ported",
   "pool_isdisjoint": "ported",
   "evaluate": "ported",
-  "pool_index": "ported"
+  "pool_index": "ported",
+  "zero": "ported",
+  "simplify": "ported",
+  "die_pop": "ported",
+  "from_cumulative": "ported"
 }

@@ -7,11 +7,14 @@
 mod again;
 mod catalogue;
 mod catalogue_evaluators;
+mod die_methods;
 mod evaluate;
 mod map;
 mod ops;
 mod pool;
 mod wire;
+
+pub use ops::matmul_dice;
 
 use std::sync::Arc;
 
