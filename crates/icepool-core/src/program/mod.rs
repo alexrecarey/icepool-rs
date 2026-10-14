@@ -8,6 +8,7 @@ mod again;
 mod catalogue;
 mod map;
 mod ops;
+mod pool;
 mod wire;
 
 use std::sync::Arc;
@@ -33,6 +34,10 @@ pub enum PValue {
     Func(Arc<catalogue::Func>),
     /// An `AgainExpression`: `icepool.Again`, or an operator applied to one.
     Again(Arc<again::AgainExpr>),
+    /// An `icepool.Pool` (a `KeepGenerator`).
+    Pool(crate::Pool<Value>),
+    /// `...`, for keep indices.
+    Ellipsis,
 }
 
 impl PValue {

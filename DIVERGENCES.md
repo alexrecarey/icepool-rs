@@ -48,3 +48,38 @@ def test_matmul_large_count():
     result = 2000 @ icepool.Die([1])
     assert result.equals(icepool.Die([2000]))
 ```
+
+### The global `PoolSource` cache merges outcome spellings across pools (K5)
+
+`PoolSource._new_raw` (generator/pool.py) is a `@cache`d classmethod keyed by `(dice, outcomes, keep_tuple)`,
+compared with `==`. `True == 1`, so after any pool popped down to outcomes `(1,)`, popping a pool whose remaining
+outcomes are `(True,)` returns the cached source with `(1,)` (and likewise dice spelled `Die([1])` for
+`Die([True])`). Results then depend on what the process computed before. The port has no global cache and gives
+what a fresh process gives; the `pool_pop` node calls `icepool.Pool.clear_cache()` first so the oracle does too.
+The evaluator (K6) will meet the same thing in the outcome types of its results.
+
+Drafted upstream test:
+
+```python
+def test_pool_source_cache_keeps_spelling():
+    list(Pool([Die([1, 2])])._make_source().pop(Order.Descending, 2))
+    for source, _, _ in Pool([Die([True, 2])])._make_source().pop(Order.Descending, 2):
+        assert type(source.outcomes()[0]) is bool  # fails: the cached source has (1,)
+```
+
+
+### `middle(keep)` with `keep` above the size keeps only the top roll (K5)
+
+`KeepGenerator.middle` (generator/keep.py) says "If this is greater than the current keep_size, all are kept", but
+with the same parity it computes `start = (keep_size - keep) // 2`, which is negative, and `self[start:stop]` then
+counts that start from the end: `d6.pool(3).middle(5)` has keep tuple `(0, 0, 1)`, so `d6.middle(3, 5)` is the
+highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.) The
+port copies it (`keep_tuple::middle_slice`).
+
+Drafted upstream test:
+
+```python
+def test_middle_keep_more_than_size_keeps_all():
+    assert d6.pool(3).middle(5).keep_tuple() == (1, 1, 1)
+    assert d6.middle(3, 5).equals(3 @ d6)
+```

@@ -1,0 +1,453 @@
+//! Port of icepool `generator/pool.py` (with the keep-tuple half of `generator/keep.py` `KeepGenerator`) and the
+//! sources the evaluator pops outcomes from.
+//!
+//! A `Pool` represents a multiset of outcomes resulting from the roll of several dice. Note that operators are
+//! performed on the multiset of rolls, not the multiset of dice. Evaluation is most efficient when the dice are the
+//! same or same-side truncations of each other (d4, d6, d8, d10, d12 are all same-side truncations of d12): popping
+//! the top outcome of a d8 twice leaves a die equal to a d6, and equal dice merge into one entry with a count, whose
+//! rolls are then popped together with a binomial row (`comb_row`) instead of one by one.
+
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+use crate::die::Die;
+use crate::error::{Error, Result};
+use crate::function::sorted_union;
+use crate::keep_tuple::{
+    compose_keep_tuples, make_keep_tuple, pop_max_from_keep_tuple, pop_min_from_keep_tuple,
+    sum_counts, KeepIndex,
+};
+use crate::math::comb_row;
+use crate::order::Order;
+use crate::outcome::Outcome;
+use crate::Quantity;
+
+/// Above this many dice the port refuses a pool (`(1,) * n` keep tuple): Python would spend minutes or run out of
+/// memory.
+const MAX_POOL_SIZE: usize = 1 << 24;
+
+/// `dice_counts[die] += count` in a dict: insertion order, equal dice (same `hash_key`) merged.
+fn add_die<O: Outcome>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, count: usize) {
+    match counts.iter_mut().find(|(d, _)| *d == die) {
+        Some((_, c)) => *c += count,
+        None => counts.push((die, count)),
+    }
+}
+
+/// `die_a.hash_key < die_b.hash_key`: `(Die, tuple(items))` compared as Python compares tuples. The classes are the
+/// same object, so it comes down to the items: the first `(outcome, quantity)` pair that differs (by `==`) decides,
+/// by outcome if those differ (which may raise), else by quantity; a prefix is smaller.
+fn hash_key_lt<O: Outcome>(a: &Die<O>, b: &Die<O>) -> Result<bool> {
+    for ((oa, qa), (ob, qb)) in a.items().iter().zip(b.items()) {
+        if oa != ob {
+            return oa.py_lt(ob);
+        }
+        if qa != qb {
+            return Ok(qa < qb);
+        }
+    }
+    Ok(a.len() < b.len())
+}
+
+/// A pool's dice: `(die, count)` pairs sorted by the die's `hash_key`.
+type Dice<O> = Arc<[(Die<O>, usize)]>;
+
+/// `tuple(sorted(dice_counts.items(), key=lambda kv: kv[0].hash_key))`: the canonical order of a pool's dice.
+fn sort_dice<O: Outcome>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<O>> {
+    Ok(crate::counts::py_sorted(dice_counts, |(a, _), (b, _)| hash_key_lt(a, b))?.into())
+}
+
+/// `math.prod(die.denominator()**count for die, count in dice)`.
+fn denominator<O: Outcome>(dice: &[(Die<O>, usize)]) -> Quantity {
+    dice.iter()
+        .map(|(die, count)| die.denominator().pow(*count))
+        .product()
+}
+
+/// A pool of dice with a keep tuple (Python `Pool`, a `KeepGenerator`). Cloning is cheap.
+#[derive(Clone, Debug)]
+pub struct Pool<O> {
+    /// Dice put in the pool zero times are not here.
+    dice: Dice<O>,
+    /// The union of possible outcomes among all dice in this pool in ascending order, including those of dice put
+    /// in zero times.
+    outcomes: Arc<[O]>,
+    /// How many times to count each sorted roll, lowest first.
+    keep_tuple: Arc<[i64]>,
+}
+
+impl<O: Outcome> Pool<O> {
+    /// `Pool(dice, times)` after `itemize` and `implicit_convert_to_die`: one `(die, times)` per element, in order.
+    ///
+    /// Dice may be in the pool zero times, in which case their outcomes will be considered but without any count
+    /// (unless another die has that outcome).
+    pub fn new(dice: Vec<(Die<O>, usize)>) -> Result<Self> {
+        let size = dice
+            .iter()
+            .try_fold(0usize, |a, (_, t)| a.checked_add(*t))
+            .filter(|&n| n <= MAX_POOL_SIZE)
+            .ok_or_else(|| Error::Overflow("too many dice in the pool".into()))?;
+        let mut dice_counts = Vec::new();
+        for (die, count) in &dice {
+            if *count == 0 {
+                continue;
+            }
+            add_die(&mut dice_counts, die.clone(), *count);
+        }
+        // Includes dice with zero qty.
+        let outcomes = sorted_union(dice.iter().map(|(d, _)| d.outcomes()))?;
+        Self::from_mapping(dice_counts, outcomes.into(), vec![1; size].into())
+    }
+
+    /// `Pool._new_from_mapping`: `dice_counts` in insertion order.
+    fn from_mapping(
+        dice_counts: Vec<(Die<O>, usize)>,
+        outcomes: Arc<[O]>,
+        keep_tuple: Arc<[i64]>,
+    ) -> Result<Self> {
+        Ok(Pool {
+            dice: sort_dice(dice_counts)?,
+            outcomes,
+            keep_tuple,
+        })
+    }
+
+    /// The `(die, count)` pairs, sorted by the die's `hash_key`.
+    pub fn dice(&self) -> &[(Die<O>, usize)] {
+        &self.dice
+    }
+
+    /// The union of possible outcomes among all dice in this pool in ascending order.
+    pub fn outcomes(&self) -> &[O] {
+        &self.outcomes
+    }
+
+    /// The tuple indicating which elements will be counted.
+    pub fn keep_tuple(&self) -> &[i64] {
+        &self.keep_tuple
+    }
+
+    /// The total count produced by this generator.
+    pub fn keep_size(&self) -> Result<i64> {
+        sum_counts(&self.keep_tuple)
+    }
+
+    /// The number of dice in this pool before the keep_tuple is applied.
+    pub fn raw_size(&self) -> usize {
+        self.dice.iter().map(|(_, c)| c).sum()
+    }
+
+    pub fn denominator(&self) -> Quantity {
+        denominator(&self.dice)
+    }
+
+    /// Whether any element of the keep tuple is negative.
+    pub fn has_negative_keeps(&self) -> bool {
+        self.keep_tuple.iter().any(|&x| x < 0)
+    }
+
+    /// Produces a copy with a modified keep_tuple.
+    fn set_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
+        Pool {
+            dice: self.dice.clone(),
+            outcomes: self.outcomes.clone(),
+            keep_tuple: keep_tuple.into(),
+        }
+    }
+
+    /// `KeepGenerator.keep` (`pool[index]`): modifies the generator by counting elements in sorted order.
+    ///
+    /// The rolls are sorted in ascending order for this purpose, regardless of which order the outcomes are
+    /// evaluated in. If this is called more than once, the selection is applied relative to the previous
+    /// `keep_tuple`. For example, applying `[:2][-1]` would produce the second-lowest roll.
+    ///
+    /// For an `int` index Python goes on to evaluate the result into a `Die` (the keep evaluator): that is the
+    /// caller's job. If any of the current `keep_tuple` has negative counts, Python falls back to the less-capable
+    /// `MultisetExpression` version and the result is not a pool: not ported yet.
+    pub fn keep(&self, index: &KeepIndex) -> Result<Self> {
+        if self.has_negative_keeps() {
+            return Err(Error::Unsupported(
+                "keep on a pool with negative counts (a MultisetKeep expression)".into(),
+            ));
+        }
+        let keep_size = usize::try_from(self.keep_size()?).expect("no negative counts");
+        let relative_keep_tuple = make_keep_tuple(keep_size, index)?;
+        let keep_tuple = compose_keep_tuples(&self.keep_tuple, &relative_keep_tuple)?;
+        Ok(self.set_keep_tuple(keep_tuple))
+    }
+
+    /// `pool * constant`, `constant * pool`, and `-pool` (constant -1): every count multiplied.
+    pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
+        let keep_tuple = self
+            .keep_tuple
+            .iter()
+            .map(|n| n.checked_mul(constant))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| Error::Unsupported("keep counts beyond 64 bits".into()))?;
+        Ok(self.set_keep_tuple(keep_tuple))
+    }
+
+    /// `Pool.additive_union` of pools: if all sorted positions count the same, the pools merge into one pool.
+    /// `None` when they don't (Python builds a `CompoundKeepGenerator` or an expression instead).
+    pub fn additive_union(pools: &[Pool<O>]) -> Result<Option<Self>> {
+        let keep_tuple: Vec<i64> = pools
+            .iter()
+            .flat_map(|p| p.keep_tuple.iter().copied())
+            .collect();
+        if !keep_tuple.iter().all(|&x| x == keep_tuple[0]) {
+            return Ok(None);
+        }
+        let mut dice = Vec::new();
+        for pool in pools {
+            for (die, count) in pool.dice.iter() {
+                add_die(&mut dice, die.clone(), *count);
+            }
+        }
+        let outcomes = sorted_union(pools.iter().map(|p| p.outcomes.iter()))?;
+        Ok(Some(Self::from_mapping(
+            dice,
+            outcomes.into(),
+            keep_tuple.into(),
+        )?))
+    }
+
+    /// `_make_source`.
+    pub fn source(&self) -> PoolSource<O> {
+        PoolSource {
+            dice: self.dice.clone(),
+            outcomes: self.outcomes.clone(),
+            lo: 0,
+            hi: self.outcomes.len(),
+            keep_tuple: self.keep_tuple.clone(),
+        }
+    }
+}
+
+/// What the evaluator pops outcomes from: one variant per kind of multiset generator (`MultisetSource`), each a
+/// small immutable value that hashes for the evaluator's memo.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum MultisetSource<O> {
+    Pool(PoolSource<O>),
+}
+
+/// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
+pub type Popped<S> = (S, i64, Quantity);
+
+impl<O: Outcome> MultisetSource<O> {
+    pub fn outcomes(&self) -> &[O] {
+        match self {
+            MultisetSource::Pool(s) => s.outcomes(),
+        }
+    }
+
+    pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
+        match self {
+            MultisetSource::Pool(s) => Ok(s
+                .pop(order, outcome)?
+                .into_iter()
+                .map(|(s, c, w)| (MultisetSource::Pool(s), c, w))
+                .collect()),
+        }
+    }
+}
+
+/// `PoolSource`: a pool as the evaluator sees it, with the outcomes not popped yet.
+///
+/// Equality and hashing follow Python's `hash_key` `(PoolSource, dice, keep_tuple)`: the outcomes are not part of
+/// it.
+#[derive(Clone, Debug)]
+pub struct PoolSource<O> {
+    dice: Dice<O>,
+    /// The remaining outcomes are `outcomes[lo..hi]`, shared with the pool they came from.
+    outcomes: Arc<[O]>,
+    lo: usize,
+    hi: usize,
+    keep_tuple: Arc<[i64]>,
+}
+
+impl<O: PartialEq> PartialEq for PoolSource<O> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dice == other.dice && self.keep_tuple == other.keep_tuple
+    }
+}
+
+impl<O: Eq> Eq for PoolSource<O> {}
+
+impl<O: Hash> Hash for PoolSource<O> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dice.hash(state);
+        self.keep_tuple.hash(state);
+    }
+}
+
+impl<O: Outcome> PoolSource<O> {
+    pub fn dice(&self) -> &[(Die<O>, usize)] {
+        &self.dice
+    }
+
+    pub fn outcomes(&self) -> &[O] {
+        &self.outcomes[self.lo..self.hi]
+    }
+
+    pub fn keep_tuple(&self) -> &[i64] {
+        &self.keep_tuple
+    }
+
+    pub fn denominator(&self) -> Quantity {
+        denominator(&self.dice)
+    }
+
+    /// `KeepSource.size`: the total count, unknown (`None`) with negative counts.
+    pub fn size(&self) -> Result<Option<i64>> {
+        if self.keep_tuple.iter().any(|&x| x < 0) {
+            return Ok(None);
+        }
+        sum_counts(&self.keep_tuple).map(Some)
+    }
+
+    pub fn is_resolvable(&self) -> bool {
+        self.dice.iter().all(|(die, _)| !die.is_empty())
+    }
+
+    /// Pops the lowest outcome (`order > 0`) or the highest (otherwise), if it is `outcome`: every way the dice
+    /// can roll it, as `(rest of the pool, count of outcome, weight)`.
+    ///
+    /// Each distinct die contributes its possible numbers of hits (a binomial row); the hits come off the matching
+    /// end of the keep tuple, whose popped counts add up to the count. Possibilities where no count remains in the
+    /// keep tuple are not yielded one by one: their dice are dumped in exchange for the denominator, and they come
+    /// last as one empty pool.
+    pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
+        let unchanged = || Ok(vec![(self.clone(), 0, Quantity::ONE)]);
+        if self.lo == self.hi {
+            return unchanged();
+        }
+        let ascending = order.is_ascending();
+        let (pop_outcome, next_lo, next_hi) = if ascending {
+            (&self.outcomes[self.lo], self.lo + 1, self.hi)
+        } else {
+            (&self.outcomes[self.hi - 1], self.lo, self.hi - 1)
+        };
+        if outcome != pop_outcome {
+            return unchanged();
+        }
+        // `itertools.product` takes every die's possibilities up front.
+        let generators = self
+            .dice
+            .iter()
+            .map(|(die, die_count)| iter_die_pop(die, *die_count, outcome, ascending))
+            .collect::<Result<Vec<_>>>()?;
+        let next_source = |dice, keep_tuple: Vec<i64>| PoolSource {
+            dice,
+            outcomes: self.outcomes.clone(),
+            lo: next_lo,
+            hi: next_hi,
+            keep_tuple: keep_tuple.into(),
+        };
+        let mut result = Vec::new();
+        let mut skip_weight: Option<Quantity> = None;
+        for pop in Product::new(&generators) {
+            let mut total_hits = 0;
+            let mut result_weight = Quantity::ONE;
+            let mut next_dice_counts = Vec::new();
+            for (popped_die, misses, hits, weight) in pop {
+                if !popped_die.is_empty() && *misses > 0 {
+                    add_die(&mut next_dice_counts, popped_die.clone(), *misses);
+                }
+                total_hits += hits;
+                result_weight *= weight;
+            }
+            let (popped_keep_tuple, result_count) = if ascending {
+                pop_min_from_keep_tuple(&self.keep_tuple, total_hits)?
+            } else {
+                pop_max_from_keep_tuple(&self.keep_tuple, total_hits)?
+            };
+            let popped_pool = next_source(sort_dice(next_dice_counts)?, popped_keep_tuple);
+            if popped_pool.keep_tuple.iter().all(|&x| x == 0) {
+                // Dump all dice in exchange for the denominator.
+                *skip_weight.get_or_insert(Quantity::ZERO) +=
+                    result_weight * popped_pool.denominator();
+                continue;
+            }
+            result.push((popped_pool, result_count, result_weight));
+        }
+        if let Some(skip_weight) = skip_weight {
+            let popped_pool = next_source(Arc::new([]), Vec::new());
+            result.push((popped_pool, sum_counts(&self.keep_tuple)?, skip_weight));
+        }
+        Ok(result)
+    }
+}
+
+/// `(popped_die, misses, hits, weight)`: the die left after popping, how many of its rolls didn't and did roll the
+/// popped outcome, and the weight of that many rolling it.
+type DiePop<O> = (Die<O>, usize, usize, Quantity);
+
+/// `iter_die_pop_min` / `iter_die_pop_max`: the possibilities of several identical dice rolling the popped outcome
+/// (at or beyond the die's own end outcome).
+fn iter_die_pop<O: Outcome>(
+    die: &Die<O>,
+    rolls: usize,
+    outcome: &O,
+    min: bool,
+) -> Result<Vec<DiePop<O>>> {
+    let end = if min {
+        die.min_outcome()?
+    } else {
+        die.max_outcome()?
+    };
+    if end != outcome {
+        return Ok(vec![(die.clone(), rolls, 0, Quantity::ONE)]);
+    }
+    let (popped_die, single_weight) = if min { die.pop_min()? } else { die.pop_max()? };
+    if popped_die.is_empty() {
+        // This is the last outcome. All dice must roll this outcome.
+        let weight = single_weight.pow(rolls);
+        return Ok(vec![(popped_die, 0, rolls, weight)]);
+    }
+    Ok(comb_row(rolls, &single_weight)
+        .into_iter()
+        .enumerate()
+        .map(|(hits, weight)| (popped_die.clone(), rolls - hits, hits, weight))
+        .collect())
+}
+
+/// `itertools.product` over lists: the last list varies fastest.
+struct Product<'a, T> {
+    lists: &'a [Vec<T>],
+    index: Option<Vec<usize>>,
+}
+
+impl<'a, T> Product<'a, T> {
+    fn new(lists: &'a [Vec<T>]) -> Self {
+        let index = if lists.iter().any(Vec::is_empty) {
+            None
+        } else {
+            Some(vec![0; lists.len()])
+        };
+        Product { lists, index }
+    }
+}
+
+impl<'a, T> Iterator for Product<'a, T> {
+    type Item = Vec<&'a T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index.as_mut()?;
+        let item = index.iter().zip(self.lists).map(|(&i, l)| &l[i]).collect();
+        // Advance like an odometer; past the last combination, stop.
+        let mut k = index.len();
+        loop {
+            if k == 0 {
+                self.index = None;
+                break;
+            }
+            k -= 1;
+            index[k] += 1;
+            if index[k] < self.lists[k].len() {
+                break;
+            }
+            index[k] = 0;
+        }
+        Some(item)
+    }
+}

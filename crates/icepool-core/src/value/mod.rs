@@ -162,6 +162,10 @@ impl Outcome for Value {
         ops::compare(BinOp::Ge, self, other)
     }
 
+    fn py_gt(&self, other: &Self) -> Result<bool> {
+        ops::compare(BinOp::Gt, self, other)
+    }
+
     fn py_lt(&self, other: &Self) -> Result<bool> {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(a < b),

@@ -278,7 +278,8 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
             return type_error("A `Die` only has a truth value if it is the result of == or !=")
         }
         PValue::List(xs) | PValue::Tuple(xs) => !xs.is_empty(),
-        PValue::Reroll | PValue::Func(_) => true,
+        PValue::Reroll | PValue::Func(_) | PValue::Ellipsis => true,
+        PValue::Pool(_) => return Err(PErr::Unimplemented("the truth value of a pool".into())),
         PValue::Again(_) => {
             return raise(Error::Value(
                 "An `Again` only has a truth value if it is the result of == or !=.".into(),

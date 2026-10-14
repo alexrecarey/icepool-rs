@@ -196,6 +196,8 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
         },
         PValue::Reroll => type_error("argument of type 'RerollType' is not iterable"),
         PValue::Again(_) => type_error("argument of type 'AgainExpression' is not iterable"),
+        PValue::Ellipsis => type_error("argument of type 'ellipsis' is not iterable"),
+        PValue::Pool(_) => Err(PErr::Unimplemented("membership in a pool".into())),
     }
 }
 

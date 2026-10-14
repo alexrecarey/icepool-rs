@@ -21,6 +21,11 @@ pub trait Outcome: Clone + Debug + Hash + Eq {
         Ok(self == other || self.py_lt(other)?)
     }
 
+    /// Python's `self > other` (`max()`). The default suits types whose `>` is `<` reflected.
+    fn py_gt(&self, other: &Self) -> Result<bool> {
+        other.py_lt(self)
+    }
+
     /// Python's `self >= other`.
     fn py_ge(&self, other: &Self) -> Result<bool> {
         other.py_le(self)

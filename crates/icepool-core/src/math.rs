@@ -32,6 +32,22 @@ pub fn weighted_lcm(denominators: &[Quantity], weights: &[Quantity]) -> Vec<Quan
         .collect()
 }
 
+/// A row of n+1 elements, where the kth element is equal to `math.comb(n, k) * b ** k`.
+///
+/// Built row by row from `(1,)` as icepool does (Pascal's rule with the `b` factor folded in). icepool caches the rows
+/// per `b` globally; the port computes the row it is asked for (the pool popper asks once per die per pop).
+pub fn comb_row(n: usize, b: &Quantity) -> Vec<Quantity> {
+    let mut row = vec![Quantity::ONE];
+    for _ in 0..n {
+        let mut next = Vec::with_capacity(row.len() + 1);
+        next.push(Quantity::ONE);
+        next.extend(row.windows(2).map(|w| &w[1] + b * &w[0]));
+        next.push(b * row.last().expect("rows are never empty"));
+        row = next;
+    }
+    row
+}
+
 pub fn lcm(a: &Quantity, b: &Quantity) -> Quantity {
     if a.is_zero() || b.is_zero() {
         return Quantity::ZERO;
@@ -54,5 +70,13 @@ mod tests {
         // A d6 at weight 2 against a single outcome at weight 1: 6 // gcd(6, 2) = 3, lcm(3, 1) = 3.
         assert_eq!(weighted_lcm(&q(&[6, 1]), &q(&[2, 1])), q(&[1, 3]));
         assert_eq!(weighted_lcm(&q(&[0, 1, 3]), &q(&[1, 0, 1])), q(&[0, 0, 1]));
+    }
+
+    #[test]
+    fn comb_row_is_binomial_times_powers() {
+        // comb(3, k) * 2**k
+        assert_eq!(comb_row(3, &Quantity::from(2u8)), q(&[1, 6, 12, 8]));
+        assert_eq!(comb_row(0, &Quantity::from(5u8)), q(&[1]));
+        assert_eq!(comb_row(2, &Quantity::ZERO), q(&[1, 0, 0]));
     }
 }

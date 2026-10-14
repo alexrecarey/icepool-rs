@@ -18,3 +18,25 @@ pub fn d<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
         (1..=sides).map(|i| (O::from(i), Quantity::ONE)).collect(),
     )))
 }
+
+/// Merge sets into a sorted sequence (`sorted(set.union(*(set(arg) for arg in args)))`).
+///
+/// An outcome keeps the spelling of the first argument that has it (`set.union` adds later equal elements to the
+/// copy of the first set as no-ops). Python sorts the set in hash order, the port in first-seen order: the same
+/// result whenever the outcomes are totally ordered (see NOTES.md for the NaN / partially comparable gap).
+pub fn sorted_union<'a, O, I>(args: impl IntoIterator<Item = I>) -> Result<Vec<O>>
+where
+    O: Outcome + 'a,
+    I: IntoIterator<Item = &'a O>,
+{
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut union = Vec::new();
+    for arg in args {
+        for outcome in arg {
+            if seen.insert(outcome.clone()) {
+                union.push(outcome.clone());
+            }
+        }
+    }
+    crate::counts::py_sorted(union, |a, b| a.py_lt(b))
+}

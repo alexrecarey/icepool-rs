@@ -130,6 +130,87 @@ impl<O: Outcome> Die<O> {
         }
     }
 
+    /// The greatest outcome (`IndexError` for an empty die).
+    pub fn max_outcome(&self) -> Result<&O> {
+        match self.items().last() {
+            Some((o, _)) => Ok(o),
+            None => Err(Error::Index("tuple index out of range".into())),
+        }
+    }
+
+    /// `Die._pop_min`: a die with the min outcome removed (zero quantities kept), and the quantity of the removed
+    /// outcome. Raises `IndexError` if this die has no outcome to pop.
+    pub fn pop_min(&self) -> Result<(Self, Quantity)> {
+        match self.items().split_first() {
+            Some(((_, q), rest)) => Ok((
+                Self::from_counts(Counts::from_sorted(rest.to_vec())),
+                q.clone(),
+            )),
+            None => Err(Error::Index("tuple index out of range".into())),
+        }
+    }
+
+    /// `Die._pop_max`: a die with the max outcome removed, and the quantity of the removed outcome.
+    pub fn pop_max(&self) -> Result<(Self, Quantity)> {
+        match self.items().split_last() {
+            Some(((_, q), rest)) => Ok((
+                Self::from_counts(Counts::from_sorted(rest.to_vec())),
+                q.clone(),
+            )),
+            None => Err(Error::Index("tuple index out of range".into())),
+        }
+    }
+
+    /// `quantities('<=')`: the cumulative quantities in sorted order (the CDF).
+    pub fn quantities_le(&self) -> Vec<Quantity> {
+        let mut total = Quantity::ZERO;
+        self.items()
+            .iter()
+            .map(|(_, q)| {
+                total += q;
+                total.clone()
+            })
+            .collect()
+    }
+
+    /// `quantities('>=')`: the quantities at or above each outcome in sorted order (the survival function).
+    pub fn quantities_ge(&self) -> Vec<Quantity> {
+        let mut total = self.denominator();
+        let mut result = Vec::with_capacity(self.len());
+        for (_, q) in self.items() {
+            result.push(total.clone());
+            total -= q;
+        }
+        result
+    }
+
+    /// `quantity('>=', outcome)`: the denominator minus `quantity('<', outcome)`, which looks up the cumulative
+    /// quantity of the nearest outcome below with `bisect_left`.
+    pub fn quantity_ge(&self, outcome: &O) -> Result<Quantity> {
+        let index = bisect(self.items(), |o| o.py_lt(outcome))?;
+        let below: Quantity = self.items()[..index].iter().map(|(_, q)| q).sum();
+        Ok(self.denominator() - below)
+    }
+
+    /// `quantity('<=', outcome)`: the cumulative quantity of the nearest outcome at or below (`bisect_right`).
+    pub fn quantity_le(&self, outcome: &O) -> Result<Quantity> {
+        let index = bisect(self.items(), |o| Ok(!outcome.py_lt(o)?))?;
+        Ok(self.items()[..index].iter().map(|(_, q)| q).sum())
+    }
+
+    /// Roll this die several times and keep the lowest (`Die._lowest_single`, `rolls > 0`; the facade handles
+    /// `rolls == 0`, which is `zero().simplify()`).
+    pub fn lowest_single(&self, rolls: usize) -> Result<Self> {
+        let cumulative = self.quantities_ge().iter().map(|x| x.pow(rolls)).collect();
+        from_cumulative(self.outcomes().cloned().collect(), cumulative, true)
+    }
+
+    /// Roll this die several times and keep the highest (`Die._highest_single`, `rolls > 0`).
+    pub fn highest_single(&self, rolls: usize) -> Result<Self> {
+        let cumulative = self.quantities_le().iter().map(|x| x.pow(rolls)).collect();
+        from_cumulative(self.outcomes().cloned().collect(), cumulative, false)
+    }
+
     /// Rerolls the outcomes selected by `reroll` (one flag per outcome, as `items()`).
     ///
     /// `depth` is the maximum number of times to reroll; `None` (Python's `'inf'`) rerolls an unlimited number of
@@ -365,6 +446,29 @@ impl<'a, O: SumOutcome> SumCache<'a, O> {
         }
         Ok(self.positive[rolls - 1].clone())
     }
+}
+
+/// Constructs a `Die` from a sequence of cumulative `int` quantities (`icepool.from_cumulative`).
+///
+/// `reverse`: iff true, both of the arguments will be reversed. This allows e.g. constructing using a survival
+/// distribution. The cumulative quantities must be non-decreasing in the order used; differences of zero drop out
+/// (it ends in `Die(dict)`).
+pub fn from_cumulative<O: Outcome>(
+    mut outcomes: Vec<O>,
+    mut cumulative: Vec<Quantity>,
+    reverse: bool,
+) -> Result<Die<O>> {
+    if reverse {
+        outcomes.reverse();
+        cumulative.reverse();
+    }
+    let mut prev = Quantity::ZERO;
+    let mut d = OrderedMerge::default();
+    for (outcome, quantity) in outcomes.into_iter().zip(cumulative) {
+        d.add(outcome, &quantity - &prev);
+        prev = quantity;
+    }
+    Die::from_mapping(d)
 }
 
 /// Python's `bisect` loop over sorted items: the first index whose outcome does not satisfy `go_right` (which must

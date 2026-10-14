@@ -14,8 +14,12 @@ pub mod die;
 pub mod error;
 pub mod expand;
 pub mod function;
+pub mod keep;
+pub mod keep_tuple;
 pub mod math;
+pub mod order;
 pub mod outcome;
+pub mod pool;
 pub mod program;
 pub mod pysort;
 pub mod value;
@@ -25,6 +29,7 @@ pub use die::Die;
 pub use error::{Error, Result};
 pub use function::d;
 pub use outcome::{Outcome, SumOutcome};
+pub use pool::Pool;
 pub use value::Value;
 
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`

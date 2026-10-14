@@ -42,5 +42,22 @@
   "mixture": "ported",
   "Again": "ported",
   "again": "ported",
-  "explode": "ported"
+  "explode": "ported",
+  "Ellipsis": "ported",
+  "pool": "ported",
+  "die_pool": "ported",
+  "pool_keep": "ported",
+  "pool_slice": "ported",
+  "pool_highest": "ported",
+  "pool_lowest": "ported",
+  "pool_middle": "ported",
+  "pool_mul": "ported",
+  "pool_neg": "ported",
+  "pool_add": "ported",
+  "pool_info": "ported",
+  "pool_pop": "ported",
+  "die_highest": "ported",
+  "die_lowest": "ported",
+  "highest": "ported",
+  "lowest": "ported"
 }

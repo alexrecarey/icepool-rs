@@ -9,6 +9,7 @@ use rustc_hash::FxHashMap;
 use super::again::{self, AgainOp};
 use super::catalogue::Func;
 use super::map;
+use super::pool;
 use super::{raise, Args, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
@@ -85,6 +86,62 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [die, min, max] = args.exactly(["die", "min", "max"])?;
             map::clip_or_truncate(op == "clip", die, min, max)
         }
+        "Ellipsis" => {
+            let [] = args.exactly([])?;
+            Ok(PValue::Ellipsis)
+        }
+        "pool" => {
+            let [dice, times] = args.exactly(["dice", "times"])?;
+            pool::pool(dice, times)
+        }
+        "die_pool" => {
+            let [die, rolls] = args.exactly(["die", "rolls"])?;
+            pool::die_pool(die, rolls)
+        }
+        "pool_keep" => {
+            let [p, index] = args.exactly(["pool", "index"])?;
+            pool::pool_keep(p, index)
+        }
+        "pool_slice" => {
+            let [p, start, stop, step] = args.exactly(["pool", "start", "stop", "step"])?;
+            pool::pool_slice(p, start, stop, step)
+        }
+        "pool_highest" | "pool_lowest" => {
+            let [p, keep, drop] = args.exactly(["pool", "keep", "drop"])?;
+            pool::pool_highest_lowest(op == "pool_highest", p, keep, drop)
+        }
+        "pool_middle" => {
+            let [p, keep, tie] = args.exactly(["pool", "keep", "tie"])?;
+            pool::pool_middle(p, keep, tie)
+        }
+        "pool_mul" => {
+            let [p, n] = args.exactly(["pool", "n"])?;
+            pool::pool_mul(p, n)
+        }
+        "pool_neg" => {
+            let [p] = args.exactly(["pool"])?;
+            pool::pool_neg(p)
+        }
+        "pool_add" => {
+            let [a, b] = args.exactly(["a", "b"])?;
+            pool::pool_add(a, b)
+        }
+        "pool_info" => {
+            let [p] = args.exactly(["pool"])?;
+            pool::pool_info(p)
+        }
+        "pool_pop" => {
+            let [p, order, outcome] = args.exactly(["pool", "order", "outcome"])?;
+            pool::pool_pop(p, order, outcome)
+        }
+        "die_highest" | "die_lowest" => {
+            let [die, rolls, keep, drop] = args.exactly(["die", "rolls", "keep", "drop"])?;
+            pool::die_highest_lowest(op == "die_highest", die, rolls, keep, drop)
+        }
+        "highest" | "lowest" => {
+            let [a, keep, drop, default] = args.exactly(["args", "keep", "drop", "default"])?;
+            pool::highest_lowest(op == "highest", a, keep, drop, default)
+        }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
             round(a, ndigits)
@@ -143,7 +200,7 @@ fn unary_op(op: &str) -> Option<UnOp> {
 
 /// `implicit_convert_to_die`: a die stays as it is, anything else becomes `Die([x])` (which raises for `None`, and
 /// for a list, which is unhashable; `Reroll` gives the empty die).
-fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
+pub(super) fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
     match x {
         PValue::Die(d) => Ok(d),
         x => Ok(Die::new(vec![die_arg(x)?], vec![Quantity::ONE])?),
@@ -415,6 +472,8 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Reroll => return type_error("'RerollType' object is not iterable"),
         PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
         PValue::Again(_) => return type_error("'AgainExpression' object is not iterable"),
+        PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
+        PValue::Pool(_) => return Err(PErr::Unimplemented("iterating a pool".into())),
     })
 }
 
@@ -431,6 +490,9 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         // `Die(...)` replaces top-level expressions first (`die_with_agains`); one nested in a tuple is not handled.
         PValue::Again(_) => Err(PErr::Unimplemented(
             "an Again expression nested in an outcome".into(),
+        )),
+        PValue::Ellipsis | PValue::Pool(_) => Err(PErr::Unimplemented(
+            "Ellipsis or a pool as an outcome".into(),
         )),
     }
 }
@@ -480,7 +542,10 @@ pub(super) fn new_die(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, P
 
 /// `creation_args.itemize(keys, times)`: a sequence of keys and one multiplier per key (a Python number, checked
 /// non-negative, but not yet checked to be a valid quantity: see `weight`).
-fn itemize(keys: PValue, times: Option<PValue>) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
+pub(super) fn itemize(
+    keys: PValue,
+    times: Option<PValue>,
+) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
     // A die is a Mapping: its outcomes become the keys and its quantities multiply the times. Each outcome then has
     // denominator 1, so zero quantities drop out.
     let (args, base): (Vec<PValue>, Option<Vec<Quantity>>) = match keys {
