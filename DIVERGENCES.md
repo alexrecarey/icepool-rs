@@ -247,3 +247,25 @@ creation_args.py `expand_args_for_deck_rust`). The same test as above, for decks
 def test_deck_tuple_with_reroll_drops_out():
     assert Deck([(1, Reroll), 2]) == Deck([2])
 ```
+
+### `MultiDeal.denominator()` is not the total weight of its evaluations for three or more hands (S4b)
+
+`MultiDeal._denominator` (generator/multi_deal.py, also `MultiDealSource`) is `comb(deck.size(), total) *
+prod(comb(total, h) for h in hand_sizes()[1:])`. The ways to split `total` cards into hands of sizes
+`h1, h2, ..., hn` are the multinomial `total! / (h1! h2! ... hn!)` = `comb(total, h1) * comb(total - h1, h2) * ...`,
+which is what `pop` weighs with (`iter_hypergeom`), so an evaluation's result has that denominator. The two agree
+for one or two hands but not beyond: `Deck(range(5)).deal((2, 2, 1)).denominator()` is 50 while evaluating it gives
+denominator 30; `deal((1, 1, 1))`: 90 against 60. Evaluations are unaffected (the skip branch only multiplies by the
+denominator of a source whose hands are all empty, which is 1). Copied (core `multi_deal.rs denominator`).
+
+Drafted upstream test:
+
+```python
+def test_multi_deal_denominator_three_hands():
+    class Counts(MultisetEvaluator):
+        def next_state(self, state, order, outcome, counts):
+            return (state or ()) + (counts,)
+    for sizes in [(2, 2), (2, 2, 1), (1, 1, 1)]:
+        deal = Deck(range(5)).deal(sizes)
+        assert deal.denominator() == Counts().evaluate(deal).denominator()
+```

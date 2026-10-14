@@ -600,6 +600,26 @@ CASES = [
     'Deck([1, 2, 2, 3]).deal_groups((1, 2)).denominator()',
     'Deck([1, 2, 3]).deal(2).deck() == Deck([1, 2, 3])',
     'list(Deck([1, 1, 2]).deal(2)._make_source().pop(Order.Ascending, 1))[0][1:]',
+    # MultiDeal on the core: tuple counts and sizes reach user evaluators (host callbacks) as tuples; a built-in
+    # evaluator given one runs through the callbacks too; a hand (`deal[0]`, an expression) is still upstream's
+    # driver, over the core's MultiDealSource.
+    'OrderSeen().evaluate(Deck([1, 2, 2, 3]).deal((1, 2)))',
+    'OrderSeen().evaluate(Deck([1, 2, 3]).deal((1, 1)), Deck([2, 3]).deal(1), [1, 4])',
+    'OrderSeen().evaluate(Deck([Card(1), Card(2), Card(2)]).deal((1, 1)))',
+    'OrderSeen().evaluate(Deck([E.A, E.B, 2]).deal_groups((1, 2)))',
+    'OrderSeen().evaluate(Deck([]).deal(()))',
+    'HostState().evaluate(Deck([1, 2, 3]).deal((1, 1)))',
+    'AscOnly2().evaluate(Deck([1, 2, 3]).deal((1, 1)))',
+    'evaluator.sum_evaluator.evaluate(Deck([1, 2, 2]).deal((1, 1)))',
+    'evaluator.size_evaluator.evaluate(Deck([1, 2, 2]).deal((1, 1)))',
+    'Deck(range(5), times=2).deal((2, 2))[0].sum()',
+    'Deck(range(4), times=2).deal((2, 1)).denominator()',
+    'Deck([1, 2]).deal((True, 1)).denominator()',
+    'Deck([1, 2]).deal([3])',
+    'len(Deck([1, 2, 3]).deal_groups((1, 2), (0, 1)))',
+    'Deck([1, 2, 3]).deal_groups([1, 2]).hand_sizes()',
+    '[(s.hand_groups, c, w) for s, c, w in Deck([1, 1, 2]).deal_groups((1, 2))._make_source().pop(Order.Descending, 2)]',
+    '[(tuple(s.outcomes()), c, w) for s, c, w in Deck([1, 1, 2]).deal((1, 2))._make_source().pop(Order.Ascending, 1)]',
 ]
 
 SCRIPT = PRELUDE + '''
