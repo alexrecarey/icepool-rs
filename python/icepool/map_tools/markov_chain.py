@@ -98,6 +98,12 @@ def absorbing_markov_chain_impl(
     transients: MutableMapping[T, icepool.Die[tuple[TransitionType, T]]] = {}
 
     initial_die: 'icepool.Die' = icepool.Die([initial_state])
+    # icepool-rs: finding the reachable states (the transition function is a
+    # host callback) and the exact elimination run in the Rust core.
+    if icepool.backend.RUST:
+        rs, time = icepool.backend.RUST.absorbing_markov_chain(
+            *transition_cache._rust_args(), initial_die._rust_die())
+        return icepool.Die._new_rust(rs), time
     initial_transition_types = transition_cache.self_loop_die(
         initial_die).group_by[0]
     if TransitionType.DEFAULT in initial_transition_types:

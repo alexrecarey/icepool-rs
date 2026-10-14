@@ -77,7 +77,7 @@ pub fn kwargs(pairs: PValue) -> Result<Vec<(String, PValue)>, PErr> {
 }
 
 /// `iter_cartesian_product`'s view of one argument: a die's items, or the argument itself with quantity 1.
-fn arg_items(arg: PValue) -> Vec<(PValue, Quantity)> {
+pub(super) fn arg_items(arg: PValue) -> Vec<(PValue, Quantity)> {
     match arg {
         PValue::Die(d) => d
             .items()
@@ -149,7 +149,7 @@ pub fn map(
 }
 
 /// `icepool.Die(outcomes, times)` for objects and int times.
-fn die_of(outcomes: Vec<PValue>, times: Vec<Quantity>) -> Result<PValue, PErr> {
+pub(super) fn die_of(outcomes: Vec<PValue>, times: Vec<Quantity>) -> Result<PValue, PErr> {
     let args = outcomes
         .into_iter()
         .map(die_arg)

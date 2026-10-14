@@ -28,7 +28,7 @@ static AGAIN_EXPRESSION: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 /// A Python exception passing through the core's generic functions, which want an error type they can convert a
 /// core `Error` into.
-struct HostErr(PyErr);
+pub(crate) struct HostErr(pub(crate) PyErr);
 
 impl From<Error> for HostErr {
     fn from(e: Error) -> Self {

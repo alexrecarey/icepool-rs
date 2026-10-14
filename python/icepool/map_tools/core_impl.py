@@ -87,6 +87,15 @@ class TransitionCache(Generic[T]):
             repl,
             len(extra_args) + 1, star)
 
+    def _rust_args(self) -> tuple:
+        """icepool-rs: this cache's transition function as the Rust core takes it:
+        `(transition, star, [arg_items(arg) ...], kwargs)`. Under
+        `ICEPOOL_BACKEND=rust` the core's `TransitionCache` calls `transition`
+        as a host callback and the methods below are unused."""
+        return (self._transition, bool(self._star),
+                [icepool.expand.arg_items(arg)
+                 for arg in self._extra_args], self._kwargs)
+
     def is_self_loop(self, curr_state: T, /) -> TransitionType:
         """Returns `TransitionType.BREAK` if the state is a self-loop, or `DEFAULT` otherwise."""
         if curr_state in self._self_loop_cache:

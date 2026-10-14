@@ -166,6 +166,13 @@ def map(
     elif repeat == 0:
         return icepool.Die([first_arg])
     else:
+        # icepool-rs: the process runs in the Rust core (`repl` is a host
+        # callback); `range(repeat)` raises there, after the first self-loop die.
+        if icepool.backend.RUST:
+            return icepool.Die._new_rust(
+                icepool.backend.RUST.map_repeat(
+                    *transition_cache._rust_args(),
+                    icepool.Die([first_arg])._rust_die(), repeat))
         transition_die = transition_cache.self_loop_die(
             icepool.Die([first_arg]))
         for i in range(repeat):
@@ -344,6 +351,13 @@ def map_and_time(
     ]
 
     transition_cache = TransitionCache(repl, *extra_dice, star=star, **kwargs)
+
+    # icepool-rs: the process runs in the Rust core (`repl` is a host callback).
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.map_and_time(
+                *transition_cache._rust_args(),
+                icepool.Die([initial_state])._rust_die(), repeat))
 
     transition_die = transition_cache.self_loop_die_with_zero_time(
         icepool.Die([initial_state]))

@@ -9,6 +9,7 @@ mod convert;
 mod evaluate;
 mod format;
 mod map;
+mod map_tools;
 mod ops;
 mod pool;
 mod stats;
@@ -507,6 +508,9 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(again::evaluate_agains_using_depth, m)?,
         wrap_pyfunction!(again::evaluate_agains_using_count, m)?,
         wrap_pyfunction!(map::tupleize, m)?,
+        wrap_pyfunction!(map_tools::map_repeat, m)?,
+        wrap_pyfunction!(map_tools::map_and_time, m)?,
+        wrap_pyfunction!(map_tools::absorbing_markov_chain, m)?,
         wrap_pyfunction!(pool::pool_new, m)?,
         wrap_pyfunction!(evaluate::evaluate_builtin, m)?,
         wrap_pyfunction!(evaluate::evaluate_host, m)?,

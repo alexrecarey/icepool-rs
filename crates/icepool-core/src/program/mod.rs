@@ -11,6 +11,7 @@ mod die_methods;
 mod evaluate;
 mod format;
 mod map;
+mod map_tools;
 mod ops;
 mod pool;
 mod statistics;

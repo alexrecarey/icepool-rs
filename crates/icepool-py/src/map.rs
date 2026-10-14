@@ -19,7 +19,7 @@ use crate::{quantity, RsDie};
 static BREAK: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 /// One argument's `(outcome, quantity)` items, as `iter_cartesian_product`'s `arg_items` gives them.
-fn items<'py>(arg: &Bound<'py, PyAny>) -> PyResult<Vec<(Bound<'py, PyAny>, Quantity)>> {
+pub(crate) fn items<'py>(arg: &Bound<'py, PyAny>) -> PyResult<Vec<(Bound<'py, PyAny>, Quantity)>> {
     arg.try_iter()?
         .map(|item| {
             let (o, q): (Bound<'py, PyAny>, Bound<'py, PyAny>) = item?.extract()?;

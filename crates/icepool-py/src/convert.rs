@@ -245,6 +245,7 @@ pub fn to_py_err(e: Error) -> PyErr {
         Error::Overflow(m) => PyOverflowError::new_err(m),
         Error::Order(m) => icepool_error("ConflictingOrderError", m),
         Error::UnsupportedOrder(m) => icepool_error("UnsupportedOrder", m),
+        Error::NotImplemented(m) => PyNotImplementedError::new_err(m),
         // Python would answer, the core cannot yet: say so loudly rather than guess.
         Error::Unsupported(m) => PyNotImplementedError::new_err(format!("icepool_rs: {m}")),
     }

@@ -22,6 +22,9 @@ pub enum Error {
     /// icepool `UnsupportedOrder`: an evaluator does not support the order it was given. The evaluation driver
     /// catches it and retries in the opposite order; it only escapes from places the driver does not guard.
     UnsupportedOrder(String),
+    /// Python `NotImplementedError` raised by icepool itself (e.g. `mean_time_to_absorb` with `Restart`). Not to
+    /// be confused with `Unsupported`, where Python answers and the port does not.
+    NotImplemented(String),
     /// Not an exception: Python would answer, but the port does not cover this case yet (e.g. arithmetic on
     /// complex numbers). The program runner reports it as unimplemented, never as a raise.
     Unsupported(String),
@@ -42,6 +45,7 @@ impl Error {
             Error::Overflow(_) => "OverflowError",
             Error::Order(_) => "ConflictingOrderError",
             Error::UnsupportedOrder(_) => "UnsupportedOrder",
+            Error::NotImplemented(_) => "NotImplementedError",
             Error::Unsupported(_) => "unimplemented",
             Error::Host(_) => "host exception",
         }
@@ -57,6 +61,7 @@ impl Error {
             | Error::Overflow(m)
             | Error::Order(m)
             | Error::UnsupportedOrder(m)
+            | Error::NotImplemented(m)
             | Error::Unsupported(m) => m,
             Error::Host(_) => "raised by the host",
         }

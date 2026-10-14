@@ -120,5 +120,9 @@
   "ne": "ported",
   "truth": "ported",
   "equals": "ported",
-  "hash_key_compare": "ported"
+  "hash_key_compare": "ported",
+  "map_repeat": "ported",
+  "map_and_time": "ported",
+  "mean_time_to_absorb": "ported",
+  "time_to_sum": "ported"
 }

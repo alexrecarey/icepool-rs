@@ -241,6 +241,87 @@ def add_kw():
     return lambda x, *, k: x + k
 
 
+# --- Markov chains: processes for map(repeat), map_and_time, mean_time_to_absorb (harness/grammar/markov.py) ---
+
+def step_die(g):
+    """A small die of steps for a process: mostly non-negative (so sums reach a cap), sometimes not."""
+    r = g.rng.random()
+    if r < 0.45:
+        return {"op": "d", "sides": g.rng.randint(1, 3)}
+    if r < 0.75:
+        return {"op": "die", "outcomes": g.rng.choice([[-1, 1], [-1, 1, 1], [0, 1], [-1, 0, 1], [1, 2], [0, 0, 2]])}
+    return {"op": "die", "outcomes": [g.rng.randint(-1, 3) for _ in range(g.rng.randint(1, 3))]}
+
+
+def _process_args(g, depth):
+    """A start (an int or a small die) and one die of steps."""
+    start = g.rng.randint(0, 2) if g.rng.random() < 0.6 else {"op": "d", "sides": g.rng.randint(1, 3)}
+    return [start, step_die(g)]
+
+
+def _break_value(g):
+    r = g.rng.random()
+    if r < 0.4:
+        return None
+    if r < 0.55:
+        return {"op": "d", "sides": g.rng.randint(1, 3)}
+    if r < 0.6:
+        return {"op": "Reroll"}
+    return g.rng.randint(-1, 9)
+
+
+@entry("cap_sum", params=lambda g: [g.rng.randint(0, 8)], args=_process_args)
+def cap_sum(cap):
+    """Absorbs at `cap` (time_to_sum's step)."""
+    return lambda total, roll: min(total + roll, cap)
+
+
+@entry("break_at", params=lambda g: [g.rng.randint(0, 8), _break_value(g)], args=_process_args)
+def break_at(k, v):
+    """Break(v) once the total reaches k (Break() for None: the total itself)."""
+    return lambda total, roll: icepool.Break(v) if total >= k else total + roll
+
+
+@entry("restart_on", params=lambda g: [g.rng.randint(0, 3), g.rng.randint(0, 6)], args=_process_args)
+def restart_on(k, cap):
+    """Restart the whole process when the roll is k."""
+    return lambda total, roll: icepool.Restart if roll == k else min(total + roll, cap)
+
+
+def _bounds(g):
+    return [g.rng.randint(-3, 0), g.rng.randint(0, 4)]
+
+
+@entry("walk", params=_bounds, args=_process_args)
+def walk(lo, hi):
+    """A random walk absorbed at lo and hi."""
+    return lambda x, step: x if x <= lo or x >= hi else x + step
+
+
+@entry("walk_die", params=_bounds)
+def walk_die(lo, hi):
+    """A random walk whose step is a die returned by the function."""
+    return lambda x: x if x <= lo or x >= hi else x + icepool.Die([-1, 1])
+
+
+@entry("collatz", args=lambda g, depth: [{"op": "d", "sides": g.rng.randint(1, 12)}])
+def collatz():
+    return lambda x: 1 if x <= 1 else x // 2 if x % 2 == 0 else 3 * x + 1
+
+
+def pair_die(g):
+    """A die of (a, b) states for pair_walk."""
+    return {"op": "die", "outcomes": [{"tuple": [g.rng.randint(0, 2), g.rng.randint(0, 2)]}
+                                      for _ in range(g.rng.randint(1, 3))]}
+
+
+@entry("pair_walk", params=lambda g: [g.rng.randint(0, 6)],
+       args=lambda g, depth: [pair_die(g), step_die(g)])
+def pair_walk(k):
+    """A state that is a pair: with one die of steps, star is inferred and the state unpacked."""
+    return lambda a, b, roll: (a, b) if a + b >= k else (b, a + roll)
+
+
 def _mapping_params(g):
     r = g.rng
     pairs = []

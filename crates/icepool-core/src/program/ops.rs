@@ -12,6 +12,7 @@ use super::die_methods;
 use super::evaluate;
 use super::format;
 use super::map;
+use super::map_tools;
 use super::pool;
 use super::statistics;
 use super::{raise, Args, PErr, PValue};
@@ -95,6 +96,24 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "map_kw" => {
             let [f, args, star, kwargs] = args.exactly(["f", "args", "star", "kwargs"])?;
             map::map(f, args, star, map::kwargs(kwargs)?)
+        }
+        "map_repeat" => {
+            let [f, args, star, repeat] = args.exactly(["f", "args", "star", "repeat"])?;
+            map_tools::map_repeat(f, args, star, repeat)
+        }
+        "map_and_time" => {
+            let [f, initial, args, star, repeat] =
+                args.exactly(["f", "initial", "args", "star", "repeat"])?;
+            map_tools::map_and_time(f, initial, args, star, repeat)
+        }
+        "mean_time_to_absorb" => {
+            let [f, initial, args, star] = args.exactly(["f", "initial", "args", "star"])?;
+            map_tools::mean_time_to_absorb(f, initial, args, star)
+        }
+        "time_to_sum" => {
+            let [die, target, max_time, dnf] =
+                args.exactly(["die", "target", "max_time", "dnf"])?;
+            map_tools::time_to_sum(die, target, max_time, dnf)
         }
         "reroll" | "filter" => {
             let [die, which, star, depth] = args.exactly(["die", "which", "star", "depth"])?;

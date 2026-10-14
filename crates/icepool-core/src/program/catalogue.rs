@@ -60,6 +60,20 @@ pub enum Func {
     BreakEq,
     /// `lambda x, *, k: x + k`
     AddKw,
+    /// `lambda total, roll: min(total + roll, cap)`
+    CapSum(PValue),
+    /// `lambda total, roll: icepool.Break(v) if total >= k else total + roll`
+    BreakAt(PValue, PValue),
+    /// `lambda total, roll: icepool.Restart if roll == k else min(total + roll, cap)`
+    RestartOn(PValue, PValue),
+    /// `lambda x, step: x if x <= lo or x >= hi else x + step`
+    Walk(PValue, PValue),
+    /// `lambda x: x if x <= lo or x >= hi else x + icepool.Die([-1, 1])`
+    WalkDie(PValue, PValue),
+    /// `lambda x: 1 if x <= 1 else x // 2 if x % 2 == 0 else 3 * x + 1`
+    Collatz,
+    /// `lambda a, b, roll: (a, b) if a + b >= k else (b, a + roll)`
+    PairWalk(PValue),
     /// `{k: v for k, v in pairs}`: a mapping, not a callable.
     Mapping(FxHashMap<Key, PValue>),
 }
@@ -74,10 +88,11 @@ impl Func {
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
             "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "first"
-            | "break_eq" | "add_kw" => 0,
+            | "break_eq" | "add_kw" | "collatz" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
-            | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" => 1,
-            "clamp" | "die_if_k" | "break_k" => 2,
+            | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
+            | "pair_walk" => 1,
+            "clamp" | "die_if_k" | "break_k" | "break_at" | "restart_on" | "walk" | "walk_die" => 2,
             _ => return raise(Error::Key(format!("no catalogue function {name:?}"))),
         };
         if params.len() != want {
@@ -112,6 +127,13 @@ impl Func {
             "break_k" => BreakK(next(), next()),
             "break_eq" => BreakEq,
             "add_kw" => AddKw,
+            "cap_sum" => CapSum(next()),
+            "break_at" => BreakAt(next(), next()),
+            "restart_on" => RestartOn(next(), next()),
+            "walk" => Walk(next(), next()),
+            "walk_die" => WalkDie(next(), next()),
+            "collatz" => Collatz,
+            "pair_walk" => PairWalk(next()),
             "mapping" => Mapping(dict_items(next())?.into_iter().collect()),
             _ => unreachable!("names checked above"),
         })
@@ -124,8 +146,9 @@ impl Func {
         let n = match self {
             Mapping(_) => return None,
             Const(_) => return Some((0, None)),
-            ReadRoll | Swap | Add2 | Max2 | BreakEq => 2,
-            Sum3 => 3,
+            ReadRoll | Swap | Add2 | Max2 | BreakEq | CapSum(_) | BreakAt(..) | RestartOn(..)
+            | Walk(..) => 2,
+            Sum3 | PairWalk(_) => 3,
             _ => 1,
         };
         Some((n, Some(n)))
@@ -155,7 +178,10 @@ impl Func {
         for (name, v) in kwargs {
             match (self, name.as_str()) {
                 (AddKw, "k") => k = Some(v),
-                (_, "x" | "a" | "b" | "c" | "t" | "o" | "roll" | "success_value") => {
+                (
+                    _,
+                    "x" | "a" | "b" | "c" | "t" | "o" | "roll" | "success_value" | "total" | "step",
+                ) => {
                     return Err(PErr::Unimplemented(
                         "a keyword argument naming a positional parameter".into(),
                     ))
@@ -262,9 +288,77 @@ impl Func {
                 Some(k) => binary(BinOp::Add, x(), k)?,
                 None => return type_error("missing 1 required keyword-only argument: 'k'"),
             },
+            CapSum(cap) => {
+                let sum = binary(BinOp::Add, x(), x())?;
+                py_min(sum, cap.clone())?
+            }
+            BreakAt(k, v) => {
+                let (total, roll) = (x(), x());
+                if truthy(&binary(BinOp::Ge, total.clone(), k.clone())?)? {
+                    PValue::Break(Box::new(v.clone()))
+                } else {
+                    binary(BinOp::Add, total, roll)?
+                }
+            }
+            RestartOn(k, cap) => {
+                let (total, roll) = (x(), x());
+                if py_eq(&roll, k)? {
+                    PValue::Restart
+                } else {
+                    py_min(binary(BinOp::Add, total, roll)?, cap.clone())?
+                }
+            }
+            Walk(lo, hi) => {
+                let (x, step) = (x(), x());
+                if outside(&x, lo, hi)? {
+                    x
+                } else {
+                    binary(BinOp::Add, x, step)?
+                }
+            }
+            WalkDie(lo, hi) => {
+                let x = x();
+                if outside(&x, lo, hi)? {
+                    x
+                } else {
+                    let step = crate::Die::new(
+                        vec![
+                            crate::DieArg::Outcome(Value::from(-1)),
+                            crate::DieArg::Outcome(Value::from(1)),
+                        ],
+                        vec![crate::Quantity::ONE, crate::Quantity::ONE],
+                    )?;
+                    binary(BinOp::Add, x, PValue::Die(step))?
+                }
+            }
+            Collatz => {
+                let x = x();
+                if truthy(&binary(BinOp::Le, x.clone(), int(1))?)? {
+                    int(1)
+                } else if py_eq(&binary(BinOp::Mod, x.clone(), int(2))?, &int(0))? {
+                    binary(BinOp::FloorDiv, x, int(2))?
+                } else {
+                    binary(BinOp::Add, binary(BinOp::Mul, int(3), x)?, int(1))?
+                }
+            }
+            PairWalk(k) => {
+                let (a, b, roll) = (x(), x(), x());
+                if truthy(&binary(BinOp::Ge, binary(BinOp::Add, a.clone(), b.clone())?, k.clone())?)? {
+                    PValue::tuple(vec![a, b])
+                } else {
+                    let next = binary(BinOp::Add, a, roll)?;
+                    PValue::tuple(vec![b, next])
+                }
+            }
             Mapping(_) => unreachable!("handled above"),
         })
     }
+}
+
+/// `x <= lo or x >= hi`.
+fn outside(x: &PValue, lo: &PValue, hi: &PValue) -> Result<bool, PErr> {
+    Ok(truthy(&binary(BinOp::Le, x.clone(), lo.clone())?)?
+        || truthy(&binary(BinOp::Ge, x.clone(), hi.clone())?)?)
 }
 
 /// khepri's `read_roll`: one d20 read against a success value: 0 = miss, 1-19 = success (higher beats lower),
