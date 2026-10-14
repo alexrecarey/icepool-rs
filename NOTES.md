@@ -5,6 +5,28 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **`@`, Again, explode (K4).** Core: `Die::matmul(&[(i64, Quantity)])` (= `__matmul__` with this die on the
+  right) over the `SumOutcome` trait (`+`, unary `-`, `x * 0`; impls for `Value` and `i64`), with a per-call
+  `SumCache` that computes only the sums Python's `_sum_all` would (a `zero()` of mixed types raises only if count
+  0 is needed). `Die::zero`, `Die::simplify` live there too. `again.rs`: `Again<F, L>` (closed enum: `Again` or
+  `Apply(f, args)`) and generic `evaluate_agains_using_depth`; the program layer instantiates it with
+  `AgainOp {Binary, Unary, MatMul}` and `PValue` (`PValue::Again`), so evaluating an expression goes back through
+  `ops::binary` / `ops::matmul` and Python's dispatch. Count mode (`again_count`, `is_additive`) is not ported.
+- Every operator with a `PValue::Again` operand builds an expression (dice return NotImplemented for it; a
+  comparison with the expression on the right reflects; `str % Again` is printf formatting). `ops::die_with_agains`
+  is `Die(outcomes, times, again_depth=, again_end=)`: `itemize` now returns `PValue`s and `new_die` converts
+  them, so the `die`/`mixture` nodes handle Again too (default depth 1).
+- `n @ die` with float counts: integral ones make float factors and so float quantities; `Die(data)` then raises
+  unless every float-touched outcome totals zero (ops.rs `matmul`). Fraction counts stay int (`int ** Fraction`
+  with an integral exponent is an int). Non-integral counts raise (RecursionError in Python).
+- `_sum_all` recursion: Python recurses once per roll not yet cached, raising RecursionError near 985 at top
+  level. `check_sum_all_recursion` raises for a step >= 1000, says unimplemented for 800..1000. The `_sum_cache`
+  lives on the die object and `icepool.d` is `@cache`d, so in a long-lived oracle process a warm `d(k)` can make
+  a deep step succeed: never write fixtures whose result depends on a recursion past ~800, and keep generators
+  (again.py) from producing big counts.
+- NaN now hashes to a fresh value per call (`Num::py_hash`): Python hashes NaN by identity, and a constant made
+  sums of dice with NaN outcomes quadratic (timed out in the fuzzer).
+
 - **map and friends (K3).** Callables are named entries in `harness/catalogue/functions.py` (Python factories,
   e.g. `add_k(k)` returns `lambda x: x + k`) mirrored by `program/catalogue.rs` `Func` variants with the same
   params, evaluated lazily like the closure. Bodies use the program layer's Python operators (`ops::binary`,

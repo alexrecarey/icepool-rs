@@ -31,3 +31,20 @@ def test_tuple_with_reroll_drops_out():
     assert Die([(1, Reroll), 2]).equals(Die([2]))
     assert d6.map(lambda x: (x, Reroll) if x == 6 else (x, x)).equals(d5.map(lambda x: (x, x)))
 ```
+
+
+### `n @ die` raises RecursionError for n above ~985 (K4)
+
+`Die._sum_all(rolls)` (population/die.py) computes `self._sum_all(rolls - 1) + self` recursively, so `Die([1000])
+@ d6` (or `1000 @ d6`) raises `RecursionError` unless the die's `_sum_cache` already holds a sum within ~980
+rolls (it persists on the die object, and `icepool.d` caches its dice, so the outcome depends on history). The
+port copies the raise for steps of 1000 or more and reports anything between 800 and 1000 as unimplemented.
+A loop over `range(max cached + 1, rolls + 1)` would fix it.
+
+Drafted upstream test:
+
+```python
+def test_matmul_large_count():
+    result = 2000 @ icepool.Die([1])
+    assert result.equals(icepool.Die([2000]))
+```
