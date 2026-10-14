@@ -348,12 +348,12 @@ impl Die<Value> {
             self.outcomes().zip(probabilities).map(|(o, p)| {
                 p.binary(
                     BinOp::Mul,
-                    &o.binary(BinOp::Sub, &mean)?.binary(BinOp::Pow, &k)?,
+                    &o.binary(BinOp::Sub, &mean)?.binary(BinOp::Pow, k)?,
                 )
             }),
             Value::from(0),
         )?;
-        ev.binary(BinOp::TrueDiv, &sd.binary(BinOp::Pow, &k)?)
+        ev.binary(BinOp::TrueDiv, &sd.binary(BinOp::Pow, k)?)
     }
 
     pub fn skewness(&self) -> Result<Value> {
