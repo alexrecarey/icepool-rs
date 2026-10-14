@@ -10,7 +10,7 @@ use crate::format::{
 };
 use crate::random::Random;
 use crate::value::BinOp;
-use crate::{Die, Quantity, Value};
+use crate::{Die, Error, Quantity, Value};
 
 /// A die argument with Python's `type(die).__name__`.
 fn named_die(die: &PValue) -> Result<(&Die<Value>, &'static str), PErr> {
@@ -106,8 +106,13 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
         }
         (a, b) if is_die(&a) => (a, b),
         (a, b) if is_die(&b) => (b, a),
-        (PValue::Value(a), PValue::Value(b)) => {
-            return Ok(PValue::Value(Value::Bool((a == b) != ne)))
+        (PValue::Value(a), PValue::Value(b)) => return Ok(PValue::Value(a.eq_op(&b, ne)?)),
+        // `Reroll` is an enum member: equal only to itself.
+        (a @ (PValue::Reroll | PValue::Restart | PValue::Value(_)), b)
+            if matches!(b, PValue::Reroll | PValue::Restart | PValue::Value(_)) =>
+        {
+            let same = super::catalogue::py_eq(&a, &b)?;
+            return Ok(PValue::Value(Value::Bool(same != ne)));
         }
         _ => return Err(PErr::Unimplemented("== between non-values".into())),
     };
@@ -117,8 +122,11 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
         _ => false,
     };
     let other = to_die(other)?;
-    let data = die.binary_operator(&other, |x, y| Ok(Value::Bool((x == y) != ne)))?;
-    Ok(PValue::DieWithTruth(data, equals != ne))
+    Ok(match die.binary_operator(&other, |x, y| x.eq_op(y, ne)) {
+        Ok(data) => PValue::DieWithTruth(data, equals != ne),
+        Err(Error::Unsupported(what)) => return Err(PErr::Unimplemented(what)),
+        Err(e) => PValue::DieWithTruthError(e, equals != ne),
+    })
 }
 
 /// `bool(x)`: a `DieWithTruth`'s truth value; a plain die raises.

@@ -52,7 +52,7 @@ pub fn apply(op: AgainOp, args: Vec<PValue>) -> Result<PValue, PErr> {
             let non_negative = d
                 .min_outcome()?
                 .binary(BinOp::Ge, &Value::from(0))?
-                .truthy();
+                .truthy()?;
             additive(e) && non_negative
         }
         (AgainOp::MatMul, [_, e]) => additive(e),

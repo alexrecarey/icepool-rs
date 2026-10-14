@@ -202,6 +202,7 @@ pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
 /// (keys).
 fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
     match collection {
+        PValue::DieWithTruthError(e, _) => Err(e.clone().into()),
         PValue::List(items) | PValue::Tuple(items) => {
             let x = PValue::Value(x.clone());
             for item in items {

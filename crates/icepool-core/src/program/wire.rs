@@ -8,7 +8,7 @@ use serde_json::{json, Map, Number, Value as Json};
 
 use super::{raise, PErr, PValue};
 use crate::error::Error;
-use crate::value::{float_repr, Value};
+use crate::value::{float_repr, Symbols, Value, Vector};
 use crate::Die;
 
 /// A JSON number: Python's `json` makes it an `int` unless it has a fraction or exponent. Returns `None` for floats.
@@ -65,12 +65,67 @@ pub fn dec(j: &Json) -> Result<PValue, PErr> {
                     }
                     Ok(PValue::Value(Value::tuple(out)))
                 }
-                "vector" | "symbols" => Err(PErr::Unimplemented(format!("{k} literals"))),
+                // icepool.Vector(dec(e) for e in v): as a tuple.
+                "vector" => match dec(&json!({ "tuple": v }))? {
+                    PValue::Value(Value::Tuple(t)) => {
+                        Ok(PValue::Value(Value::Vector(Vector::new(t.to_vec()))))
+                    }
+                    _ => unreachable!("a tuple literal decodes to a tuple"),
+                },
+                "symbols" => symbols(v).map(|s| PValue::Value(Value::Symbols(s))),
                 _ => Err(value_error("not a typed value")),
             }
         }
         Json::Object(_) => Err(value_error("not a typed value")),
     }
+}
+
+/// `icepool.Symbols(v)` of a raw JSON value (not decoded first): a string, a list (an iterable of characters), or
+/// an object (a mapping of characters to counts).
+fn symbols(v: &Json) -> Result<Symbols, PErr> {
+    // A raw JSON scalar as the Python object `json.loads` makes.
+    let scalar = |j: &Json| -> Result<Value, PErr> {
+        Ok(match j {
+            Json::Null => Value::None,
+            Json::Bool(b) => Value::Bool(*b),
+            Json::String(s) => Value::str(s),
+            Json::Number(n) => match json_int(n) {
+                Some(i) => Value::Int(i),
+                None => Value::Float(parse_float(&n.to_string())?),
+            },
+            // A list or dict is unhashable: `data[s] += 1` raises.
+            _ => return raise(Error::Type("unhashable type".into())),
+        })
+    };
+    Ok(match v {
+        Json::String(s) => Symbols::parse(s),
+        Json::Array(a) => Symbols::from_iter(&a.iter().map(scalar).collect::<Result<Vec<_>, _>>()?),
+        Json::Object(o) => {
+            let mut items = Vec::with_capacity(o.len());
+            for (k, n) in o {
+                let n = match n {
+                    Json::Number(_) | Json::Bool(_) => scalar(n)?,
+                    _ => {
+                        return Err(PErr::Unimplemented(
+                            "Symbols with non-numeric counts".into(),
+                        ))
+                    }
+                };
+                items.push((Value::str(k), n));
+            }
+            Symbols::from_mapping(items)
+        }
+        _ => {
+            let name = match v {
+                Json::Null => "NoneType",
+                Json::Bool(_) => "bool",
+                Json::Number(n) if json_int(n).is_some() => "int",
+                _ => "float",
+            };
+            return raise(Error::Type(format!("'{name}' object is not iterable")));
+        }
+    }
+    .map_err(PErr::Raise)?)
 }
 
 /// Python's `bool(x)` of a raw JSON value.
@@ -161,14 +216,15 @@ fn int_json(s: String) -> Json {
     Json::Number(Number::from_str(&s).expect("an integer is a JSON number"))
 }
 
-/// `encode.enc` for a value.
-pub fn enc(v: &Value) -> Json {
+/// `encode.enc` for a value. It raises where Python's does: iterating a `VectorWithTruthOnly`, or `str()` of a
+/// `Symbols` whose counts are not ints.
+pub fn enc(v: &Value) -> crate::Result<Json> {
     let tagged = |k: &str, x: Json| {
         let mut m = Map::new();
         m.insert(k.into(), x);
         Json::Object(m)
     };
-    match v {
+    Ok(match v {
         Value::None => Json::Null,
         Value::Bool(b) => tagged("bool", Json::Bool(*b)),
         Value::Int(i) => int_json(i.to_string()),
@@ -181,43 +237,65 @@ pub fn enc(v: &Value) -> Json {
             ]),
         ),
         Value::Str(s) => tagged("str", Json::String(s.to_string())),
-        Value::Tuple(t) => tagged("tuple", Json::Array(t.iter().map(enc).collect())),
+        Value::Tuple(t) => tagged(
+            "tuple",
+            Json::Array(t.iter().map(enc).collect::<crate::Result<_>>()?),
+        ),
+        Value::Vector(x) => tagged(
+            "vector",
+            Json::Array(x.data()?.iter().map(enc).collect::<crate::Result<_>>()?),
+        ),
+        Value::Symbols(x) => tagged("symbols", Json::String(x.py_str()?)),
         // encode.py's fallback for types it does not know.
         Value::Complex(..) => tagged("repr", Json::String(format!("complex: {v}"))),
         // Programs never make host objects (only the Python facade does); spelled like encode.py's fallback.
         Value::Host(_) => tagged("repr", Json::String(format!("object: {v}"))),
-    }
+    })
 }
 
-fn die_items(d: &Die<Value>) -> Vec<Json> {
+fn die_items(d: &Die<Value>) -> crate::Result<Vec<Json>> {
     d.items()
         .iter()
-        .map(|(o, q)| Json::Array(vec![enc(o), int_json(q.to_string())]))
+        .map(|(o, q)| Ok(Json::Array(vec![enc(o)?, int_json(q.to_string())])))
         .collect()
 }
 
-/// `encode.enc` for any program value: `None` for the ones the port cannot spell as Python does (lists, functions).
-fn enc_object(v: &PValue) -> Option<Json> {
-    Some(match v {
-        PValue::Value(x) => enc(x),
-        PValue::Die(d) | PValue::DieWithTruth(d, _) => json!({"die": die_items(d)}),
+/// `encode.enc` for any program value: `Ok(None)` for the ones the port cannot spell as Python does (lists,
+/// functions).
+fn enc_object(v: &PValue) -> crate::Result<Option<Json>> {
+    Ok(Some(match v {
+        // Encoding reads the data, which raises.
+        PValue::DieWithTruthError(e, _) => return Err(e.clone()),
+        PValue::Value(x) => enc(x)?,
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => json!({"die": die_items(d)?}),
         PValue::Tuple(items) => {
-            json!({"tuple": items.iter().map(enc_object).collect::<Option<Vec<_>>>()?})
+            let mut out = Vec::with_capacity(items.len());
+            for x in items {
+                match enc_object(x)? {
+                    Some(j) => out.push(j),
+                    None => return Ok(None),
+                }
+            }
+            json!({ "tuple": out })
         }
         PValue::Reroll => json!({"repr": "RerollType: <RerollType.Reroll: 'Reroll'>"}),
         PValue::Restart => json!({"repr": "RerollType: <RerollType.Restart: 'Restart'>"}),
         // An `AgainExpression` has the default object repr, with an address in it.
         PValue::Ellipsis => json!({"repr": "ellipsis: Ellipsis"}),
-        PValue::Deck(d) => json!({"repr": format!("Deck: {}", deck_repr(d).ok()?)}),
-        PValue::Deal(d) => json!({"repr": format!(
-            "Deal: Deal({}, hand_size={})",
-            deck_repr(d.deck()).ok()?,
-            d.hand_size()
-        )}),
-        PValue::MultiDeal(d) => json!({"repr": format!(
-            "MultiDeal: {}",
-            super::multi_deal::repr(d, &deck_repr(d.deck()).ok()?).ok()?
-        )}),
+        PValue::Deck(d) => match deck_repr(d) {
+            Ok(r) => json!({ "repr": format!("Deck: {r}") }),
+            Err(_) => return Ok(None),
+        },
+        PValue::Deal(d) => match deck_repr(d.deck()) {
+            Ok(r) => json!({"repr": format!("Deal: Deal({r}, hand_size={})", d.hand_size())}),
+            Err(_) => return Ok(None),
+        },
+        PValue::MultiDeal(d) => {
+            match deck_repr(d.deck()).and_then(|r| super::multi_deal::repr(d, &r)) {
+                Ok(r) => json!({ "repr": format!("MultiDeal: {r}") }),
+                Err(_) => return Ok(None),
+            }
+        }
         // A pool's repr, like an `AgainExpression`'s or a multiset expression's, holds an address.
         PValue::List(_)
         | PValue::Func(_)
@@ -226,8 +304,8 @@ fn enc_object(v: &PValue) -> Option<Json> {
         | PValue::Expr(_)
         | PValue::Break(_)
         | PValue::MultisetFunction(_)
-        | PValue::RawResult(_) => return None,
-    })
+        | PValue::RawResult(_) => return Ok(None),
+    }))
 }
 
 /// `Deck.__repr__`: `Deck({outcome!r}: quantity, ...)`.
@@ -242,11 +320,18 @@ fn deck_repr(d: &crate::Deck<Value>) -> crate::Result<String> {
 
 /// `encode.result_of`.
 pub fn result_of(v: &PValue) -> Json {
-    match v {
-        PValue::Die(d) | PValue::DieWithTruth(d, _) => json!({"ok": true, "die": die_items(d)}),
-        other => match enc_object(other) {
-            Some(value) => json!({"ok": true, "value": value}),
-            None => json!({"ok": false, "error": "unimplemented: this kind of program result"}),
-        },
+    let encoded = match v {
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => {
+            die_items(d).map(|items| Some(json!({"ok": true, "die": items})))
+        }
+        other => enc_object(other).map(|j| j.map(|value| json!({"ok": true, "value": value}))),
+    };
+    match encoded {
+        Ok(Some(j)) => j,
+        Ok(None) => json!({"ok": false, "error": "unimplemented: this kind of program result"}),
+        Err(Error::Unsupported(what)) => {
+            json!({"ok": false, "error": format!("unimplemented: {what}")})
+        }
+        Err(e) => json!({"ok": false, "error": e.python_type(), "message": e.message()}),
     }
 }

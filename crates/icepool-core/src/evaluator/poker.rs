@@ -92,7 +92,7 @@ impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
         let Value::Tuple(s) = state else {
             return pair(outcome.clone(), count);
         };
-        if count > 0 && outcome.binary(BinOp::Gt, &s[0])?.truthy() {
+        if count > 0 && outcome.binary(BinOp::Gt, &s[0])?.truthy()? {
             return pair(outcome.clone(), count);
         }
         if count == 0 && s[1] == int(0) {
@@ -143,7 +143,8 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
         let count = counts[0];
         // `state = state or ()`
         let state = items(state);
-        if self.filter == Value::str("all") || int(count).binary(BinOp::Ge, &self.filter)?.truthy()
+        if self.filter == Value::str("all")
+            || int(count).binary(BinOp::Ge, &self.filter)?.truthy()?
         {
             let mut xs: Vec<i64> = state.iter().map(as_i64).collect();
             xs.push(count);
@@ -192,7 +193,7 @@ impl MultisetEvaluator<Value> for LargestCountEvaluator {
     ) -> Result<Option<Value>> {
         // `max(state or count, count)`: a state of 0 is falsy too, which matters for negative counts.
         let count = int(counts[0]);
-        let first = if state.truthy() {
+        let first = if state.truthy()? {
             state.clone()
         } else {
             count.clone()
@@ -231,7 +232,7 @@ impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
     ) -> Result<Option<Value>> {
         // `max(state or (count, outcome), (count, outcome))`
         let pair = Value::tuple(vec![int(counts[0]), outcome.clone()]);
-        let first = if state.truthy() {
+        let first = if state.truthy()? {
             state.clone()
         } else {
             pair.clone()

@@ -331,6 +331,47 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
 /// `x[key]` for the sequences the core models (`tuple`, `str`) and host objects; other values are not
 /// subscriptable.
 pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
+    match (x, key) {
+        // `Vector.__getitem__`: an int index gives the element, anything else `Vector(self._data[index])`.
+        (Value::Vector(v), Index::Item(i)) if matches!(i, Value::Int(_) | Value::Bool(_)) => {
+            return getitem(&Value::Tuple(v.data()?.clone()), key)
+        }
+        (Value::Vector(v), Index::Slice(..)) => {
+            let Value::Tuple(t) = getitem(&Value::Tuple(v.data()?.clone()), key)? else {
+                unreachable!("a slice of a tuple is a tuple")
+            };
+            return Ok(Value::Vector(super::Vector::new(t.to_vec())));
+        }
+        (Value::Vector(v), Index::Item(i)) => {
+            // A non-int index: the tuple raises, unless it has `__index__` (a host object).
+            return match getitem(&Value::Tuple(v.data()?.clone()), key)? {
+                _ if matches!(i, Value::Host(_)) => Err(Error::Unsupported(
+                    "a Vector indexed by a host object".into(),
+                )),
+                _ => unreachable!("the tuple raised"),
+            };
+        }
+        // `Symbols.__getitem__`: `len(key)` first.
+        (Value::Symbols(s), Index::Item(Value::Str(k))) => return Ok(s.getitem(k)),
+        (
+            Value::Symbols(_),
+            Index::Item(
+                k @ (Value::Tuple(_) | Value::Vector(_) | Value::Symbols(_) | Value::Host(_)),
+            ),
+        ) => {
+            return Err(Error::Unsupported(format!(
+                "Symbols indexed by a {}",
+                k.type_name()
+            )))
+        }
+        (Value::Symbols(_), Index::Item(k)) => {
+            return type_error(format!("object of type '{}' has no len()", k.type_name()))
+        }
+        (Value::Symbols(_), Index::Slice(..)) => {
+            return type_error("object of type 'slice' has no len()")
+        }
+        _ => {}
+    }
     let (kind, len) = match x {
         Value::Tuple(t) => ("tuple", t.len()),
         Value::Str(s) => ("string", s.chars().count()),
@@ -375,6 +416,8 @@ pub fn py_len(x: &Value) -> Result<usize> {
     match x {
         Value::Tuple(t) => Ok(t.len()),
         Value::Str(s) => Ok(s.chars().count()),
+        Value::Vector(v) => Ok(v.data()?.len()),
+        Value::Symbols(s) => Ok(s.len()),
         Value::Host(h) => h.py_len(),
         _ => type_error(format!("object of type '{}' has no len()", x.type_name())),
     }

@@ -51,10 +51,26 @@ pub fn iter_cartesian_product<T: Clone>(
 /// as `(1,)` and `(True,)` overwrite each other's quantity and keep the first key) and returns `Die(data)`, which
 /// drops zero quantities.
 pub fn tupleize_dice(args: &[Vec<(Value, Quantity)>]) -> Result<Die<Value>> {
+    cartesian_product_dice(args, Value::tuple)
+}
+
+/// `cartesian_product(*args, outcome_type=Vector)` (`vectorize`) where some argument is a die.
+pub fn vectorize_dice(args: &[Vec<(Value, Quantity)>]) -> Result<Die<Value>> {
+    cartesian_product_dice(args, |items| {
+        Value::Vector(crate::value::Vector::new(items))
+    })
+}
+
+/// `cartesian_product(*args, outcome_type=outcome_type)` where some argument is a die.
+fn cartesian_product_dice(
+    args: &[Vec<(Value, Quantity)>],
+    outcome_type: impl Fn(Vec<Value>) -> Value,
+) -> Result<Die<Value>> {
     let mut data: Vec<(Value, Quantity)> = Vec::new();
     let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
     for (outcomes, quantity) in iter_cartesian_product(args) {
-        let key = Value::tuple(outcomes);
+        let key = outcome_type(outcomes);
+        key.check_hashable()?;
         match index.get(&key) {
             Some(&i) => data[i].1 = quantity,
             None => {

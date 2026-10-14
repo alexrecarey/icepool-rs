@@ -246,10 +246,8 @@ impl Func {
                 py_min(m, hi.clone())?
             }
             ReadRoll => read_roll(x(), x())?,
-            IsEven => {
-                let r = binary(BinOp::Mod, x(), int(2))?;
-                PValue::Value(Value::Bool(py_eq(&r, &int(0))?))
-            }
+            // `x % 2 == 0`: whatever `==` returns (a vector compares elementwise).
+            IsEven => super::format::eq(binary(BinOp::Mod, x(), int(2))?, int(0), false)?,
             GtK(k) => binary(BinOp::Gt, x(), k.clone())?,
             Identity => x(),
             Swap => {
@@ -455,8 +453,8 @@ fn first(t: PValue) -> Result<PValue, PErr> {
 /// yet), so `if die:` raises.
 pub fn truthy(x: &PValue) -> Result<bool, PErr> {
     Ok(match x {
-        PValue::Value(v) => v.truthy(),
-        PValue::DieWithTruth(_, truth) => *truth,
+        PValue::Value(v) => v.truthy()?,
+        PValue::DieWithTruth(_, truth) | PValue::DieWithTruthError(_, truth) => *truth,
         PValue::Die(_) => {
             return type_error("A `Die` only has a truth value if it is the result of == or !=")
         }
@@ -485,7 +483,7 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
 /// Python's `a == b` used as a condition.
 pub fn py_eq(a: &PValue, b: &PValue) -> Result<bool, PErr> {
     match (a, b) {
-        (PValue::Value(a), PValue::Value(b)) => Ok(a == b),
+        (PValue::Value(a), PValue::Value(b)) => Ok(a.eq_op(b, false)?.truthy()?),
         (PValue::Reroll, PValue::Reroll) | (PValue::Restart, PValue::Restart) => Ok(true),
         (PValue::Reroll | PValue::Restart, PValue::Value(_) | PValue::Reroll | PValue::Restart)
         | (PValue::Value(_), PValue::Reroll | PValue::Restart) => Ok(false),

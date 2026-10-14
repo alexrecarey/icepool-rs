@@ -162,6 +162,9 @@ impl Value {
         if let Some(h) = super::host::host_of(self, other) {
             return h.binary(op, self, other);
         }
+        if self.is_collection() || other.is_collection() {
+            return collection_binary(op, self, other);
+        }
         if matches!(op, Lt | Le | Gt | Ge) {
             return compare(op, self, other).map(Value::Bool);
         }
@@ -202,11 +205,14 @@ impl Value {
             };
             type_error(format!("{what}: '{}'", self.type_name()))
         };
-        if let Value::Host(h) = self {
-            return h.unary(op);
-        }
-        if let Value::Complex(..) = self {
-            return Err(Error::Unsupported("operators on complex numbers".into()));
+        match self {
+            Value::Host(h) => return h.unary(op),
+            Value::Complex(..) => {
+                return Err(Error::Unsupported("operators on complex numbers".into()))
+            }
+            Value::Vector(v) => return v.unary(op),
+            Value::Symbols(s) => return s.unary(op).unwrap_or_else(bad),
+            _ => {}
         }
         let Some(n) = N::of(self) else { return bad() };
         Ok(match (op, n) {
@@ -250,6 +256,10 @@ impl Value {
         };
         if let Value::Complex(..) = self {
             return Err(Error::Unsupported("round of a complex number".into()));
+        }
+        // `Vector.round(ndigits)`: `round(x, ndigits)` elementwise.
+        if let Value::Vector(v) = self {
+            return v.map(|x| x.round(ndigits));
         }
         let Some(n) = N::of(self) else {
             return type_error(format!(
@@ -708,6 +718,10 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
     if let Some(h) = super::host::host_of(a, b) {
         return h.compare(op, a, b);
     }
+    // A vector's comparison is a vector, whose truth value may raise.
+    if a.is_collection() || b.is_collection() {
+        return collection_binary(op, a, b)?.truthy();
+    }
     match (a, b) {
         (Value::Str(x), Value::Str(y)) => Ok(by_ord(x.cmp(y))),
         // Sequence comparison: the first position where the elements differ (by `==`) decides with the same
@@ -726,6 +740,94 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
                 b.type_name()
             )),
         },
+    }
+}
+
+/// Python's dispatch of `a <op> b` where an operand is a `Vector` or `Symbols`: the left operand's method, then
+/// the right one's reflected method (`__radd__`, or for a comparison the swapped comparison: `a < b` tries
+/// `b > a`), then `TypeError`. The native types always decline these operands, so only the collections' own methods
+/// answer, with one exception: `str % x` is printf formatting, and both are mappings to it (they have
+/// `__getitem__`), so without conversion specifiers it gives the string.
+fn collection_binary(op: BinOp, a: &Value, b: &Value) -> Result<Value> {
+    use super::VecOp;
+    if let (BinOp::Mod, Value::Str(s)) = (op, a) {
+        return str_format_mapping(s);
+    }
+    // Every method of a `VectorWithTruthOnly`, and every method given one, reads its `_data`, which raises.
+    for x in [a, b] {
+        if let Value::Vector(v) = x {
+            v.data()?;
+        }
+    }
+    match a {
+        Value::Vector(v) => return v.binary(VecOp::Bin(op), b),
+        Value::Symbols(s) => {
+            if let Some(r) = s.binary(op, b) {
+                return r;
+            }
+        }
+        _ => {}
+    }
+    let reflected = op.reflected_comparison();
+    match (b, reflected) {
+        (Value::Vector(v), Some(r)) => return v.binary(VecOp::Bin(r), a),
+        (Value::Vector(v), None) => return v.reverse_binary(op, a),
+        (Value::Symbols(s), Some(r)) => {
+            if let Some(x) = s.binary(r, a) {
+                return x;
+            }
+        }
+        (Value::Symbols(s), None) => {
+            if let Some(x) = s.reverse_binary(op, a) {
+                return x;
+            }
+        }
+        _ => {}
+    }
+    if reflected.is_some() {
+        type_error(format!(
+            "'{}' not supported between instances of '{}' and '{}'",
+            op.symbol(),
+            a.type_name(),
+            b.type_name()
+        ))
+    } else {
+        unsupported_operands(op, a, b)
+    }
+}
+
+impl Value {
+    /// Python's `operator.eq(self, other)` (`operator.ne` if `ne`): a bool, except that a `Vector` compares
+    /// elementwise. `Symbols` converts the other operand (so `Symbols('ab') == 'ab'`), and when it cannot, Python
+    /// falls back to identity: unequal.
+    pub fn eq_op(&self, other: &Value, ne: bool) -> Result<Value> {
+        use super::VecOp;
+        if super::host::host_of(self, other).is_some()
+            || !(self.is_collection() || other.is_collection())
+        {
+            return Ok(Value::Bool((self == other) != ne));
+        }
+        for x in [self, other] {
+            if let Value::Vector(v) = x {
+                v.data()?;
+            }
+        }
+        if let Value::Vector(v) = self {
+            return v.binary(VecOp::Eq(ne), other);
+        }
+        if let Value::Symbols(s) = self {
+            if let Some(r) = s.eq_op(other, ne) {
+                return r.map(Value::Bool);
+            }
+        }
+        match other {
+            Value::Vector(v) => v.binary(VecOp::Eq(ne), self),
+            Value::Symbols(s) => match s.eq_op(self, ne) {
+                Some(r) => r.map(Value::Bool),
+                None => Ok(Value::Bool(ne)),
+            },
+            _ => Ok(Value::Bool(ne)),
+        }
     }
 }
 

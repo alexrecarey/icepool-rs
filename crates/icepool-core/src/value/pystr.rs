@@ -70,6 +70,8 @@ pub fn py_repr(x: &Value) -> Result<String> {
             }
         }
         Value::Host(h) => h.py_repr()?,
+        Value::Vector(v) => v.repr_with(py_repr, py_str)?,
+        Value::Symbols(s) => s.py_repr()?,
         // None, bool, float, complex: `Display` is already Python's repr.
         _ => x.to_string(),
     })
@@ -92,6 +94,8 @@ pub fn py_str(x: &Value) -> Result<String> {
             }
         }
         Value::Host(h) => h.py_str(),
+        Value::Symbols(s) => s.py_str(),
+        // `str(Vector)` is `Vector(str(self._data))`, and `str(tuple)` shows the elements' reprs.
         _ => py_repr(x),
     }
 }

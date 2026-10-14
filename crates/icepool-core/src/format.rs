@@ -45,7 +45,7 @@ impl Token {
 pub fn format_probability_inverse(probability: &Value, int_start: &Value) -> Result<String> {
     let max_precision = float_ceil(math_log10(int_start)?)?;
     let cmp =
-        |op, x: &Value, y: i64| -> Result<bool> { Ok(x.binary(op, &Value::from(y))?.truthy()) };
+        |op, x: &Value, y: i64| -> Result<bool> { Ok(x.binary(op, &Value::from(y))?.truthy()?) };
     if cmp(BinOp::Le, probability, 0)? || cmp(BinOp::Gt, probability, 1)? {
         return Ok("n/a".into());
     }
@@ -79,7 +79,7 @@ pub fn format_probability_inverse(probability: &Value, int_start: &Value) -> Res
 }
 
 fn cmp_values(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
-    Ok(a.binary(op, b)?.truthy())
+    Ok(a.binary(op, b)?.truthy()?)
 }
 
 /// `f'{x:<.{precision}{kind}}'` for the float `x` (no width, so `<` changes nothing). A negative precision makes
@@ -143,6 +143,8 @@ pub fn common_outcome_length(population: &Die<Value>) -> Result<Option<usize>> {
             Value::Tuple(t) => LenKind::Len(t.len()),
             Value::Str(s) => LenKind::Len(s.chars().count()),
             Value::Host(h) => h.len_kind()?,
+            Value::Vector(v) => LenKind::Len(v.data()?.len()),
+            Value::Symbols(_) => LenKind::Mapping,
             _ => LenKind::Unsized,
         };
         match kind {

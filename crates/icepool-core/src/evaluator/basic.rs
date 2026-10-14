@@ -158,7 +158,7 @@ impl MultisetEvaluator<Value> for SizeEvaluator {
         _: &[Option<i64>],
     ) -> Result<Final<Value>> {
         // `final_state or 0`
-        Ok(Final::Outcome(if final_state.truthy() {
+        Ok(Final::Outcome(if final_state.truthy()? {
             final_state.clone()
         } else {
             int(0)
@@ -219,7 +219,7 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         counts: &[i64],
     ) -> Result<Option<Value>> {
         // `state and (count == 0)`
-        Ok(Some(if state.truthy() {
+        Ok(Some(if state.truthy()? {
             Value::Bool(counts[0] == 0)
         } else {
             state.clone()
@@ -234,7 +234,7 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         _: &[Option<i64>],
     ) -> Result<Final<Value>> {
         Ok(if self.any {
-            Final::Outcome(Value::Bool(!final_state.truthy()))
+            Final::Outcome(Value::Bool(!final_state.truthy()?))
         } else {
             state_as_outcome(final_state)
         })

@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 
 use super::again::{self, AgainOp};
 use super::catalogue::Func;
+use super::collection;
 use super::deck;
 use super::die_methods;
 use super::evaluate;
@@ -30,7 +31,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [sides] = args.exactly(["sides"])?;
             d(sides)
         }
-        "die" | "die_typed" => {
+        "die" | "die_typed" | "die_vectors" | "die_symbols" => {
             let [outcomes] = args.exactly(["outcomes"])?;
             die(outcomes, None)
         }
@@ -507,6 +508,38 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [a, b, cmp] = args.exactly(["a", "b", "cmp"])?;
             format::hash_key_compare(a, b, cmp)
         }
+        "vectorize" => {
+            let [a] = args.exactly(["args"])?;
+            collection::vectorize(a)
+        }
+        "vector" => {
+            let [items] = args.exactly(["items"])?;
+            collection::vector(items)
+        }
+        "symbols" => {
+            let [x] = args.exactly(["x"])?;
+            collection::symbols(x)
+        }
+        "coll_binary" => {
+            let [a, b, name] = args.exactly(["a", "b", "name"])?;
+            collection::binary(a, b, name)
+        }
+        "coll_unary" => {
+            let [a, name, ndigits] = args.exactly(["a", "name", "ndigits"])?;
+            collection::unary(a, name, ndigits)
+        }
+        "coll_truth" => {
+            let [x] = args.exactly(["x"])?;
+            format::truth(x)
+        }
+        "vector_method" => {
+            let [v, name, arg] = args.exactly(["v", "name", "arg"])?;
+            collection::vector_method(v, name, arg)
+        }
+        "symbols_method" => {
+            let [s, name, arg] = args.exactly(["s", "name", "arg"])?;
+            collection::symbols_method(s, name, arg)
+        }
         _ => {
             if let Some(bin) = binary_op(op) {
                 let [a, b] = args.exactly(["a", "b"])?;
@@ -522,7 +555,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
 }
 
 /// The binary operator nodes (harness/grammar/basic.py, operators.py), named after Python's `operator` module.
-fn binary_op(op: &str) -> Option<BinOp> {
+pub(super) fn binary_op(op: &str) -> Option<BinOp> {
     use BinOp::*;
     Some(match op {
         "add" => Add,
@@ -545,7 +578,7 @@ fn binary_op(op: &str) -> Option<BinOp> {
     })
 }
 
-fn unary_op(op: &str) -> Option<UnOp> {
+pub(super) fn unary_op(op: &str) -> Option<UnOp> {
     use UnOp::*;
     Some(match op {
         "neg" => Neg,
@@ -603,6 +636,18 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
         // Mapping, which formatting accepts even when the format string never uses it.
         (PValue::Value(Value::Str(s)), PValue::Die(_)) if op == BinOp::Mod => {
             Ok(PValue::Value(crate::value::ops::str_format_mapping(&s)?))
+        }
+        // `Symbols.__floordiv__` takes any iterable as `count_subset`, and a die is one (a mapping: its quantities
+        // are the counts).
+        (PValue::Value(Value::Symbols(s)), PValue::Die(d) | PValue::DieWithTruth(d, _))
+            if op == BinOp::FloorDiv =>
+        {
+            let items = d
+                .items()
+                .iter()
+                .map(|(o, q)| (o.clone(), Value::Int(q.clone().into())))
+                .collect();
+            Ok(PValue::Value(s.count_subset_items(items, None)?))
         }
         (a, PValue::Die(b)) => match op.reflected_comparison() {
             Some(reflected) => apply(&b, reflected, &to_die(a)?),
@@ -849,6 +894,7 @@ pub(super) fn d(sides: PValue) -> Result<PValue, PErr> {
 /// Python's `iter(x)` over a program value: a list, a tuple's elements, a str's characters, a die's outcomes.
 pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
     Ok(match x {
+        PValue::DieWithTruthError(e, _) => return Err(e.into()),
         PValue::List(xs) | PValue::Tuple(xs) => xs,
         PValue::Value(Value::Tuple(t)) => t.iter().cloned().map(PValue::Value).collect(),
         PValue::Value(Value::Str(s)) => s
@@ -858,6 +904,13 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Die(d) | PValue::DieWithTruth(d, _) => {
             d.outcomes().cloned().map(PValue::Value).collect()
         }
+        PValue::Value(Value::Vector(v)) => v.data()?.iter().cloned().map(PValue::Value).collect(),
+        // A mapping: its keys, in the dict's order.
+        PValue::Value(Value::Symbols(s)) => s
+            .items()
+            .iter()
+            .map(|(c, _)| PValue::Value(Value::str(c.encode_utf8(&mut [0; 4]))))
+            .collect(),
         PValue::Value(v) => {
             return type_error(format!("'{}' object is not iterable", v.type_name()))
         }
@@ -887,6 +940,7 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
     match x {
         PValue::Value(v) => Ok(DieArg::Outcome(v)),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(DieArg::Die(d)),
+        PValue::DieWithTruthError(e, _) => Err(e.into()),
         // Any population is a mapping to `expand_arg`.
         PValue::Deck(d) => Ok(DieArg::Die(d.population().clone())),
         // `arg in icepool.REROLL_TYPES`.

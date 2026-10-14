@@ -5,7 +5,8 @@
 //!   `float` to compare them).
 //! - `str` and `tuple` compare only with their own kind; `<` between kinds raises `TypeError`, `==` is just `False`.
 //!
-//! Later kinds (Vector, Symbols, host objects) are added as new variants.
+//! - icepool's `Vector` and `Symbols` are variants too (`vector.rs`, `symbols.rs`); objects of the host language
+//!   the core has no variant for are `Host` (`host.rs`).
 
 pub mod builtins;
 mod host;
@@ -15,6 +16,8 @@ pub mod ops;
 pub mod pow;
 pub mod pystr;
 mod repr;
+mod symbols;
+mod vector;
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -31,6 +34,8 @@ pub use host::{HostError, HostObject, HostRef, LenKind};
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;
+pub use symbols::Symbols;
+pub use vector::{VecOp, Vector};
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -47,6 +52,10 @@ pub enum Value {
     /// orderable, so a die with a complex outcome raises when it sorts its outcomes (unless its quantity is zero
     /// and it drops out first). Arithmetic on it is not ported.
     Complex(f64, f64),
+    /// icepool's `Vector` (or `VectorWithTruthOnly`): operators apply elementwise.
+    Vector(Vector),
+    /// icepool's `Symbols`: a multiset of characters.
+    Symbols(Symbols),
     /// An object of the host language the core has no variant for (see `host.rs`). Every operator and comparison
     /// involving one is answered by the host.
     Host(HostRef),
@@ -64,6 +73,8 @@ impl Value {
             Value::Str(_) => "str",
             Value::Tuple(_) => "tuple",
             Value::Complex(..) => "complex",
+            Value::Vector(v) => v.type_name(),
+            Value::Symbols(_) => "Symbols",
             Value::Host(_) => "object",
         }
     }
@@ -87,9 +98,9 @@ impl Value {
         Value::Tuple(Arc::from(items))
     }
 
-    /// Python's `bool(x)`.
-    pub fn truthy(&self) -> bool {
-        match self {
+    /// Python's `bool(x)`, which raises for a `Vector` that is not the result of a comparison.
+    pub fn truthy(&self) -> Result<bool> {
+        Ok(match self {
             Value::None => false,
             Value::Bool(b) => *b,
             Value::Int(i) => *i != IBig::ZERO,
@@ -98,8 +109,26 @@ impl Value {
             Value::Str(s) => !s.is_empty(),
             Value::Tuple(t) => !t.is_empty(),
             Value::Complex(re, im) => *re != 0.0 || *im != 0.0,
-            Value::Host(h) => h.truthy(),
+            Value::Vector(v) => v.truthy()?,
+            // A mapping: its number of keys (zero counts included).
+            Value::Symbols(s) => !s.is_empty(),
+            Value::Host(h) => h.truthy()?,
+        })
+    }
+
+    /// Whether Python can hash this value: hashing a `VectorWithTruthOnly` raises `ValueError` (it reads `_data`),
+    /// also inside a tuple or a vector.
+    pub fn check_hashable(&self) -> Result<()> {
+        match self {
+            Value::Vector(v) => v.data()?.iter().try_for_each(Value::check_hashable),
+            Value::Tuple(t) => t.iter().try_for_each(Value::check_hashable),
+            _ => Ok(()),
         }
+    }
+
+    /// Whether this is a `Vector` or `Symbols`, whose operators follow their own classes (`ops::collection_binary`).
+    pub fn is_collection(&self) -> bool {
+        matches!(self, Value::Vector(_) | Value::Symbols(_))
     }
 
     /// Python's `max(a, b)`: `b` only if `b > a`, so the first of equal values wins.
@@ -146,6 +175,13 @@ impl PartialEq for Value {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
             }
             (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi,
+            // As a dict sees them: a vector or a `Symbols` only ever equals its own kind. (Python's `==` also makes
+            // `Symbols('ab') == 'ab'`, but their hashes differ, so a dict never merges them; `eq_op` is the
+            // operator.)
+            (Value::Vector(a), Value::Vector(b)) => a == b,
+            (Value::Symbols(a), Value::Symbols(b)) => a == b,
+            (Value::Vector(_) | Value::Symbols(_), _)
+            | (_, Value::Vector(_) | Value::Symbols(_)) => false,
             // A complex number equals a real one when its imaginary part is zero.
             (Value::Complex(re, im), x) | (x, Value::Complex(re, im)) => {
                 *im == 0.0 && x.as_num().is_some_and(|n| n == Num::Float(*re))
@@ -191,6 +227,22 @@ impl Hash for Value {
                 state.write_usize(t.len());
                 t.iter().for_each(|x| x.hash(state));
             }
+            // Python hashes `(Vector, self._data)`. (A `VectorWithTruthOnly` cannot be hashed: `check_key`.)
+            Value::Vector(v) => {
+                state.write_u8(4);
+                if let Ok(d) = v.data() {
+                    state.write_usize(d.len());
+                    d.iter().for_each(|x| x.hash(state));
+                }
+            }
+            // Python hashes `(Symbols, str(self))`: the nonzero counts in key order.
+            Value::Symbols(s) => {
+                state.write_u8(5);
+                for (c, n) in s.nonzero_sorted() {
+                    state.write_u32(c as u32);
+                    n.hash(state);
+                }
+            }
             _ => {
                 state.write_u8(0);
                 state.write_i64(self.as_num().map_or(0, |n| n.py_hash()));
@@ -203,7 +255,7 @@ impl Outcome for Value {
     fn check_key(&self) -> Result<()> {
         match self {
             Value::None => type_error("None is not a valid key."),
-            _ => Ok(()),
+            _ => self.check_hashable(),
         }
     }
 
@@ -222,6 +274,9 @@ impl Outcome for Value {
     fn py_lt(&self, other: &Self) -> Result<bool> {
         if let Some(h) = host::host_of(self, other) {
             return h.compare(BinOp::Lt, self, other);
+        }
+        if self.is_collection() || other.is_collection() {
+            return ops::compare(BinOp::Lt, self, other);
         }
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(a < b),
@@ -257,6 +312,14 @@ impl fmt::Display for Value {
             Value::Str(s) => write!(f, "{s:?}"),
             Value::Complex(re, im) => write!(f, "{}", ops::complex_repr(*re, *im)),
             Value::Host(h) => write!(f, "{}", h.repr()),
+            Value::Vector(v) => match v.repr_with(|x| Ok(x.to_string()), |x| Ok(x.to_string())) {
+                Ok(s) => write!(f, "{s}"),
+                Err(_) => write!(f, "Vector(?)"),
+            },
+            Value::Symbols(s) => match s.py_repr() {
+                Ok(r) => write!(f, "{r}"),
+                Err(_) => write!(f, "Symbols(?)"),
+            },
             Value::Tuple(t) => {
                 write!(f, "(")?;
                 for (i, x) in t.iter().enumerate() {

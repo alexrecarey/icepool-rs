@@ -264,11 +264,11 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
             }
             RerollAtLeast(k) => {
                 let count = one_count(&counts)?;
-                if count.binary(BinOp::Ge, k)?.truthy() {
+                if count.binary(BinOp::Ge, k)?.truthy()? {
                     return Ok(None);
                 }
                 // `(state or 0) + count`
-                let state = if state.truthy() {
+                let state = if state.truthy()? {
                     state.clone()
                 } else {
                     int(0)
@@ -283,7 +283,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 // `any(c > 0 for c in counts)`
                 let mut any = false;
                 for c in &counts {
-                    if c.binary(BinOp::Gt, &int(0))?.truthy() {
+                    if c.binary(BinOp::Gt, &int(0))?.truthy()? {
                         any = true;
                         break;
                     }
@@ -326,7 +326,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
             }
             Record => {
                 // `(state or ()) + ((outcome,) + counts,)`
-                let mut seen = if state.truthy() {
+                let mut seen = if state.truthy()? {
                     tuple_items(state)?.to_vec()
                 } else {
                     Vec::new()
@@ -362,9 +362,9 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
             FinalDie(n) => {
                 if *final_state == int(0) {
                     Final::Reroll
-                } else if final_state.binary(BinOp::Lt, &int(0))?.truthy() {
+                } else if final_state.binary(BinOp::Lt, &int(0))?.truthy()? {
                     Final::None
-                } else if final_state.binary(BinOp::Le, n)?.truthy() {
+                } else if final_state.binary(BinOp::Le, n)?.truthy()? {
                     match d(PValue::Value(final_state.clone())) {
                         Ok(die) => Final::Outcome(die),
                         Err(PErr::Raise(e)) => return Err(e),

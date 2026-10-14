@@ -158,5 +158,15 @@
   "mx_tuple_index": "ported",
   "mx_tuple_slice": "ported",
   "mx_tuple_evaluate": "ported",
-  "mx_mixture": "ported"
+  "mx_mixture": "ported",
+  "die_vectors": "ported",
+  "die_symbols": "ported",
+  "vectorize": "ported",
+  "vector": "ported",
+  "symbols": "ported",
+  "coll_binary": "ported",
+  "coll_unary": "ported",
+  "coll_truth": "ported",
+  "vector_method": "ported",
+  "symbols_method": "ported"
 }

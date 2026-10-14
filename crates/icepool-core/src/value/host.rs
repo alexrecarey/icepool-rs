@@ -31,8 +31,8 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     fn binary(&self, op: BinOp, a: &Value, b: &Value) -> Result<Value>;
     /// Python's unary operator on this object.
     fn unary(&self, op: UnOp) -> Result<Value>;
-    /// Python's `bool(self)`.
-    fn truthy(&self) -> bool;
+    /// Python's `bool(self)`, which may raise.
+    fn truthy(&self) -> Result<bool>;
     /// Python's `repr(self)`.
     fn repr(&self) -> String;
     /// For the host's own downcast back to its object.
@@ -166,8 +166,8 @@ mod tests {
         fn unary(&self, _op: UnOp) -> Result<Value> {
             Err(Error::Host(HostError(Arc::new("raised by the host"))))
         }
-        fn truthy(&self) -> bool {
-            self.0 != 0
+        fn truthy(&self) -> Result<bool> {
+            Ok(self.0 != 0)
         }
         fn repr(&self) -> String {
             format!("Rev({})", self.0)
@@ -206,6 +206,6 @@ mod tests {
         // A host exception passes through unchanged.
         let err = d.unary_operator(|o| o.unary(UnOp::Neg)).unwrap_err();
         assert!(matches!(err, Error::Host(_)));
-        assert!(!host(0).truthy() && host(2).truthy());
+        assert!(!host(0).truthy().unwrap() && host(2).truthy().unwrap());
     }
 }

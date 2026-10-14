@@ -7,6 +7,7 @@
 mod again;
 mod catalogue;
 mod catalogue_evaluators;
+mod collection;
 mod deck;
 mod die_methods;
 mod evaluate;
@@ -67,6 +68,10 @@ pub enum PValue {
     /// that it has a truth value and its type name is `DieWithTruth`. Python computes both lazily; the port
     /// eagerly, which only differs if computing one raises, and neither does.
     DieWithTruth(Die<Value>, bool),
+    /// A `DieWithTruth` whose data raises when computed (`==` of vectors of different lengths gives
+    /// `VectorWithTruthOnly` outcomes, which cannot be hashed). Python computes the data lazily, so only its truth
+    /// value can be used: anything else raises this error (see `eval`).
+    DieWithTruthError(Error, bool),
     /// A `@multiset_function` (node `mf_def`).
     MultisetFunction(Arc<multiset_function::FunctionDef>),
     /// A `MultisetFunctionRawResult`: an evaluation inside a `@multiset_function` body.
@@ -152,13 +157,22 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                     ("fn", "name", Json::String(name)) => PValue::Value(Value::str(name)),
                     _ => eval(v)?,
                 };
+                // Only `bool(x)` can use a `DieWithTruth` whose data raises.
+                if let PValue::DieWithTruthError(e, _) = &v {
+                    if !matches!(op, "truth" | "coll_truth") {
+                        return Err(e.clone().into());
+                    }
+                }
                 values.push((k.as_str(), v));
             }
             ops::call(op, Args(values))
         }
         Json::Array(a) => a
             .iter()
-            .map(eval)
+            .map(|x| match eval(x)? {
+                PValue::DieWithTruthError(e, _) => Err(e.into()),
+                x => Ok(x),
+            })
             .collect::<Result<_, _>>()
             .map(PValue::List),
         _ => wire::dec(x),

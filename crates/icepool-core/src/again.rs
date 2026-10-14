@@ -199,7 +199,7 @@ fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<St
     if *again == int(0) {
         return Ok(Step::State(state.clone()));
     }
-    if index.binary(BinOp::Lt, repeat)?.truthy() {
+    if index.binary(BinOp::Lt, repeat)?.truthy()? {
         let r = unpack(roll, 3)?;
         let flat = flat.binary(BinOp::Add, &r[0])?;
         let not_again = not_again.binary(BinOp::Add, &r[1])?;
@@ -209,7 +209,7 @@ fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<St
             && index
                 .binary(BinOp::Add, &again)?
                 .binary(BinOp::Gt, repeat)?
-                .truthy()
+                .truthy()?
         {
             return Ok(Step::Restart);
         }

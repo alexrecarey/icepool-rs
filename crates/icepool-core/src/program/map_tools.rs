@@ -152,7 +152,7 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
     let PValue::Value(r) = &repeat else {
         return Err(PErr::Unimplemented("a repeat that is not a value".into()));
     };
-    if r.binary(BinOp::Lt, &int(0))?.truthy() {
+    if r.binary(BinOp::Lt, &int(0))?.truthy()? {
         return raise(Error::Value("repeat cannot be negative.".into()));
     }
     if *r == int(0) {
@@ -225,13 +225,13 @@ pub fn time_to_sum(
     let PValue::Value(target) = target else {
         return Err(PErr::Unimplemented("a target that is not a value".into()));
     };
-    if target.binary(BinOp::Le, &int(0))?.truthy() {
+    if target.binary(BinOp::Le, &int(0))?.truthy()? {
         return die_of(vec![PValue::Value(int(0))], vec![Quantity::ONE]);
     }
     let max_time = match max_time {
         PValue::Value(Value::None) => {
             let min = die.min_outcome()?;
-            if min.binary(BinOp::Le, &int(0))?.truthy() {
+            if min.binary(BinOp::Le, &int(0))?.truthy()? {
                 return raise(Error::Value(
                     "max_time must be provided if not all outcomes are positive.".into(),
                 ));

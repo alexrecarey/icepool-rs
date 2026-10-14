@@ -272,7 +272,7 @@ impl Die<Value> {
             .binary(BinOp::Add, d)?
             .binary(BinOp::Sub, &Value::from(1))?
             .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| Ok(int(q).binary(BinOp::Lt, &target)?.truthy()))?;
+        let index = bisect(&cdf, |q| Ok(int(q).binary(BinOp::Lt, &target)?.truthy()?))?;
         self.outcome_at(index)
     }
 
@@ -283,7 +283,9 @@ impl Die<Value> {
         let target = n
             .binary(BinOp::Mul, &Value::Int(self.den()))?
             .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| Ok(!target.binary(BinOp::Lt, &int(q))?.truthy()))?;
+        let index = bisect(&cdf, |q| {
+            Ok(!target.binary(BinOp::Lt, &int(q))?.truthy()?)
+        })?;
         self.outcome_at(index)
     }
 
@@ -367,11 +369,15 @@ impl Die<Value> {
         let terms = self
             .probabilities(Comparison::Eq, false)?
             .into_iter()
-            .filter_map(|p| match p.binary(BinOp::Gt, &zero) {
-                Ok(positive) if !positive.truthy() => None,
-                Ok(_) => Some(math_log(&p, Some(base)).and_then(|l| p.binary(BinOp::Mul, &l))),
-                Err(e) => Some(Err(e)),
-            });
+            .filter_map(
+                |p| match p.binary(BinOp::Gt, &zero).and_then(|x| x.truthy()) {
+                    Ok(false) => None,
+                    Ok(true) => {
+                        Some(math_log(&p, Some(base)).and_then(|l| p.binary(BinOp::Mul, &l)))
+                    }
+                    Err(e) => Some(Err(e)),
+                },
+            );
         py_sum(terms, Value::from(0))?.unary(UnOp::Neg)
     }
 
@@ -382,7 +388,7 @@ impl Die<Value> {
             let d = d?.unary(UnOp::Abs)?;
             // `max` keeps the first of equal items: it replaces only on `item > max`.
             max = match max {
-                Some(m) if !d.binary(BinOp::Gt, &m)?.truthy() => Some(m),
+                Some(m) if !d.binary(BinOp::Gt, &m)?.truthy()? => Some(m),
                 _ => Some(d),
             };
         }
@@ -475,7 +481,7 @@ impl Die<Value> {
         let mut data = Data::new();
         for (o, q) in self.items() {
             let q = int(q);
-            if q.binary(BinOp::Ge, divisor)?.truthy() {
+            if q.binary(BinOp::Ge, divisor)?.truthy()? {
                 data.push((o.clone(), q.binary(BinOp::FloorDiv, divisor)?));
             }
         }
@@ -496,7 +502,7 @@ impl Die<Value> {
         let position = data.iter().position(|(o, _)| o == outcome);
         let current = position.map_or(Value::from(0), |i| data[i].1.clone());
         let new_quantity = current.binary(BinOp::Add, &adjustment)?;
-        if new_quantity.binary(BinOp::Gt, &Value::from(0))?.truthy() {
+        if new_quantity.binary(BinOp::Gt, &Value::from(0))?.truthy()? {
             match position {
                 Some(i) => data[i].1 = new_quantity,
                 None => data.push((outcome.clone(), new_quantity)),
@@ -521,7 +527,7 @@ impl Die<Value> {
     /// an integer scaling.
     pub fn multiply_to_denominator(&self, denominator: &Value) -> Result<Option<Data>> {
         let den = Value::Int(self.den());
-        if denominator.binary(BinOp::Mod, &den)?.truthy() {
+        if denominator.binary(BinOp::Mod, &den)?.truthy()? {
             return value_error(
                 "Target denominator is not an integer factor of the current denominator.",
             );
@@ -554,7 +560,7 @@ impl Die<Value> {
         }
         for ((oa, qa), (ob, qb)) in self.items().iter().zip(other.items()) {
             if oa != ob {
-                return Ok(oa.binary(op, ob)?.truthy());
+                return Ok(oa.binary(op, ob)?.truthy()?);
             }
             if qa != qb {
                 return Ok(cmp(op, qa, qb));
