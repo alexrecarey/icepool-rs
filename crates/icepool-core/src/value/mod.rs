@@ -7,9 +7,10 @@
 //!
 //! Later kinds (Vector, Symbols, host objects) are added as new variants.
 
+mod host;
 mod number;
-pub mod pow;
 pub mod ops;
+pub mod pow;
 mod repr;
 
 use std::cmp::Ordering;
@@ -23,6 +24,7 @@ use dashu_ratio::RBig;
 use crate::error::{type_error, Result};
 use crate::outcome::Outcome;
 
+pub use host::{HostError, HostObject, HostRef};
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;
@@ -42,6 +44,9 @@ pub enum Value {
     /// orderable, so a die with a complex outcome raises when it sorts its outcomes (unless its quantity is zero
     /// and it drops out first). Arithmetic on it is not ported.
     Complex(f64, f64),
+    /// An object of the host language the core has no variant for (see `host.rs`). Every operator and comparison
+    /// involving one is answered by the host.
+    Host(HostRef),
 }
 
 impl Value {
@@ -56,6 +61,7 @@ impl Value {
             Value::Str(_) => "str",
             Value::Tuple(_) => "tuple",
             Value::Complex(..) => "complex",
+            Value::Host(_) => "object",
         }
     }
 
@@ -89,6 +95,7 @@ impl Value {
             Value::Str(s) => !s.is_empty(),
             Value::Tuple(t) => !t.is_empty(),
             Value::Complex(re, im) => *re != 0.0 || *im != 0.0,
+            Value::Host(h) => h.truthy(),
         }
     }
 
@@ -126,6 +133,9 @@ impl From<IBig> for Value {
 /// Python's `==`. Never raises: values of unrelated kinds are simply unequal.
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
+        if let Some(h) = host::host_of(self, other) {
+            return h.eq(self, other);
+        }
         match (self, other) {
             (Value::None, Value::None) => true,
             (Value::Str(a), Value::Str(b)) => a == b,
@@ -166,6 +176,13 @@ impl Hash for Value {
                     .wrapping_add(1000003i64.wrapping_mul(Num::Float(*im).py_hash()));
                 state.write_i64(if h == -1 { -2 } else { h });
             }
+            // Python's hash, fed like a number's: a host object equal to a number (an `IntEnum`) hashes alike, as
+            // Python requires. One equal to a `str` or a plain `tuple` (a `StrEnum`, a namedtuple) does not, so
+            // the two do not merge as they would in a Python dict (see NOTES.md).
+            Value::Host(h) => {
+                state.write_u8(0);
+                state.write_i64(h.py_hash());
+            }
             Value::Tuple(t) => {
                 state.write_u8(2);
                 state.write_usize(t.len());
@@ -200,6 +217,9 @@ impl Outcome for Value {
     }
 
     fn py_lt(&self, other: &Self) -> Result<bool> {
+        if let Some(h) = host::host_of(self, other) {
+            return h.compare(BinOp::Lt, self, other);
+        }
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => Ok(a < b),
             // Python's sequence comparison: the first position where the elements differ (by `==`) decides with
@@ -233,6 +253,7 @@ impl fmt::Display for Value {
             Value::Fraction(r) => write!(f, "Fraction({}, {})", r.numerator(), r.denominator()),
             Value::Str(s) => write!(f, "{s:?}"),
             Value::Complex(re, im) => write!(f, "{}", ops::complex_repr(*re, *im)),
+            Value::Host(h) => write!(f, "{}", h.repr()),
             Value::Tuple(t) => {
                 write!(f, "(")?;
                 for (i, x) in t.iter().enumerate() {

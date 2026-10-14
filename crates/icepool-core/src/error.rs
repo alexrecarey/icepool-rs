@@ -25,6 +25,9 @@ pub enum Error {
     /// Not an exception: Python would answer, but the port does not cover this case yet (e.g. arithmetic on
     /// complex numbers). The program runner reports it as unimplemented, never as a raise.
     Unsupported(String),
+    /// An exception the host raised in a callback (a host object's operator, a user function), passed through so
+    /// the host re-raises it unchanged.
+    Host(crate::value::HostError),
 }
 
 impl Error {
@@ -40,6 +43,7 @@ impl Error {
             Error::Order(_) => "ConflictingOrderError",
             Error::UnsupportedOrder(_) => "UnsupportedOrder",
             Error::Unsupported(_) => "unimplemented",
+            Error::Host(_) => "host exception",
         }
     }
 
@@ -54,6 +58,7 @@ impl Error {
             | Error::Order(m)
             | Error::UnsupportedOrder(m)
             | Error::Unsupported(m) => m,
+            Error::Host(_) => "raised by the host",
         }
     }
 }

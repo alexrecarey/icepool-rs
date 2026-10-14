@@ -55,6 +55,13 @@ class Counts(Mapping[T, int]):
                 mapping[key] += value
         self._mapping = mapping
 
+    @classmethod
+    def _from_sorted_items(cls, items: Iterable[tuple[T, int]]) -> 'Counts[T]':
+        """icepool-rs: items already sorted, merged and checked (by the Rust core)."""
+        self = super().__new__(cls)
+        self._mapping = dict(items)
+        return self
+
     @cached_property
     def _has_zero_values(self) -> bool:
         return 0 in self.values()

@@ -57,6 +57,28 @@ def expand_args_for_die(
     return Counts(merge_weights_lcm(subdatas, times).items())
 
 
+def expand_args_for_die_rust(
+        args: 'Sequence[T | icepool.Die[T] | icepool.RerollType]',
+        times: Sequence[int]):
+    """icepool-rs: `expand_args_for_die` on the Rust core. Returns an `icepool_rs.Die`.
+
+    `expand_arg` stays here; each subdata goes to Rust tagged with its kind (see `icepool_rs.expand_args_for_die`).
+    """
+    subdatas = []
+    for arg in args:
+        subdata = expand_arg(arg)
+        if isinstance(subdata, icepool.Die):
+            subdatas.append((1, subdata._rust_die()))
+        elif isinstance(subdata, icepool.Population):
+            subdatas.append((3, list(subdata.items())))
+        elif len(subdata) == 0:
+            subdatas.append((2, None))
+        else:
+            # `{arg: 1}`
+            subdatas.append((0, next(iter(subdata))))
+    return icepool.backend.RUST.expand_args_for_die(subdatas, times)
+
+
 def expand_args_for_deck(
         args: 'Sequence[T | icepool.Deck[T] | icepool.RerollType]',
         times: Sequence[int]) -> Counts[T]:

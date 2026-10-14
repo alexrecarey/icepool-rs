@@ -159,6 +159,9 @@ impl Value {
     /// Python's `operator.<op>(self, other)` on two outcomes.
     pub fn binary(&self, op: BinOp, other: &Value) -> Result<Value> {
         use BinOp::*;
+        if let Some(h) = super::host::host_of(self, other) {
+            return h.binary(op, self, other);
+        }
         if matches!(op, Lt | Le | Gt | Ge) {
             return compare(op, self, other).map(Value::Bool);
         }
@@ -199,6 +202,9 @@ impl Value {
             };
             type_error(format!("{what}: '{}'", self.type_name()))
         };
+        if let Value::Host(h) = self {
+            return h.unary(op);
+        }
         if let Value::Complex(..) = self {
             return Err(Error::Unsupported("operators on complex numbers".into()));
         }
@@ -699,6 +705,9 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
         BinOp::Ge => o != Ordering::Less,
         _ => unreachable!("not a comparison"),
     };
+    if let Some(h) = super::host::host_of(a, b) {
+        return h.compare(op, a, b);
+    }
     match (a, b) {
         (Value::Str(x), Value::Str(y)) => Ok(by_ord(x.cmp(y))),
         // Sequence comparison: the first position where the elements differ (by `==`) decides with the same

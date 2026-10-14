@@ -184,6 +184,8 @@ pub fn enc(v: &Value) -> Json {
         Value::Tuple(t) => tagged("tuple", Json::Array(t.iter().map(enc).collect())),
         // encode.py's fallback for types it does not know.
         Value::Complex(..) => tagged("repr", Json::String(format!("complex: {v}"))),
+        // Programs never make host objects (only the Python facade does); spelled like encode.py's fallback.
+        Value::Host(_) => tagged("repr", Json::String(format!("object: {v}"))),
     }
 }
 

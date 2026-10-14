@@ -158,6 +158,11 @@ class Die(Population[T_co], MaybeHashKeyed):
                 outcomes[0], Die):
             return outcomes[0]
 
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.creation_args.expand_args_for_die_rust(
+                    outcomes, times))
+
         counts: Counts[T_co] = icepool.creation_args.expand_args_for_die(
             outcomes, times)
 
@@ -173,6 +178,26 @@ class Die(Population[T_co], MaybeHashKeyed):
         self = super(Population, cls).__new__(cls)
         self._data = data
         return self
+
+    @classmethod
+    def _new_rust(cls, rs) -> 'Die':
+        """icepool-rs: wraps a die of the Rust core (`icepool_rs.Die`).
+
+        The facade's `Counts` is made from its items; the Rust die is kept as
+        `_rs`, so further switched operations on this die need no conversion.
+        """
+        self = cls._new_raw(Counts._from_sorted_items(rs.items()))
+        self._rs = rs
+        return self
+
+    def _rust_die(self):
+        """icepool-rs: this die in the Rust core, converted once if it was made in Python."""
+        try:
+            return self._rs
+        except AttributeError:
+            self._rs = icepool.backend.RUST.from_counts_items(
+                list(self._data.items()))
+            return self._rs
 
     # Defined separately from the superclass to help typing.
     def unary_operator(self: 'icepool.Die[T_co]', op: Callable[..., U], *args,
@@ -196,6 +221,13 @@ class Die(Population[T_co], MaybeHashKeyed):
             ValueError: If tuples are of mismatched length.
         """
         return self._unary_operator(op, *args, **kwargs)
+
+    def _unary_operator(self, op: Callable, *args, **kwargs):
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.unary_operator(self._rust_die(), op,
+                                                    *args, **kwargs))
+        return super()._unary_operator(op, *args, **kwargs)
 
     def binary_operator(self, other: 'Die', op: Callable[..., U], *args,
                         **kwargs) -> 'Die[U]':
@@ -223,6 +255,11 @@ class Die(Population[T_co], MaybeHashKeyed):
             ValueError: If tuples are of mismatched length within one of the
                 dice or between the dice.
         """
+        if icepool.backend.RUST:
+            return Die._new_rust(
+                icepool.backend.RUST.binary_operator(self._rust_die(),
+                                                     other._rust_die(), op,
+                                                     *args, **kwargs))
         data: MutableMapping[Any, int] = defaultdict(int)
         for (outcome_self,
              quantity_self), (outcome_other,

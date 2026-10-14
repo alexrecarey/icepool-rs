@@ -36,7 +36,9 @@ pub fn run(program_json: &str) -> String {
 pub fn run_line(program_json: &str) -> Json {
     match serde_json::from_str(program_json) {
         Ok(program) => icepool_core::program::run(&program),
-        Err(e) => serde_json::json!({"ok": false, "error": format!("unimplemented: bad JSON: {e}")}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": format!("unimplemented: bad JSON: {e}")})
+        }
     }
 }
 
@@ -52,12 +54,18 @@ pub fn calculate(engine_input: &JsValue) -> Result<JsValue, JsError> {
         .and_then(|s| s.as_string())
         .ok_or_else(|| JsError::new("TypeError: the engine input is not a JSON object"))?;
     let input: Json = serde_json::from_str(&text).map_err(|e| JsError::new(&e.to_string()))?;
-    let out = icepool_core::khepri::calculate_json(&input).map_err(|e| JsError::new(&e.to_string()))?;
-    let js = json_parse(&out.to_string()).map_err(|_| JsError::new("calculate: result is not JSON"))?;
+    let out =
+        icepool_core::khepri::calculate_json(&input).map_err(|e| JsError::new(&e.to_string()))?;
+    let js =
+        json_parse(&out.to_string()).map_err(|_| JsError::new("calculate: result is not JSON"))?;
     let rolls = &out["rolls"];
     if !is_safe_integer(rolls) {
         // JSON.parse rounded it to the nearest double: replace it with the exact value.
-        reflect_set(&js, &JsValue::from_str("rolls"), &big_int(&rolls.to_string()));
+        reflect_set(
+            &js,
+            &JsValue::from_str("rolls"),
+            &big_int(&rolls.to_string()),
+        );
     }
     Ok(js)
 }
@@ -65,7 +73,8 @@ pub fn calculate(engine_input: &JsValue) -> Result<JsValue, JsError> {
 /// Does this JSON integer fit a JS Number exactly (`Number.isSafeInteger`, |n| < 2**53)?
 fn is_safe_integer(n: &Json) -> bool {
     const MAX_SAFE: u64 = (1 << 53) - 1;
-    n.as_u64().is_some_and(|n| n <= MAX_SAFE) || n.as_i64().is_some_and(|n| n.unsigned_abs() <= MAX_SAFE)
+    n.as_u64().is_some_and(|n| n <= MAX_SAFE)
+        || n.as_i64().is_some_and(|n| n.unsigned_abs() <= MAX_SAFE)
 }
 
 #[cfg(test)]

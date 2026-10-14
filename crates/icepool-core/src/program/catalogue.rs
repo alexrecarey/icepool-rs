@@ -264,16 +264,7 @@ fn first(t: PValue) -> Result<PValue, PErr> {
 /// yet), so `if die:` raises.
 pub fn truthy(x: &PValue) -> Result<bool, PErr> {
     Ok(match x {
-        PValue::Value(v) => match v {
-            Value::None => false,
-            Value::Bool(b) => *b,
-            Value::Int(i) => *i != dashu_int::IBig::ZERO,
-            Value::Float(f) => *f != 0.0,
-            Value::Fraction(r) => *r != dashu_ratio::RBig::ZERO,
-            Value::Str(s) => !s.is_empty(),
-            Value::Tuple(t) => !t.is_empty(),
-            Value::Complex(re, im) => *re != 0.0 || *im != 0.0,
-        },
+        PValue::Value(v) => v.truthy(),
         PValue::Die(_) => {
             return type_error("A `Die` only has a truth value if it is the result of == or !=")
         }
