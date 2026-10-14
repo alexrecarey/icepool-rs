@@ -27,7 +27,8 @@ use icepool_core::evaluator::poker::{
     HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
-use icepool_core::evaluator::{evaluate_with_depth_check, Final, MultisetEvaluator};
+use icepool_core::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
+use icepool_core::expression::free_variable;
 use icepool_core::order::Order;
 use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::{Error, Quantity, Value};
@@ -37,9 +38,7 @@ use pyo3::types::{PyDict, PyList, PyTuple, PyType};
 use pyo3::IntoPyObjectExt;
 
 use crate::convert::{from_py, host_error, quantity_to_py, to_py, to_py_err};
-use crate::deck::RsDealSource;
-use crate::multi_deal::RsMultiDealSource;
-use crate::pool::RsPoolSource;
+use crate::expression::{core_source, flat};
 
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`), so it raises
 /// `RecursionError` once the outcomes exceed what is left of the recursion limit. The facade passes
@@ -57,22 +56,29 @@ fn depth_check(depth_budget: isize) -> impl Fn(usize) -> icepool_core::Result<()
     }
 }
 
-/// The core sources of the facade's `PoolSource`s, `DealSource`s and `MultiDealSource`s (their `_rs`).
+/// The core sources of the facade's `PoolSource`s, `DealSource`s, `MultiDealSource`s and `CompoundKeepSource`s
+/// (their `_rs`).
 fn sources(sources: &[Bound<'_, PyAny>]) -> PyResult<Vec<MultisetSource<Value>>> {
-    sources
-        .iter()
-        .map(|s| {
-            if let Ok(s) = s.cast::<RsPoolSource>() {
-                return Ok(MultisetSource::Pool(s.get().source.clone()));
-            }
-            if let Ok(s) = s.cast::<RsMultiDealSource>() {
-                return Ok(MultisetSource::MultiDeal(s.get().source.clone()));
-            }
-            Ok(MultisetSource::Deal(
-                s.cast::<RsDealSource>()?.get().source.clone(),
-            ))
-        })
-        .collect()
+    sources.iter().map(core_source).collect()
+}
+
+/// The prepared inputs: one flat per input as evaluator_rust.py describes it (see expression.rs).
+type Inputs<'py> = Vec<Bound<'py, PyAny>>;
+
+/// The evaluation over these sources: each input either the given flat or, without flats, one free variable per
+/// source.
+fn run_evaluation<E: MultisetEvaluator<Value>>(
+    evaluator: &E,
+    flats: Option<&Inputs<'_>>,
+    srcs: &[Bound<'_, PyAny>],
+    depth_budget: isize,
+) -> PyResult<Vec<(E::Final, Quantity)>> {
+    let srcs = sources(srcs)?;
+    let flats = match flats {
+        Some(flats) => flats.iter().map(flat).collect::<PyResult<Vec<_>>>()?,
+        None => srcs.iter().map(|_| free_variable()).collect(),
+    };
+    evaluate_expressions(evaluator, &flats, &srcs, depth_check(depth_budget)).map_err(to_py_err)
 }
 
 /// `(final_outcomes, final_weights)` as Python lists, for `icepool.Die(final_outcomes, final_weights)`.
@@ -95,31 +101,33 @@ fn finals<'py, F>(
 fn run<'py, E: MultisetEvaluator<Value, Final = Value>>(
     py: Python<'py>,
     evaluator: &E,
-    srcs: &[Bound<'py, PyAny>],
+    (flats, srcs): (Option<&Inputs<'py>>, &[Bound<'py, PyAny>]),
     depth_budget: isize,
 ) -> PyResult<Finals<'py>> {
-    let result = evaluate_with_depth_check(evaluator, &sources(srcs)?, depth_check(depth_budget))
-        .map_err(to_py_err)?;
+    let result = run_evaluation(evaluator, flats, srcs, depth_budget)?;
     finals(py, result, |o| to_py(py, &o))
 }
 
 /// A built-in evaluator of the core, named by the facade (evaluator_rust.py `builtin_spec`) with its parameters.
 /// The facade only names one when the evaluator's type is exactly the built-in class, the number of inputs is the
-/// one its `next_state` takes, and the keyword arguments are the ones it reads.
+/// one its `next_state` takes, and the keyword arguments are the ones it reads. `flats` describes inputs that are
+/// multiset expressions (`None`: every input is one source).
 #[pyfunction]
+#[pyo3(signature = (name, params, sources, depth_budget, flats=None))]
 pub fn evaluate_builtin<'py>(
     py: Python<'py>,
     name: &str,
     params: Vec<Bound<'py, PyAny>>,
     sources: Vec<Bound<'py, PyAny>>,
     depth_budget: isize,
+    flats: Option<Inputs<'py>>,
 ) -> PyResult<Finals<'py>> {
     let param = |i: usize| -> PyResult<&Bound<'py, PyAny>> {
         params
             .get(i)
             .ok_or_else(|| PyValueError::new_err(format!("icepool_rs: {name} needs a parameter")))
     };
-    let s = &sources;
+    let s = (flats.as_ref(), &sources[..]);
     let b = depth_budget;
     match name {
         "sum" => run(py, &SumEvaluator, s, b),
@@ -390,9 +398,10 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
     }
 }
 
-/// Any `MultisetEvaluator` over core sources, its methods called back in Python (see [`HostEvaluator`]).
+/// Any `MultisetEvaluator` over core sources, its methods called back in Python (see [`HostEvaluator`]). `flats`
+/// as for [`evaluate_builtin`].
 #[pyfunction]
-#[pyo3(signature = (next_state, initial_state, extra_outcomes, final_outcome, kwargs, sources, depth_budget))]
+#[pyo3(signature = (next_state, initial_state, extra_outcomes, final_outcome, kwargs, sources, depth_budget, flats=None))]
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_host<'py>(
     py: Python<'py>,
@@ -403,6 +412,7 @@ pub fn evaluate_host<'py>(
     kwargs: Option<Bound<'py, PyDict>>,
     sources: Vec<Bound<'py, PyAny>>,
     depth_budget: isize,
+    flats: Option<Inputs<'py>>,
 ) -> PyResult<Finals<'py>> {
     let icepool = py.import("icepool")?;
     let evaluator = HostEvaluator {
@@ -416,11 +426,6 @@ pub fn evaluate_host<'py>(
         unsupported_order: icepool.getattr("UnsupportedOrder")?.cast_into::<PyType>()?,
         outcomes: RefCell::new(None),
     };
-    let result = evaluate_with_depth_check(
-        &evaluator,
-        &self::sources(&sources)?,
-        depth_check(depth_budget),
-    )
-    .map_err(to_py_err)?;
+    let result = run_evaluation(&evaluator, flats.as_ref(), &sources, depth_budget)?;
     finals(py, result, |o| Ok(o.into_bound(py)))
 }

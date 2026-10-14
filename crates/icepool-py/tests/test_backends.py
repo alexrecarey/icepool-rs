@@ -127,6 +127,12 @@ class MyInt(int):
     def __add__(self, o): return MyInt(int(self) + o)
     __radd__ = __add__
 
+def boom_count(outcome, *counts):
+    raise Boom()
+
+def boom_pred(outcome):
+    raise Boom()
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -620,6 +626,63 @@ CASES = [
     'Deck([1, 2, 3]).deal_groups([1, 2]).hand_sizes()',
     '[(s.hand_groups, c, w) for s, c, w in Deck([1, 1, 2]).deal_groups((1, 2))._make_source().pop(Order.Descending, 2)]',
     '[(tuple(s.outcomes()), c, w) for s, c, w in Deck([1, 1, 2]).deal((1, 2))._make_source().pop(Order.Ascending, 1)]',
+    # S4c: multiset operators on the core. map_counts functions and keep_outcomes callables are host callbacks;
+    # a collection target is a frozenset compared with Python's == (host outcomes included).
+    'Pool([1, 2, 2, 3]).map_counts(function=lambda o, c: c if c >= 2 else 0).expand()',
+    'Pool.map_counts(d(6).pool(2), d(4).pool(2), function=lambda o, a, b: min(a, b)).size()',
+    'MultisetExpression.map_counts(function=lambda o: 1).size()',
+    'd(6).pool(2).map_counts(function=boom_count).sum()',
+    'd(6).pool(2).map_counts(function=len).sum()',
+    'd(6).pool(3).keep_outcomes(lambda x: x > 3).sum()',
+    'd(6).pool(3).drop_outcomes(lambda x: x % 3).expand()',
+    'd(6).pool(2).keep_outcomes(boom_pred).sum()',
+    'd(6).pool(3).keep_outcomes({2, 4}).size()',
+    'd(6).pool(3).drop_outcomes(range(3)).sum()',
+    "Pool(['a', 'b', 'c', 'b']).keep_outcomes('ab').expand()",
+    'Pool([E.A, E.B, 3]).keep_outcomes([1]).expand()',
+    'Pool([Card(1), Card(2), Card(2)]).drop_outcomes([Card(2)]).expand()',
+    'Pool([P(1, 2), P(2, 1)]).keep_outcomes([(1, 2)]).expand()',
+    'd(6).pool(3).keep_outcomes(d(4).pool(1)).sum()',
+    # MultisetKeep (keep of an expression, or of a generator with negative keeps).
+    '(d(6).pool(3) - d(4).pool(1))[1:].sum()',
+    'd(6).pool(3)[-1, 0, 1][..., 1].sum()',
+    'd(6).pool(3)[-1, 0, 1][1:].sum()',
+    'd(6).pool(3)[-1, 0, 1][-2]',
+    'd(6).pool(3).unique()[1:2:1].sum()',
+    'd(6).pool(3).unique()[[1, 2]].sum()',
+    'd(6).pool(3).unique()[[]].sum()',
+    '(d(6).pool(2) + d(6).pool(2).unique())[1:-1].sum()',
+    'd(6).pool(2).unique()[1:-1].sum()',
+    # CompoundKeepGenerator on the core.
+    '(d(6).pool(2) + d(4).pool(2)[-1:])[-2:].sum()',
+    '(d(6).pool(2) + d(4).pool(2)[-1:]).keep_tuple()',
+    '(d(6).pool(2) + d(4).pool(2)[-1:])[1:].keep_tuple()',
+    '(-(d(6).pool(2) + d(4).pool(2)[-1:])).keep_tuple()',
+    '((d(6).pool(2) + d(4).pool(2)[-1:]) * 2).sum()',
+    '((d(6).pool(2) + d(4).pool(2)[-1:]) * 2)[1:].keep_tuple()',
+    'type(d(6).pool(2) + d(4).pool(2)[-1:]).__name__',
+    '(d(6).pool(2) + d(4).pool(2)[-1:]).hash_key == (d(6).pool(2) + d(4).pool(2)[-1:]).hash_key',
+    '(d(6).pool(2) + Deck([1, 2, 3]).deal(2)).middle(2).sum()',
+    'str(d(6).pool(2) + d(4).pool(2)[-1:])',
+    '[type(x).__name__ for x in (d(6).pool(1) + Deck([1, 2]).deal(1))._make_source().inner_sources]',
+    '[(type(s).__name__, s.keep_tuple, c, w) for s, c, w in (d(6).pool(1) + d(4).pool(2)[-1:])._make_source().pop(Order.Descending, 6)]',
+    '(d(6).pool(1) + d(4).pool(2)[-1:])._make_source().order_preference()',
+    '(d(6).pool(1) + d(4).pool(2)[-1:])._make_source().size()',
+    '(d(6).pool(1) + d(4).pool(2)[-1:])._make_source().outcomes()',
+    # User evaluators over expressions: counts and sizes as the operators produce them.
+    'HostState().evaluate(d(6).pool(2) - d(4).pool(1))',
+    'OrderSeen().evaluate(d(4).pool(2).unique(), [1, 2] + d(3).pool(1))',
+    'OrderSeen().evaluate(d(4).pool(2)[-1:] + d(4).pool(1))',
+    'AscOnly().evaluate(d(4).pool(3).highest(2))',
+    'AscOnly().evaluate(d(4).pool(3).unique().highest(2))',
+    # Order errors from the operators.
+    "d(6).pool(2).unique().sort_pair('>', d(6).pool(2).unique(), extra='late').sum()",
+    "d(6).pool(2).sort_pair('>', d(6).pool(2), extra='middle').sum()",
+    "d(6).pool(2).sort_pair('>', d(6).pool(1), extra='late').sum()",
+    "d(6).pool(3).sort_pair_keep_while('>=', d(6).pool(2), Order.Ascending).sum()",
+    'd(6).pool(2).force_order(Order.Ascending).force_order(Order.Descending).sum()',
+    "Pool([Card(1), Card(3)]).versus_all('>', [Card(2)]).expand()",
+    "Pool([Card(1), Card(3)]).max_pair_keep('>=', [Card(2)], 'high').expand()",
 ]
 
 SCRIPT = PRELUDE + '''
