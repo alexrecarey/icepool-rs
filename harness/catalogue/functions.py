@@ -235,6 +235,22 @@ def break_eq():
     return lambda a, b: icepool.Break() if a == b else a + b
 
 
+def _int_dice(g, depth):
+    return [{"op": "d", "sides": g.rng.randint(1, 4)} for _ in range(g.rng.choice([1, 2, 2, 3]))]
+
+
+@entry("count_diff", args=_int_dice)
+def count_diff():
+    """A map_counts function (outcome, *counts): the first count minus the others."""
+    return lambda outcome, *counts: counts[0] - sum(counts[1:])
+
+
+@entry("count_if_gt_k", params=lambda g: [_k(g)], args=_int_dice)
+def count_if_gt_k(k):
+    """A map_counts function (outcome, *counts): the total count of outcomes above k."""
+    return lambda outcome, *counts: sum(counts) if outcome > k else 0
+
+
 @entry("add_kw", kw=True)
 def add_kw():
     """A keyword-only parameter: map_kw passes it as-is (a die is not expanded)."""

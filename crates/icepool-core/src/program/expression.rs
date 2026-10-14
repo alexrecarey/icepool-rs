@@ -1,0 +1,588 @@
+//! Multiset expression nodes (harness/grammar/multiset.py): the operators of expression/multiset_expression.py
+//! (`+ - & | ^`, `additive_union` ..., `* // %`, `unique`, `keep_counts`, `keep_outcomes`, `map_counts`, keep of an
+//! expression, `sort_pair`, `max_pair_*`, `versus_*`, `force_order`) and `CompoundKeepGenerator`, plus preparing an
+//! expression for evaluation (`_prepare`: its flat of dungeonlets and its sources).
+//!
+//! Python's argument juggling and dispatch (which class's `__add__` runs, implicit conversion of lists into
+//! pools, what raises at construction and what only when evaluated) happens here; the operators themselves are
+//! the core's (`crate::operator`).
+
+use std::fmt;
+use std::sync::Arc;
+
+use super::catalogue::{truthy, Func};
+use super::evaluate::implicit_convert;
+use super::ops::{py_iter, type_error};
+use super::pool::KeepGen;
+use super::{raise, PErr, PValue};
+use crate::compound_keep::CompoundKeep;
+use crate::error::Error;
+use crate::expression::{Dungeonlet, Flat};
+use crate::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
+use crate::operator::{
+    BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
+    OutcomeFilter, OutcomePredicate,
+};
+use crate::pool::{MultisetSource, Pool};
+use crate::{MultiDeal, Value};
+
+/// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
+#[derive(Clone)]
+pub enum MExpr {
+    /// A keep generator: `Pool`, `Deal`, `CompoundKeepGenerator`.
+    Gen(KeepGen),
+    /// A `MultiDeal`.
+    MultiDeal(MultiDeal<Value>),
+    /// A `MultisetOperator` and its children.
+    Op(Arc<(Operator<Value>, Vec<MExpr>)>),
+}
+
+impl fmt::Debug for MExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MExpr::Gen(g) => write!(f, "{g:?}"),
+            MExpr::MultiDeal(_) => write!(f, "MultiDeal"),
+            MExpr::Op(node) => write!(f, "MultisetOperator({:?})", node.1),
+        }
+    }
+}
+
+impl MExpr {
+    fn op(operator: Operator<Value>, children: Vec<MExpr>) -> MExpr {
+        MExpr::Op(Arc::new((operator, children)))
+    }
+
+    /// `_prepare`: appends this expression's dungeonlets (postfix order) to `flat` and its sources to `sources`.
+    fn prepare(
+        &self,
+        flat: &mut Vec<Dungeonlet<Value>>,
+        sources: &mut Vec<MultisetSource<Value>>,
+    ) -> Result<(), PErr> {
+        match self {
+            MExpr::Gen(g) => {
+                flat.push(Dungeonlet::FreeVariable);
+                sources.push(g.source()?);
+            }
+            MExpr::MultiDeal(md) => {
+                flat.push(Dungeonlet::FreeVariable);
+                sources.push(MultisetSource::MultiDeal(md.source()));
+            }
+            MExpr::Op(node) => {
+                let (operator, children) = &**node;
+                let mut positions = Vec::with_capacity(children.len());
+                for child in children {
+                    child.prepare(flat, sources)?;
+                    positions.push(flat.len() - 1);
+                }
+                // With no children `positions[-1]` is never evaluated (it is inside a generator expression): an
+                // operator without children is fine until `next_state` reduces nothing.
+                flat.push(Dungeonlet::Operator {
+                    operator: operator.clone(),
+                    children: positions,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether this is a keep generator without negative keeps (closed under keep-like operations).
+    fn keepable(&self) -> Option<&KeepGen> {
+        match self {
+            MExpr::Gen(g) if !g.has_negative_keeps() => Some(g),
+            _ => None,
+        }
+    }
+}
+
+/// Prepared evaluation inputs: one flat per expression, and the sources of all their free variables.
+pub type Prepared = (Vec<Flat<Value>>, Vec<MultisetSource<Value>>);
+
+/// `MultisetEvaluatorBase._prepare`'s inputs: one flat per expression, and all their sources.
+pub fn prepare(exprs: &[MExpr]) -> Result<Prepared, PErr> {
+    let mut flats = Vec::with_capacity(exprs.len());
+    let mut sources = Vec::new();
+    for e in exprs {
+        let mut flat = Vec::new();
+        e.prepare(&mut flat, &mut sources)?;
+        flats.push(Flat::from(flat));
+    }
+    Ok((flats, sources))
+}
+
+/// A program value that is a multiset expression, as one.
+pub fn as_expression(x: &PValue) -> Option<MExpr> {
+    match x {
+        PValue::Pool(p) => Some(MExpr::Gen(KeepGen::Pool(p.clone()))),
+        PValue::Deal(d) => Some(MExpr::Gen(KeepGen::Deal(d.clone()))),
+        PValue::Expr(e) => Some(e.clone()),
+        _ => None,
+    }
+}
+
+/// A multiset expression method's `self`: anything else lacks the method (AttributeError).
+pub fn the_expression(x: PValue) -> Result<MExpr, PErr> {
+    match as_expression(&x) {
+        Some(e) => Ok(e),
+        None => match x {
+            PValue::MultiDeal(_) => Err(PErr::Unimplemented(
+                "expression methods of a MultiDeal".into(),
+            )),
+            _ => type_error("AttributeError: not a multiset expression"),
+        },
+    }
+}
+
+/// The program value of an expression: pools and deals are their own kinds.
+pub fn into_pvalue(e: MExpr) -> PValue {
+    match e {
+        MExpr::Gen(KeepGen::Pool(p)) => PValue::Pool(p),
+        MExpr::Gen(KeepGen::Deal(d)) => PValue::Deal(d),
+        MExpr::MultiDeal(md) => PValue::MultiDeal(md),
+        e => PValue::Expr(e),
+    }
+}
+
+fn binary(op: BinaryOperator, children: Vec<MExpr>) -> MExpr {
+    MExpr::op(Operator::Binary(op), children)
+}
+
+/// `KeepGenerator.additive_union(*args)`: a `CompoundKeepGenerator` if all are keep generators without negative
+/// keeps (counting each element once), else `MultisetExpression.additive_union`.
+fn keep_generator_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
+    let gens: Option<Vec<&KeepGen>> = args.iter().map(MExpr::keepable).collect();
+    if let Some(gens) = gens {
+        let mut size = 0i64;
+        for g in &gens {
+            size = size
+                .checked_add(g.keep_size()?)
+                .ok_or_else(|| PErr::Unimplemented("keep sizes beyond 64 bits".into()))?;
+        }
+        let sources = gens
+            .iter()
+            .map(|g| g.source())
+            .collect::<Result<Vec<_>, _>>()?;
+        let len = usize::try_from(size).expect("no negative keeps");
+        return Ok(MExpr::Gen(KeepGen::Compound(CompoundKeep::new(
+            sources,
+            vec![1; len],
+        ))));
+    }
+    Ok(binary(BinaryOperator::AdditiveUnion, args))
+}
+
+/// `self.additive_union(*args)` as the method resolves on `args[0]`: `Pool.additive_union` merges pools whose
+/// sorted positions all count the same, other keep generators make a compound keep.
+fn method_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
+    match &args[0] {
+        MExpr::Gen(KeepGen::Pool(_)) => {
+            let pools: Option<Vec<Pool<Value>>> = args
+                .iter()
+                .map(|a| match a {
+                    MExpr::Gen(KeepGen::Pool(p)) => Some(p.clone()),
+                    _ => None,
+                })
+                .collect();
+            if let Some(pools) = pools {
+                if let Some(merged) = Pool::additive_union(&pools)? {
+                    return Ok(MExpr::Gen(KeepGen::Pool(merged)));
+                }
+            }
+            keep_generator_additive_union(args)
+        }
+        MExpr::Gen(_) => keep_generator_additive_union(args),
+        _ => Ok(binary(BinaryOperator::AdditiveUnion, args)),
+    }
+}
+
+/// `a op b` for `op` in `+ - & | ^` with a multiset expression on at least one side. A non-expression operand
+/// is implicitly converted to a pool (a list, tuple, str or mapping; anything else raises TypeError).
+pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
+    let (left, right) = (as_expression(&a), as_expression(&b));
+    let result = match (left, right) {
+        (Some(a), _) => {
+            let b = implicit_convert(b)?;
+            match op {
+                // `KeepGenerator.__add__` is `self.additive_union(other)`.
+                "+" => method_additive_union(vec![a, b])?,
+                "-" => binary(BinaryOperator::DifferenceDropNegative, vec![a, b]),
+                "&" => binary(BinaryOperator::Intersection, vec![a, b]),
+                "|" => binary(BinaryOperator::Union, vec![a, b]),
+                "^" => binary(BinaryOperator::SymmetricDifference, vec![a, b]),
+                _ => return Err(PErr::Unimplemented(format!("multiset operator {op}"))),
+            }
+        }
+        (None, Some(b)) => {
+            // The reflected operators: the left operand is a sequence without the numeric slot.
+            if !matches!(
+                a,
+                PValue::List(_) | PValue::Value(Value::Tuple(_) | Value::Str(_))
+            ) {
+                return Err(PErr::Unimplemented(
+                    "a reflected multiset operator with this left operand".into(),
+                ));
+            }
+            let a = implicit_convert(a)?;
+            match op {
+                // `KeepGenerator.__radd__` is `self.additive_union(other)`; `MultisetExpression.__radd__` is
+                // `additive_union(other, self)`.
+                "+" => match b {
+                    MExpr::Gen(_) => method_additive_union(vec![b, a])?,
+                    _ => binary(BinaryOperator::AdditiveUnion, vec![a, b]),
+                },
+                "-" => binary(BinaryOperator::DifferenceDropNegative, vec![a, b]),
+                "&" => binary(BinaryOperator::Intersection, vec![a, b]),
+                "|" => binary(BinaryOperator::Union, vec![a, b]),
+                // Symmetric: `symmetric_difference(self, other)`.
+                "^" => binary(BinaryOperator::SymmetricDifference, vec![b, a]),
+                _ => return Err(PErr::Unimplemented(format!("multiset operator {op}"))),
+            }
+        }
+        (None, None) => return Err(PErr::Unimplemented("no multiset operand".into())),
+    };
+    Ok(into_pvalue(result))
+}
+
+/// `MultisetExpression.<name>(*args, keep_negative_counts=...)` called on the class, for `additive_union`,
+/// `difference`, `intersection` and `union`.
+pub fn method(name: &str, args: PValue, keep_negative_counts: PValue) -> Result<PValue, PErr> {
+    let args = py_iter(args)?
+        .into_iter()
+        .map(implicit_convert)
+        .collect::<Result<Vec<_>, _>>()?;
+    let op = match name {
+        "additive_union" => BinaryOperator::AdditiveUnion,
+        "difference" if truthy(&keep_negative_counts)? => BinaryOperator::DifferenceKeepNegative,
+        "difference" => BinaryOperator::DifferenceDropNegative,
+        "intersection" => BinaryOperator::Intersection,
+        "union" => BinaryOperator::Union,
+        _ => return Err(PErr::Unimplemented(format!("MultisetExpression.{name}"))),
+    };
+    Ok(into_pvalue(binary(op, args)))
+}
+
+/// An `int` argument (Python's `isinstance(n, int)`, so also a bool), if it is one.
+fn int_arg(x: &PValue) -> Option<Result<i64, PErr>> {
+    let i = match x {
+        PValue::Value(Value::Int(i)) => i.clone(),
+        PValue::Value(Value::Bool(b)) => (*b as i64).into(),
+        _ => return None,
+    };
+    Some(i64::try_from(&i).map_err(|_| PErr::Unimplemented("a count beyond 64 bits".into())))
+}
+
+/// A constant stored by an operator and used in count arithmetic: the port takes `int`s only.
+fn constant(x: &PValue) -> Result<i64, PErr> {
+    match int_arg(x) {
+        Some(n) => n,
+        None => Err(PErr::Unimplemented(
+            "a multiset count constant that is not an int".into(),
+        )),
+    }
+}
+
+/// `unique(True)` is `min(count, True)`, which keeps a bool count: not modelled.
+fn int_constant(x: &PValue) -> Result<i64, PErr> {
+    match x {
+        PValue::Value(Value::Bool(_)) => Err(PErr::Unimplemented("a bool count constant".into())),
+        x => constant(x),
+    }
+}
+
+/// `expr * n` and `-expr` on a keep generator change its keep tuple; on any other expression they build
+/// `MultisetMultiplyCounts`.
+fn multiply_counts(e: MExpr, n: i64) -> Result<MExpr, PErr> {
+    Ok(match e {
+        MExpr::Gen(g) => MExpr::Gen(g.multiply_counts(n)?),
+        e => MExpr::op(Operator::MultiplyCounts(n), vec![e]),
+    })
+}
+
+/// The count-adjusting operations, by `op`: `mul` (`expr * n`), `neg` (`-expr`), `pos` (`+expr`), `floordiv`
+/// (`expr // n`: with a non-int, `count_subset`), `mod` (`expr % n`), `unique` (`expr.unique(n)`), `keep_counts`
+/// (`expr.keep_counts(comparison, n)`), and the methods `multiply_counts`, `divide_counts`, `modulo_counts`.
+pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    let not_int = |op: &str| -> Result<PValue, PErr> {
+        match n {
+            PValue::Die(_) => Err(PErr::Unimplemented(format!(
+                "a die as the right operand of {op}"
+            ))),
+            _ => type_error(format!("unsupported operand type(s) for {op}")),
+        }
+    };
+    let result = match op {
+        // `KeepGenerator.__mul__` and `MultisetExpression.__mul__` both return NotImplemented for a non-int.
+        "mul" => match int_arg(&n) {
+            Some(n) => multiply_counts(e, n?)?,
+            None => return not_int("*"),
+        },
+        "neg" => multiply_counts(e, -1)?,
+        "pos" => MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![e]),
+        "multiply_counts" => multiply_counts(e, constant(&n)?)?,
+        "floordiv" => match int_arg(&n) {
+            Some(n) => MExpr::op(Operator::FloordivCounts(n?), vec![e]),
+            None => {
+                return super::evaluate::count_subset(into_pvalue(e), n, PValue::Value(Value::None))
+            }
+        },
+        "divide_counts" => MExpr::op(Operator::FloordivCounts(int_constant(&n)?), vec![e]),
+        "mod" | "modulo_counts" => match int_arg(&n) {
+            Some(n) => MExpr::op(Operator::ModuloCounts(n?), vec![e]),
+            None => return not_int("%"),
+        },
+        "unique" => MExpr::op(Operator::Unique(int_constant(&n)?), vec![e]),
+        "keep_counts" => {
+            let PValue::Value(Value::Str(c)) = &comparison else {
+                return raise(Error::Value("Invalid comparison".into()));
+            };
+            let comparison = KeepCountsComparison::parse(c)?;
+            MExpr::op(Operator::KeepCounts(comparison, constant(&n)?), vec![e])
+        }
+        _ => return Err(PErr::Unimplemented(format!("multiset count op {op}"))),
+    };
+    Ok(into_pvalue(result))
+}
+
+/// A catalogue function as `map_counts`' function: `function(outcome, *counts)`, which must return an `int`.
+struct CatalogueCount(Arc<Func>);
+
+/// A `PErr` inside the core: an unimplemented case is `Unsupported` there.
+fn core_error(e: PErr) -> Error {
+    match e {
+        PErr::Raise(e) => e,
+        PErr::Unimplemented(what) => Error::Unsupported(what),
+    }
+}
+
+impl CountFunction<Value> for CatalogueCount {
+    fn call(&self, outcome: &Value, counts: &[i64]) -> crate::Result<i64> {
+        let mut args = vec![PValue::Value(outcome.clone())];
+        args.extend(counts.iter().map(|&c| PValue::Value(Value::from(c))));
+        match self.0.call(args).map_err(core_error)? {
+            PValue::Value(Value::Int(i)) => i64::try_from(&i)
+                .map_err(|_| Error::Unsupported("a map_counts result beyond 64 bits".into())),
+            _ => Err(Error::Unsupported(
+                "a map_counts result that is not an int".into(),
+            )),
+        }
+    }
+}
+
+/// A catalogue function as `keep_outcomes` / `drop_outcomes`' callable: `bool(func(outcome))`.
+struct CataloguePredicate(Arc<Func>);
+
+impl OutcomePredicate<Value> for CataloguePredicate {
+    fn test(&self, outcome: &Value) -> crate::Result<bool> {
+        let r = self
+            .0
+            .call(vec![PValue::Value(outcome.clone())])
+            .map_err(core_error)?;
+        truthy(&r).map_err(core_error)
+    }
+}
+
+/// `MultisetExpression.map_counts(*args, function=function)`.
+pub fn map_counts(args: PValue, function: PValue) -> Result<PValue, PErr> {
+    let args = py_iter(args)?
+        .into_iter()
+        .map(implicit_convert)
+        .collect::<Result<Vec<_>, _>>()?;
+    let PValue::Func(f) = function else {
+        return Err(PErr::Unimplemented(
+            "a map_counts function that is not from the catalogue".into(),
+        ));
+    };
+    if f.positional().is_none() {
+        return Err(PErr::Unimplemented(
+            "a mapping as map_counts' function".into(),
+        ));
+    }
+    Ok(into_pvalue(MExpr::op(
+        Operator::MapCounts(Arc::new(CatalogueCount(f))),
+        args,
+    )))
+}
+
+/// `expr.keep_outcomes(target)` / `expr.drop_outcomes(target)` (`invert`): an expression target counts while
+/// positive (`MultisetFilterOutcomesBinary`); a callable is called per outcome; a collection becomes a
+/// `frozenset`.
+pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    let operator = if let Some(target) = as_expression(&target) {
+        let node = MExpr::op(Operator::FilterOutcomesBinary { invert }, vec![e, target]);
+        return Ok(into_pvalue(node));
+    } else {
+        let filter = match target {
+            PValue::Func(f) if f.positional().is_some() => {
+                OutcomeFilter::Function(Arc::new(CataloguePredicate(f)))
+            }
+            PValue::Func(_) | PValue::MultiDeal(_) => {
+                return Err(PErr::Unimplemented("this keep_outcomes target".into()))
+            }
+            // `frozenset(outcomes)`: iterate, every element hashable.
+            target => {
+                let items = py_iter(target)?
+                    .into_iter()
+                    .map(|x| match x {
+                        PValue::Value(v) => Ok(v),
+                        PValue::List(_) => type_error("unhashable type: 'list'"),
+                        _ => Err(PErr::Unimplemented(
+                            "a non-value in keep_outcomes' collection".into(),
+                        )),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                OutcomeFilter::Set(items.into())
+            }
+        };
+        Operator::FilterOutcomes { filter, invert }
+    };
+    Ok(into_pvalue(MExpr::op(operator, vec![e])))
+}
+
+/// `MultisetKeep(expr, index=index)` for a slice or a sequence of counts and `...`.
+pub fn multiset_keep(e: MExpr, index: MultisetKeepIndex) -> MExpr {
+    MExpr::op(Operator::Keep(index), vec![e])
+}
+
+/// A sequence index for `MultisetKeep`: its elements are only looked at when evaluated; `int`s and `...` here.
+pub fn multiset_keep_seq(index: PValue) -> Result<MultisetKeepIndex, PErr> {
+    let items = py_iter(index)?
+        .into_iter()
+        .map(|x| match x {
+            PValue::Ellipsis => Ok(None),
+            x => match int_arg(&x) {
+                Some(n) => n.map(Some),
+                None => Err(PErr::Unimplemented(
+                    "a MultisetKeep index element that is not an int".into(),
+                )),
+            },
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(MultisetKeepIndex::Seq(items))
+}
+
+/// A `str` argument of a pairing method; any other value can never match (ValueError when evaluated).
+fn name(x: &PValue) -> Arc<str> {
+    match x {
+        PValue::Value(Value::Str(s)) => s.clone(),
+        _ => Arc::from("\0not a str"),
+    }
+}
+
+/// An `Order` argument (`Order(order)` on the Python side): -1, 0 or 1.
+fn order_arg(x: &PValue) -> Result<i64, PErr> {
+    match int_arg(x) {
+        Some(Ok(o)) if (-1..=1).contains(&o) => Ok(o),
+        _ => Err(PErr::Unimplemented("an order that is not an Order".into())),
+    }
+}
+
+/// `expr.sort_pair(comparison, other, order, extra)`, `sort_pair_keep_while` and `sort_pair_drop_while`.
+/// Nothing is checked until evaluated.
+pub fn sort_pair(
+    e: PValue,
+    method: &str,
+    comparison: PValue,
+    other: PValue,
+    order: PValue,
+    extra: PValue,
+) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    let other = implicit_convert(other)?;
+    let mut sort_order = order_arg(&order)?;
+    if sort_order == 0 {
+        sort_order = -1;
+    }
+    let (comparison, extra) = (name(&comparison), name(&extra));
+    let operator = match method {
+        "sort_pair" => Operator::SortPair {
+            comparison,
+            sort_order,
+            extra,
+        },
+        "sort_pair_keep_while" | "sort_pair_drop_while" => Operator::SortPairWhile {
+            keep: method == "sort_pair_keep_while",
+            comparison,
+            sort_order,
+            extra,
+        },
+        _ => return Err(PErr::Unimplemented(format!("pairing method {method}"))),
+    };
+    Ok(into_pvalue(MExpr::op(operator, vec![e, other])))
+}
+
+/// `expr.max_pair_keep(comparison, other, priority)` / `max_pair_drop`.
+pub fn max_pair(
+    e: PValue,
+    keep: bool,
+    comparison: PValue,
+    other: PValue,
+    priority: PValue,
+) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    let other = implicit_convert(other)?;
+    let comparison = name(&comparison);
+    if &*comparison == "==" {
+        let result = if keep {
+            // `+self & +other`
+            let pos = |x| MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![x]);
+            binary(BinaryOperator::Intersection, vec![pos(e), pos(other)])
+        } else {
+            // `self - other`
+            binary(BinaryOperator::DifferenceDropNegative, vec![e, other])
+        };
+        return Ok(into_pvalue(result));
+    }
+    let (order, early) = match &priority {
+        PValue::Value(Value::None) => {
+            let (left_first, _, _) = compute_lexi_tuple(&comparison, 1)?;
+            (if left_first != 0 { -1 } else { 1 }, false)
+        }
+        PValue::Value(Value::Str(p)) if &**p == "low" || &**p == "high" => {
+            let order = if &**p == "low" { 1 } else { -1 };
+            let (left_first, _, _) = compute_lexi_tuple(&comparison, order)?;
+            (order, left_first != 0)
+        }
+        _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
+    };
+    let (_, tie, _) = compute_lexi_tuple(&comparison, order)?;
+    let pair_equal = tie != 0;
+    let operator = if early {
+        Operator::MaxPairEarly {
+            order,
+            pair_equal,
+            keep,
+        }
+    } else {
+        Operator::MaxPairLate {
+            order,
+            pair_equal,
+            keep,
+        }
+    };
+    Ok(into_pvalue(MExpr::op(operator, vec![e, other])))
+}
+
+/// `expr.versus_all(comparison, other)` / `versus_any`.
+pub fn versus(e: PValue, all: bool, comparison: PValue, other: PValue) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    let other = implicit_convert(other)?;
+    let (mut lexi_tuple, mut order) = compute_lexi_tuple_with_zero_right_first(&name(&comparison))?;
+    if !all {
+        lexi_tuple = (lexi_tuple.2, lexi_tuple.1, lexi_tuple.0);
+        order = -order;
+    }
+    Ok(into_pvalue(MExpr::op(
+        Operator::Versus { lexi_tuple, order },
+        vec![e, other],
+    )))
+}
+
+/// `expr.force_order(order)`.
+pub fn force_order(e: PValue, order: PValue) -> Result<PValue, PErr> {
+    let e = the_expression(e)?;
+    Ok(into_pvalue(MExpr::op(
+        Operator::ForceOrder(order_arg(&order)?),
+        vec![e],
+    )))
+}

@@ -3,8 +3,9 @@
 //! final outcomes into a die.
 
 use super::catalogue_evaluators::CatalogueEvaluator;
+use super::expression::{as_expression, prepare, the_expression, MExpr};
 use super::ops::{die_arg, py_iter, type_error};
-use super::pool::{pool, the_generator, KeepGen};
+use super::pool::pool;
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::evaluator::basic::{
@@ -17,16 +18,18 @@ use crate::evaluator::poker::{
     HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
-use crate::evaluator::{evaluate_with_depth_check, MultisetEvaluator};
-use crate::pool::MultisetSource;
+use crate::evaluator::{evaluate_expressions, MultisetEvaluator};
 use crate::{Die, Value};
 
-/// `implicit_convert_to_expression`: a pool stays itself; a mapping or sequence (a list, tuple or str; a die is a
-/// mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
-pub fn implicit_convert(arg: PValue) -> Result<KeepGen, PErr> {
+/// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
+/// die is a mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
+pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
+    if let Some(e) = as_expression(&arg) {
+        return Ok(e);
+    }
     match arg {
-        PValue::Pool(p) => Ok(KeepGen::Pool(p)),
-        PValue::Deal(d) => Ok(KeepGen::Deal(d)),
+        // A multiset tuple generator is an expression too (of another kind).
+        PValue::MultiDeal(md) => Ok(MExpr::MultiDeal(md)),
         // A deck is a mapping, but `Pool(deck)` refuses it.
         PValue::Deck(_) => raise(Error::Value(
             "A Pool cannot be constructed with a Deck argument.".into(),
@@ -35,7 +38,7 @@ pub fn implicit_convert(arg: PValue) -> Result<KeepGen, PErr> {
         | PValue::Tuple(_)
         | PValue::Die(_)
         | PValue::Value(Value::Tuple(_) | Value::Str(_))) => {
-            the_generator(pool(arg, PValue::Value(Value::from(1)))?)
+            the_expression(pool(arg, PValue::Value(Value::from(1)))?)
         }
         PValue::Value(v) => type_error(format!(
             "Argument of type {} cannot be implicitly converted to a Pool.",
@@ -67,14 +70,14 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// `evaluator.evaluate(*generators)`: one source per pool or deal, and `Die(final_outcomes, final_weights)` (the outer
-/// `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself).
-pub fn run<E>(evaluator: &E, pools: &[KeepGen]) -> Result<Die<Value>, PErr>
+/// `evaluator.evaluate(*expressions)`: each prepared (`_prepare`), and `Die(final_outcomes, final_weights)` (the
+/// outer `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself).
+pub fn run<E>(evaluator: &E, exprs: &[MExpr]) -> Result<Die<Value>, PErr>
 where
     E: MultisetEvaluator<Value, Final = Value>,
 {
-    let sources: Vec<MultisetSource<Value>> = pools.iter().map(KeepGen::source).collect();
-    let finals = evaluate_with_depth_check(evaluator, &sources, check_recursion)?;
+    let (flats, sources) = prepare(exprs)?;
+    let finals = evaluate_expressions(evaluator, &flats, &sources, check_recursion)?;
     let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
     let outcomes = outcomes
         .into_iter()
@@ -85,14 +88,14 @@ where
 
 fn die(
     evaluator: &impl MultisetEvaluator<Value, Final = Value>,
-    pools: &[KeepGen],
+    pools: &[MExpr],
 ) -> Result<PValue, PErr> {
     run(evaluator, pools).map(PValue::Die)
 }
 
 /// The one-pool evaluation methods of `MultisetExpression` (`pool.sum()` is node `pool_sum`, and so on).
 pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
-    let pools = [the_generator(p)?];
+    let pools = [the_expression(p)?];
     match op {
         "pool_sum" => die(&SumEvaluator, &pools),
         "pool_size" => die(&SizeEvaluator, &pools),
@@ -119,7 +122,7 @@ fn value(x: PValue) -> Result<Value, PErr> {
 
 /// `pool.all_counts(filter=filter)`.
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
-    let pools = [the_generator(p)?];
+    let pools = [the_expression(p)?];
     die(
         &AllCountsEvaluator {
             filter: value(filter)?,
@@ -130,7 +133,7 @@ pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
 
 /// `pool.expand(order=order)`.
 pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
-    let pools = [the_generator(p)?];
+    let pools = [the_expression(p)?];
     // `order != Order.Ascending` (an `IntEnum`, so `1` and `True` are ascending too).
     let ascending = value(order)? == Value::from(1);
     die(&ExpandEvaluator { ascending }, &pools)
@@ -138,7 +141,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
 
 /// `pool.largest_straight_and_outcome(priority)`.
 pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValue, PErr> {
-    let pools = [the_generator(p)?];
+    let pools = [the_expression(p)?];
     let prioritize_highest = match value(priority)? {
         v if v == Value::str("high") => true,
         v if v == Value::str("low") => false,
@@ -152,7 +155,7 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
 
 /// `keep_evaluator.evaluate(pool, index=index)`.
 pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
-    let pools = [the_generator(p)?];
+    let pools = [the_expression(p)?];
     let index = match value(index)? {
         Value::None => None,
         Value::Int(i) => Some(
@@ -170,7 +173,7 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
 
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
-    let left = the_generator(p)?;
+    let left = the_expression(p)?;
     let right = implicit_convert(divisor)?;
     die(
         &CountSubsetEvaluator {
@@ -183,7 +186,7 @@ pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result
 /// `pool.issubset(other)`, `pool.issuperset(other)`, `pool.isdisjoint(other)`, and node `pool_compare`'s
 /// `cmp` names for the other comparison evaluators.
 pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
-    let left = the_generator(p)?;
+    let left = the_expression(p)?;
     let right = implicit_convert(other)?;
     let comparison = match op {
         "pool_issubset" => Comparison::IsSubset,
@@ -209,13 +212,29 @@ pub fn catalogue(
         return raise(Error::Key("catalogue names are strs".into()));
     };
     let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?.with_kwargs(kwargs)?;
-    let sources = py_iter(args)?
+    let exprs = py_iter(args)?
         .into_iter()
-        .map(|arg| match arg {
-            // A multiset tuple generator is an expression already.
-            PValue::MultiDeal(md) => Ok(MultisetSource::MultiDeal(md.source())),
-            arg => implicit_convert(arg).map(|g| g.source()),
-        })
+        .map(implicit_convert)
         .collect::<Result<Vec<_>, _>>()?;
-    super::catalogue_evaluators::run(&evaluator, &sources)
+    super::catalogue_evaluators::run(&evaluator, &exprs)
+}
+
+/// `getattr(expr, method)()` for the evaluation methods of `MultisetExpression` that take no argument (node
+/// `mx_evaluate`), with their defaults: `expand(order=Order.Ascending)`, `all_counts(filter=1)`.
+pub fn method_evaluation(method: &str, e: PValue) -> Result<PValue, PErr> {
+    match method {
+        "expand" => expand(e, PValue::Value(Value::from(1))),
+        "all_counts" => all_counts(e, PValue::Value(Value::from(1))),
+        "sum"
+        | "size"
+        | "empty"
+        | "any"
+        | "product_of_counts"
+        | "highest_outcome_and_count"
+        | "largest_count"
+        | "largest_count_and_outcome"
+        | "largest_straight"
+        | "all_straights" => evaluation(&format!("pool_{method}"), e),
+        _ => Err(PErr::Unimplemented(format!("evaluation method {method}"))),
+    }
 }

@@ -10,6 +10,7 @@ mod catalogue_evaluators;
 mod deck;
 mod die_methods;
 mod evaluate;
+mod expression;
 mod format;
 mod map;
 mod map_tools;
@@ -56,6 +57,9 @@ pub enum PValue {
     Deal(crate::Deal<Value>),
     /// An `icepool.MultiDeal` (a `MultisetTupleGenerator`).
     MultiDeal(crate::MultiDeal<Value>),
+    /// Any other `MultisetExpression`: a `CompoundKeepGenerator` or an operator over expressions (never a pool,
+    /// deal or multi-deal, which have their own variants).
+    Expr(expression::MExpr),
     /// `...`, for keep indices.
     Ellipsis,
     /// A `DieWithTruth`: what `die == x` and `die != x` return. A die everywhere (`the_die`, `to_die`), except

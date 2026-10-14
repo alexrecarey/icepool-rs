@@ -1,0 +1,363 @@
+//! Port of icepool `operator/pair.py`: `MultisetSortPair`, `MultisetSortPairWhile`, `MultisetMaxPairLate` and
+//! `MultisetMaxPairEarly`, which pair the elements of the left multiset with those of the right.
+
+use super::{add, mul, sub, Statelet};
+use crate::error::{Error, Result};
+use crate::lexi::compute_lexi_tuple_with_extra;
+use crate::pool::Count;
+
+fn two(child_sizes: &[Option<i64>]) -> (Option<i64>, Option<i64>) {
+    (child_sizes[0], child_sizes[1])
+}
+
+fn order_error(comparison: &str, extra: &str) -> Error {
+    Error::Order(format!(
+        "OrderError: The size of the right operand must be inferrable to sort_pair({comparison}, \
+         extra={extra})."
+    ))
+}
+
+/// `MultisetSortPair._initial_state`.
+pub(super) fn sort_pair_initial_state(
+    comparison: &str,
+    sort_order: i64,
+    extra: &str,
+    order: i64,
+    child_sizes: &[Option<i64>],
+) -> Result<(Statelet, Option<Count>)> {
+    let (left_first, left_extra, tie, right_extra, right_first) =
+        compute_lexi_tuple_with_extra(comparison, sort_order, extra)?;
+    let (lexi_tuple, forward_order, left_lead, countdown);
+    if order == sort_order {
+        forward_order = true;
+        // drop right_extra
+        lexi_tuple = [left_first, left_extra, tie, right_first];
+        left_lead = 0;
+        if left_first == left_extra {
+            countdown = None;
+        } else {
+            let (_, right_size) = two(child_sizes);
+            let Some(right_size) = right_size else {
+                return Err(order_error(comparison, extra));
+            };
+            // After `countdown` elements, the rest are considered to be extra.
+            countdown = Some(right_size);
+        }
+    } else {
+        forward_order = false;
+        // reverse, then drop the resulting right_extra
+        lexi_tuple = [right_first, right_extra, tie, left_first];
+        let (Some(left_size), Some(right_size)) = two(child_sizes) else {
+            return Err(Error::UnsupportedOrder(
+                "Reverse order not supported unless sizes of both operands are inferrable.".into(),
+            ));
+        };
+        if left_first == left_extra {
+            left_lead = sub(right_size, left_size)?;
+            countdown = None;
+        } else {
+            // The first `countdown` elements will be counted as extra.
+            left_lead = 0;
+            countdown = Some(sub(left_size, right_size)?.max(0));
+        }
+    }
+    Ok((
+        Statelet::SortPair {
+            lexi_tuple,
+            forward_order,
+            left_lead,
+            countdown,
+        },
+        None,
+    ))
+}
+
+/// The pairing step shared by both sort_pair operators: how many of `left_count` elements pair with right
+/// elements seen before (`right_first_count`), with right elements of this outcome (`tie_count`), and with right
+/// elements seen later (`left_first_count`). Updates `left_lead`.
+fn pair_counts(left_lead: &mut i64, left_count: i64, right_count: i64) -> Result<(i64, i64, i64)> {
+    // The number of left elements that paired with previously-seen right elements.
+    let right_first_count = (-*left_lead).min(left_count).max(0);
+    let tie_count = if *left_lead >= 0 {
+        sub(right_count, *left_lead)?.min(left_count).max(0)
+    } else {
+        add(left_count, *left_lead)?.min(right_count).max(0)
+    };
+    *left_lead = add(*left_lead, sub(left_count, right_count)?)?;
+    let left_first_count = (*left_lead).min(left_count).max(0);
+    Ok((right_first_count, tie_count, left_first_count))
+}
+
+/// `MultisetSortPair._next_state`.
+pub(super) fn sort_pair_next_state(
+    state: &Statelet,
+    left_count: i64,
+    right_count: i64,
+) -> Result<(Statelet, Count)> {
+    let &Statelet::SortPair {
+        lexi_tuple,
+        forward_order,
+        mut left_lead,
+        mut countdown,
+    } = state
+    else {
+        unreachable!("a sort_pair node's statelet")
+    };
+    let [left_first, left_extra, tie, right_first] = lexi_tuple;
+    let mut left_count = left_count;
+    let extra_count;
+    match &mut countdown {
+        None => {
+            extra_count = 0;
+            left_count = left_count.max(0);
+        }
+        Some(countdown) => {
+            if forward_order {
+                extra_count = sub(left_count, *countdown)?.max(0);
+                left_count = left_count.min(*countdown);
+                *countdown = sub(*countdown, left_count)?;
+            } else {
+                extra_count = left_count.min(*countdown);
+                left_count = sub(left_count, *countdown)?.max(0);
+                *countdown = sub(*countdown, extra_count)?;
+            }
+        }
+    }
+    let right_count = right_count.max(0);
+    let (right_first_count, tie_count, left_first_count) =
+        pair_counts(&mut left_lead, left_count, right_count)?;
+    let count = [
+        mul(right_first_count, right_first)?,
+        mul(tie_count, tie)?,
+        mul(left_first_count, left_first)?,
+        mul(extra_count, left_extra)?,
+    ]
+    .into_iter()
+    .try_fold(0, add)?;
+    Ok((
+        Statelet::SortPair {
+            lexi_tuple,
+            forward_order,
+            left_lead,
+            countdown,
+        },
+        Count::Int(count),
+    ))
+}
+
+/// `MultisetSortPairWhile._initial_state`.
+pub(super) fn sort_pair_while_initial_state(
+    comparison: &str,
+    sort_order: i64,
+    extra: &str,
+    order: i64,
+    child_sizes: &[Option<i64>],
+) -> Result<(Statelet, Option<Count>)> {
+    if order != sort_order {
+        return Err(Error::UnsupportedOrder(
+            "MultisetSortPairWhile must be evaluated in sort order.".into(),
+        ));
+    }
+    let (left_first, left_extra, tie, _right_extra, right_first) =
+        compute_lexi_tuple_with_extra(comparison, sort_order, extra)?;
+    // drop right_extra
+    let lexi_tuple = [left_first, left_extra, tie, right_first];
+    let countdown = if left_first == left_extra {
+        None
+    } else {
+        let (_, right_size) = two(child_sizes);
+        let Some(right_size) = right_size else {
+            return Err(order_error(comparison, extra));
+        };
+        // After `countdown` elements, the rest are considered to be extra.
+        Some(right_size)
+    };
+    Ok((
+        Statelet::SortPairWhile {
+            lexi_tuple: Some(lexi_tuple),
+            left_lead: Some(0),
+            countdown,
+        },
+        None,
+    ))
+}
+
+/// `MultisetSortPairWhile._next_state`. `keep`: elements are kept as long as the comparison holds, then the
+/// remaining elements are dropped; otherwise dropped while it holds, then kept.
+pub(super) fn sort_pair_while_next_state(
+    keep: bool,
+    state: &Statelet,
+    left_count: i64,
+    right_count: i64,
+) -> Result<(Statelet, Count)> {
+    let &Statelet::SortPairWhile {
+        lexi_tuple,
+        left_lead,
+        mut countdown,
+    } = state
+    else {
+        unreachable!("a sort_pair_while node's statelet")
+    };
+    let mut left_count = left_count;
+    let extra_count;
+    match &mut countdown {
+        None => {
+            extra_count = 0;
+            left_count = left_count.max(0);
+        }
+        Some(countdown) => {
+            extra_count = sub(left_count, *countdown)?.max(0);
+            left_count = left_count.min(*countdown);
+            *countdown = sub(*countdown, left_count)?;
+        }
+    }
+
+    let (Some([left_first, left_extra, tie, right_first]), Some(mut left_lead)) =
+        (lexi_tuple, left_lead)
+    else {
+        let count = if keep { 0 } else { left_count };
+        let state = Statelet::SortPairWhile {
+            lexi_tuple: None,
+            left_lead: None,
+            countdown,
+        };
+        return Ok((state, Count::Int(count)));
+    };
+    let right_count = right_count.max(0);
+    let (right_first_count, tie_count, left_first_count) =
+        pair_counts(&mut left_lead, left_count, right_count)?;
+
+    let (mut lexi_tuple, mut left_lead) = (lexi_tuple, Some(left_lead));
+    let mut end = || {
+        lexi_tuple = None;
+        left_lead = None;
+    };
+    let mut count = if right_first_count > 0 && right_first == 0 {
+        end();
+        0
+    } else if tie_count > 0 && tie == 0 {
+        end();
+        right_first_count
+    } else if left_first_count > 0 && left_first == 0 {
+        end();
+        add(right_first_count, tie_count)?
+    } else if extra_count > 0 && left_extra == 0 {
+        end();
+        add(add(right_first_count, tie_count)?, left_first_count)?
+    } else {
+        add(left_count, extra_count)?
+    };
+    if !keep {
+        count = sub(add(left_count, extra_count)?, count)?;
+    }
+    Ok((
+        Statelet::SortPairWhile {
+            lexi_tuple,
+            left_lead,
+            countdown,
+        },
+        Count::Int(count),
+    ))
+}
+
+fn max_pair_wrong_order(self_order: i64) -> Error {
+    Error::UnsupportedOrder(if self_order > 0 {
+        "max_pair methods with priority='low' must be evaluated in ascending order.".into()
+    } else {
+        "max_pair methods with priority='high' must be evaluated in descending order.".into()
+    })
+}
+
+/// `MultisetMaxPairLate._initial_state`: `prev_pairable`, the number of previously-seen elements that are
+/// eligible to be paired.
+pub(super) fn max_pair_late_initial_state(
+    self_order: i64,
+    order: i64,
+) -> Result<(Statelet, Option<Count>)> {
+    if order == self_order {
+        Ok((Statelet::MaxPairLate(0), None))
+    } else {
+        Err(max_pair_wrong_order(self_order))
+    }
+}
+
+/// `MultisetMaxPairLate._next_state`.
+pub(super) fn max_pair_late_next_state(
+    pair_equal: bool,
+    keep: bool,
+    state: &Statelet,
+    left_count: i64,
+    right_count: i64,
+) -> Result<(Statelet, Count)> {
+    let &Statelet::MaxPairLate(prev_pairable) = state else {
+        unreachable!("a max_pair node's statelet")
+    };
+    let left_count = left_count.max(0);
+    let right_count = right_count.max(0);
+    let new_pairs = if pair_equal {
+        add(prev_pairable, right_count)?.min(left_count)
+    } else {
+        prev_pairable.min(left_count)
+    };
+    let prev_pairable = add(prev_pairable, sub(right_count, new_pairs)?)?;
+    let count = if keep {
+        new_pairs
+    } else {
+        sub(left_count, new_pairs)?
+    };
+    Ok((Statelet::MaxPairLate(prev_pairable), Count::Int(count)))
+}
+
+/// `MultisetMaxPairEarly._initial_state`: `(right_unpaired, right_remaining)`, the number of remaining right
+/// elements that haven't been paired yet and the number of remaining right elements overall.
+pub(super) fn max_pair_early_initial_state(
+    self_order: i64,
+    order: i64,
+    child_sizes: &[Option<i64>],
+) -> Result<(Statelet, Option<Count>)> {
+    let (_, right_size) = two(child_sizes);
+    if order == self_order {
+        let Some(right_size) = right_size else {
+            return Err(Error::UnsupportedOrder(
+                "The size of the right operand must be inferrable.".into(),
+            ));
+        };
+        Ok((Statelet::MaxPairEarly(right_size, right_size), None))
+    } else {
+        Err(max_pair_wrong_order(self_order))
+    }
+}
+
+/// `MultisetMaxPairEarly._next_state`.
+pub(super) fn max_pair_early_next_state(
+    pair_equal: bool,
+    keep: bool,
+    state: &Statelet,
+    left_count: i64,
+    right_count: i64,
+) -> Result<(Statelet, Count)> {
+    let &Statelet::MaxPairEarly(mut right_unpaired, mut right_remaining) = state else {
+        unreachable!("a max_pair node's statelet")
+    };
+    let left_count = left_count.max(0);
+    let right_count = right_count.max(0);
+    let mut count;
+    if pair_equal {
+        count = right_unpaired.min(left_count);
+        right_unpaired = sub(right_unpaired, count)?;
+        right_remaining = sub(right_remaining, right_count)?;
+        right_unpaired = right_unpaired.min(right_remaining);
+    } else {
+        right_remaining = sub(right_remaining, right_count)?;
+        right_unpaired = right_unpaired.min(right_remaining);
+        count = right_unpaired.min(left_count);
+        right_unpaired = sub(right_unpaired, count)?;
+    }
+    if !keep {
+        count = sub(left_count, count)?;
+    }
+    Ok((
+        Statelet::MaxPairEarly(right_unpaired, right_remaining),
+        Count::Int(count),
+    ))
+}

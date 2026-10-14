@@ -218,11 +218,12 @@ fn enc_object(v: &PValue) -> Option<Json> {
             "MultiDeal: {}",
             super::multi_deal::repr(d, &deck_repr(d.deck()).ok()?).ok()?
         )}),
-        // A pool's repr, like an `AgainExpression`'s, holds an address.
+        // A pool's repr, like an `AgainExpression`'s or a multiset expression's, holds an address.
         PValue::List(_)
         | PValue::Func(_)
         | PValue::Again(_)
         | PValue::Pool(_)
+        | PValue::Expr(_)
         | PValue::Break(_) => return None,
     })
 }

@@ -11,6 +11,7 @@ use super::catalogue::Func;
 use super::deck;
 use super::die_methods;
 use super::evaluate;
+use super::expression;
 use super::format;
 use super::map;
 use super::map_tools;
@@ -194,6 +195,49 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "pool_add" => {
             let [a, b] = args.exactly(["a", "b"])?;
             pool::pool_add(a, b)
+        }
+        "mx_binary" => {
+            let [a, o, b] = args.exactly(["a", "o", "b"])?;
+            expression::binary_op(&str_arg(&o)?, a, b)
+        }
+        "mx_method" => {
+            let [name, a, k] = args.exactly(["name", "args", "keep_negative_counts"])?;
+            expression::method(&str_arg(&name)?, a, k)
+        }
+        "mx_counts" => {
+            let [e, o, comparison, n] = args.exactly(["expr", "o", "comparison", "n"])?;
+            expression::counts(e, &str_arg(&o)?, comparison, n)
+        }
+        "mx_filter" => {
+            let [e, invert, target] = args.exactly(["expr", "invert", "target"])?;
+            expression::filter_outcomes(e, bool_arg(&invert)?, target)
+        }
+        "mx_map_counts" => {
+            let [a, function] = args.exactly(["args", "function"])?;
+            expression::map_counts(a, function)
+        }
+        "mx_sort_pair" => {
+            let [e, method, comparison, other, order, extra] =
+                args.exactly(["expr", "method", "comparison", "other", "order", "extra"])?;
+            expression::sort_pair(e, &str_arg(&method)?, comparison, other, order, extra)
+        }
+        "mx_max_pair" => {
+            let [e, keep, comparison, other, priority] =
+                args.exactly(["expr", "keep", "comparison", "other", "priority"])?;
+            expression::max_pair(e, bool_arg(&keep)?, comparison, other, priority)
+        }
+        "mx_versus" => {
+            let [e, all, comparison, other] =
+                args.exactly(["expr", "all", "comparison", "other"])?;
+            expression::versus(e, bool_arg(&all)?, comparison, other)
+        }
+        "mx_force_order" => {
+            let [e, order] = args.exactly(["expr", "order"])?;
+            expression::force_order(e, order)
+        }
+        "mx_evaluate" => {
+            let [e, method] = args.exactly(["expr", "method"])?;
+            evaluate::method_evaluation(&str_arg(&method)?, e)
         }
         "deck" => {
             let [outcomes, times] = args.exactly(["outcomes", "times"])?;
@@ -741,6 +785,22 @@ fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
     }
 }
 
+/// A node's `str` argument naming an operation (`{"str": ...}` in the program).
+fn str_arg(x: &PValue) -> Result<String, PErr> {
+    match x {
+        PValue::Value(Value::Str(s)) => Ok(s.to_string()),
+        _ => raise(Error::Key("expected a str naming an operation".into())),
+    }
+}
+
+/// A node's flag argument (`{"bool": ...}`).
+fn bool_arg(x: &PValue) -> Result<bool, PErr> {
+    match x {
+        PValue::Value(Value::Bool(b)) => Ok(*b),
+        _ => raise(Error::Type("expected a bool flag".into())),
+    }
+}
+
 pub(super) fn type_error<T>(msg: impl Into<String>) -> Result<T, PErr> {
     raise(Error::Type(msg.into()))
 }
@@ -790,7 +850,7 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
         // A deck is a mapping: iterating it gives its outcomes.
         PValue::Deck(d) => d.outcomes().cloned().map(PValue::Value).collect(),
-        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => {
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
             return Err(PErr::Unimplemented("iterating a multiset generator".into()))
         }
     })
@@ -815,9 +875,13 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         PValue::Again(_) => Err(PErr::Unimplemented(
             "an Again expression nested in an outcome".into(),
         )),
-        PValue::Ellipsis | PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => Err(
-            PErr::Unimplemented("Ellipsis or a pool as an outcome".into()),
-        ),
+        PValue::Ellipsis
+        | PValue::Pool(_)
+        | PValue::Deal(_)
+        | PValue::MultiDeal(_)
+        | PValue::Expr(_) => Err(PErr::Unimplemented(
+            "Ellipsis or a pool as an outcome".into(),
+        )),
     }
 }
 

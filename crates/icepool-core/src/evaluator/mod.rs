@@ -6,11 +6,11 @@
 //! ([`evaluate`]) pops outcomes off the sources (pools), weighting each possible count, and memoises every
 //! intermediate "room" so that equal sub-problems are solved once.
 //!
-//! Only generator inputs are supported so far: each argument is one source whose count is passed straight
-//! through (Python's `MultisetFreeVariable` with a `MultisetGeneratorQuestlet` or a `MultisetTupleGeneratorQuestlet`,
-//! whose statelets are always `None`). A multiset tuple generator (`MultiDeal`) produces a tuple of counts per
-//! outcome and a tuple size ([`Count::Tuple`]). Multiset expressions (operators between inputs, the dungeonlet /
-//! questlet trees) belong to a later task.
+//! Each input is a prepared multiset expression (`crate::expression`): a generator alone is one free variable
+//! whose source's count is passed straight through; operators between generators compute the input's count from
+//! theirs, with their own local states ("statelets") carried alongside the evaluator's state. A multiset tuple
+//! generator (`MultiDeal`) produces a tuple of counts per outcome and a tuple size ([`Count::Tuple`]).
+//! `@multiset_function` calls (nested call trees) belong to a later task.
 
 pub mod basic;
 pub mod comparison;
@@ -23,6 +23,7 @@ use std::rc::Rc;
 use rustc_hash::FxHashMap;
 
 use crate::error::{Error, Result};
+use crate::expression::{self, Flat, Statelets};
 use crate::function::sorted_union;
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
@@ -145,45 +146,70 @@ fn int_sizes(sizes: &[Option<Count>]) -> Result<Vec<Option<i64>>> {
         .collect()
 }
 
-/// A Python `defaultdict(int)` from state to weight: insertion order, and a state equal to an earlier one adds to
-/// it, keeping the earlier key.
+/// A Python `defaultdict`: insertion order, and a key equal to an earlier one finds the earlier entry (keeping
+/// the earlier key).
 #[derive(Debug)]
-pub struct StateWeights<S> {
-    index: FxHashMap<S, usize>,
-    items: Vec<(S, Quantity)>,
+pub struct OrderedMap<K, V> {
+    index: FxHashMap<K, usize>,
+    items: Vec<(K, V)>,
 }
 
-impl<S: Clone + Eq + Hash> StateWeights<S> {
-    fn new() -> Self {
-        StateWeights {
+impl<K, V> Default for OrderedMap<K, V> {
+    fn default() -> Self {
+        OrderedMap {
             index: FxHashMap::default(),
             items: Vec::new(),
         }
     }
+}
 
-    fn add(&mut self, state: S, weight: Quantity) {
-        match self.index.get(&state) {
-            Some(&i) => self.items[i].1 += weight,
-            None => {
-                self.index.insert(state.clone(), self.items.len());
-                self.items.push((state, weight));
-            }
-        }
-    }
-
-    pub fn items(&self) -> &[(S, Quantity)] {
+impl<K, V> OrderedMap<K, V> {
+    pub fn items(&self) -> &[(K, V)] {
         &self.items
     }
 }
 
+impl<K: Clone + Eq + Hash, V: Default> OrderedMap<K, V> {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// `d[key]`, inserting the default value if missing.
+    fn entry(&mut self, key: K) -> &mut V {
+        let i = match self.index.get(&key) {
+            Some(&i) => i,
+            None => {
+                self.index.insert(key.clone(), self.items.len());
+                self.items.push((key, V::default()));
+                self.items.len() - 1
+            }
+        };
+        &mut self.items[i].1
+    }
+}
+
+/// A Python `defaultdict(int)` from state to weight: equal states add up.
+pub type StateWeights<S> = OrderedMap<S, Quantity>;
+
+impl<S: Clone + Eq + Hash> StateWeights<S> {
+    fn add(&mut self, state: S, weight: Quantity) {
+        *self.entry(state) += weight;
+    }
+}
+
+/// What both algorithms return for a room: statelets -> main state -> weight (Python's `defaultdict(lambda:
+/// defaultdict(int))`). A statelet entry is created even when every main state under it rerolled, as in Python.
+pub type FinalStates<S> = OrderedMap<Statelets, StateWeights<S>>;
+
 /// `Room`: the remaining outcomes (a window `lo..hi` of the evaluation's sorted outcomes: equal windows are equal
-/// outcome tuples), the remaining sources, and the state the room starts from. The memo key.
-type RoomKey<O, S> = (usize, usize, Vec<MultisetSource<O>>, S);
+/// outcome tuples), the remaining sources, and the statelets and main state the room starts from. The memo key.
+type RoomKey<O, S> = (usize, usize, Vec<MultisetSource<O>>, Statelets, S);
 
-/// The room memo: room -> final state weights.
-type RoomCache<O, S> = FxHashMap<RoomKey<O, S>, Rc<StateWeights<S>>>;
+/// The room memo: room -> final states.
+type RoomCache<O, S> = FxHashMap<RoomKey<O, S>, Rc<FinalStates<S>>>;
 
-/// One evaluation's `Dungeon`: the evaluator plus its room cache.
+/// One evaluation's `Dungeon`: the evaluator, the prepared inputs (one flat of dungeonlets each) plus its room
+/// cache.
 ///
 /// Python keeps two caches (by the order `next_state` sees outcomes) on a dungeon that may outlive one
 /// `evaluate()` call. Within one call an attempt only ever uses one of them, and a room means the same thing to
@@ -192,7 +218,9 @@ type RoomCache<O, S> = FxHashMap<RoomKey<O, S>, Rc<StateWeights<S>>>;
 /// several `==` spellings a state keeps; the harness evaluates each program with fresh evaluators.)
 struct Dungeon<'a, O, E: MultisetEvaluator<O>> {
     evaluator: &'a E,
+    flats: &'a [Flat<O>],
     outcomes: &'a [O],
+    initial_statelets: Statelets,
     initial_state: E::State,
     cache: RoomCache<O, E::State>,
 }
@@ -201,10 +229,18 @@ struct Dungeon<'a, O, E: MultisetEvaluator<O>> {
 type RoomPop<O> = (Vec<MultisetSource<O>>, Vec<Count>, Quantity);
 
 impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
-    fn new(evaluator: &'a E, outcomes: &'a [O], initial_state: E::State) -> Self {
+    fn new(
+        evaluator: &'a E,
+        flats: &'a [Flat<O>],
+        outcomes: &'a [O],
+        initial_statelets: Statelets,
+        initial_state: E::State,
+    ) -> Self {
         Dungeon {
             evaluator,
+            flats,
             outcomes,
+            initial_statelets,
             initial_state,
             cache: FxHashMap::default(),
         }
@@ -253,32 +289,51 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     /// Internal algorithm for iterating so that `next_state` sees outcomes in backwards order (the opposite of
     /// `pop_order`). All intermediate return values are cached.
     ///
-    /// Returns `{state: weight}` describing the probability distribution over states after the room's outcomes.
+    /// Returns `{statelets: {state: weight}}` describing the probability distribution over states after the
+    /// room's outcomes.
     fn evaluate_backward(
         &mut self,
         pop_order: Order,
         lo: usize,
         hi: usize,
         sources: Vec<MultisetSource<O>>,
-    ) -> Result<Rc<StateWeights<E::State>>> {
-        let key = (lo, hi, sources, self.initial_state.clone());
+    ) -> Result<Rc<FinalStates<E::State>>> {
+        let key = (
+            lo,
+            hi,
+            sources,
+            self.initial_statelets.clone(),
+            self.initial_state.clone(),
+        );
         if let Some(result) = self.cache.get(&key) {
             return Ok(result.clone());
         }
-        let mut result = StateWeights::new();
+        let mut result = FinalStates::new();
         if lo == hi {
-            result.add(self.initial_state.clone(), Quantity::ONE);
+            result
+                .entry(self.initial_statelets.clone())
+                .add(self.initial_state.clone(), Quantity::ONE);
         } else {
             let eval_order = -pop_order;
             let (outcome, prev_lo, prev_hi, pops) = self.pop(pop_order, lo, hi, &key.2)?;
-            for (prev_sources, counts, weight) in pops {
+            for (prev_sources, source_counts, weight) in pops {
                 let prev = self.evaluate_backward(pop_order, prev_lo, prev_hi, prev_sources)?;
-                for (prev_state, prev_weight) in prev.items() {
-                    let state = self
-                        .evaluator
-                        .next_state_counts(prev_state, eval_order, outcome, &counts)?;
-                    if let Some(state) = state {
-                        result.add(state, prev_weight * &weight);
+                for (prev_statelets, prev_main) in prev.items() {
+                    let (statelets, counts) = expression::next_state(
+                        self.flats,
+                        prev_statelets,
+                        eval_order,
+                        outcome,
+                        &source_counts,
+                    )?;
+                    let subresult = result.entry(statelets);
+                    for (prev_state, prev_weight) in prev_main.items() {
+                        let state = self
+                            .evaluator
+                            .next_state_counts(prev_state, eval_order, outcome, &counts)?;
+                        if let Some(state) = state {
+                            subresult.add(state, prev_weight * &weight);
+                        }
                     }
                 }
             }
@@ -289,38 +344,47 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     }
 
     /// Internal algorithm for iterating in the less-preferred order: `next_state` sees outcomes in `pop_order`,
-    /// starting from `state`. All intermediate return values are cached.
+    /// starting from `statelets` and `state`. All intermediate return values are cached.
     fn evaluate_forward(
         &mut self,
         pop_order: Order,
         lo: usize,
         hi: usize,
         sources: Vec<MultisetSource<O>>,
+        statelets: Statelets,
         state: E::State,
-    ) -> Result<Rc<StateWeights<E::State>>> {
-        let key = (lo, hi, sources, state);
+    ) -> Result<Rc<FinalStates<E::State>>> {
+        let key = (lo, hi, sources, statelets, state);
         if let Some(result) = self.cache.get(&key) {
             return Ok(result.clone());
         }
-        let mut result = StateWeights::new();
+        let mut result = FinalStates::new();
         if lo == hi {
-            result.add(key.3.clone(), Quantity::ONE);
+            result
+                .entry(key.3.clone())
+                .add(key.4.clone(), Quantity::ONE);
         } else {
             let (outcome, next_lo, next_hi, pops) = self.pop(pop_order, lo, hi, &key.2)?;
-            for (next_sources, counts, weight) in pops {
+            for (next_sources, source_counts, weight) in pops {
+                let (next_statelets, counts) =
+                    expression::next_state(self.flats, &key.3, pop_order, outcome, &source_counts)?;
                 let next_state = self
                     .evaluator
-                    .next_state_counts(&key.3, pop_order, outcome, &counts)?;
+                    .next_state_counts(&key.4, pop_order, outcome, &counts)?;
                 if let Some(next_state) = next_state {
                     let fin = self.evaluate_forward(
                         pop_order,
                         next_lo,
                         next_hi,
                         next_sources,
+                        next_statelets,
                         next_state,
                     )?;
-                    for (final_state, final_weight) in fin.items() {
-                        result.add(final_state.clone(), &weight * final_weight);
+                    for (final_statelets, final_main) in fin.items() {
+                        let subresult = result.entry(final_statelets.clone());
+                        for (final_state, final_weight) in final_main.items() {
+                            subresult.add(final_state.clone(), &weight * final_weight);
+                        }
                     }
                 }
             }
@@ -341,9 +405,9 @@ enum Algorithm {
 /// `Dungeon.evaluate`: runs the backward algorithm in the preferred pop order, then on `UnsupportedOrder` either
 /// the backward algorithm in the other order (if the preference was only the default) or the forward algorithm.
 ///
-/// Returns the final outcomes with their weights, in the order `finalize_evaluation` produces them (`Reroll`s
-/// dropped), ready for `Die(final_outcomes, final_weights)`. If some source has no probability, no outcomes
-/// (`Die([])`).
+/// Every input is one source (a generator). Returns the final outcomes with their weights, in the order
+/// `finalize_evaluation` produces them (`Reroll`s dropped), ready for `Die(final_outcomes, final_weights)`. If
+/// some source has no probability, no outcomes (`Die([])`).
 pub fn evaluate<O: Outcome, E: MultisetEvaluator<O>>(
     evaluator: &E,
     sources: &[MultisetSource<O>],
@@ -359,6 +423,21 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
     sources: &[MultisetSource<O>],
     check_depth: impl Fn(usize) -> Result<()>,
 ) -> Result<Vec<(E::Final, Quantity)>> {
+    let flats: Vec<Flat<O>> = sources
+        .iter()
+        .map(|_| expression::free_variable())
+        .collect();
+    evaluate_expressions(evaluator, &flats, sources, check_depth)
+}
+
+/// [`evaluate_with_depth_check`] for inputs that are multiset expressions: each input is a flat of dungeonlets
+/// (`crate::expression`), and `sources` are the sources of all their free variables, in traversal order.
+pub fn evaluate_expressions<O: Outcome, E: MultisetEvaluator<O>>(
+    evaluator: &E,
+    flats: &[Flat<O>],
+    sources: &[MultisetSource<O>],
+    check_depth: impl Fn(usize) -> Result<()>,
+) -> Result<Vec<(E::Final, Quantity)>> {
     if !sources.iter().all(MultisetSource::is_resolvable) {
         return Ok(Vec::new());
     }
@@ -371,10 +450,6 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
     let source_outcomes: Vec<O> = sorted_union(sources.iter().map(|s| s.outcomes().iter()))?;
     let extra_outcomes = evaluator.extra_outcomes(&source_outcomes)?;
     let all_outcomes: Vec<O> = sorted_union([source_outcomes.iter(), extra_outcomes.iter()])?;
-    let sizes = sources
-        .iter()
-        .map(MultisetSource::size)
-        .collect::<Result<Vec<_>>>()?;
 
     let attempt = |algorithm, pop_order: Order| {
         // The order in which `next_state` sees outcomes.
@@ -382,17 +457,38 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
             Algorithm::Backward => -pop_order,
             Algorithm::Forward => pop_order,
         };
-        let initial_state = evaluator.initial_state_counts(eval_order, &all_outcomes, &sizes)?;
-        let mut dungeon = Dungeon::new(evaluator, &all_outcomes, initial_state.clone());
+        // `initial_room`: the statelets (and so the sizes of the inputs), then the main state.
+        let (initial_statelets, arg_sizes) =
+            expression::initial_state(flats, eval_order, sources.iter().map(MultisetSource::size))?;
+        let initial_state =
+            evaluator.initial_state_counts(eval_order, &all_outcomes, &arg_sizes)?;
+        let mut dungeon = Dungeon::new(
+            evaluator,
+            flats,
+            &all_outcomes,
+            initial_statelets.clone(),
+            initial_state.clone(),
+        );
         let n = all_outcomes.len();
         check_depth(n)?;
         let final_states = match algorithm {
             Algorithm::Backward => dungeon.evaluate_backward(pop_order, 0, n, sources.to_vec())?,
-            Algorithm::Forward => {
-                dungeon.evaluate_forward(pop_order, 0, n, sources.to_vec(), initial_state)?
-            }
+            Algorithm::Forward => dungeon.evaluate_forward(
+                pop_order,
+                0,
+                n,
+                sources.to_vec(),
+                initial_statelets,
+                initial_state,
+            )?,
         };
-        finalize_evaluation(evaluator, &final_states, eval_order, &all_outcomes, &sizes)
+        finalize_evaluation(
+            evaluator,
+            &final_states,
+            eval_order,
+            &all_outcomes,
+            &arg_sizes,
+        )
     };
 
     match attempt(Algorithm::Backward, pop_order) {
@@ -420,26 +516,28 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
     }
 }
 
-/// `Quest.finalize_evaluation`: each final state's final outcome, in order.
+/// `Quest.finalize_evaluation`: each final state's final outcome, in order (grouped by statelets).
 fn finalize_evaluation<O, E: MultisetEvaluator<O>>(
     evaluator: &E,
-    final_states: &StateWeights<E::State>,
+    final_states: &FinalStates<E::State>,
     order: Order,
     outcomes: &[O],
     sizes: &[Option<Count>],
 ) -> Result<Vec<(E::Final, Quantity)>> {
     let mut result = Vec::new();
-    for (state, weight) in final_states.items() {
-        match evaluator.final_outcome_counts(state, order, outcomes, sizes)? {
-            Final::None => {
-                return Err(Error::Type(
-                    "None is not a valid final outcome.\nThis may have been a result of not supplying any \
-                     input with an outcome."
-                        .into(),
-                ))
+    for (_, main_states) in final_states.items() {
+        for (state, weight) in main_states.items() {
+            match evaluator.final_outcome_counts(state, order, outcomes, sizes)? {
+                Final::None => {
+                    return Err(Error::Type(
+                        "None is not a valid final outcome.\nThis may have been a result of not supplying \
+                         any input with an outcome."
+                            .into(),
+                    ))
+                }
+                Final::Reroll => {}
+                Final::Outcome(outcome) => result.push((outcome, weight.clone())),
             }
-            Final::Reroll => {}
-            Final::Outcome(outcome) => result.push((outcome, weight.clone())),
         }
     }
     Ok(result)

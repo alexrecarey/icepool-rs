@@ -10,6 +10,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::compound_keep::CompoundKeepSource;
 use crate::deal::DealSource;
 use crate::die::Die;
 use crate::error::{Error, Result};
@@ -212,12 +213,14 @@ impl<O: Outcome> Pool<O> {
 
 /// What the evaluator pops outcomes from: one variant per kind of multiset generator (`MultisetSource`), each a
 /// small immutable value that hashes for the evaluator's memo. `Pool` and `Deal` produce an `int` count per
-/// outcome; `MultiDeal` (a `MultisetTupleSource`) a tuple of counts, one per hand.
+/// outcome; `MultiDeal` (a `MultisetTupleSource`) a tuple of counts, one per hand. `CompoundKeep` is the additive
+/// union of other keep generators' sources.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
     Pool(PoolSource<O>),
     Deal(DealSource<O>),
     MultiDeal(MultiDealSource<O>),
+    CompoundKeep(CompoundKeepSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
@@ -250,6 +253,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Pool(s) => s.outcomes(),
             MultisetSource::Deal(s) => s.outcomes(),
             MultisetSource::MultiDeal(s) => s.outcomes(),
+            MultisetSource::CompoundKeep(s) => s.outcomes(),
         }
     }
 
@@ -260,6 +264,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Pool(s) => s.size()?.map(Count::Int),
             MultisetSource::Deal(s) => s.size()?.map(Count::Int),
             MultisetSource::MultiDeal(s) => Some(Count::Tuple(s.size())),
+            MultisetSource::CompoundKeep(s) => s.size()?.map(Count::Int),
         })
     }
 
@@ -269,6 +274,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Pool(s) => s.is_resolvable(),
             MultisetSource::Deal(s) => s.is_resolvable(),
             MultisetSource::MultiDeal(s) => s.is_resolvable(),
+            MultisetSource::CompoundKeep(s) => s.is_resolvable(),
         }
     }
 
@@ -278,6 +284,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Pool(s) => s.order_preference(),
             MultisetSource::Deal(s) => s.order_preference(),
             MultisetSource::MultiDeal(s) => s.order_preference(),
+            MultisetSource::CompoundKeep(s) => s.order_preference(),
         }
     }
 
@@ -293,6 +300,9 @@ impl<O: Outcome> MultisetSource<O> {
                 .into_iter()
                 .map(|(s, c, w)| (MultisetSource::MultiDeal(s), Count::Tuple(c), w))
                 .collect(),
+            MultisetSource::CompoundKeep(s) => {
+                int_popped(s.pop(order, outcome)?, MultisetSource::CompoundKeep)
+            }
         })
     }
 }
@@ -481,13 +491,13 @@ fn iter_die_pop<O: Outcome>(
 }
 
 /// `itertools.product` over lists: the last list varies fastest.
-struct Product<'a, T> {
+pub(crate) struct Product<'a, T> {
     lists: &'a [Vec<T>],
     index: Option<Vec<usize>>,
 }
 
 impl<'a, T> Product<'a, T> {
-    fn new(lists: &'a [Vec<T>]) -> Self {
+    pub(crate) fn new(lists: &'a [Vec<T>]) -> Self {
         let index = if lists.iter().any(Vec::is_empty) {
             None
         } else {

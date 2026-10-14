@@ -141,5 +141,15 @@
   "deal_groups": "ported",
   "multi_deal_info": "ported",
   "multi_deal_pop": "ported",
-  "multi_deal_evaluate": "ported"
+  "multi_deal_evaluate": "ported",
+  "mx_binary": "ported",
+  "mx_method": "ported",
+  "mx_counts": "ported",
+  "mx_filter": "ported",
+  "mx_map_counts": "ported",
+  "mx_sort_pair": "ported",
+  "mx_max_pair": "ported",
+  "mx_versus": "ported",
+  "mx_force_order": "ported",
+  "mx_evaluate": "ported"
 }

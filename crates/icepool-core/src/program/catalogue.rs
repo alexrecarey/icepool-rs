@@ -74,6 +74,10 @@ pub enum Func {
     Collatz,
     /// `lambda a, b, roll: (a, b) if a + b >= k else (b, a + roll)`
     PairWalk(PValue),
+    /// `lambda outcome, *counts: counts[0] - sum(counts[1:])`
+    CountDiff,
+    /// `lambda outcome, *counts: sum(counts) if outcome > k else 0`
+    CountIfGtK(PValue),
     /// `{k: v for k, v in pairs}`: a mapping, not a callable.
     Mapping(FxHashMap<Key, PValue>),
 }
@@ -88,10 +92,10 @@ impl Func {
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
             "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "first"
-            | "break_eq" | "add_kw" | "collatz" => 0,
+            | "break_eq" | "add_kw" | "collatz" | "count_diff" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
-            | "pair_walk" => 1,
+            | "pair_walk" | "count_if_gt_k" => 1,
             "clamp" | "die_if_k" | "break_k" | "break_at" | "restart_on" | "walk" | "walk_die" => 2,
             _ => return raise(Error::Key(format!("no catalogue function {name:?}"))),
         };
@@ -134,6 +138,8 @@ impl Func {
             "walk_die" => WalkDie(next(), next()),
             "collatz" => Collatz,
             "pair_walk" => PairWalk(next()),
+            "count_diff" => CountDiff,
+            "count_if_gt_k" => CountIfGtK(next()),
             "mapping" => Mapping(dict_items(next())?.into_iter().collect()),
             _ => unreachable!("names checked above"),
         })
@@ -146,6 +152,7 @@ impl Func {
         let n = match self {
             Mapping(_) => return None,
             Const(_) => return Some((0, None)),
+            CountDiff | CountIfGtK(_) => return Some((1, None)),
             ReadRoll | Swap | Add2 | Max2 | BreakEq | CapSum(_) | BreakAt(..) | RestartOn(..)
             | Walk(..) => 2,
             Sum3 | PairWalk(_) => 3,
@@ -204,6 +211,29 @@ impl Func {
                 "takes {required} positional arguments but {} were given",
                 args.len()
             ));
+        }
+        // The `(outcome, *counts)` functions of map_counts. Their counts are ints, for which `sum` is plain
+        // addition from 0.
+        let sum = |xs: &[PValue]| -> Result<PValue, PErr> {
+            xs.iter().try_fold(PValue::Value(Value::from(0)), |acc, x| {
+                binary(BinOp::Add, acc, x.clone())
+            })
+        };
+        match self {
+            CountDiff => {
+                let Some(first) = args.get(1) else {
+                    return raise(Error::Index("tuple index out of range".into()));
+                };
+                return binary(BinOp::Sub, first.clone(), sum(&args[2..])?);
+            }
+            CountIfGtK(k) => {
+                return if truthy(&binary(BinOp::Gt, args[0].clone(), k.clone())?)? {
+                    sum(&args[1..])
+                } else {
+                    Ok(PValue::Value(Value::from(0)))
+                };
+            }
+            _ => {}
         }
         let mut a = args.into_iter();
         let mut x = || a.next().expect("argument count checked");
@@ -354,7 +384,7 @@ impl Func {
                     PValue::tuple(vec![b, next])
                 }
             }
-            Mapping(_) => unreachable!("handled above"),
+            Mapping(_) | CountDiff | CountIfGtK(_) => unreachable!("handled above"),
         })
     }
 }
@@ -438,7 +468,7 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         | PValue::Ellipsis => true,
         // A deck is a mapping: truthy unless empty.
         PValue::Deck(d) => !d.is_empty(),
-        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) => {
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
             return Err(PErr::Unimplemented("the truth value of a pool".into()))
         }
         PValue::Again(_) => {

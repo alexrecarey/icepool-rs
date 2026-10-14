@@ -8,6 +8,7 @@
 //! it is how every check drives this crate, and later the WASM entry point.
 
 pub mod again;
+pub mod compound_keep;
 pub mod counts;
 pub mod creation_args;
 pub mod deal;
@@ -16,14 +17,17 @@ pub mod die;
 pub mod error;
 pub mod evaluator;
 pub mod expand;
+pub mod expression;
 pub mod format;
 pub mod function;
 pub mod keep;
 pub mod keep_tuple;
 pub mod khepri;
+pub mod lexi;
 pub mod map_tools;
 pub mod math;
 pub mod multi_deal;
+pub mod operator;
 pub mod order;
 pub mod outcome;
 pub mod pool;

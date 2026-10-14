@@ -9,9 +9,9 @@ use super::{raise, PErr, PValue};
 use crate::error::{Error, Result};
 use crate::evaluator::basic::int;
 use crate::evaluator::poker::consecutive;
-use crate::evaluator::{evaluate_with_depth_check, Final, MultisetEvaluator};
+use crate::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
 use crate::order::Order;
-use crate::pool::{Count, MultisetSource};
+use crate::pool::Count;
 use crate::value::builtins::py_sum;
 use crate::value::BinOp;
 use crate::Value;
@@ -396,9 +396,15 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
 /// mixes in final outcomes that are dice.
 pub fn run(
     evaluator: &CatalogueEvaluator,
-    sources: &[MultisetSource<Value>],
+    exprs: &[super::expression::MExpr],
 ) -> std::result::Result<PValue, PErr> {
-    let finals = evaluate_with_depth_check(evaluator, sources, super::evaluate::check_recursion)?;
+    let (flats, sources) = super::expression::prepare(exprs)?;
+    let finals = evaluate_expressions(
+        evaluator,
+        &flats,
+        &sources,
+        super::evaluate::check_recursion,
+    )?;
     let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
     let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();
     new_die(outcomes, &weights)
