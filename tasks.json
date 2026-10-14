@@ -310,5 +310,12 @@
     ],
     "milestone": null,
     "details": "generator/weightless.py: WeightlessGenerator / WeightlessSource (MultisetGenerator.weightless()) as a core MultisetSource variant wrapping another source (every weight 1; UnsupportedOrder when one pop yields the same count twice), so evaluations over g.weightless() run on the core driver instead of upstream's Dungeon.evaluate (evaluator_rust._core_source refuses WeightlessSource today: 2 evaluations in the upstream suite). Left over from S4c, which ported the operators and CompoundKeepGenerator. Pattern (see NOTES.md 'Python facade (S1)'): the facade module keeps its Python API and argument juggling; under ICEPOOL_BACKEND=rust its work runs in icepool_rs (no silent fallback to the Python code path), Python callables are host callbacks. Done when harness/core/upstream_suite.sh passes, crates/icepool-py/tests passes, the new grammar nodes are ported and fuzz clean through both icepool-run and crates/icepool-py/run-facade.sh (ICEPOOL_RUN=...), with edge-case fixtures."
+  },
+  {
+    "id": "P1",
+    "title": "Performance: cdf_distance over n @ (float die) times out in icepool-run",
+    "deps": [],
+    "milestone": null,
+    "details": "Found by the depth-4 fuzz at S4c (seed 14), pre-existing on main: {\"op\": \"cdf_distance\", \"a\": d6, \"b\": 3 @ (d12 / d12), \"stat\": \"kolmogorov_smirnov\"} takes ~47 s in icepool-run (release) against well under a second in Python, so the harness's 20 s port timeout reports it unimplemented. Profile it (likely the float-outcome matmul sums or the cdf over many float outcomes) and make it fast without changing results; add it as a fixture once it passes."
   }
 ]
