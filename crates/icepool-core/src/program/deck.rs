@@ -125,7 +125,7 @@ fn duplicate(arg: &DieArg<Value>, t: &Value) -> Result<Quantity, PErr> {
 }
 
 /// `Deck(data)` for the dict a `Population` method made (`self._new_type(data)`).
-fn deck_from_data(data: Data) -> Result<PValue, PErr> {
+pub(super) fn deck_from_data(data: Data) -> Result<PValue, PErr> {
     let (keys, values): (Vec<_>, Vec<_>) =
         data.into_iter().map(|(o, q)| (PValue::Value(o), q)).unzip();
     let (objects, times) = itemize_mapping(keys, values, PValue::Value(int(1)))?;

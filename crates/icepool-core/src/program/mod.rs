@@ -13,6 +13,7 @@ mod die_methods;
 mod evaluate;
 mod expression;
 mod format;
+mod function;
 mod map;
 mod map_tools;
 mod multi_deal;

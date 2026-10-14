@@ -11,6 +11,7 @@ mod deck;
 mod evaluate;
 mod expression;
 mod format;
+mod function;
 mod map;
 mod map_tools;
 mod multi_deal;
@@ -563,6 +564,13 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(stats::pad_to_denominator, m)?,
         wrap_pyfunction!(stats::multiply_to_denominator, m)?,
         wrap_pyfunction!(format::format, m)?,
+        wrap_pyfunction!(function::weighted_lcm, m)?,
+        wrap_pyfunction!(function::pointwise, m)?,
+        wrap_pyfunction!(function::coin_data, m)?,
+        wrap_pyfunction!(function::min_max, m)?,
+        wrap_pyfunction!(function::consecutive, m)?,
+        wrap_pyfunction!(function::sorted_union, m)?,
+        wrap_pyfunction!(function::one_hot, m)?,
         wrap_pyfunction!(format::format_probability_inverse, m)?,
         wrap_pyfunction!(format::common_outcome_length, m)?,
         wrap_pyfunction!(format::sample_at, m)?,

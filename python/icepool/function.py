@@ -93,6 +93,9 @@ def coin(n: int | float | Fraction,
             fraction = fraction.limit_denominator(max_denominator)
         n = fraction.numerator
         d = fraction.denominator
+    # icepool-rs: the data is computed in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die(dict(icepool.backend.RUST.coin_data(n, d)))
     data = {}
     if n < d:
         data[False] = min(d - n, d)
@@ -130,6 +133,9 @@ def one_hot(sides: int, /) -> 'icepool.Die[tuple[bool, ...]]':
     in a pool rolled each number. For example, the outcomes of `10 @ one_hot(6)`
     are the `(ones, twos, threes, fours, fives, sixes)` rolled in 10d6.
     """
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(icepool.backend.RUST.one_hot(sides))
     data = []
     for i in range(sides):
         outcome = [False] * sides
@@ -273,6 +279,11 @@ def pointwise_max(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.pointwise([die._rust_die() for die in args],
+                                           True))
     outcomes = sorted_union(*args)
     cumulative = [
         min(die.quantity('<=', outcome) for die in args)
@@ -320,6 +331,11 @@ def pointwise_min(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.pointwise([die._rust_die() for die in args],
+                                           False))
     outcomes = sorted_union(*args)
     cumulative = [
         max(die.quantity('<=', outcome) for die in args)
@@ -344,6 +360,10 @@ def min_outcome(*args: 'Iterable[T | icepool.Population[T]] | T') -> T:
     Args:
         Populations or single outcomes. Alternatively, a single iterable argument of such.
     """
+    # icepool-rs: Python's min() in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.backend.RUST.min_max(list(_iter_outcomes(*args)),
+                                            False)
     return min(_iter_outcomes(*args))
 
 
@@ -363,11 +383,21 @@ def max_outcome(*args: 'Iterable[T | icepool.Population[T]] | T') -> T:
     Args:
         Populations or single outcomes. Alternatively, a single iterable argument of such.
     """
+    # icepool-rs: Python's max() in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.backend.RUST.min_max(list(_iter_outcomes(*args)),
+                                            True)
     return max(_iter_outcomes(*args))
 
 
 def consecutive(*args: Iterable[int]) -> Sequence[int]:
     """A minimal sequence of consecutive ints covering the argument sets."""
+    # icepool-rs: runs in the Rust core, given what each of the two chains
+    # yields (an iterator argument is exhausted by the first).
+    if icepool.backend.RUST:
+        first = list(itertools.chain(*args))
+        second = list(itertools.chain(*args)) if first else []
+        return icepool.backend.RUST.consecutive(first, second)
     start = min((x for x in itertools.chain(*args)), default=None)
     if start is None:
         return ()
@@ -379,6 +409,9 @@ def sorted_union(*args: Iterable[T]) -> tuple[T, ...]:
     """Merge sets into a sorted sequence."""
     if not args:
         return ()
+    # icepool-rs: runs in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.backend.RUST.sorted_union([list(arg) for arg in args])
     return tuple(sorted(set.union(*(set(arg) for arg in args))))
 
 
@@ -399,8 +432,13 @@ def harmonize_denominators(dice: 'Sequence[T | icepool.Die[T]]',
     if weights is None:
         weights = [1] * len(dice)
     converted_dice = [icepool.implicit_convert_to_die(die) for die in dice]
-    scale_factors = weighted_lcm([d.denominator() for d in converted_dice],
-                                 weights)
+    # icepool-rs: the scale factors are computed in the Rust core.
+    if icepool.backend.RUST:
+        scale_factors = icepool.backend.RUST.weighted_lcm(
+            [d.denominator() for d in converted_dice], list(weights))
+    else:
+        scale_factors = weighted_lcm(
+            [d.denominator() for d in converted_dice], weights)
     return tuple(
         die.multiply_quantities(scale_factor)
         for die, scale_factor in zip(converted_dice, scale_factors))

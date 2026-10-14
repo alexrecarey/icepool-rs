@@ -1,10 +1,14 @@
 //! Port of icepool `function.py` (free functions).
 
+use dashu_base::{Gcd, UnsignedAbs};
+use dashu_int::IBig;
+
 use crate::counts::Counts;
 use crate::die::Die;
-use crate::error::{value_error, Result};
+use crate::error::{value_error, Error, Result};
 use crate::outcome::Outcome;
-use crate::Quantity;
+use crate::value::{BinOp, Vector};
+use crate::{Quantity, Value};
 
 /// A standard die, uniformly distributed from `1` to `sides` inclusive.
 ///
@@ -39,4 +43,169 @@ where
         }
     }
     crate::counts::py_sorted(union, |a, b| a.py_lt(b))
+}
+
+/// A die uniformly distributed from `0` to `sides - 1` inclusive (`z`). Equal to `d(sides) - 1`.
+pub fn z<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
+    if sides < 1 {
+        return value_error("sides must be at least 1.");
+    }
+    Ok(Die::from_counts(Counts::from_sorted(
+        (0..sides).map(|i| (O::from(i), Quantity::ONE)).collect(),
+    )))
+}
+
+/// `pointwise_max` (`max` true) / `pointwise_min` once the dice are harmonized (`harmonize_denominators`).
+///
+/// pointwise_max selects the highest chance of rolling >= each outcome among the arguments: for each outcome, the
+/// chance of the result rolling >= that outcome is the same as the highest chance of rolling >= that outcome
+/// among the arguments (equivalently, any quantile in the result is the highest of that quantile among the
+/// arguments). So its cumulative quantity `<=` each outcome is the *least* of the dice's; pointwise_min takes the
+/// greatest. Each die's cumulative quantities never decrease, so neither do their min / max.
+pub fn pointwise<O: Outcome>(dice: &[Die<O>], max: bool) -> Result<Die<O>> {
+    let outcomes = sorted_union(dice.iter().map(Die::outcomes))?;
+    let mut cumulative = Vec::with_capacity(outcomes.len());
+    for outcome in &outcomes {
+        let mut best: Option<Quantity> = None;
+        for die in dice {
+            let q = die.quantity_le(outcome)?;
+            // `min(...)` / `max(...)` of ints: which of equal ones is kept does not matter.
+            best = Some(match best {
+                Some(b) if (max && q < b) || (!max && q > b) => q,
+                Some(b) => b,
+                None => q,
+            });
+        }
+        cumulative.push(best.expect("an outcome comes from some die"));
+    }
+    crate::die::from_cumulative(outcomes, cumulative, false)
+}
+
+/// `math.gcd`'s / `range`'s view of an integer argument (`operator.index`): an `int` (a `bool` is one) or a host
+/// object with `__index__`.
+fn index_arg(x: &Value) -> Result<IBig> {
+    let i = match x {
+        Value::Int(i) => Some(i.clone()),
+        Value::Bool(b) => Some(IBig::from(*b as u8)),
+        Value::Host(h) => h.as_index()?,
+        _ => None,
+    };
+    i.ok_or_else(|| {
+        Error::Type(format!(
+            "'{}' object cannot be interpreted as an integer",
+            x.type_name()
+        ))
+    })
+}
+
+/// math.py `weighted_lcm(denominators, weights)`: a minimal scale factor for each denominator so that they are in
+/// the ratio given by the weights. If a denominator or its corresponding weight is 0, the corresponding result is
+/// 0. The weights are any Python objects (`harmonize_denominators` takes them from the caller): they are compared
+/// with `0`, given to `math.gcd` and multiplied as Python would, and `zip` stops at the shorter sequence.
+pub fn weighted_lcm(denominators: &[Quantity], weights: &[Value]) -> Result<Vec<Value>> {
+    let zero = Value::from(0);
+    // math.lcm() of nothing is 1.
+    let mut denominator_lcm = Quantity::ONE;
+    for (d, w) in denominators.iter().zip(weights) {
+        if !d.is_zero() && w.binary(BinOp::Gt, &zero)?.truthy()? {
+            let w = index_arg(w)?.unsigned_abs();
+            let x = d / d.gcd(&w);
+            denominator_lcm = crate::math::lcm(&denominator_lcm, &x);
+        }
+    }
+    let denominator_lcm = Value::Int(denominator_lcm.into());
+    denominators
+        .iter()
+        .zip(weights)
+        .map(|(d, w)| {
+            if d.is_zero() {
+                Ok(zero.clone())
+            } else {
+                denominator_lcm
+                    .binary(BinOp::Mul, w)?
+                    .binary(BinOp::FloorDiv, &Value::Int(d.clone().into()))
+            }
+        })
+        .collect()
+}
+
+/// The data of `coin(n, d)` once `n` and `d` are known (a non-`int` numerator has already become a `Fraction`'s
+/// numerator and denominator): `{False: min(d - n, d)}` if `n < d`, then `True: min(n, d)` if `n > 0`, as Python
+/// `Value`s for `Die(data)` to check (a non-`int` `d` makes non-`int` quantities, which it refuses).
+pub fn coin_data(n: &Value, d: &Value) -> Result<Vec<(Value, Value)>> {
+    let mut data = Vec::new();
+    if n.binary(BinOp::Lt, d)?.truthy()? {
+        data.push((
+            Value::Bool(false),
+            Value::py_min(d.binary(BinOp::Sub, n)?, d.clone())?,
+        ));
+    }
+    if n.binary(BinOp::Gt, &Value::from(0))?.truthy()? {
+        data.push((Value::Bool(true), Value::py_min(n.clone(), d.clone())?));
+    }
+    Ok(data)
+}
+
+/// Python's `min(iterable)` (`max` false) or `max(iterable)`: the first of the least (greatest) elements, comparing
+/// each `item < best` (`item > best`); an empty iterable raises ValueError.
+pub fn py_min_max(items: Vec<Value>, max: bool) -> Result<Value> {
+    let mut items = items.into_iter();
+    let Some(mut best) = items.next() else {
+        let f = if max { "max" } else { "min" };
+        return value_error(format!("{f}() iterable argument is empty"));
+    };
+    for item in items {
+        best = if max {
+            Value::py_max(best, item)?
+        } else {
+            Value::py_min(best, item)?
+        };
+    }
+    Ok(best)
+}
+
+/// Longest `range` the port builds (Python would build any, slowly).
+const MAX_RANGE: usize = 1 << 20;
+
+/// `consecutive(*args)`: a minimal sequence of consecutive ints covering the argument sets.
+///
+/// Python chains the arguments twice, once for `min(..., default=None)` and once for `max`: `first` and `second`
+/// are what each chain yields (an iterator argument is exhausted by the first, so the second `max` may raise).
+pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
+    if first.is_empty() {
+        return Ok(Value::tuple(vec![]));
+    }
+    let start = py_min_max(first, false)?;
+    let stop = py_min_max(second, true)?.binary(BinOp::Add, &Value::from(1))?;
+    // `range(start, stop + 1)`.
+    let (start, stop) = (index_arg(&start)?, index_arg(&stop)?);
+    if stop > start && &stop - &start > IBig::from(MAX_RANGE) {
+        return Err(Error::Unsupported("consecutive() over a huge range".into()));
+    }
+    let mut out = Vec::new();
+    let mut i = start;
+    while i < stop {
+        out.push(Value::Int(i.clone()));
+        i += IBig::ONE;
+    }
+    Ok(Value::tuple(out))
+}
+
+/// `one_hot(sides)`: a die with `Vector` outcomes with one element set to `True` uniformly at random and the rest
+/// `False`. This is an easy (if somewhat expensive) way of representing how many dice in a pool rolled each
+/// number: the outcomes of `10 @ one_hot(6)` are the `(ones, twos, threes, fours, fives, sixes)` rolled in 10d6.
+/// `range(sides)` takes any index (an empty range gives the empty die).
+pub fn one_hot(sides: &Value) -> Result<Die<Value>> {
+    let sides = index_arg(sides)?;
+    if sides > IBig::from(4096) {
+        return Err(Error::Unsupported("one_hot() with this many sides".into()));
+    }
+    let sides = usize::try_from(sides).unwrap_or(0);
+    let data = (0..sides)
+        .map(|i| {
+            let outcome = (0..sides).map(|j| Value::Bool(i == j)).collect();
+            (Value::Vector(Vector::new(outcome)), Quantity::ONE)
+        })
+        .collect();
+    Die::from_dict(data)
 }

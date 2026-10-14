@@ -2,6 +2,7 @@
 //! `fractions.Fraction(n, d)`, `math.sqrt`, `math.log`, `len` and `x[key]`. population/base.py's statistics are
 //! written in terms of these, so the port gets their exact rounding and their exceptions.
 
+use dashu_base::UnsignedAbs;
 use dashu_int::IBig;
 use dashu_ratio::RBig;
 
@@ -423,8 +424,113 @@ pub fn py_len(x: &Value) -> Result<usize> {
     }
 }
 
+/// `fractions.Fraction(x)` for one argument: an `int` / `bool` / `Fraction` exactly, a `float` exactly (its
+/// `as_integer_ratio()`; NaN is ValueError, an infinity OverflowError), a host `numbers.Rational`. A `str` is parsed
+/// by Python (not ported); anything else is TypeError.
+pub fn fraction(x: &Value) -> Result<RBig> {
+    match x {
+        Value::Int(i) => Ok(RBig::from(i.clone())),
+        Value::Bool(b) => Ok(RBig::from(*b as u8)),
+        Value::Fraction(r) => Ok(r.clone()),
+        Value::Float(f) if f.is_nan() => {
+            Err(Error::Value("cannot convert NaN to integer ratio".into()))
+        }
+        Value::Float(f) if f.is_infinite() => Err(Error::Overflow(
+            "cannot convert Infinity to integer ratio".into(),
+        )),
+        Value::Float(f) => Ok(RBig::try_from(*f).expect("finite")),
+        Value::Str(_) => Err(Error::Unsupported("Fraction(str)".into())),
+        Value::Host(h) => match h.as_rational()? {
+            Some(r) => Ok(r),
+            None => type_error("argument should be a string or a Rational instance"),
+        },
+        _ => type_error("argument should be a string or a Rational instance"),
+    }
+}
+
+/// `Fraction.limit_denominator(max_denominator)` (CPython 3.13 fractions.py) for an `int` `max_denominator`: the
+/// closest Fraction to `x` with denominator at most `max_denominator`.
+///
+/// Algorithm notes: For any real number x, define a *best upper approximation* to x to be a rational number p/q
+/// such that: (1) p/q >= x, and (2) if p/q > r/s >= x then s > q, for any rational r/s. Define *best lower
+/// approximation* similarly. Then it can be proved that a rational number is a best upper or lower approximation
+/// to x if, and only if, it is a convergent or semiconvergent of the (unique shortest) continued fraction
+/// associated to x.
+///
+/// To find a best rational approximation with denominator <= M, we find the best upper and lower approximations
+/// with denominator <= M and take whichever of these is closer to x. In the event of a tie, the bound with smaller
+/// denominator is chosen. If both denominators are equal (which can happen only when max_denominator == 1 and
+/// self is midway between two integers) the lower bound---i.e., the floor of self, is taken.
+pub fn limit_denominator(x: &RBig, max_denominator: &IBig) -> Result<RBig> {
+    if *max_denominator < IBig::ONE {
+        return Err(Error::Value("max_denominator should be at least 1".into()));
+    }
+    let denominator = IBig::from(x.denominator().clone());
+    if denominator <= *max_denominator {
+        return Ok(x.clone());
+    }
+    let (mut p0, mut q0, mut p1, mut q1) = (IBig::ZERO, IBig::ONE, IBig::ONE, IBig::ZERO);
+    let (mut n, mut d) = (x.numerator().clone(), denominator.clone());
+    loop {
+        let a = floor_div(&n, &d);
+        let q2 = &q0 + &a * &q1;
+        if q2 > *max_denominator {
+            break;
+        }
+        let p2 = &p0 + &a * &p1;
+        (p0, q0, p1, q1) = (p1, q1, p2, q2);
+        let r = &n - &a * &d;
+        (n, d) = (d, r);
+    }
+    let k = floor_div(&(max_denominator - &q0), &q1);
+    // Determine which of the candidates (p0+k*p1)/(q0+k*q1) and p1/q1 is closer to self. The distance between them
+    // is 1/(q1*(q0+k*q1)), while the distance from p1/q1 to self is d/(q1*self._denominator). So we need to compare
+    // 2*(q0+k*q1) with self._denominator/d.
+    let (p, q) = if IBig::from(2) * &d * (&q0 + &k * &q1) <= denominator {
+        (p1, q1)
+    } else {
+        (&p0 + &k * &p1, &q0 + &k * &q1)
+    };
+    Ok(RBig::from_parts(p, q.unsigned_abs()))
+}
+
+/// Python's `a // b` for ints (`b != 0`): rounds towards negative infinity.
+fn floor_div(a: &IBig, b: &IBig) -> IBig {
+    use dashu_base::DivRemEuclid;
+    // Euclidean division rounds down for a positive divisor; the divisors here are positive.
+    debug_assert!(*b > IBig::ZERO);
+    a.div_rem_euclid(b).0
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn limit_denominator_matches_fractions_doctests() {
+        use dashu_ratio::RBig;
+        // Fraction('3.141592653589793').limit_denominator(10) / (100), Fraction(4321, 8765).limit_denominator(10000).
+        let pi = RBig::from_parts(3141592653589793i64.into(), 1000000000000000u64.into());
+        let r = |n: i64, d: u64| RBig::from_parts(n.into(), d.into());
+        assert_eq!(super::limit_denominator(&pi, &10.into()).unwrap(), r(22, 7));
+        assert_eq!(
+            super::limit_denominator(&pi, &100.into()).unwrap(),
+            r(311, 99)
+        );
+        assert_eq!(
+            super::limit_denominator(&r(4321, 8765), &10000.into()).unwrap(),
+            r(4321, 8765)
+        );
+        // Midway between two integers with max_denominator 1: the floor.
+        assert_eq!(
+            super::limit_denominator(&r(5, 2), &1.into()).unwrap(),
+            r(2, 1)
+        );
+        assert_eq!(
+            super::limit_denominator(&r(-5, 2), &1.into()).unwrap(),
+            r(-3, 1)
+        );
+        assert!(super::limit_denominator(&r(1, 3), &0.into()).is_err());
+    }
+
     use super::*;
 
     fn f(x: f64) -> Value {

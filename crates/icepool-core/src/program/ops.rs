@@ -14,6 +14,7 @@ use super::die_methods;
 use super::evaluate;
 use super::expression;
 use super::format;
+use super::function;
 use super::map;
 use super::map_tools;
 use super::multi_deal;
@@ -507,6 +508,64 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "hash_key_compare" => {
             let [a, b, cmp] = args.exactly(["a", "b", "cmp"])?;
             format::hash_key_compare(a, b, cmp)
+        }
+        "z" => {
+            let [sides] = args.exactly(["sides"])?;
+            function::z(sides)
+        }
+        "dz_attr" => {
+            let [name] = args.exactly(["name"])?;
+            function::dz_attr(name)
+        }
+        "coin" => {
+            let [n, d, m] = args.exactly(["n", "d", "max_denominator"])?;
+            function::coin(n, d, m)
+        }
+        "stochastic_round" => {
+            let [x, m] = args.exactly(["x", "max_denominator"])?;
+            function::stochastic_round(x, m)
+        }
+        "one_hot" => {
+            let [sides] = args.exactly(["sides"])?;
+            function::one_hot(sides)
+        }
+        "pointwise" => {
+            let [a, max, spread] = args.exactly(["args", "max", "spread"])?;
+            function::pointwise(a, max, spread)
+        }
+        "extreme_outcome" => {
+            let [a, max, spread] = args.exactly(["args", "max", "spread"])?;
+            function::extreme_outcome(a, max, spread)
+        }
+        "harmonize_denominators" => {
+            let [dice, weights] = args.exactly(["dice", "weights"])?;
+            function::harmonize_denominators(dice, weights)
+        }
+        "consecutive" => {
+            let [a] = args.exactly(["args"])?;
+            function::consecutive(a)
+        }
+        "sorted_union" => {
+            let [a] = args.exactly(["args"])?;
+            function::sorted_union(a)
+        }
+        "reduce" | "accumulate" => {
+            let [f, dice, initial] = args.exactly(["f", "dice", "initial"])?;
+            if op == "reduce" {
+                function::reduce(f, dice, initial)
+            } else {
+                function::accumulate(f, dice, initial)
+            }
+        }
+        "from_rv" => {
+            let [rv, params, outcomes, den] =
+                args.exactly(["rv", "params", "outcomes", "denominator"])?;
+            function::from_rv(rv, params, outcomes, den)
+        }
+        "wallenius_deal" => {
+            let [data, mapping, hand_size, method] =
+                args.exactly(["data", "mapping", "hand_size", "method"])?;
+            function::wallenius_deal(data, mapping, hand_size, method)
         }
         "vectorize" => {
             let [a] = args.exactly(["args"])?;

@@ -168,5 +168,19 @@
   "coll_unary": "ported",
   "coll_truth": "ported",
   "vector_method": "ported",
-  "symbols_method": "ported"
+  "symbols_method": "ported",
+  "z": "ported",
+  "dz_attr": "ported",
+  "coin": "ported",
+  "stochastic_round": "ported",
+  "one_hot": "ported",
+  "pointwise": "ported",
+  "extreme_outcome": "ported",
+  "consecutive": "ported",
+  "sorted_union": "ported",
+  "harmonize_denominators": "ported",
+  "reduce": "ported",
+  "accumulate": "ported",
+  "from_rv": "ported",
+  "wallenius_deal": "ported"
 }

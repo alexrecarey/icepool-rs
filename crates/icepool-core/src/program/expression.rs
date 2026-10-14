@@ -723,7 +723,7 @@ fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
 }
 
 /// `data[inner] += weight` for a mixture's `defaultdict(int)` of inners.
-fn add_inner(
+pub(super) fn add_inner(
     data: &mut Vec<(MExpr, Quantity)>,
     inner: MExpr,
     weight: Quantity,

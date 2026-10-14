@@ -274,7 +274,7 @@ pub fn joint_stat(die: PValue, stat: PValue, i: PValue, j: PValue) -> Result<PVa
 }
 
 /// `Die(data)`, or the die itself where Python returns `self`.
-fn new_or_self(die: Die<Value>, data: Option<Data>) -> Result<PValue, PErr> {
+pub(super) fn new_or_self(die: Die<Value>, data: Option<Data>) -> Result<PValue, PErr> {
     match data {
         None => Ok(PValue::Die(die)),
         Some(data) => {
