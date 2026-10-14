@@ -129,8 +129,8 @@ impl N {
 }
 
 /// Python refuses to build integers this large (or would run out of memory or time doing it): the port raises
-/// instead of trying.
-const MAX_INT_BITS: usize = 1 << 32;
+/// instead of trying. (A `u64`: it does not fit a 32-bit `usize`, e.g. on wasm32.)
+const MAX_INT_BITS: u64 = 1 << 32;
 /// Repetition beyond this many elements raises (Python would raise `MemoryError` or take very long).
 const MAX_REPEAT: usize = 1 << 28;
 
@@ -289,7 +289,7 @@ impl Value {
 fn pow10(n: &IBig) -> Result<IBig> {
     let k =
         usize::try_from(n.unsigned_abs()).map_err(|_| Error::Overflow("too many digits".into()))?;
-    if k > MAX_INT_BITS / 4 {
+    if k as u64 > MAX_INT_BITS / 4 {
         return too_large();
     }
     Ok(IBig::from(10u8).pow(k))
@@ -380,7 +380,9 @@ fn int_pow(a: &IBig, b: &IBig) -> Result<IBig> {
         });
     }
     match usize::try_from(b.clone()) {
-        Ok(e) if e.saturating_mul(a.unsigned_abs().bit_len()) <= MAX_INT_BITS => Ok(a.pow(e)),
+        Ok(e) if (e as u64).saturating_mul(a.unsigned_abs().bit_len() as u64) <= MAX_INT_BITS => {
+            Ok(a.pow(e))
+        }
         _ => too_large(),
     }
 }
@@ -410,7 +412,11 @@ fn int_op(op: BinOp, a: &IBig, b: &IBig) -> Result<Value> {
         LShift | RShift if *b < zero => return Err(Error::Value("negative shift count".into())),
         LShift if *a == zero => zero,
         LShift => match usize::try_from(b.clone()) {
-            Ok(s) if s.saturating_add(a.unsigned_abs().bit_len()) <= MAX_INT_BITS => a << s,
+            Ok(s)
+                if (s as u64).saturating_add(a.unsigned_abs().bit_len() as u64) <= MAX_INT_BITS =>
+            {
+                a << s
+            }
             _ => return too_large(),
         },
         // Shifting right by more than the length leaves 0, or -1 for a negative number (rounds toward -inf).

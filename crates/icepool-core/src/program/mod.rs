@@ -101,6 +101,9 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
             let op = m["op"]
                 .as_str()
                 .ok_or_else(|| PErr::Unimplemented("non-string op".into()))?;
+            if op == "khepri" {
+                return khepri(m);
+            }
             let mut values = Vec::new();
             for (k, v) in m.iter().filter(|(k, _)| *k != "op") {
                 // A node's `lazy` arguments (grammar_api.Node.lazy) arrive unevaluated: here, the catalogue name.
@@ -118,6 +121,17 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
             .collect::<Result<_, _>>()
             .map(PValue::List),
         _ => wire::dec(x),
+    }
+}
+
+/// The `khepri` node: khepri-f2f's whole engine (harness/grammar/khepri.py). Its `input` is lazy: the engine
+/// input object itself, never evaluated as a program.
+fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
+    match (m.len(), m.get("input")) {
+        (2, Some(input)) => Ok(PValue::Die(crate::khepri::engine_values(
+            &crate::khepri::Input::from_json(input)?,
+        )?)),
+        _ => raise(Error::Type("expected arguments [\"input\"]".into())),
     }
 }
 

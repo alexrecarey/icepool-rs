@@ -9,7 +9,7 @@
   "lt": "ported",
   "ge": "ported",
   "matmul": "ported",
-  "khepri": "pending",
+  "khepri": "ported",
   "die_typed": "ported",
   "die_times": "ported",
   "truediv": "ported",

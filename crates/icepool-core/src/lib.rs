@@ -17,6 +17,7 @@ pub mod expand;
 pub mod function;
 pub mod keep;
 pub mod keep_tuple;
+pub mod khepri;
 pub mod math;
 pub mod order;
 pub mod outcome;

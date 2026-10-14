@@ -69,3 +69,11 @@ impl SumOutcome for i64 {
         Ok(0)
     }
 }
+
+/// Tuples of ints (khepri's `(a_crit, a_hit, b_crit, b_hit)` states): Python compares tuples element by element,
+/// which for ints is Rust's lexicographic array order.
+impl<const N: usize> Outcome for [i64; N] {
+    fn py_lt(&self, other: &Self) -> Result<bool> {
+        Ok(self < other)
+    }
+}
