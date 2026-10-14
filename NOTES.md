@@ -5,6 +5,27 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **map without repeat on the core (S1c).** Under `ICEPOOL_BACKEND=rust`, core_impl.py `map_simple` keeps
+  `transition_and_star` (so `infer_star` and the mapping lambda stay Python's) and calls `icepool_rs.map_simple(
+  transition, star, [arg_items(arg) ...], kwargs)`: the Cartesian product (core `iter_cartesian_product` over
+  `Bound` objects, so the facade's own outcome objects reach the callable), one host callback per joint outcome,
+  `Break` unwrapped (`Break()` = the first outcome before unpacking). It returns `(final_states,
+  final_quantities)` and the facade calls `icepool.Die(..., again_*)`: the mixing is the core's like every
+  `Die()`, and Again / the single-die shortcut / Restart-as-Reroll stay exactly Python's. `expand.arg_items` was
+  lifted out of `iter_cartesian_product` (unchanged) to share it. `cartesian_product(outcome_type=tuple)` over
+  dice and plain outcomes (no other expandable, e.g. a multiset expression) is `icepool_rs.tupleize` = core
+  `expand::tupleize_dice` (also used by icepool-run's `tupleize`); Deck/Vector/`iter_cartesian_product` itself
+  stay Python (S4a/S5, S3b uses it in TransitionCache). `map_and_time` is all repeat: S3b. The zero-args `map(f)`
+  and `MultisetExpression.expand()` of args are untouched Python.
+- `creation_args.expand_args_for_die_rust` now expands every arg first and raises AttributeError for a non-Mapping
+  subdata (a tuple holding Reroll expands to Reroll itself), as `merge_weights_lcm` does; it was TypeError.
+- Program layer: `PValue::Restart` (drops out like Reroll in `die_arg`; only made by catalogue `restart_below`)
+  and `PValue::Break(Box<PValue>)` (`Value::None` = `Break()`; only `map` unwraps it, `die_arg` says
+  unimplemented, as `Die([Break(..)])` from a zero-arg map would keep a Break outcome). `Func::call_kw` takes
+  keyword arguments: only `add_kw` has one (`k`); a name that would bind a positional parameter (`x`, `a`, ...)
+  is unimplemented, any other is TypeError. Node `map_kw` (kwargs as `[[{"str": name}, value], ...]`); catalogue
+  entries with `kw=True` are only picked by `fn_node(g, kw=True)`.
+
 - **Die methods on the core (S1b).** Switched under `ICEPOOL_BACKEND=rust`: `Die.reroll` (and so `filter`),
   `Population.split` and `zero` for a die (`isinstance(self, Die)` in base.py), `truncate`, `clip`, `simplify`,
   `_popped_min/_popped_max`, `__matmul__` (so `__rmatmul__`, `count`), `Die._lowest_single/_highest_single`, and
