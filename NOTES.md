@@ -14,12 +14,20 @@ turns out wrong. Newest decisions at the top of each section.
   discovered incrementally. `mod.rs`: `map_repeat` / `map_and_time` (`repeat: Option<u64>`, `None` = `range()`
   TypeError raised *after* the first self-loop die), `final_map`. `markov_chain.rs` `absorbing_markov_chain` ->
   `(die, Option<Fraction>)` (`None` = Restart possible). Count mode's chain (again.rs) now runs on the same cache.
-- Order of transient states: Python pops a `set`; the port uses a stack. Results don't depend on it (exact
-  solution, simplified die, Fraction), so the elimination skips Python's zero-multiplier row ops (they only scale).
+- Order of transient states: Python pops a `set`; the port explores breadth first (FIFO). Results don't depend on
+  it (exact solution, simplified die, Fraction), so the elimination skips Python's zero-multiplier row ops (they
+  only scale). Termination does: with infinitely many states and one that raises (a walk unbounded below,
+  `Break(Reroll)` at the top), Python's set order reaches the raise; a depth-first port walked off forever
+  (fixtures/s3b/unbounded-chain-raises). Breadth first steps every state at finite distance, so it raises too.
+- Generators that evaluate a subprogram at generation time (pool.py `_die_without_nan`, again.py `_finite_die`,
+  statistics.py, `_gen_pool_pop`) run outside the fuzzer's oracle timeout: use `harness.grammar.peek` (gives up
+  after 2s with TimeoutError), never `evaluate`. Attempt 1 of S3b hung the fresh-seed fuzz for 16 minutes on a
+  `map_repeat` 'inf' over an unbounded process nested in a pool die. The 'inf' / mean_time_to_absorb generators
+  now only build finite chains (`markov.py _UNBOUNDED`, `_ANY_STEPS`).
   What could depend on it is refused as `Unsupported`: equal states spelled differently (`1`/`True`/`1.0`, `0.0`/
   `-0.0`) anywhere in an 'inf' chain (`Spellings`). NaN states are `Unsupported` in every mode (Python finds the
   same NaN object again by identity). A process with infinitely many states never finishes, in Python too (the
-  fuzzer skips it as "oracle slow"): the generators avoid them for 'inf' (`markov.py _UNBOUNDED`).
+  fuzzer skips it as "oracle slow").
 - New `Error::NotImplemented` (Python `NotImplementedError` raised by icepool itself; `mean_time_to_absorb` with
   Restart). icepool-py maps a core `Error::Type("AttributeError: ...")` to `AttributeError`.
 - Program layer `program/map_tools.rs`: nodes `map_repeat` (`f, args, star, repeat`; `repeat` int or 'inf'),
