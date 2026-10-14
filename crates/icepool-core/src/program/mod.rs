@@ -6,6 +6,7 @@
 
 mod again;
 mod catalogue;
+mod catalogue_evaluators;
 mod evaluate;
 mod map;
 mod ops;

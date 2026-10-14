@@ -2,7 +2,8 @@
 //! evaluators of `crate::evaluator`, and the shared code that turns evaluator arguments into sources and the
 //! final outcomes into a die.
 
-use super::ops::{die_arg, type_error};
+use super::catalogue_evaluators::CatalogueEvaluator;
+use super::ops::{die_arg, py_iter, type_error};
 use super::pool::{pool, the_pool};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -39,12 +40,14 @@ pub fn implicit_convert(arg: PValue) -> Result<Pool<Value>, PErr> {
 }
 
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`) and raises
-/// `RecursionError` from about 976 outcomes at the top level of a program, fewer when nested deeper. The port
-/// raises from `SURE_RECURSION_ERROR`, and in between the two limits the answer depends on the caller's stack,
-/// which the port cannot know: unimplemented.
-fn check_recursion(outcomes: usize) -> Result<(), Error> {
-    const SAFE_RECURSION: usize = 800;
-    const SURE_RECURSION_ERROR: usize = 1000;
+/// `RecursionError` near 1000 outcomes. Where exactly depends on the caller's stack (the program's nesting, the
+/// harness's own frames) and on the process's history: popping a die computes `_popped_max` (a `cached_property`
+/// several frames deep) unless an earlier evaluation already did. Measured: a top-level `pool.sum()` of 981 outcomes
+/// succeeds with warm dice and fails at 982; with cold dice six levels down 970 still succeeds. The port raises from
+/// `SURE_RECURSION_ERROR` and says unimplemented in between (the answer is not knowable from the program).
+pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
+    const SAFE_RECURSION: usize = 930;
+    const SURE_RECURSION_ERROR: usize = 990;
     if outcomes >= SURE_RECURSION_ERROR {
         return Err(Error::Value(
             "RecursionError: maximum recursion depth exceeded in evaluate_backward".into(),
@@ -167,4 +170,17 @@ pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
         _ => return Err(PErr::Unimplemented(op.into())),
     };
     die(&ComparisonEvaluator(comparison), &[left, right])
+}
+
+/// `EVALUATORS[name](*params).evaluate(*args)` (harness/catalogue/evaluators.py).
+pub fn catalogue(name: PValue, params: PValue, args: PValue) -> Result<PValue, PErr> {
+    let PValue::Value(Value::Str(name)) = name else {
+        return raise(Error::Key("catalogue names are strs".into()));
+    };
+    let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?;
+    let pools = py_iter(args)?
+        .into_iter()
+        .map(implicit_convert)
+        .collect::<Result<Vec<_>, _>>()?;
+    super::catalogue_evaluators::run(&evaluator, &pools)
 }

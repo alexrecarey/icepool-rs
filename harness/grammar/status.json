@@ -76,5 +76,7 @@
   "pool_count_subset": "ported",
   "pool_issubset": "ported",
   "pool_issuperset": "ported",
-  "pool_isdisjoint": "ported"
+  "pool_isdisjoint": "ported",
+  "evaluate": "ported",
+  "pool_index": "ported"
 }

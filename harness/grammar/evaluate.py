@@ -57,7 +57,17 @@ def pool_all_counts(pool, filter):
     return pool.all_counts(filter=filter)
 
 
-@node("pool_expand", "die", gen=_gen1("pool_expand", order=lambda g: g.rng.choice([1, -1, 0])), weight=0.3)
+def _gen_expand(g, depth):
+    # The result has an outcome per possible multiset: from a pool of at most three leaf dice, so that dice made
+    # from it stay well below Python's recursion limit (~1000 outcomes) when pooled and evaluated again.
+    n = g.rng.randint(0, 3)
+    p = {"op": "pool", "dice": [g.die(0) for _ in range(n)], "times": g.rng.choice([1, 1, 2]) if n < 3 else 1}
+    if g.rng.random() < 0.3:
+        p = {"op": "pool_highest", "pool": p, "keep": g.rng.randint(0, 2), "drop": None}
+    return {"op": "pool_expand", "pool": p, "order": g.rng.choice([1, -1, 0])}
+
+
+@node("pool_expand", "die", gen=_gen_expand, weight=0.3)
 def pool_expand(pool, order):
     """pool.expand(order=order): all elements, sorted ascending iff order == Order.Ascending."""
     fresh_caches()
@@ -100,3 +110,22 @@ def _compare(op, method):
 _compare("pool_issubset", "issubset")
 _compare("pool_issuperset", "issuperset")
 _compare("pool_isdisjoint", "isdisjoint")
+
+
+# --- Named evaluators (harness/catalogue/evaluators.py) ---------------------------------------------------------
+
+def _gen_evaluate(g, depth):
+    from harness.catalogue.evaluators import ENTRIES
+    name = g.rng.choice(sorted(ENTRIES))
+    e = ENTRIES[name]
+    args = [gen_pool(g, depth) if g.rng.random() < 0.85 else [g.outcome() for _ in range(g.rng.randint(0, 3))]
+            for _ in range(e.inputs(g))]
+    return {"op": "evaluate", "name": {"str": name}, "params": e.params(g), "args": args}
+
+
+@node("evaluate", "die", gen=_gen_evaluate, weight=0.6)
+def evaluate_named(name, params, args):
+    """EVALUATORS[name](*params).evaluate(*args): a named custom evaluator on pools (or sequences of outcomes)."""
+    from harness.catalogue.evaluators import EVALUATORS
+    fresh_caches()
+    return EVALUATORS[name](*params).evaluate(*args)

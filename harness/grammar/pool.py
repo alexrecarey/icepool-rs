@@ -3,16 +3,13 @@ die.py). Same rules as basic.py: the Python side is a direct call into icepool; 
 
 A pool's repr holds an address, so a pool is never a program result: the pool nodes have no generator of their
 own (the fuzzer would pick them as roots). Programs read pools through `pool_info` (its public accessors and the
-sorted `(die, count)` pairs) and `pool_pop` (one pop of its source, what the evaluator will drive in K6).
+sorted `(die, count)` pairs), `pool_pop` (one pop of its source, what the evaluator drives), `pool_index`
+(`pool[int]`, the keep evaluator) and the evaluation nodes of evaluate.py.
 
-Until the multiset evaluator lands (K6), anything that evaluates a pool (`pool[int]`, `.sum()`, the pool path of
-`die.highest` / `icepool.highest`) is unimplemented in the port, so the generators here avoid those cases: the
-die-returning nodes only generate keep/drop combinations that `canonical_slice` resolves without a pool, and a
-pool's keep tuple only goes negative in its last operation (keeping on a negative keep tuple builds a
-`MultisetKeep` expression, not a pool). K6 widens them.
+A pool's keep tuple only goes negative in its last operation (keeping on a negative keep tuple builds a
+`MultisetKeep` expression, not a pool: task S4), and never before `pool[int]`.
 """
 import icepool
-from icepool.population.keep import canonical_slice, highest_slice, lowest_slice
 
 from harness.core.encode import enc
 from harness.core.grammar_api import evaluate, node
@@ -100,9 +97,31 @@ def fresh_caches():
 
 # --- Pool generators --------------------------------------------------------------------------------------------
 
+def _has_nan(x):
+    if isinstance(x, float):
+        return x != x
+    return isinstance(x, tuple) and any(_has_nan(y) for y in x)
+
+
 def _die(g, depth):
-    # Popping costs a binomial row per distinct die: keep the dice themselves modest.
-    return g.die(min(depth, 1))
+    """A die for a pool. Popping costs a binomial row per distinct die: keep the dice themselves modest."""
+    return _die_without_nan(g, min(depth, 1))
+
+
+def _die_without_nan(g, depth):
+    """A die program without NaN outcomes (inf arithmetic makes them), for anything that may end up in a pool: a
+    pool's outcomes are sorted(set(...)), and NaN hashes by object identity, so where NaNs land in Python depends
+    on memory addresses. Asks the oracle, like _gen_pool_pop."""
+    for _ in range(10):
+        p = g.die(depth)
+        try:
+            die = evaluate(p)
+            if isinstance(die, icepool.Die) and any(_has_nan(o) for o in die.outcomes()):
+                continue
+        except Exception:  # noqa: BLE001 - a die that raises is a fine program too
+            pass
+        return p
+    return {"op": "d", "sides": g.rng.randint(1, 6)}
 
 
 def _base_pool(g, depth, uniform=False):
@@ -169,13 +188,14 @@ def _keep_op(g, p, final):
     return {"op": "pool_neg", "pool": p}
 
 
-def gen_pool(g, depth):
-    """A pool program: a pool, then up to three keep-like operations."""
+def gen_pool(g, depth, negative=True):
+    """A pool program: a pool, then up to three keep-like operations. `negative`: the last one may make counts
+    negative."""
     p = _base_pool(g, depth)
     for _ in range(g.rng.choice([0, 1, 1, 2])):
         p = _keep_op(g, p, final=False)
     if g.rng.random() < 0.4:
-        p = _keep_op(g, p, final=True)
+        p = _keep_op(g, p, final=negative)
     return p
 
 
@@ -216,36 +236,30 @@ def pool_pop(pool, order, outcome):
                  for s, count, weight in pool._make_source().pop(icepool.Order(order), outcome))
 
 
+def _gen_pool_index(g, depth):
+    index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10])
+    return {"op": "pool_index", "pool": gen_pool(g, depth, negative=False), "index": index}
+
+
+@node("pool_index", "die", gen=_gen_pool_index, weight=0.5)
+def pool_index(pool, index):
+    """pool[index] for an int: the roll at that sorted position (of the kept ones) as a Die (the keep evaluator)."""
+    fresh_caches()
+    return pool[index]
+
+
 # --- Lowest / highest of dice -----------------------------------------------------------------------------------
 
-def _no_pool_needed(start, stop, length, die_method, highest):
-    """Whether keeping start:stop of length sorted rolls avoids the pool (which needs K6's evaluator)."""
-    if die_method:
-        return (start == length - 1 and stop == length) if highest else (start == 0 and stop == 1)
-    return (start == stop or (start == 0 and stop == length) or (start == 0 and stop == 1)
-            or (start == length - 1 and stop == length))
-
-
-def _keep_drop(g, length, die_method, highest):
-    """keep and drop that the port can answer without a pool (or that raise for a negative count)."""
-    for _ in range(30):
-        keep = _opt(g, -1 if g.rng.random() < 0.05 else 0, 3)
-        drop = _opt(g, 0, 3)
-        try:
-            s = (highest_slice if highest else lowest_slice)(keep, drop)
-        except ValueError:
-            return keep, drop
-        c = canonical_slice(s, length)
-        if _no_pool_needed(c.start, c.stop, length, die_method, highest):
-            return keep, drop
-    return None, None
+def _keep_drop(g):
+    """keep and drop counts (None: see highest_slice / lowest_slice); rarely a negative keep, which raises."""
+    return _opt(g, -1 if g.rng.random() < 0.05 else 0, 3), _opt(g, 0, 3)
 
 
 def _gen_die_keep(op):
     def gen(g, depth):
         rolls = g.rng.randint(1, 5)
-        keep, drop = _keep_drop(g, rolls, True, op == "die_highest")
-        return {"op": op, "die": g.die(depth), "rolls": rolls, "keep": keep, "drop": drop}
+        keep, drop = _keep_drop(g)
+        return {"op": op, "die": _die_without_nan(g, depth), "rolls": rolls, "keep": keep, "drop": drop}
     return gen
 
 
@@ -266,8 +280,8 @@ def die_lowest(die, rolls, keep, drop):
 def _gen_free_keep(op):
     def gen(g, depth):
         n = g.rng.choice([0, 1, 2, 2, 3, 4])
-        args = [g.die(depth) if g.rng.random() < 0.8 else g.outcome() for _ in range(n)]
-        keep, drop = _keep_drop(g, n, False, op == "highest")
+        args = [_die_without_nan(g, depth) if g.rng.random() < 0.8 else g.outcome() for _ in range(n)]
+        keep, drop = _keep_drop(g)
         default = g.outcome() if n == 0 and g.rng.random() < 0.6 else None
         return {"op": op, "args": args, "keep": keep, "drop": drop, "default": default}
     return gen

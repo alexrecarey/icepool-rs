@@ -99,7 +99,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [die, rolls] = args.exactly(["die", "rolls"])?;
             pool::die_pool(die, rolls)
         }
-        "pool_keep" => {
+        "pool_keep" | "pool_index" => {
             let [p, index] = args.exactly(["pool", "index"])?;
             pool::pool_keep(p, index)
         }
@@ -175,6 +175,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "pool_issubset" | "pool_issuperset" | "pool_isdisjoint" => {
             let [p, other] = args.exactly(["pool", "other"])?;
             evaluate::compare(op, p, other)
+        }
+        "evaluate" => {
+            let [name, params, a] = args.exactly(["name", "params", "args"])?;
+            evaluate::catalogue(name, params, a)
         }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;
