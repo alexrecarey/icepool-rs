@@ -157,3 +157,35 @@ Drafted upstream test:
 def test_format_no_columns():
     assert f'{icepool.d6:md:}' == 'Die with denominator 6\n\n|\n|\n' + '|\n' * 6 + '\n'
 ```
+
+### `d6 @ Again` is additive but every `@` raises `TypeError` in `again_count` mode (S3a)
+
+`AgainExpression.__rmatmul__` marks `d6 @ Again` additive (upstream's own `test_is_additive` asserts it), but
+`_again_count` replaces every argument that is not an `Again` with `0` (`_again_count_arg`), so it computes
+`operator.matmul(0, 1)`: `TypeError: unsupported operand type(s) for @: 'int' and 'int'`. `2 @ Again` fails the
+same way. Presumably the non-Again argument was meant to be kept as-is (`d6 @ 1`). The port copies the TypeError.
+
+Drafted upstream test:
+
+```python
+def test_again_count_matmul():
+    result = Die([1, 2, d(2) @ Again], again_count=1)
+    expected = Die([1, 2, d(2) @ Die([1, 2])])  # or whatever again_count should give
+    assert result == expected
+```
+
+### `Reroll` and dice among `again_count` outcomes count as rolls that end the chain (S3a)
+
+`evaluate_agains_using_count` leaves `Reroll` (and empty dice) out of `not_again_die`, but `make_step_outcome`
+treats every outcome that is not an `AgainExpression`, `Reroll` included, as `tupleize(zero, 1, -1)`: a terminal
+roll, later replaced by a roll of `not_again_die`. So `Die([Reroll, 2, Again + 1], again_count=2)` gives `Reroll`
+the weight of a terminal roll instead of rerolling it. In depth mode `Reroll` drops out of each level as usual. The
+port copies it.
+
+Drafted upstream test:
+
+```python
+def test_again_count_reroll_outcome():
+    result = Die([Reroll, 2, Again + 1], again_count=2)
+    assert result == Die([2, Again + 1], again_count=2)
+```
