@@ -279,6 +279,17 @@ def evaluate_agains_using_count(
     if again_end is not icepool.Restart:
         again_end_die: icepool.Die[T] = icepool.Die([again_end])
 
+    # icepool-rs: the step outcomes (`make_step_outcome`, with the
+    # expressions' functions and `icepool.tupleize` as host callbacks), the
+    # `map(step, step_die, repeat=again_count + 1)` chain and `finalize` run
+    # in the Rust core.
+    if icepool.backend.RUST:
+        return icepool.Die._new_rust(
+            icepool.backend.RUST.evaluate_agains_using_count(
+                list(outcomes), times, again_count, zero,
+                not_again_die._rust_die(), None if again_end is icepool.Restart
+                else again_end_die._rust_die()))
+
     def make_step_outcome(outcome):
         """add_flat, add_not_again, add_again"""
         if isinstance(outcome, AgainExpression):
@@ -339,6 +350,16 @@ def evaluate_agains_using_depth(
 
     if again_end is None:
         again_end = compute_not_again_die(outcomes, times).zero_outcome()
+
+    # icepool-rs: replacing the expressions (their functions are host
+    # callbacks) and the `again_depth` levels run in the Rust core; each level
+    # is built by `icepool.Die(objects, times)`.
+    if icepool.backend.RUST:
+        # Every expression raises this, so the first one does.
+        if again_end is icepool.Restart:
+            raise ValueError('Restart is not compatible with again_depth.')
+        return icepool.backend.RUST.evaluate_agains_using_depth(
+            list(outcomes), times, again_depth, again_end)
 
     def replace_again(outcome):
         if isinstance(outcome, AgainExpression):

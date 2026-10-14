@@ -4,6 +4,7 @@
 //! calls in here for the work: a `Die` built in Rust is held by the facade's `Die` as `_rs`, and its items become
 //! the facade's `Counts`.
 
+mod again;
 mod convert;
 mod evaluate;
 mod format;
@@ -355,9 +356,14 @@ fn clip(
 /// Python types matter (a float count makes float quantities), as in icepool-run.
 #[pyfunction]
 fn matmul(py: Python<'_>, n: &Bound<'_, RsDie>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
+    let result = matmul_core(py, n.get().die.clone(), &die.get().die)?;
+    RsDie::wrap(py, Ok(result))
+}
+
+/// `matmul` on core dice (also count mode's `n @ die`).
+fn matmul_core(py: Python<'_>, mut n: CoreDie<Value>, die: &CoreDie<Value>) -> PyResult<CoreDie<Value>> {
     // A count of an `int` subclass (an `IntEnum`) is a host object to the core, but `_sum_all` and the scaling
     // only do int arithmetic and comparisons with it, as with the equal int; counts never appear in the result.
-    let mut n = n.get().die.clone();
     if n.outcomes().any(|o| matches!(o, Value::Host(_))) {
         let items = n
             .items()
@@ -374,8 +380,7 @@ fn matmul(py: Python<'_>, n: &Bound<'_, RsDie>, die: &Bound<'_, RsDie>) -> PyRes
             .collect::<PyResult<Vec<_>>>()?;
         n = CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items));
     }
-    let result = icepool_core::program::matmul_dice(&n, &die.get().die).map_err(perr_to_py)?;
-    RsDie::wrap(py, Ok(result))
+    icepool_core::program::matmul_dice(&n, die).map_err(perr_to_py)
 }
 
 /// `Die._popped_min`: the die without its min outcome (zero quantities kept) and that outcome's quantity.
@@ -499,6 +504,8 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(zero, m)?,
         wrap_pyfunction!(simplify, m)?,
         wrap_pyfunction!(map::map_simple, m)?,
+        wrap_pyfunction!(again::evaluate_agains_using_depth, m)?,
+        wrap_pyfunction!(again::evaluate_agains_using_count, m)?,
         wrap_pyfunction!(map::tupleize, m)?,
         wrap_pyfunction!(pool::pool_new, m)?,
         wrap_pyfunction!(evaluate::evaluate_builtin, m)?,

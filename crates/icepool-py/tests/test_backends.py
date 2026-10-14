@@ -22,6 +22,7 @@ PRELUDE = '''
 import enum, collections, math, operator
 from fractions import Fraction
 from icepool import *
+from icepool import AgainExpression
 
 class E(enum.IntEnum):
     A = 1
@@ -237,6 +238,31 @@ CASES = [
     'map(lambda x: Restart if x == 2 else x, d(3))',
     'map(lambda x: x + Again if x == 3 else x, d(3), again_depth=2)',
     'map(lambda x: x + Again if x == 3 else x, d(3), again_count=2)',
+    # S3a: Again on the core in both modes: expression functions and Die() are host callbacks.
+    'Die([1, 2, AgainExpression(lambda a, b: a * 10 + b, Again, 3)], again_depth=2)',
+    'Die([1, AgainExpression(lambda x: 1 / 0, Again)])',
+    'Die([E.A, E.B + Again], again_depth=2)',
+    'Die([E.A, E.B + Again], again_count=2)',
+    'Die([Card(1), -Again], again_end=Card(5))',
+    'Die(["a", Again + "b"], again_depth=2)',
+    'Die(["a", Again + "b"], again_count=2)',
+    'Die([Fraction(1, 2), Again + Fraction(1, 3)], again_count=2)',
+    'Die([1, 2, 3 + Again], again_count=2, again_end=Restart)',
+    'Die([1, Again + Again, d(2)], again_count=3, again_end=Reroll)',
+    'Die([1, Again + d(2)], again_count=2, again_end=d(3))',
+    'Die([Reroll, 2 + Again, 1, Again], again_count=1)',
+    'Die([1, 2 * Again], again_count=1)',
+    'Die([1, d(2) @ Again], again_count=1)',
+    'Die([1, 3 + Again], again_count=1.0)',
+    'Die([1, 3 + Again], again_depth=1.5)',
+    'Die([1, 3 + Again], again_count=-1)',
+    'Die([1, 3 + Again], again_count=1, again_depth=1)',
+    'Die([1, 3 + Again], again_depth=2, again_end=Restart)',
+    'Die([1, 3 + Again], again_depth=2, again_end=Reroll)',
+    'Die({1: 2, 3 + Again: 1}, 3, again_depth=2)',
+    'd(6).explode(depth=2, end=Reroll)',
+    'd(4).explode(lambda x: x >= 3, depth=3)',
+    'Die([Again, Again])',
     'map(lambda a, b: a + b, Die(["ab", "c"]))',
     'map(lambda a, b: a + b, Die([5]))',
     'map(lambda a, b: (b, a), Die([P(1, 2), P(3, 4)]))',
