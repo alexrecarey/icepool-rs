@@ -8,6 +8,7 @@
 //! Later kinds (Vector, Symbols, host objects) are added as new variants.
 
 mod number;
+pub mod pow;
 pub mod ops;
 mod repr;
 

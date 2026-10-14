@@ -1,0 +1,19 @@
+[package]
+name = "icepool-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "WASM (JS) facade over icepool-core: the program runner and khepri's calculate"
+
+[lib]
+# cdylib for wasm-pack; rlib so the native workspace build, test and clippy cover it too.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+icepool-core = { path = "../icepool-core" }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+# Only wasm-bindgen itself: the few JS globals we need (JSON, BigInt, Reflect) are declared below, not via js-sys.
+wasm-bindgen = "0.2"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O3"]

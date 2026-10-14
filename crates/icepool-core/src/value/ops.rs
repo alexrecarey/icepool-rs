@@ -15,7 +15,7 @@ use dashu_base::{BitTest, DivRem, UnsignedAbs};
 use dashu_int::IBig;
 use dashu_ratio::RBig;
 
-use super::{float_repr, int_to_f64, ratio_to_f64, Value};
+use super::{float_repr, int_to_f64, pow, ratio_to_f64, Value};
 use crate::error::{type_error, Error, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -549,7 +549,7 @@ fn float_pow(iv: f64, iw: f64) -> Result<Value> {
     }
     // Now iv and iw are finite, iw is nonzero, and iv is positive and not equal to 1.0. We finally allow the
     // platform pow to step in and do the rest. Overflow raises; underflow to 0 is fine.
-    let ix = base.powf(iw);
+    let ix = pow::pow(base, iw);
     if ix.is_infinite() {
         return Err(Error::Overflow("Numerical result out of range".into()));
     }
@@ -560,7 +560,7 @@ fn float_pow(iv: f64, iw: f64) -> Result<Value> {
 /// result is not orderable, so a die that keeps it (with a nonzero quantity) raises when it sorts its outcomes.
 fn complex_pow(v: f64, w: f64) -> Result<Value> {
     let vabs = v.hypot(0.0);
-    let len = vabs.powf(w);
+    let len = pow::pow(vabs, w);
     let at = 0.0f64.atan2(v);
     let phase = at * w;
     let (re, im) = (len * phase.cos(), len * phase.sin());
