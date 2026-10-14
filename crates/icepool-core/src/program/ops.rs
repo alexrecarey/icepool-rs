@@ -59,7 +59,21 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
                 PValue::Value(Value::None) => None,
                 d => Some(d),
             };
-            die_with_agains(outcomes, None, depth, end)
+            die_with_agains(outcomes, None, None, depth, end)
+        }
+        "Restart" => {
+            let [] = args.exactly([])?;
+            Ok(PValue::Restart)
+        }
+        "again_count" => {
+            let [outcomes, count, depth, end] =
+                args.exactly(["outcomes", "count", "depth", "end"])?;
+            // `None` is the default for both.
+            let some = |x: PValue| match x {
+                PValue::Value(Value::None) => None,
+                x => Some(x),
+            };
+            die_with_agains(outcomes, None, some(count), some(depth), end)
         }
         "explode" => {
             let [die, which, star, depth, end] =
@@ -418,7 +432,7 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
     match (a, b) {
         // `AgainExpression` defines every operator (and dice return NotImplemented for it), so an expression on
         // either side builds a bigger expression. A comparison with the expression on the right reflects.
-        (a @ PValue::Again(_), b) => Ok(again::apply(AgainOp::Binary(op), vec![a, b])),
+        (a @ PValue::Again(_), b) => again::apply(AgainOp::Binary(op), vec![a, b]),
         // Except that `str % x` is printf-style formatting, which runs before the expression's `__rmod__`. The
         // expression is neither a tuple nor a mapping, so it is the one argument: without a conversion specifier
         // it is left over. (With one, `%s` would format its repr, which holds an address.)
@@ -431,10 +445,10 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
                 type_error("not all arguments converted during string formatting")
             }
         }
-        (a, b @ PValue::Again(_)) => Ok(match op.reflected_comparison() {
+        (a, b @ PValue::Again(_)) => match op.reflected_comparison() {
             Some(reflected) => again::apply(AgainOp::Binary(reflected), vec![b, a]),
             None => again::apply(AgainOp::Binary(op), vec![a, b]),
-        }),
+        },
         (PValue::Die(a), b) => apply(&a, op, &to_die(b)?),
         // The exception: `str % die` is printf-style formatting with the die as the argument, and a die is a
         // Mapping, which formatting accepts even when the format string never uses it.
@@ -457,7 +471,7 @@ pub(super) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
     match a {
         // `AgainExpression` has `-`, `+`, `~` and `abs`, but no `__trunc__`, `__floor__`, `__ceil__`.
         a @ PValue::Again(_) if matches!(op, UnOp::Neg | UnOp::Pos | UnOp::Invert | UnOp::Abs) => {
-            Ok(again::apply(AgainOp::Unary(op), vec![a]))
+            again::apply(AgainOp::Unary(op), vec![a])
         }
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
         PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
@@ -506,7 +520,7 @@ fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<(), PErr> {
 pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
     let (n, die) = match (n, die) {
         (n @ PValue::Again(_), die) | (n, die @ PValue::Again(_)) => {
-            return Ok(again::apply(AgainOp::MatMul, vec![n, die]))
+            return again::apply(AgainOp::MatMul, vec![n, die])
         }
         (PValue::Die(n), die) => (n, to_die(die)?),
         (n, PValue::Die(die)) => (to_die(n)?, die),
@@ -718,21 +732,30 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
 
 /// `icepool.Die(outcomes)` (nodes `die`, `die_typed`) and `icepool.Die(outcomes, times)` (node `die_times`).
 fn die(outcomes: PValue, times: Option<PValue>) -> Result<PValue, PErr> {
-    die_with_agains(outcomes, times, None, PValue::Value(Value::None))
+    die_with_agains(outcomes, times, None, None, PValue::Value(Value::None))
 }
 
-/// `icepool.Die(outcomes, times, again_depth=again_depth, again_end=again_end)`: outcomes that are `Again`
-/// expressions are rolled again (population/again.py, depth mode); without any, `again_depth` and `again_end` are
+/// `icepool.Die(outcomes, times, again_count=, again_depth=, again_end=)`: outcomes that are `Again` expressions
+/// are rolled again (population/again.py; `None` arguments are `None` here); without any, the again arguments are
 /// ignored.
 pub(super) fn die_with_agains(
     outcomes: PValue,
     times: Option<PValue>,
+    again_count: Option<PValue>,
     again_depth: Option<PValue>,
     again_end: PValue,
 ) -> Result<PValue, PErr> {
     let (objects, times) = itemize(outcomes, times)?;
     if objects.iter().any(|x| matches!(x, PValue::Again(_))) {
-        // Count mode (`again_count`) is not ported yet; the default is depth mode with depth 1.
+        if let Some(count) = again_count {
+            if again_depth.is_some() {
+                return raise(Error::Value(
+                    "At most one of again_count and again_depth may be used.".into(),
+                ));
+            }
+            return again::evaluate_agains_using_count(objects, times, count, again_end);
+        }
+        // The default is depth mode with depth 1.
         let depth = again_depth.unwrap_or(PValue::Value(Value::from(1)));
         return again::evaluate_agains_using_depth(objects, times, depth, again_end);
     }

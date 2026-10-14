@@ -463,13 +463,14 @@ fn explode(die: &Die<i64>, which: i64, depth: u64, end: i64) -> Result<Die<i64>>
         .iter()
         .map(|(o, q)| {
             let object = if *o == which {
-                AgainArg::Again(Arc::new(Again::Apply(
-                    AddOp,
-                    vec![
+                AgainArg::Again(Arc::new(Again::Apply {
+                    function: AddOp,
+                    args: vec![
                         AgainArg::Other(DieArg::Outcome(*o)),
                         AgainArg::Again(again.clone()),
                     ],
-                )))
+                    is_additive: true,
+                }))
             } else {
                 AgainArg::Other(DieArg::Outcome(*o))
             };
