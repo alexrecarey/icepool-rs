@@ -36,7 +36,7 @@ turns out wrong. Newest decisions at the top of each section.
   operations: `d`/`z`/`__getattr__` (`Die(range)`), `stochastic_round` (`math.floor` + `coin` + `int + Die`),
   `from_cumulative` (subtraction loop over user ints, then `Die(dict)`), `from_rv` (`rv.cdf` is the user's),
   `reduce` / `accumulate` (loops over the core `map`), `Wallenius` (Deck / Die / Deal / mixtures on the core;
-  its `map_to_pool` loop is Python until S3c). Facade audit: docs/FACADE-AUDIT.md.
+  its `map_to_pool` loop is Python until S3c). Facade audit: FACADE-AUDIT.md.
 
 - **Vector and Symbols as native values (S5a).** Core `value/vector.rs` (`Vector { data: Option<Arc<[Value]>>,
   truth: Option<Arc<Value>> }`; `data: None` is `VectorWithTruthOnly`, whose every use but `bool()`/`repr()` raises
