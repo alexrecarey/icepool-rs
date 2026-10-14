@@ -4,7 +4,7 @@
 
 use super::catalogue_evaluators::CatalogueEvaluator;
 use super::ops::{die_arg, py_iter, type_error};
-use super::pool::{pool, the_pool};
+use super::pool::{pool, the_generator, KeepGen};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::evaluator::basic::{
@@ -19,18 +19,23 @@ use crate::evaluator::poker::{
 };
 use crate::evaluator::{evaluate_with_depth_check, MultisetEvaluator};
 use crate::pool::MultisetSource;
-use crate::{Die, Pool, Value};
+use crate::{Die, Value};
 
 /// `implicit_convert_to_expression`: a pool stays itself; a mapping or sequence (a list, tuple or str; a die is a
 /// mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
-pub fn implicit_convert(arg: PValue) -> Result<Pool<Value>, PErr> {
+pub fn implicit_convert(arg: PValue) -> Result<KeepGen, PErr> {
     match arg {
-        PValue::Pool(p) => Ok(p),
+        PValue::Pool(p) => Ok(KeepGen::Pool(p)),
+        PValue::Deal(d) => Ok(KeepGen::Deal(d)),
+        // A deck is a mapping, but `Pool(deck)` refuses it.
+        PValue::Deck(_) => raise(Error::Value(
+            "A Pool cannot be constructed with a Deck argument.".into(),
+        )),
         arg @ (PValue::List(_)
         | PValue::Tuple(_)
         | PValue::Die(_)
         | PValue::Value(Value::Tuple(_) | Value::Str(_))) => {
-            the_pool(pool(arg, PValue::Value(Value::from(1)))?)
+            the_generator(pool(arg, PValue::Value(Value::from(1)))?)
         }
         PValue::Value(v) => type_error(format!(
             "Argument of type {} cannot be implicitly converted to a Pool.",
@@ -62,16 +67,13 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// `evaluator.evaluate(*pools)`: one source per pool, and `Die(final_outcomes, final_weights)` (the outer
+/// `evaluator.evaluate(*generators)`: one source per pool or deal, and `Die(final_outcomes, final_weights)` (the outer
 /// `Die({result: 1})` of `MultisetEvaluatorBase.evaluate` is the result itself).
-pub fn run<E>(evaluator: &E, pools: &[Pool<Value>]) -> Result<Die<Value>, PErr>
+pub fn run<E>(evaluator: &E, pools: &[KeepGen]) -> Result<Die<Value>, PErr>
 where
     E: MultisetEvaluator<Value, Final = Value>,
 {
-    let sources: Vec<MultisetSource<Value>> = pools
-        .iter()
-        .map(|p| MultisetSource::Pool(p.source()))
-        .collect();
+    let sources: Vec<MultisetSource<Value>> = pools.iter().map(KeepGen::source).collect();
     let finals = evaluate_with_depth_check(evaluator, &sources, check_recursion)?;
     let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
     let outcomes = outcomes
@@ -83,14 +85,14 @@ where
 
 fn die(
     evaluator: &impl MultisetEvaluator<Value, Final = Value>,
-    pools: &[Pool<Value>],
+    pools: &[KeepGen],
 ) -> Result<PValue, PErr> {
     run(evaluator, pools).map(PValue::Die)
 }
 
 /// The one-pool evaluation methods of `MultisetExpression` (`pool.sum()` is node `pool_sum`, and so on).
 pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
-    let pools = [the_pool(p)?];
+    let pools = [the_generator(p)?];
     match op {
         "pool_sum" => die(&SumEvaluator, &pools),
         "pool_size" => die(&SizeEvaluator, &pools),
@@ -117,7 +119,7 @@ fn value(x: PValue) -> Result<Value, PErr> {
 
 /// `pool.all_counts(filter=filter)`.
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
-    let pools = [the_pool(p)?];
+    let pools = [the_generator(p)?];
     die(
         &AllCountsEvaluator {
             filter: value(filter)?,
@@ -128,7 +130,7 @@ pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
 
 /// `pool.expand(order=order)`.
 pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
-    let pools = [the_pool(p)?];
+    let pools = [the_generator(p)?];
     // `order != Order.Ascending` (an `IntEnum`, so `1` and `True` are ascending too).
     let ascending = value(order)? == Value::from(1);
     die(&ExpandEvaluator { ascending }, &pools)
@@ -136,7 +138,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
 
 /// `pool.largest_straight_and_outcome(priority)`.
 pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValue, PErr> {
-    let pools = [the_pool(p)?];
+    let pools = [the_generator(p)?];
     let prioritize_highest = match value(priority)? {
         v if v == Value::str("high") => true,
         v if v == Value::str("low") => false,
@@ -150,7 +152,7 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
 
 /// `keep_evaluator.evaluate(pool, index=index)`.
 pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
-    let pools = [the_pool(p)?];
+    let pools = [the_generator(p)?];
     let index = match value(index)? {
         Value::None => None,
         Value::Int(i) => Some(
@@ -168,7 +170,7 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
 
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
-    let left = the_pool(p)?;
+    let left = the_generator(p)?;
     let right = implicit_convert(divisor)?;
     die(
         &CountSubsetEvaluator {
@@ -181,7 +183,7 @@ pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result
 /// `pool.issubset(other)`, `pool.issuperset(other)`, `pool.isdisjoint(other)`, and node `pool_compare`'s
 /// `cmp` names for the other comparison evaluators.
 pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
-    let left = the_pool(p)?;
+    let left = the_generator(p)?;
     let right = implicit_convert(other)?;
     let comparison = match op {
         "pool_issubset" => Comparison::IsSubset,

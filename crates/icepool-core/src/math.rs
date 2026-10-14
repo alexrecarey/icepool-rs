@@ -48,6 +48,21 @@ pub fn comb_row(n: usize, b: &Quantity) -> Vec<Quantity> {
     row
 }
 
+/// `icepool.math.comb(n, k)`: the binomial coefficient (`k <= n` wherever icepool calls it).
+///
+/// icepool reads it off its cached `comb_row(n, 1)`; the port multiplies it out, which stays exact because every
+/// partial product `n (n-1) ... (n-i) / (i+1)!` is itself a binomial coefficient.
+pub fn comb(n: &Quantity, k: usize) -> Quantity {
+    let mut result = Quantity::ONE;
+    for i in 0..k {
+        if *n < Quantity::from(i + 1) {
+            return Quantity::ZERO;
+        }
+        result = result * (n - i) / (i + 1);
+    }
+    result
+}
+
 pub fn lcm(a: &Quantity, b: &Quantity) -> Quantity {
     if a.is_zero() || b.is_zero() {
         return Quantity::ZERO;
@@ -78,5 +93,16 @@ mod tests {
         assert_eq!(comb_row(3, &Quantity::from(2u8)), q(&[1, 6, 12, 8]));
         assert_eq!(comb_row(0, &Quantity::from(5u8)), q(&[1]));
         assert_eq!(comb_row(2, &Quantity::ZERO), q(&[1, 0, 0]));
+    }
+
+    #[test]
+    fn comb_matches_pascal() {
+        for n in 0..12u32 {
+            let row = comb_row(n as usize, &Quantity::ONE);
+            for (k, c) in row.iter().enumerate() {
+                assert_eq!(comb(&Quantity::from(n), k), *c);
+            }
+            assert_eq!(comb(&Quantity::from(n), n as usize + 1), Quantity::ZERO);
+        }
     }
 }

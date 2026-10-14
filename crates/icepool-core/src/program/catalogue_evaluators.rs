@@ -13,7 +13,7 @@ use crate::evaluator::{evaluate_with_depth_check, Final, MultisetEvaluator};
 use crate::order::Order;
 use crate::pool::MultisetSource;
 use crate::value::BinOp;
-use crate::{Pool, Value};
+use crate::Value;
 
 #[derive(Debug)]
 pub enum CatalogueEvaluator {
@@ -269,12 +269,9 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
 /// mixes in final outcomes that are dice.
 pub fn run(
     evaluator: &CatalogueEvaluator,
-    pools: &[Pool<Value>],
+    pools: &[super::pool::KeepGen],
 ) -> std::result::Result<PValue, PErr> {
-    let sources: Vec<MultisetSource<Value>> = pools
-        .iter()
-        .map(|p| MultisetSource::Pool(p.source()))
-        .collect();
+    let sources: Vec<MultisetSource<Value>> = pools.iter().map(|p| p.source()).collect();
     let finals = evaluate_with_depth_check(evaluator, &sources, super::evaluate::check_recursion)?;
     let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().unzip();
     let weights: Vec<Value> = weights.into_iter().map(|w| Value::Int(w.into())).collect();

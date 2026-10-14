@@ -208,6 +208,12 @@ fn enc_object(v: &PValue) -> Option<Json> {
         PValue::Restart => json!({"repr": "RerollType: <RerollType.Restart: 'Restart'>"}),
         // An `AgainExpression` has the default object repr, with an address in it.
         PValue::Ellipsis => json!({"repr": "ellipsis: Ellipsis"}),
+        PValue::Deck(d) => json!({"repr": format!("Deck: {}", deck_repr(d).ok()?)}),
+        PValue::Deal(d) => json!({"repr": format!(
+            "Deal: Deal({}, hand_size={})",
+            deck_repr(d.deck()).ok()?,
+            d.hand_size()
+        )}),
         // A pool's repr, like an `AgainExpression`'s, holds an address.
         PValue::List(_)
         | PValue::Func(_)
@@ -215,6 +221,16 @@ fn enc_object(v: &PValue) -> Option<Json> {
         | PValue::Pool(_)
         | PValue::Break(_) => return None,
     })
+}
+
+/// `Deck.__repr__`: `Deck({outcome!r}: quantity, ...)`.
+fn deck_repr(d: &crate::Deck<Value>) -> crate::Result<String> {
+    let items = d
+        .items()
+        .iter()
+        .map(|(o, q)| Ok(format!("{}: {q}", crate::value::pystr::py_repr(o)?)))
+        .collect::<crate::Result<Vec<_>>>()?;
+    Ok(format!("Deck({{{}}})", items.join(", ")))
 }
 
 /// `encode.result_of`.

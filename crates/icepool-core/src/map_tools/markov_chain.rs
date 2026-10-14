@@ -153,7 +153,11 @@ where
     // The die representing the next distribution of each transient state; its outcomes are `(transition_type,
     // state)`.
     let mut transitions: Vec<Die<Value>> = Vec::new();
-    let mut frontier: VecDeque<Value> = initial_transient.items().iter().map(|(o, _)| o.clone()).collect();
+    let mut frontier: VecDeque<Value> = initial_transient
+        .items()
+        .iter()
+        .map(|(o, _)| o.clone())
+        .collect();
     let mut in_frontier: FxHashMap<Value, ()> = frontier.iter().map(|s| (s.clone(), ())).collect();
     for s in &frontier {
         spellings.check(s)?;

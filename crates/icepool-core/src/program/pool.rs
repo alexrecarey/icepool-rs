@@ -13,12 +13,13 @@ use crate::evaluator::basic::SumEvaluator;
 use crate::evaluator::keep::KeepEvaluator;
 use crate::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
 use crate::order::Order;
+use crate::pool::MultisetSource;
 use crate::value::{BinOp, UnOp};
-use crate::{Die, Pool, Value};
+use crate::{Deal, Die, Pool, Value};
 
 /// `pool.sum()`.
 fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
-    run(&SumEvaluator, &[pool]).map(PValue::Die)
+    run(&SumEvaluator, &[KeepGen::Pool(pool)]).map(PValue::Die)
 }
 
 /// A Python int (or bool) argument, exactly. `None` for anything else.
@@ -64,6 +65,69 @@ pub(super) fn the_pool(x: PValue) -> Result<Pool<Value>, PErr> {
         }
         _ => Err(PErr::Unimplemented("this multiset expression".into())),
     }
+}
+
+/// A `KeepGenerator`: a pool or a deal. The keep-like operations and the evaluations treat both alike.
+#[derive(Clone, Debug)]
+pub(super) enum KeepGen {
+    Pool(Pool<Value>),
+    Deal(Deal<Value>),
+}
+
+impl KeepGen {
+    fn keep(&self, index: &KeepIndex) -> Result<Self, Error> {
+        Ok(match self {
+            KeepGen::Pool(p) => KeepGen::Pool(p.keep(index)?),
+            KeepGen::Deal(d) => KeepGen::Deal(d.keep(index)?),
+        })
+    }
+
+    fn multiply_counts(&self, constant: i64) -> Result<Self, Error> {
+        Ok(match self {
+            KeepGen::Pool(p) => KeepGen::Pool(p.multiply_counts(constant)?),
+            KeepGen::Deal(d) => KeepGen::Deal(d.multiply_counts(constant)?),
+        })
+    }
+
+    fn keep_size(&self) -> Result<i64, Error> {
+        match self {
+            KeepGen::Pool(p) => p.keep_size(),
+            KeepGen::Deal(d) => d.keep_size(),
+        }
+    }
+
+    fn has_negative_keeps(&self) -> bool {
+        match self {
+            KeepGen::Pool(p) => p.has_negative_keeps(),
+            KeepGen::Deal(d) => d.has_negative_keeps(),
+        }
+    }
+
+    /// `_make_source`.
+    pub(super) fn source(&self) -> MultisetSource<Value> {
+        match self {
+            KeepGen::Pool(p) => MultisetSource::Pool(p.source()),
+            KeepGen::Deal(d) => MultisetSource::Deal(d.source()),
+        }
+    }
+
+    fn into_pvalue(self) -> PValue {
+        match self {
+            KeepGen::Pool(p) => PValue::Pool(p),
+            KeepGen::Deal(d) => PValue::Deal(d),
+        }
+    }
+}
+
+pub(super) fn the_generator(x: PValue) -> Result<KeepGen, PErr> {
+    match x {
+        PValue::Deal(d) => Ok(KeepGen::Deal(d)),
+        x => the_pool(x).map(KeepGen::Pool),
+    }
+}
+
+fn is_generator(x: &PValue) -> bool {
+    matches!(x, PValue::Pool(_) | PValue::Deal(_))
 }
 
 /// `implicit_convert_to_die`, which refuses an `Again` expression (ImplicitConversionError).
@@ -266,7 +330,7 @@ fn sequence_index(index: PValue) -> Result<KeepIndex, PErr> {
 
 /// `pool.keep(index)` / `pool[index]` for an `int` or a sequence of counts.
 pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
-    let pool = the_pool(pool)?;
+    let pool = the_generator(pool)?;
     match int_value(&index) {
         Some(i) => {
             let i = i64::try_from(i).unwrap_or(i64::MAX);
@@ -274,13 +338,13 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
             let kept = pool.keep(&KeepIndex::Int(i))?;
             run(&KeepEvaluator { index: None }, &[kept]).map(PValue::Die)
         }
-        None => Ok(PValue::Pool(pool.keep(&sequence_index(index)?)?)),
+        None => Ok(pool.keep(&sequence_index(index)?)?.into_pvalue()),
     }
 }
 
 /// `pool[start:stop:step]`.
 pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Result<PValue, PErr> {
-    let pool = the_pool(pool)?;
+    let pool = the_generator(pool)?;
     let step = !matches!(step, PValue::Value(Value::None));
     // A bound that is neither an int nor None is only looked at when the list is sliced, after the checks for
     // negative counts and for a step.
@@ -295,7 +359,7 @@ pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Re
             return type_error("slice indices must be integers or None or have an __index__ method")
         }
     };
-    Ok(PValue::Pool(pool.keep(&KeepIndex::Slice { slice, step })?))
+    Ok(pool.keep(&KeepIndex::Slice { slice, step })?.into_pvalue())
 }
 
 /// `pool.highest(keep, drop)` / `pool.lowest(keep, drop)`: keep a slice from the top or the bottom.
@@ -305,21 +369,21 @@ pub fn pool_highest_lowest(
     keep: PValue,
     drop: PValue,
 ) -> Result<PValue, PErr> {
-    let pool = the_pool(pool)?;
+    let pool = the_generator(pool)?;
     let (keep, drop) = (opt_int(&keep, "keep")?, opt_int(&drop, "drop")?);
     let slice = if highest {
         highest_slice(keep, drop)?
     } else {
         lowest_slice(keep, drop)?
     };
-    Ok(PValue::Pool(
-        pool.keep(&KeepIndex::Slice { slice, step: false })?,
-    ))
+    Ok(pool
+        .keep(&KeepIndex::Slice { slice, step: false })?
+        .into_pvalue())
 }
 
 /// `pool.middle(keep, tie=tie)`.
 pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PErr> {
-    let pool = the_pool(pool)?;
+    let pool = the_generator(pool)?;
     let keep = exact_int(&keep, "keep")?;
     let tie = match &tie {
         PValue::Value(Value::Str(s)) => match &**s {
@@ -331,33 +395,33 @@ pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PE
         _ => Tie::Invalid,
     };
     let slice = middle_slice(pool.keep_size()?, keep, tie)?;
-    Ok(PValue::Pool(
-        pool.keep(&KeepIndex::Slice { slice, step: false })?,
-    ))
+    Ok(pool
+        .keep(&KeepIndex::Slice { slice, step: false })?
+        .into_pvalue())
 }
 
 /// `pool * n` (without a pool, the plain operator): an int multiplies every count. Anything else is `NotImplemented` for the pool, and then for the
 /// other operand too (a die's `__rmul__` would make a die of pools: not ported).
 pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {
-    if !matches!((&pool, &n), (PValue::Pool(_), _) | (_, PValue::Pool(_))) {
+    if !is_generator(&pool) && !is_generator(&n) {
         return binary(BinOp::Mul, pool, n);
     }
-    let pool = the_pool(pool)?;
+    let pool = the_generator(pool)?;
     match n {
         PValue::Die(_) => Err(PErr::Unimplemented("pool * die".into())),
-        n if int_value(&n).is_some() => Ok(PValue::Pool(
-            pool.multiply_counts(exact_int(&n, "a multiplier")?)?,
-        )),
+        n if int_value(&n).is_some() => Ok(pool
+            .multiply_counts(exact_int(&n, "a multiplier")?)?
+            .into_pvalue()),
         _ => type_error("unsupported operand type(s) for *: 'Pool'"),
     }
 }
 
 /// `-pool` (without a pool, the plain operator).
 pub fn pool_neg(pool: PValue) -> Result<PValue, PErr> {
-    if !matches!(pool, PValue::Pool(_)) {
+    if !is_generator(&pool) {
         return unary(UnOp::Neg, pool);
     }
-    Ok(PValue::Pool(the_pool(pool)?.multiply_counts(-1)?))
+    Ok(the_generator(pool)?.multiply_counts(-1)?.into_pvalue())
 }
 
 /// `a + b` (without a pool, the plain operator). For two pools: one pool if every sorted position counts the same.

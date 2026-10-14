@@ -231,7 +231,11 @@ fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
         PValue::Break(_) => type_error("argument of type 'Break' is not iterable"),
         PValue::Again(_) => type_error("argument of type 'AgainExpression' is not iterable"),
         PValue::Ellipsis => type_error("argument of type 'ellipsis' is not iterable"),
-        PValue::Pool(_) => Err(PErr::Unimplemented("membership in a pool".into())),
+        // A mapping: its keys.
+        PValue::Deck(d) => Ok(d.outcomes().any(|o| o == x)),
+        PValue::Pool(_) | PValue::Deal(_) => {
+            Err(PErr::Unimplemented("membership in a pool".into()))
+        }
     }
 }
 

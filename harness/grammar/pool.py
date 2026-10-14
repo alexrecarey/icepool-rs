@@ -243,10 +243,15 @@ def _keep_op(g, p, final):
     return {"op": "pool_neg", "pool": p}
 
 
-def gen_pool(g, depth, negative=True):
+def gen_pool(g, depth, negative=True, deals=False):
     """A pool program: a pool, then up to three keep-like operations. `negative`: the last one may make counts
-    negative."""
-    p = _base_pool(g, depth)
+    negative. `deals`: now and then a deal (deck.py) instead of a pool, for nodes that take any keep generator
+    (the evaluations; not pool_info / pool_pop, which read a pool's own attributes)."""
+    if deals and g.rng.random() < 0.25:
+        from harness.grammar.deck import gen_deal
+        p = gen_deal(g, depth)
+    else:
+        p = _base_pool(g, depth)
     for _ in range(g.rng.choice([0, 1, 1, 2])):
         p = _keep_op(g, p, final=False)
     if g.rng.random() < 0.4:
@@ -293,7 +298,7 @@ def pool_pop(pool, order, outcome):
 
 def _gen_pool_index(g, depth):
     index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10])
-    return {"op": "pool_index", "pool": gen_pool(g, depth, negative=False), "index": index}
+    return {"op": "pool_index", "pool": gen_pool(g, depth, negative=False, deals=True), "index": index}
 
 
 @node("pool_index", "die", gen=_gen_pool_index, weight=0.5)

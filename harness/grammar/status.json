@@ -124,5 +124,17 @@
   "map_repeat": "ported",
   "map_and_time": "ported",
   "mean_time_to_absorb": "ported",
-  "time_to_sum": "ported"
+  "time_to_sum": "ported",
+  "deck": "ported",
+  "deck_op": "ported",
+  "deck_mul": "ported",
+  "deck_map": "ported",
+  "deck_pad_to_denominator": "ported",
+  "deck_info": "ported",
+  "deck_pop": "ported",
+  "deck_stat": "ported",
+  "deck_sequence": "ported",
+  "deal": "ported",
+  "deal_info": "ported",
+  "deal_pop": "ported"
 }

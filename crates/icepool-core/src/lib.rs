@@ -10,6 +10,8 @@
 pub mod again;
 pub mod counts;
 pub mod creation_args;
+pub mod deal;
+pub mod deck;
 pub mod die;
 pub mod error;
 pub mod evaluator;
@@ -31,6 +33,8 @@ pub mod random;
 pub mod value;
 
 pub use creation_args::DieArg;
+pub use deal::Deal;
+pub use deck::Deck;
 pub use die::Die;
 pub use error::{Error, Result};
 pub use function::d;

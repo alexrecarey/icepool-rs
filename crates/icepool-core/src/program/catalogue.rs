@@ -436,7 +436,11 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         | PValue::Break(_)
         | PValue::Func(_)
         | PValue::Ellipsis => true,
-        PValue::Pool(_) => return Err(PErr::Unimplemented("the truth value of a pool".into())),
+        // A deck is a mapping: truthy unless empty.
+        PValue::Deck(d) => !d.is_empty(),
+        PValue::Pool(_) | PValue::Deal(_) => {
+            return Err(PErr::Unimplemented("the truth value of a pool".into()))
+        }
         PValue::Again(_) => {
             return raise(Error::Value(
                 "An `Again` only has a truth value if it is the result of == or !=.".into(),

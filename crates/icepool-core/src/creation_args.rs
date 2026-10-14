@@ -7,7 +7,8 @@ use crate::math::weighted_lcm;
 use crate::outcome::Outcome;
 use crate::Quantity;
 
-/// One element of the `outcomes` passed to `Die(...)`, after the facade has unpacked Python's dynamic arguments.
+/// One element of the `outcomes` passed to `Die(...)` or `Deck(...)`, after the facade has unpacked Python's dynamic
+/// arguments.
 ///
 /// Tuples containing dice are `tupleize`d into a `Die` by the facade before they get here (the core does not know
 /// about tuple outcomes). (`Again` is a later addition: it becomes a variant here.)
@@ -16,6 +17,7 @@ pub enum DieArg<O> {
     /// A plain outcome: `expand_arg` makes it `{outcome: 1}`.
     Outcome(O),
     /// A die, which will be flattened into the result. The quantity assigned to it is shared among its outcomes.
+    /// (Any `Population` is a mapping to `expand_arg`: a `Deck` argument comes as its cards, `Deck::population`.)
     Die(Die<O>),
     /// `icepool.Reroll` (or `Restart`): `expand_arg` makes it `{}`, so it drops itself from consideration.
     Reroll,
@@ -60,6 +62,44 @@ pub fn merge_weights_lcm<O: Outcome>(
             DieArg::Die(d) => {
                 for (outcome, weight) in d.items() {
                     data.add(outcome.clone(), weight * &scale_factor);
+                }
+            }
+            DieArg::Reroll => {}
+        }
+    }
+    data.into_items()
+}
+
+/// `expand_args_for_deck`: `Counts(merge_duplicates(subdatas, times).items())`.
+pub fn expand_args_for_deck<O: Outcome>(
+    args: &[DieArg<O>],
+    duplicates: &[Quantity],
+) -> Result<Counts<O>> {
+    Counts::new(merge_duplicates(args, duplicates))
+}
+
+/// Merge for decks.
+///
+/// Every subdata gets dups equal to the corresponding element of duplicates times its original dups. Unlike
+/// `merge_weights_lcm` nothing is rescaled: a die among the arguments contributes its quantities as card counts.
+/// Zero dups (of an argument, or of an outcome of a die) contribute nothing, not even the key.
+pub fn merge_duplicates<O: Outcome>(
+    subdatas: &[DieArg<O>],
+    duplicates: &[Quantity],
+) -> Vec<(O, Quantity)> {
+    let mut data = OrderedMerge::default();
+    for (subdata, subdup) in subdatas.iter().zip(duplicates) {
+        if subdup.is_zero() {
+            continue;
+        }
+        match subdata {
+            DieArg::Outcome(o) => data.add(o.clone(), subdup.clone()),
+            DieArg::Die(d) => {
+                for (outcome, dup) in d.items() {
+                    if dup.is_zero() {
+                        continue;
+                    }
+                    data.add(outcome.clone(), dup * subdup);
                 }
             }
             DieArg::Reroll => {}

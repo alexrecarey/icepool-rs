@@ -203,6 +203,29 @@ pub fn compose_keep_tuples(base: &[i64], apply: &[i64]) -> Result<Vec<i64>> {
     Ok(result)
 }
 
+/// `KeepGenerator.keep` on a keep tuple: the keep tuple for `index` relative to the elements counted so far,
+/// composed on top of `keep_tuple`. If any of the current counts are negative, Python falls back to the
+/// less-capable `MultisetExpression` version and the result is not a keep generator: not ported yet.
+pub fn keep(keep_tuple: &[i64], index: &KeepIndex) -> Result<Vec<i64>> {
+    if keep_tuple.iter().any(|&x| x < 0) {
+        return Err(Error::Unsupported(
+            "keep on a generator with negative counts (a MultisetKeep expression)".into(),
+        ));
+    }
+    let keep_size = usize::try_from(sum_counts(keep_tuple)?).expect("no negative counts");
+    let relative_keep_tuple = make_keep_tuple(keep_size, index)?;
+    compose_keep_tuples(keep_tuple, &relative_keep_tuple)
+}
+
+/// `KeepGenerator.multiply_counts`: every count multiplied by `constant` (`-g` is `-1 * g`).
+pub fn multiply_counts(keep_tuple: &[i64], constant: i64) -> Result<Vec<i64>> {
+    keep_tuple
+        .iter()
+        .map(|n| n.checked_mul(constant))
+        .collect::<Option<Vec<_>>>()
+        .map_or_else(overflow, Ok)
+}
+
 fn check_non_negative(name: &str, x: Option<i64>) -> Result<()> {
     match x {
         Some(x) if x < 0 => Err(Error::Value(format!("{name}={x} cannot be negative."))),

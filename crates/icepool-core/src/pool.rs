@@ -10,12 +10,12 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::deal::DealSource;
 use crate::die::Die;
 use crate::error::{Error, Result};
 use crate::function::sorted_union;
 use crate::keep_tuple::{
-    compose_keep_tuples, make_keep_tuple, pop_max_from_keep_tuple, pop_min_from_keep_tuple,
-    sum_counts, KeepIndex,
+    self, pop_max_from_keep_tuple, pop_min_from_keep_tuple, sum_counts, KeepIndex,
 };
 use crate::math::comb_row;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
@@ -24,7 +24,7 @@ use crate::Quantity;
 
 /// Above this many dice the port refuses a pool (`(1,) * n` keep tuple): Python would spend minutes or run out of
 /// memory.
-const MAX_POOL_SIZE: usize = 1 << 24;
+pub(crate) const MAX_POOL_SIZE: usize = 1 << 24;
 
 /// `dice_counts[die] += count` in a dict: insertion order, equal dice (same `hash_key`) merged.
 fn add_die<O: Outcome>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, count: usize) {
@@ -165,26 +165,12 @@ impl<O: Outcome> Pool<O> {
     /// caller's job. If any of the current `keep_tuple` has negative counts, Python falls back to the less-capable
     /// `MultisetExpression` version and the result is not a pool: not ported yet.
     pub fn keep(&self, index: &KeepIndex) -> Result<Self> {
-        if self.has_negative_keeps() {
-            return Err(Error::Unsupported(
-                "keep on a pool with negative counts (a MultisetKeep expression)".into(),
-            ));
-        }
-        let keep_size = usize::try_from(self.keep_size()?).expect("no negative counts");
-        let relative_keep_tuple = make_keep_tuple(keep_size, index)?;
-        let keep_tuple = compose_keep_tuples(&self.keep_tuple, &relative_keep_tuple)?;
-        Ok(self.set_keep_tuple(keep_tuple))
+        Ok(self.set_keep_tuple(keep_tuple::keep(&self.keep_tuple, index)?))
     }
 
     /// `pool * constant`, `constant * pool`, and `-pool` (constant -1): every count multiplied.
     pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
-        let keep_tuple = self
-            .keep_tuple
-            .iter()
-            .map(|n| n.checked_mul(constant))
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| Error::Unsupported("keep counts beyond 64 bits".into()))?;
-        Ok(self.set_keep_tuple(keep_tuple))
+        Ok(self.set_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
     }
 
     /// `Pool.additive_union` of pools: if all sorted positions count the same, the pools merge into one pool.
@@ -228,6 +214,7 @@ impl<O: Outcome> Pool<O> {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
     Pool(PoolSource<O>),
+    Deal(DealSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
@@ -237,6 +224,7 @@ impl<O: Outcome> MultisetSource<O> {
     pub fn outcomes(&self) -> &[O] {
         match self {
             MultisetSource::Pool(s) => s.outcomes(),
+            MultisetSource::Deal(s) => s.outcomes(),
         }
     }
 
@@ -244,6 +232,7 @@ impl<O: Outcome> MultisetSource<O> {
     pub fn size(&self) -> Result<Option<i64>> {
         match self {
             MultisetSource::Pool(s) => s.size(),
+            MultisetSource::Deal(s) => s.size(),
         }
     }
 
@@ -251,6 +240,7 @@ impl<O: Outcome> MultisetSource<O> {
     pub fn is_resolvable(&self) -> bool {
         match self {
             MultisetSource::Pool(s) => s.is_resolvable(),
+            MultisetSource::Deal(s) => s.is_resolvable(),
         }
     }
 
@@ -258,6 +248,7 @@ impl<O: Outcome> MultisetSource<O> {
     pub fn order_preference(&self) -> (Order, OrderReason) {
         match self {
             MultisetSource::Pool(s) => s.order_preference(),
+            MultisetSource::Deal(s) => s.order_preference(),
         }
     }
 
@@ -269,6 +260,11 @@ impl<O: Outcome> MultisetSource<O> {
                 .pop(order, outcome)?
                 .into_iter()
                 .map(|(s, c, w)| (MultisetSource::Pool(s), c, w))
+                .collect()),
+            MultisetSource::Deal(s) => Ok(s
+                .pop(order, outcome)?
+                .into_iter()
+                .map(|(s, c, w)| (MultisetSource::Deal(s), c, w))
                 .collect()),
         }
     }

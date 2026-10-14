@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 
 use super::again::{self, AgainOp};
 use super::catalogue::Func;
+use super::deck;
 use super::die_methods;
 use super::evaluate;
 use super::format;
@@ -192,6 +193,54 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "pool_add" => {
             let [a, b] = args.exactly(["a", "b"])?;
             pool::pool_add(a, b)
+        }
+        "deck" => {
+            let [outcomes, times] = args.exactly(["outcomes", "times"])?;
+            deck::deck(outcomes, times)
+        }
+        "deck_op" => {
+            let [op, a, b] = args.exactly(["operator", "a", "b"])?;
+            deck::deck_op(op, a, b)
+        }
+        "deck_mul" => {
+            let [d, op, n] = args.exactly(["deck", "operator", "n"])?;
+            deck::deck_mul(d, op, n)
+        }
+        "deck_map" => {
+            let [d, repl, star] = args.exactly(["deck", "repl", "star"])?;
+            deck::deck_map(d, repl, star)
+        }
+        "deck_sequence" => {
+            let [d, deals] = args.exactly(["deck", "deals"])?;
+            deck::deck_sequence(d, deals)
+        }
+        "deck_info" => {
+            let [d] = args.exactly(["deck"])?;
+            deck::deck_info(d)
+        }
+        "deck_pop" => {
+            let [d, max] = args.exactly(["deck", "max"])?;
+            deck::deck_pop(d, max)
+        }
+        "deck_stat" => {
+            let [d, stat] = args.exactly(["deck", "stat"])?;
+            deck::deck_stat(d, stat)
+        }
+        "deck_pad_to_denominator" => {
+            let [d, denominator, outcome] = args.exactly(["deck", "denominator", "outcome"])?;
+            deck::deck_pad_to_denominator(d, denominator, outcome)
+        }
+        "deal" => {
+            let [d, hand_size] = args.exactly(["deck", "hand_size"])?;
+            deck::deal(d, hand_size)
+        }
+        "deal_info" => {
+            let [d] = args.exactly(["deal"])?;
+            deck::deal_info(d)
+        }
+        "deal_pop" => {
+            let [d, order, outcome] = args.exactly(["deal", "order", "outcome"])?;
+            deck::deal_pop(d, order, outcome)
         }
         "pool_info" => {
             let [p] = args.exactly(["pool"])?;
@@ -722,7 +771,11 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
         PValue::Again(_) => return type_error("'AgainExpression' object is not iterable"),
         PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
-        PValue::Pool(_) => return Err(PErr::Unimplemented("iterating a pool".into())),
+        // A deck is a mapping: iterating it gives its outcomes.
+        PValue::Deck(d) => d.outcomes().cloned().map(PValue::Value).collect(),
+        PValue::Pool(_) | PValue::Deal(_) => {
+            return Err(PErr::Unimplemented("iterating a multiset generator".into()))
+        }
     })
 }
 
@@ -732,6 +785,8 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
     match x {
         PValue::Value(v) => Ok(DieArg::Outcome(v)),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(DieArg::Die(d)),
+        // Any population is a mapping to `expand_arg`.
+        PValue::Deck(d) => Ok(DieArg::Die(d.population().clone())),
         // `arg in icepool.REROLL_TYPES`.
         PValue::Reroll | PValue::Restart => Ok(DieArg::Reroll),
         // `map` unwraps a `Break`; nothing else returns one.
@@ -743,7 +798,7 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         PValue::Again(_) => Err(PErr::Unimplemented(
             "an Again expression nested in an outcome".into(),
         )),
-        PValue::Ellipsis | PValue::Pool(_) => Err(PErr::Unimplemented(
+        PValue::Ellipsis | PValue::Pool(_) | PValue::Deal(_) => Err(PErr::Unimplemented(
             "Ellipsis or a pool as an outcome".into(),
         )),
     }
@@ -808,7 +863,11 @@ pub(super) fn itemize(
     times: Option<PValue>,
 ) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
     // A die is a Mapping: its outcomes become the keys and its quantities multiply the times. Each outcome then has
-    // denominator 1, so zero quantities drop out.
+    // denominator 1, so zero quantities drop out. So is a deck.
+    let keys = match keys {
+        PValue::Deck(d) => PValue::Die(d.population().clone()),
+        keys => keys,
+    };
     let (args, base): (Vec<PValue>, Option<Vec<Value>>) = match keys {
         PValue::Die(d) | PValue::DieWithTruth(d, _) => {
             let (a, q) = d

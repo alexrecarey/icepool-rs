@@ -6,7 +6,12 @@ Every node starts with pool.fresh_caches(): icepool's shared evaluators (sum_eva
 ==-keyed caches between calls, which in a long-lived oracle would leak spellings (1 for True) across programs.
 """
 from harness.core.grammar_api import node
-from harness.grammar.pool import fresh_caches, gen_pool
+from harness.grammar.pool import fresh_caches, gen_pool as _gen_pool
+
+
+def gen_pool(g, depth, negative=True):
+    """A pool or a deal (with keep-like operations) to evaluate."""
+    return _gen_pool(g, depth, negative, deals=True)
 
 
 def _gen1(op, **params):

@@ -7,6 +7,7 @@
 mod again;
 mod catalogue;
 mod catalogue_evaluators;
+mod deck;
 mod die_methods;
 mod evaluate;
 mod format;
@@ -48,6 +49,10 @@ pub enum PValue {
     Again(Arc<again::AgainExpr>),
     /// An `icepool.Pool` (a `KeepGenerator`).
     Pool(crate::Pool<Value>),
+    /// An `icepool.Deck`.
+    Deck(crate::Deck<Value>),
+    /// An `icepool.Deal` (a `KeepGenerator`).
+    Deal(crate::Deal<Value>),
     /// `...`, for keep indices.
     Ellipsis,
     /// A `DieWithTruth`: what `die == x` and `die != x` return. A die everywhere (`the_die`, `to_die`), except
