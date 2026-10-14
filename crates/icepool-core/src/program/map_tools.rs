@@ -6,7 +6,8 @@
 //! joint outcome of the extra arguments, its result read as a `Next`. The core runs the process.
 
 use super::catalogue::{truthy, Func};
-use super::map::{arg_items, call, die_of, star_arg, the_die};
+use super::expression::as_expression;
+use super::map::{arg_items, call, die_of, expand_arg, star_arg, the_die};
 use super::ops::{new_die, type_error};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -70,10 +71,11 @@ fn transition_cache<'a>(
         PValue::Die(_) => return Err(PErr::Unimplemented("a Die as repl".into())),
         _ => return type_error("repl must be a callable or a mapping."),
     };
-    if extra_args.iter().any(|a| matches!(a, PValue::Pool(_))) {
-        // Python expands a multiset expression into its sorted tuples (`arg.expand()`).
+    if extra_args.iter().any(|a| as_expression(a).is_some()) {
+        // Only `mean_time_to_absorb` gets here with one (`map` and `map_and_time` expanded it): it is passed to
+        // `repl` as-is.
         return Err(PErr::Unimplemented(
-            "a pool as a map(repeat) argument".into(),
+            "a multiset expression passed as-is to a transition function".into(),
         ));
     }
     let items: Vec<_> = extra_args.into_iter().map(arg_items).collect();
@@ -121,7 +123,7 @@ fn range_count(repeat: &PValue) -> Option<u64> {
 
 /// `icepool.map(repl, *args, star=star, repeat=repeat)` with a `repeat` that is not `None`.
 pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Result<PValue, PErr> {
-    let PValue::List(mut args) = args else {
+    let PValue::List(args) = args else {
         return Err(PErr::Unimplemented(
             "map arguments not given as a list".into(),
         ));
@@ -131,11 +133,10 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
             "If no arguments are given, repeat cannot be used.".into(),
         ));
     }
-    if matches!(args[0], PValue::Pool(_)) {
-        return Err(PErr::Unimplemented(
-            "a pool as a map(repeat) argument".into(),
-        ));
-    }
+    let mut args = args
+        .into_iter()
+        .map(expand_arg)
+        .collect::<Result<Vec<_>, _>>()?;
     let extra_args = args.split_off(1);
     let first_arg = args.pop().expect("one argument left");
     let transition = transition_cache(&f, extra_args, &star)?;
@@ -178,6 +179,10 @@ pub fn map_and_time(
             "map arguments not given as a list".into(),
         ));
     };
+    let extra_args = extra_args
+        .into_iter()
+        .map(expand_arg)
+        .collect::<Result<Vec<_>, _>>()?;
     let transition = transition_cache(&f, extra_args, &star)?;
     let initial_die = die_of_one(initial_state)?;
     let die = with_cache(transition, |cache| {

@@ -57,6 +57,21 @@ def _process(g, finite=False):
     return f, _start(g, name), extra
 
 
+def _population(g, die, pool=0.0):
+    """Now and then a deck (same outcomes) or, with probability `pool`, a pool of two such dice in place of a die
+    argument: `map` / `map_and_time` expand a pool into the die of its sorted tuples (`expand()`), and take a deck's
+    items as a die's."""
+    if die.get("op") not in ("d", "die"):
+        return die
+    r = g.rng.random()
+    if r < pool:
+        return {"op": "pool", "dice": [die, die], "times": 1}
+    if r < pool + 0.1:
+        outcomes = list(range(1, die["sides"] + 1)) if die["op"] == "d" else die["outcomes"]
+        return {"op": "deck", "outcomes": outcomes, "times": g.rng.randint(1, 2)}
+    return die
+
+
 def _repeat(g):
     r = g.rng.random()
     if r < 0.45:
@@ -69,6 +84,10 @@ def _repeat(g):
 def _gen_map_repeat(g, depth):
     repeat = _repeat(g)
     f, start, extra = _process(g, finite=repeat == {"str": "inf"})
+    if f["name"] == "pair_walk" and g.rng.random() < 0.2:
+        # A pool of two dice as the first argument: its sorted pairs are the initial states.
+        start = {"op": "pool", "dice": [{"op": "d", "sides": g.rng.randint(1, 3)}] * 2, "times": 1}
+    extra = [_population(g, x, pool=0.03) for x in extra]
     args = [start] + extra if g.rng.random() < 0.97 else []
     return {"op": "map_repeat", "f": f, "args": args, "star": _star(g), "repeat": repeat}
 
@@ -82,6 +101,7 @@ def map_repeat(f, args, star, repeat):
 
 def _gen_map_and_time(g, depth):
     f, start, extra = _process(g)
+    extra = [_population(g, x, pool=0.03) for x in extra]
     repeat = g.rng.randint(0, 5) if g.rng.random() < 0.9 else g.rng.choice([-1, {"float": "1.0"}])
     return {"op": "map_and_time", "f": f, "initial": start, "args": extra, "star": _star(g), "repeat": repeat}
 
@@ -94,6 +114,8 @@ def map_and_time(f, initial, args, star, repeat):
 
 def _gen_mean_time_to_absorb(g, depth):
     f, start, extra = _process(g, finite=True)
+    # No pool here: mean_time_to_absorb does not expand one (it reaches the function as-is).
+    extra = [_population(g, x) for x in extra]
     return {"op": "mean_time_to_absorb", "f": f, "initial": start, "args": extra, "star": _star(g)}
 
 

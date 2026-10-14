@@ -5,6 +5,18 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **S3: the check that nothing of Again count mode / map(repeat) / Markov chains is left.** The facade side was
+  complete (FACADE-AUDIT.md: again.py, map_tools/* on the core) except a bare `AgainExpression()` in count mode,
+  which raised NotImplementedError: the core's bare `Again` now carries `is_additive` (`Again::Again {
+  is_additive }`; `icepool.Again` is `true`), so count mode raises Python's ValueError at it, in outcome order
+  (cases in crates/icepool-py/tests). Program layer: `map.rs` `arg_items` takes a deck's items too
+  (`_items_for_cartesian_product` is on every Population; a deck was passed as-is before), and `expand_arg` is
+  `arg.expand() if isinstance(arg, MultisetExpression)` (pool, deal, non-tuple expression -> `evaluate::expand`),
+  applied to every arg of `map` / `map(repeat)` and to the extra args of `map_and_time`, as function.py does.
+  `mean_time_to_absorb` does *not* expand: a multiset expression reaches the function as-is there (still
+  `Unimplemented` in the program layer). markov.py generators now put decks (and pools, where expanded) among the
+  args; fixtures/s3/map-populations. JS callbacks for map belong to S6 (the JS facade).
+
 - **S2: the check that nothing of population/base.py and die.py is left.** Every public method of `Population`,
   `Die`, `DieWithTruth` and format.py now has a grammar node, and runs on the core under `ICEPOOL_BACKEND=rust`
   except what FACADE-AUDIT.md assigns to S3c / S5c (`map_to_pool` and friends, `append` / `remove` /
@@ -319,8 +331,8 @@ turns out wrong. Newest decisions at the top of each section.
   Restart). icepool-py maps a core `Error::Type("AttributeError: ...")` to `AttributeError`.
 - Program layer `program/map_tools.rs`: nodes `map_repeat` (`f, args, star, repeat`; `repeat` int or 'inf'),
   `map_and_time` (`f, initial, args, star, repeat`), `mean_time_to_absorb` (kind "value", a Fraction),
-  `time_to_sum` (`die, target, max_time, dnf`; the step closure is native). A pool among the args is unimplemented
-  (Python expands it). New catalogue processes: `cap_sum`, `break_at`, `restart_on`, `walk`, `walk_die`, `collatz`,
+  `time_to_sum` (`die, target, max_time, dnf`; the step closure is native). Pools / decks among the args: S3 (top).
+  New catalogue processes: `cap_sum`, `break_at`, `restart_on`, `walk`, `walk_die`, `collatz`,
   `pair_walk` (a tuple state, star inferred). Fuzz: `--ops map_repeat,map_and_time,mean_time_to_absorb,time_to_sum`
   (self-contained: the generators build their own small int dice).
 - Facade: `TransitionCache.__init__` stays Python (`transition_and_star`); `TransitionCache._rust_args()` hands
@@ -353,8 +365,8 @@ turns out wrong. Newest decisions at the top of each section.
   `icepool_rs.evaluate_agains_using_depth/_count` (crates/icepool-py/src/again.rs) read `_func`/`_args`/
   `is_additive` into the core tree over `Arc<Py<PyAny>>` (pyo3 0.29's `Py` is not `Clone`); the expression
   functions, `icepool.Die(objects, times)` and `icepool.tupleize` are host callbacks. A non-int depth/count raises
-  TypeError where `range()` would. Gap: a bare `AgainExpression()` (no function, `is_additive=False`) in count mode
-  raises NotImplementedError (the core's bare `Again` is always additive). `Die.explode` now runs on the core too
+  TypeError where `range()` would. A bare `AgainExpression()` is not additive: the core's
+  `Again::Again { is_additive }` carries the flag (S3). `Die.explode` now runs on the core too
   (map_final is a host callback of `map_simple`). `explode_to_pool` needs Vector + `map_to_pool`: task S3c.
 
 - **Formatting, sampling, `==` on the core (S2b).** Core `format.rs` = population/format.py (`format(die,

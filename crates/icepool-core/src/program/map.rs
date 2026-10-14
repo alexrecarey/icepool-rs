@@ -8,6 +8,7 @@
 use dashu_int::IBig;
 
 use super::catalogue::{py_eq, truthy, Func};
+use super::expression::as_expression;
 use super::ops::{die_arg, py_iter, type_error, Key};
 use super::{raise, PErr, PValue};
 use crate::creation_args::DieArg;
@@ -76,15 +77,29 @@ pub fn kwargs(pairs: PValue) -> Result<Vec<(String, PValue)>, PErr> {
     Ok(out)
 }
 
-/// `iter_cartesian_product`'s view of one argument: a die's items, or the argument itself with quantity 1.
+/// `iter_cartesian_product`'s view of one argument: a population's items (`_items_for_cartesian_product`: dice
+/// and decks), or the argument itself with quantity 1.
 pub(super) fn arg_items(arg: PValue) -> Vec<(PValue, Quantity)> {
-    match arg {
-        PValue::Die(d) => d
-            .items()
+    let items = |items: &[(Value, Quantity)]| {
+        items
             .iter()
             .map(|(o, q)| (PValue::Value(o.clone()), q.clone()))
-            .collect(),
+            .collect()
+    };
+    match arg {
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => items(d.items()),
+        PValue::Deck(d) => items(d.items()),
         x => vec![(x, Quantity::ONE)],
+    }
+}
+
+/// `arg.expand() if isinstance(arg, icepool.MultisetExpression) else arg`: `map` and `map_and_time` turn a
+/// multiset expression argument into the die of its sorted tuples before anything else.
+pub(super) fn expand_arg(arg: PValue) -> Result<PValue, PErr> {
+    if as_expression(&arg).is_some() {
+        super::evaluate::expand(arg, PValue::Value(Value::from(1)))
+    } else {
+        Ok(arg)
     }
 }
 
@@ -119,6 +134,10 @@ pub fn map(
         };
         return die_of(vec![result], vec![Quantity::ONE]);
     }
+    let args = args
+        .into_iter()
+        .map(expand_arg)
+        .collect::<Result<Vec<_>, _>>()?;
     // transition_and_star.
     let (f, star) = match repl {
         Repl::Callable(f) => (f, star.unwrap_or_else(|| f.infer_star(args.len()))),
