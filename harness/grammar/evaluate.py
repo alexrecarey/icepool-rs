@@ -129,3 +129,72 @@ def evaluate_named(name, params, args):
     from harness.catalogue.evaluators import EVALUATORS
     fresh_caches()
     return EVALUATORS[name](*params).evaluate(*args)
+
+
+# --- S1e: the rest of the built-in comparison evaluators, the keep evaluator, keyword arguments ------------------
+
+_COMPARISONS = {
+    "proper_subset": "IsProperSubsetEvaluator",
+    "proper_superset": "IsProperSupersetEvaluator",
+    "equal_set": "IsEqualSetEvaluator",
+    "not_equal_set": "IsNotEqualSetEvaluator",
+}
+
+
+def _gen_pool_compare(g, depth):
+    return {"op": "pool_compare", "pool": gen_pool(g, depth), "other": _other(g, depth),
+            "cmp": {"str": g.rng.choice(sorted(_COMPARISONS))}}
+
+
+@node("pool_compare", "die", gen=_gen_pool_compare, weight=0.3)
+def pool_compare(pool, other, cmp):
+    """icepool.evaluator.<Is...Evaluator>().evaluate(pool, other) for cmp in proper_subset (pool < other),
+    proper_superset (>), equal_set (==, without the truth value) and not_equal_set (!=)."""
+    import icepool
+    fresh_caches()
+    return getattr(icepool.evaluator, _COMPARISONS[cmp])().evaluate(pool, other)
+
+
+def _gen_keep_evaluate(g, depth):
+    index = None if g.rng.random() < 0.15 else g.rng.randint(-4, 4)
+    return {"op": "keep_evaluate", "pool": gen_pool(g, depth), "index": index}
+
+
+@node("keep_evaluate", "die", gen=_gen_keep_evaluate, weight=0.3)
+def keep_evaluate(pool, index):
+    """icepool.evaluator.keep_evaluator.evaluate(pool, index=index): the element at that sorted index (negative:
+    from the top; None: the first seen), IndexError if the multiset ends first; negative counts count as zero."""
+    import icepool
+    fresh_caches()
+    return icepool.evaluator.keep_evaluator.evaluate(pool, index=index)
+
+
+def _gen_kwargs(g):
+    from harness.grammar.operators import scalar
+    kwargs = []
+    for name in ("start", "scale"):
+        if g.rng.random() < 0.6:
+            kwargs.append([{"str": name}, g.rng.randint(-2, 4) if g.rng.random() < 0.7 else scalar(g)])
+    if g.rng.random() < 0.1:
+        kwargs.append([{"str": "bad"}, 1])
+    g.rng.shuffle(kwargs)
+    return kwargs
+
+
+def _gen_evaluate_kw(g, depth):
+    from harness.catalogue.evaluators import ENTRIES
+    name = g.rng.choice(sorted(n for n, e in ENTRIES.items() if e.kw))
+    e = ENTRIES[name]
+    args = [gen_pool(g, depth) if g.rng.random() < 0.85 else [g.outcome() for _ in range(g.rng.randint(0, 3))]
+            for _ in range(e.inputs(g))]
+    return {"op": "evaluate_kw", "name": {"str": name}, "params": e.params(g), "args": args,
+            "kwargs": _gen_kwargs(g)}
+
+
+@node("evaluate_kw", "die", gen=_gen_evaluate_kw, weight=0.3)
+def evaluate_kw(name, params, args, kwargs):
+    """EVALUATORS[name](*params).evaluate(*args, **dict(kwargs)): keyword arguments (a list of [name, value]) go
+    to the evaluator's initial_state and final_outcome."""
+    from harness.catalogue.evaluators import EVALUATORS
+    fresh_caches()
+    return EVALUATORS[name](*params).evaluate(*args, **{k: v for k, v in kwargs})

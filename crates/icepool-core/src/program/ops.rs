@@ -207,9 +207,24 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [p, other] = args.exactly(["pool", "other"])?;
             evaluate::compare(op, p, other)
         }
+        "pool_compare" => {
+            let [p, other, cmp] = args.exactly(["pool", "other", "cmp"])?;
+            let PValue::Value(Value::Str(cmp)) = cmp else {
+                return raise(Error::Key("pool_compare names a comparison".into()));
+            };
+            evaluate::compare(&cmp, p, other)
+        }
+        "keep_evaluate" => {
+            let [p, index] = args.exactly(["pool", "index"])?;
+            evaluate::keep_evaluate(p, index)
+        }
         "evaluate" => {
             let [name, params, a] = args.exactly(["name", "params", "args"])?;
-            evaluate::catalogue(name, params, a)
+            evaluate::catalogue(name, params, a, vec![])
+        }
+        "evaluate_kw" => {
+            let [name, params, a, kwargs] = args.exactly(["name", "params", "args", "kwargs"])?;
+            evaluate::catalogue(name, params, a, map::kwargs(kwargs)?)
         }
         "round" => {
             let [a, ndigits] = args.exactly(["a", "ndigits"])?;

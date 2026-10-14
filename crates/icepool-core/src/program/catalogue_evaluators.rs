@@ -29,6 +29,13 @@ pub enum CatalogueEvaluator {
     CountDiff,
     /// `ZeroRuns()`: how many consecutive int outcomes have a zero count.
     ZeroRuns,
+    /// `ScaledSize()` with `evaluate(..., start=, scale=)`: `(start + sum of all counts) * scale`. `unexpected` is
+    /// the first other keyword, a `TypeError` once `initial_state` is called.
+    ScaledSize {
+        start: Value,
+        scale: Value,
+        unexpected: Option<String>,
+    },
 }
 
 fn unsupported_order<T>() -> Result<T> {
@@ -55,7 +62,7 @@ impl CatalogueEvaluator {
     pub fn new(name: &str, params: Vec<PValue>) -> std::result::Result<Self, PErr> {
         use CatalogueEvaluator::*;
         let want = match name {
-            "count_diff" | "zero_runs" => 0,
+            "count_diff" | "zero_runs" | "scaled_size" => 0,
             "count_eq" | "reroll_at_least" | "final_die" | "seen" => 1,
             _ => return raise(Error::Key(format!("no catalogue evaluator {name:?}"))),
         };
@@ -79,8 +86,46 @@ impl CatalogueEvaluator {
             "seen" => Seen(param()?),
             "count_diff" => CountDiff,
             "zero_runs" => ZeroRuns,
+            "scaled_size" => ScaledSize {
+                start: int(0),
+                scale: int(1),
+                unexpected: None,
+            },
             _ => unreachable!("checked above"),
         })
+    }
+
+    /// The keyword arguments of `evaluate(*args, **kwargs)`, which Python passes to `initial_state` and
+    /// `final_outcome`. Only `scaled_size` declares any; the others are not given keywords by the generators.
+    pub fn with_kwargs(mut self, kwargs: Vec<(String, PValue)>) -> std::result::Result<Self, PErr> {
+        if kwargs.is_empty() {
+            return Ok(self);
+        }
+        let CatalogueEvaluator::ScaledSize {
+            start,
+            scale,
+            unexpected,
+        } = &mut self
+        else {
+            return Err(PErr::Unimplemented(
+                "keyword arguments to this catalogue evaluator".into(),
+            ));
+        };
+        for (name, v) in kwargs {
+            let PValue::Value(v) = v else {
+                return Err(PErr::Unimplemented(
+                    "a non-value evaluator keyword argument".into(),
+                ));
+            };
+            match name.as_str() {
+                "start" => *start = v,
+                "scale" => *scale = v,
+                _ => {
+                    unexpected.get_or_insert(name);
+                }
+            }
+        }
+        Ok(self)
     }
 }
 
@@ -92,6 +137,16 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
         use CatalogueEvaluator::*;
         Ok(match self {
             CountEq(_) | FinalDie(_) | CountDiff | ZeroRuns => int(0),
+            ScaledSize {
+                start, unexpected, ..
+            } => {
+                if let Some(name) = unexpected {
+                    return Err(Error::Type(format!(
+                        "ScaledSize.initial_state() got an unexpected keyword argument '{name}'"
+                    )));
+                }
+                start.clone()
+            }
             RerollAtLeast(_) => Value::None,
             Seen(req) => {
                 if *req == int(2) || (*req == int(1) && order.value() < 0) {
@@ -157,6 +212,8 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 add(state, &outcome.binary(BinOp::Mul, &int(first - rest))?)?
             }
             ZeroRuns => add(state, &int(i64::from(one_count(counts)? == 0)))?,
+            // `state + sum(counts)`
+            ScaledSize { .. } => add(state, &int(counts.iter().sum()))?,
         }))
     }
 
@@ -201,6 +258,8 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 items.extend(sizes.iter().map(|s| s.map_or(Value::None, int)));
                 Final::Outcome(PValue::Value(Value::tuple(items)))
             }
+            // `final_state * scale`
+            ScaledSize { scale, .. } => outcome(&final_state.binary(BinOp::Mul, scale)?),
             _ => outcome(final_state),
         })
     }

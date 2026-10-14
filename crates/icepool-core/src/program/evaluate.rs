@@ -11,6 +11,7 @@ use crate::evaluator::basic::{
     EmptyEvaluator, ExpandEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
 };
 use crate::evaluator::comparison::{Comparison, ComparisonEvaluator};
+use crate::evaluator::keep::KeepEvaluator;
 use crate::evaluator::poker::{
     AllCountsEvaluator, AllStraightsEvaluator, CountSubsetEvaluator,
     HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
@@ -147,6 +148,24 @@ pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValu
     )
 }
 
+/// `keep_evaluator.evaluate(pool, index=index)`.
+pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
+    let pools = [the_pool(p)?];
+    let index = match value(index)? {
+        Value::None => None,
+        Value::Int(i) => Some(
+            i64::try_from(&i)
+                .map_err(|_| PErr::Unimplemented("a keep index beyond 64 bits".into()))?,
+        ),
+        _ => {
+            return Err(PErr::Unimplemented(
+                "a keep index that is not an int".into(),
+            ))
+        }
+    };
+    die(&KeepEvaluator { index }, &pools)
+}
+
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
 pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result<PValue, PErr> {
     let left = the_pool(p)?;
@@ -159,7 +178,8 @@ pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result
     )
 }
 
-/// `pool.issubset(other)`, `pool.issuperset(other)`, `pool.isdisjoint(other)`.
+/// `pool.issubset(other)`, `pool.issuperset(other)`, `pool.isdisjoint(other)`, and node `pool_compare`'s
+/// `cmp` names for the other comparison evaluators.
 pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
     let left = the_pool(p)?;
     let right = implicit_convert(other)?;
@@ -167,17 +187,26 @@ pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
         "pool_issubset" => Comparison::IsSubset,
         "pool_issuperset" => Comparison::IsSuperset,
         "pool_isdisjoint" => Comparison::IsDisjointSet,
+        "proper_subset" => Comparison::IsProperSubset,
+        "proper_superset" => Comparison::IsProperSuperset,
+        "equal_set" => Comparison::IsEqualSet,
+        "not_equal_set" => Comparison::IsNotEqualSet,
         _ => return Err(PErr::Unimplemented(op.into())),
     };
     die(&ComparisonEvaluator(comparison), &[left, right])
 }
 
-/// `EVALUATORS[name](*params).evaluate(*args)` (harness/catalogue/evaluators.py).
-pub fn catalogue(name: PValue, params: PValue, args: PValue) -> Result<PValue, PErr> {
+/// `EVALUATORS[name](*params).evaluate(*args, **kwargs)` (harness/catalogue/evaluators.py).
+pub fn catalogue(
+    name: PValue,
+    params: PValue,
+    args: PValue,
+    kwargs: Vec<(String, PValue)>,
+) -> Result<PValue, PErr> {
     let PValue::Value(Value::Str(name)) = name else {
         return raise(Error::Key("catalogue names are strs".into()));
     };
-    let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?;
+    let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?.with_kwargs(kwargs)?;
     let pools = py_iter(args)?
         .into_iter()
         .map(implicit_convert)

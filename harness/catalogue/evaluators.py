@@ -20,16 +20,17 @@ class Entry:
     cls: type
     params: Callable                    # params(g) -> list of JSON program values
     inputs: Callable                    # inputs(g) -> how many multisets to pass
+    kw: bool = False                    # takes keyword arguments (node evaluate_kw)
 
 
 EVALUATORS: dict[str, type] = {}
 ENTRIES: dict[str, Entry] = {}
 
 
-def evaluator(name, params=lambda g: [], inputs=lambda g: 1 if g.rng.random() < 0.95 else 2):
+def evaluator(name, params=lambda g: [], inputs=lambda g: 1 if g.rng.random() < 0.95 else 2, kw=False):
     def deco(cls):
         EVALUATORS[name] = cls
-        ENTRIES[name] = Entry(cls, params, inputs)
+        ENTRIES[name] = Entry(cls, params, inputs, kw)
         return cls
     return deco
 
@@ -134,3 +135,18 @@ class ZeroRuns(MultisetEvaluator):
 
     def next_state(self, state, order, outcome, count):
         return state + (1 if count == 0 else 0)
+
+
+@evaluator("scaled_size", inputs=lambda g: g.rng.choice([1, 1, 2]), kw=True)
+class ScaledSize(MultisetEvaluator):
+    """(start + the sum of all counts) * scale, with start and scale keyword arguments of evaluate(). Any other
+    keyword is a TypeError from initial_state (so not raised when some input has no probability)."""
+
+    def initial_state(self, order, outcomes, *sizes, start=0, scale=1):
+        return start
+
+    def next_state(self, state, order, outcome, *counts):
+        return state + sum(counts)
+
+    def final_outcome(self, final_state, order, outcomes, *sizes, start=0, scale=1):
+        return final_state * scale

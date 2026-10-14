@@ -86,5 +86,8 @@
   "map_kw": "ported",
   "pool_dict": "ported",
   "d_pool": "ported",
-  "z_pool": "ported"
+  "z_pool": "ported",
+  "pool_compare": "ported",
+  "keep_evaluate": "ported",
+  "evaluate_kw": "ported"
 }
