@@ -6,7 +6,7 @@
 use dashu_int::IBig;
 
 use super::evaluate::run;
-use super::ops::{binary, itemize, new_die, py_iter, to_die, type_error, unary};
+use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::evaluator::basic::SumEvaluator;
@@ -88,18 +88,132 @@ fn die_count(t: &Value) -> Result<usize, PErr> {
 
 /// `icepool.Pool(dice, times)`.
 pub fn pool(dice: PValue, times: PValue) -> Result<PValue, PErr> {
-    let dice = match dice {
-        // `Pool(pool)` is the pool itself.
-        PValue::Pool(p) if int_value(&times) == Some(IBig::ONE) => return Ok(PValue::Pool(p)),
-        PValue::Pool(_) => return Err(PErr::Unimplemented("Pool(pool, times)".into())),
+    let (dice, times) = match dice {
+        // `Pool(pool)` is the pool itself (`times == 1`, so also `True` or `1.0`).
+        PValue::Pool(p) if matches!(&times, PValue::Value(t) if *t == Value::from(1)) => {
+            return Ok(PValue::Pool(p))
+        }
+        // Otherwise the mapping `{die: quantity for die, quantity in dice._dice}`: the keep tuple and the dice put
+        // in zero times are forgotten.
+        PValue::Pool(p) => {
+            let (keys, values) = p
+                .dice()
+                .iter()
+                .map(|(d, c)| (PValue::Die(d.clone()), int(*c)))
+                .unzip();
+            itemize_mapping(keys, values, times)?
+        }
         PValue::Die(_) => {
             return raise(Error::Value(
                 "A Pool cannot be constructed with a Die argument.".into(),
             ))
         }
-        dice => dice,
+        dice => itemize(dice, Some(times))?,
     };
-    let (dice, times) = itemize(dice, Some(times))?;
+    new_pool(dice, times)
+}
+
+/// `Pool(dict(items), times)`: `items` a sequence of `[key, count]` pairs.
+pub fn pool_dict(items: PValue, times: PValue) -> Result<PValue, PErr> {
+    let (keys, values): (Vec<PValue>, Vec<PValue>) = dict(items)?.into_iter().unzip();
+    let values = values
+        .into_iter()
+        .map(|v| match v {
+            PValue::Value(v) => Ok(v),
+            _ => Err(PErr::Unimplemented(
+                "a pool count that is not a value".into(),
+            )),
+        })
+        .collect::<Result<_, _>>()?;
+    let (dice, times) = itemize_mapping(keys, values, times)?;
+    new_pool(dice, times)
+}
+
+/// Python's `dict(items)` over `[key, value]` pairs: equal keys merge, keeping the first key and the last value, in
+/// insertion order. Keys are dice or outcomes (a die never equals an outcome as a dict key).
+fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
+    let mut result: Vec<(PValue, PValue)> = Vec::new();
+    for item in py_iter(items)? {
+        let pair = py_iter(item)?;
+        let [key, value]: [PValue; 2] = pair.try_into().map_err(|p: Vec<_>| {
+            PErr::Raise(Error::Value(format!(
+                "dictionary update sequence element has length {}; 2 is required",
+                p.len()
+            )))
+        })?;
+        match &key {
+            PValue::Die(_) | PValue::Value(_) => {}
+            PValue::List(_) => return type_error("unhashable type: 'list'"),
+            _ => return Err(PErr::Unimplemented("this dict key".into())),
+        }
+        let same = |k: &PValue| match (k, &key) {
+            (PValue::Die(a), PValue::Die(b)) => a == b,
+            (PValue::Value(a), PValue::Value(b)) => a == b,
+            _ => false,
+        };
+        match result.iter_mut().find(|(k, _)| same(k)) {
+            Some((_, v)) => *v = value,
+            None => result.push((key, value)),
+        }
+    }
+    Ok(result)
+}
+
+/// `icepool.d_pool(die_sizes)` (`z` false) or `icepool.z_pool(die_sizes)`; `mapping`: `die_sizes` is
+/// `dict(die_sizes)`, sizes to how many dice of that size.
+pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue, PErr> {
+    let sizes = if mapping {
+        let sizes = dict(die_sizes)?;
+        if sizes.is_empty() {
+            return empty_standard_pool();
+        }
+        // `itertools.chain.from_iterable([k] * v for k, v in die_sizes.items())`.
+        let mut list = Vec::new();
+        for (k, v) in sizes {
+            let n = match int_value(&v) {
+                Some(n) => usize::try_from(n).unwrap_or(0),
+                None => return type_error("can't multiply sequence by non-int"),
+            };
+            list.extend(std::iter::repeat_n(k, n));
+        }
+        list
+    } else {
+        // `if not die_sizes` (also true for `0`, `''`, `None`...); a truthy non-sequence then fails to iterate.
+        if !super::catalogue::truthy(&die_sizes)? {
+            return empty_standard_pool();
+        }
+        py_iter(die_sizes)?
+    };
+    if sizes.is_empty() {
+        // Only from a mapping whose counts are all <= 0: `Pool([])`.
+        return Ok(PValue::Pool(Pool::new(Vec::new())?));
+    }
+    let dice = sizes
+        .into_iter()
+        .map(|x| {
+            // `icepool.z(x)` checks its argument as `d(x)` does, and is `d(x) - 1`.
+            let die = to_die(super::ops::d(x)?)?;
+            let die = if z {
+                die.unary_operator(|o| o.binary(BinOp::Sub, &Value::from(1)))?
+            } else {
+                die
+            };
+            Ok((die, 1))
+        })
+        .collect::<Result<Vec<_>, PErr>>()?;
+    Ok(PValue::Pool(Pool::new(dice)?))
+}
+
+/// `Pool({icepool.Die([0]): 0})`: if empty, the pool will be considered to consist of zero zeros.
+fn empty_standard_pool() -> Result<PValue, PErr> {
+    Ok(PValue::Pool(Pool::new(vec![(
+        Die::from_dict(vec![(Value::from(0), crate::Quantity::ONE)])?,
+        0,
+    )])?))
+}
+
+/// The end of `Pool.__new__`, after `itemize`.
+fn new_pool(dice: Vec<PValue>, times: Vec<Value>) -> Result<PValue, PErr> {
     let dice = dice
         .into_iter()
         .map(convert_to_die)

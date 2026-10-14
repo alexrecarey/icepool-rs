@@ -83,5 +83,8 @@
   "simplify": "ported",
   "die_pop": "ported",
   "from_cumulative": "ported",
-  "map_kw": "ported"
+  "map_kw": "ported",
+  "pool_dict": "ported",
+  "d_pool": "ported",
+  "z_pool": "ported"
 }

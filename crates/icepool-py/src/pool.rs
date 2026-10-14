@@ -50,7 +50,11 @@ fn die_count(t: &Bound<'_, PyAny>) -> PyResult<usize> {
 #[pyfunction]
 pub fn pool_new(dice: Vec<Bound<'_, RsDie>>, times: Vec<Bound<'_, PyAny>>) -> PyResult<RsPool> {
     let counts = times.iter().map(die_count).collect::<PyResult<Vec<_>>>()?;
-    let dice = dice.iter().map(|d| d.get().die.clone()).zip(counts).collect();
+    let dice = dice
+        .iter()
+        .map(|d| d.get().die.clone())
+        .zip(counts)
+        .collect();
     Ok(RsPool {
         pool: Pool::new(dice).map_err(to_py_err)?,
     })
@@ -118,7 +122,12 @@ fn int_tuple<'py>(py: Python<'py>, xs: &[i64]) -> PyResult<Bound<'py, PyTuple>> 
 }
 
 fn outcome_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
-    PyTuple::new(py, xs.iter().map(|o| to_py(py, o)).collect::<PyResult<Vec<_>>>()?)
+    PyTuple::new(
+        py,
+        xs.iter()
+            .map(|o| to_py(py, o))
+            .collect::<PyResult<Vec<_>>>()?,
+    )
 }
 
 /// `(die, count)` pairs as `(icepool_rs.Die, int)`, for the facade to wrap into its own dice.

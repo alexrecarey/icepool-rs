@@ -117,6 +117,15 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [dice, times] = args.exactly(["dice", "times"])?;
             pool::pool(dice, times)
         }
+        "pool_dict" => {
+            let [items, times] = args.exactly(["items", "times"])?;
+            pool::pool_dict(items, times)
+        }
+        "d_pool" | "z_pool" => {
+            let [die_sizes, mapping] = args.exactly(["die_sizes", "mapping"])?;
+            let mapping = matches!(mapping, PValue::Value(Value::Bool(true)));
+            pool::standard_pool(op == "z_pool", die_sizes, mapping)
+        }
         "die_pool" => {
             let [die, rolls] = args.exactly(["die", "rolls"])?;
             pool::die_pool(die, rolls)
@@ -627,12 +636,12 @@ pub(super) fn itemize(
 ) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
     // A die is a Mapping: its outcomes become the keys and its quantities multiply the times. Each outcome then has
     // denominator 1, so zero quantities drop out.
-    let (args, base): (Vec<PValue>, Option<Vec<Quantity>>) = match keys {
+    let (args, base): (Vec<PValue>, Option<Vec<Value>>) = match keys {
         PValue::Die(d) => {
             let (a, q) = d
                 .items()
                 .iter()
-                .map(|(o, q)| (PValue::Value(o.clone()), q.clone()))
+                .map(|(o, q)| (PValue::Value(o.clone()), Value::Int(q.clone().into())))
                 .unzip();
             (a, Some(q))
         }
@@ -643,6 +652,24 @@ pub(super) fn itemize(
         PValue::Func(_) => return Err(PErr::Unimplemented("Die(mapping)".into())),
         _ => return type_error("Argument appears not to be a mapping or sequence."),
     };
+    itemize_times(args, base, times)
+}
+
+/// `itemize(mapping, times)` for a mapping given as its keys and values (the values multiply the times).
+pub(super) fn itemize_mapping(
+    keys: Vec<PValue>,
+    values: Vec<Value>,
+    times: PValue,
+) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
+    itemize_times(keys, Some(values), Some(times))
+}
+
+/// The rest of `itemize` once the keys are known: `base` holds a mapping's values.
+fn itemize_times(
+    args: Vec<PValue>,
+    base: Option<Vec<Value>>,
+    times: Option<PValue>,
+) -> Result<(Vec<PValue>, Vec<Value>), PErr> {
     let times: Vec<Value> = match times {
         None => vec![Value::from(1); args.len()],
         // `isinstance(times, int)`: one factor for every key.
@@ -670,7 +697,13 @@ pub(super) fn itemize(
         Some(q) => q
             .iter()
             .zip(&times)
-            .map(|(q, t)| int_times(q, t))
+            .map(|(v, t)| match v {
+                Value::Int(q) if *q >= IBig::ZERO => {
+                    int_times(&dashu_base::UnsignedAbs::unsigned_abs(q.clone()), t)
+                }
+                // `v * x` for a mapping value that is not a quantity.
+                v => v.binary(BinOp::Mul, t).map_err(PErr::Raise),
+            })
             .collect::<Result<_, _>>()?,
     };
     // `any(x < 0 for x in times)`: raises for negatives, and for anything that is not a number.

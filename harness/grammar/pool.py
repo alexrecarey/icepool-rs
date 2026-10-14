@@ -27,6 +27,25 @@ def pool(dice, times):
     return icepool.Pool(dice, times)
 
 
+@node("pool_dict", "pool")
+def pool_dict(items, times):
+    """icepool.Pool(dict(items), times): items are [die or outcome, count] pairs (equal keys merge as in a dict:
+    first key, last count)."""
+    return icepool.Pool(dict(items), times)
+
+
+@node("d_pool", "pool")
+def d_pool(die_sizes, mapping):
+    """icepool.d_pool(dict(die_sizes) if mapping else die_sizes): one d(size) per size, or [size, count] pairs."""
+    return icepool.d_pool(dict(die_sizes) if mapping else die_sizes)
+
+
+@node("z_pool", "pool")
+def z_pool(die_sizes, mapping):
+    """icepool.z_pool(dict(die_sizes) if mapping else die_sizes): as d_pool with z(size)."""
+    return icepool.z_pool(dict(die_sizes) if mapping else die_sizes)
+
+
 @node("die_pool", "pool")
 def die_pool(die, rolls):
     """die.pool(rolls): rolls copies of die; a sequence of counts is Pool({die: len(rolls)})[rolls]."""
@@ -124,9 +143,44 @@ def _die_without_nan(g, depth):
     return {"op": "d", "sides": g.rng.randint(1, 6)}
 
 
+def _times(g, n):
+    """`times` for n keys: an int for all, or one per key (rarely the wrong length or negative, which raise)."""
+    if g.rng.random() < 0.6:
+        return g.rng.choice([1, 1, 0, 2, 3, -1 if g.rng.random() < 0.1 else 1])
+    m = n if g.rng.random() < 0.9 else g.rng.randint(0, 3)
+    return [g.rng.choice([0, 1, 1, 2, -1 if g.rng.random() < 0.05 else 1]) for _ in range(m)]
+
+
+def _sizes(g):
+    """Die sizes for d_pool / z_pool (rarely 0 or negative, which raise), and whether they are [size, count] pairs."""
+    size = lambda: g.rng.choice([1, 2, 3, 4, 6, 6, 0 if g.rng.random() < 0.1 else 4])
+    n = g.rng.choice([0, 1, 2, 2, 3])
+    if g.rng.random() < 0.6:
+        return [size() for _ in range(n)], False
+    return [[size(), g.rng.choice([0, 1, 1, 2, 3, -1])] for _ in range(n)], True
+
+
+def _other_pool(g, depth):
+    """Pool(pool, times), Pool(dict, times), d_pool and z_pool."""
+    r = g.rng.random()
+    if r < 0.3:
+        return {"op": "pool", "dice": _base_pool(g, depth), "times": _times(g, g.rng.randint(1, 2))}
+    if r < 0.6:
+        n = g.rng.choice([0, 1, 2, 2, 3])
+        keys = [_die(g, depth) if g.rng.random() < 0.7 else g.outcome() for _ in range(n)]
+        if n and g.rng.random() < 0.2:
+            keys.append(keys[0])  # an equal key: the dict merges it
+        items = [[k, g.rng.choice([0, 1, 1, 2, 3, -1 if g.rng.random() < 0.1 else 1])] for k in keys]
+        return {"op": "pool_dict", "items": items, "times": _times(g, len(items))}
+    sizes, mapping = _sizes(g)
+    return {"op": g.rng.choice(["d_pool", "z_pool"]), "die_sizes": sizes, "mapping": {"bool": mapping}}
+
+
 def _base_pool(g, depth, uniform=False):
     """A new pool. `uniform`: every count 1, so that two of them add up to one pool."""
     r = g.rng.random()
+    if r < 0.25 and not uniform:
+        return _other_pool(g, depth)
     if r < 0.45:
         n = g.rng.choice([0, 1, 1, 2, 2, 3, 4])
         dice = [_die(g, depth) if g.rng.random() < 0.8 else g.outcome() for _ in range(n)]
