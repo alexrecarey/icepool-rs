@@ -166,9 +166,10 @@ def gen_expression(g, depth, budget=None):
             target = sub()
         return {"op": "mx_filter", "expr": sub(), "invert": {"bool": r.random() < 0.5}, "target": target}
     if k < 0.67:
-        name = r.choice(["count_diff", "count_if_gt_k", "add2", "max2", "sum3"])
-        f = fn_node(g, name=name)[0]
-        n = {"add2": 1, "max2": 1, "sum3": 2}.get(name) or r.choice([1, 2, 2, 3])
+        # Functions of the counts only: their results are ints whatever the outcomes (add2 / max2 over bool or
+        # float outcomes would make bool / float counts, which the port does not model; see NOTES.md).
+        f = fn_node(g, name=r.choice(["count_diff", "count_if_gt_k"]))[0]
+        n = r.choice([1, 2, 2, 3])
         return {"op": "mx_map_counts", "args": [sub() for _ in range(n)], "function": f}
     if k < 0.8:
         return _keep(g, sub())

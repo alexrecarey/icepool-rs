@@ -578,11 +578,12 @@ pub fn versus(e: PValue, all: bool, comparison: PValue, other: PValue) -> Result
     )))
 }
 
-/// `expr.force_order(order)`.
+/// `expr.force_order(order)`: `Order.Any` returns the expression itself.
 pub fn force_order(e: PValue, order: PValue) -> Result<PValue, PErr> {
     let e = the_expression(e)?;
-    Ok(into_pvalue(MExpr::op(
-        Operator::ForceOrder(order_arg(&order)?),
-        vec![e],
-    )))
+    let order = order_arg(&order)?;
+    if order == 0 {
+        return Ok(into_pvalue(e));
+    }
+    Ok(into_pvalue(MExpr::op(Operator::ForceOrder(order), vec![e])))
 }

@@ -46,7 +46,7 @@ turns out wrong. Newest decisions at the top of each section.
 - Nodes (harness/grammar/multiset.py, kind "mexpr", no gen: an expression's repr has an address): `mx_binary` (`a o
   b`; the argument is `o` because `op` is the node key), `mx_method` (`MultisetExpression.<name>(*args)`),
   `mx_counts` (`o` in mul/neg/pos/floordiv/mod/unique/keep_counts/multiply_counts/divide_counts/modulo_counts),
-  `mx_filter`, `mx_map_counts` (catalogue `count_diff`, `count_if_gt_k`, or add2/max2/sum3), `mx_sort_pair`,
+  `mx_filter`, `mx_map_counts` (generated with catalogue `count_diff` / `count_if_gt_k` only: add2 / max2 over bool or float outcomes make non-int counts, a gap), `mx_sort_pair`,
   `mx_max_pair`, `mx_versus`, `mx_force_order`, and the root `mx_evaluate` (`getattr(expr, method)()`).
   `gen_expression` builds trees of up to 3 operators over `gen_pool(..., expressions=False)` leaves; `gen_pool(...,
   deals=True)` returns an expression 20% of the time, so every evaluation node fuzzes expressions too. Fuzz with
