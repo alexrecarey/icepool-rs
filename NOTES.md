@@ -1034,6 +1034,20 @@ turns out wrong. Newest decisions at the top of each section.
   equal keys are identical, so the merge is the same); `PartialEq for Value` deleting the `(Vector | Symbols,
   _)` arm (the fallthrough arms already say unequal); `MultisetFunction::next_state` / `next_state_counts` ->
   `Ok(None)` (the driver calls `next_state_tree`; flat counts cannot address a call tree).
+- **Surviving mutants (task M202610151225).** Unit tests now cover the facade-only paths (`HostSource`,
+  `OrderReason::from_int`, `one_hot_items` positions) and resource limits (`operator::repeat` at 2^24 elements,
+  `mean_time_to_sum` of a huge target, `explode_counts` depths). Tuple counts reach `next_state_tuple` through
+  `union(multi_deal)` (one child: the tuple passes) under `tuple_op_evaluate` / `record`; keep the other side
+  deterministic (a pool of a one-outcome die, or a `keep_outcomes([k])` filter that is 0 before the tuple
+  arrives), else `record` mixes int and tuple counts and the final die's sort raises. Lexi's reverse order: the
+  driver pops descending by default and evaluates backward, so `next_state` sees ascending; leximax (sort
+  descending) of a plain pool runs reversed, leximin only with a pool preferring ascending pops (`pool_lowest`).
+  Kill fixtures: fixtures/m202610151225/. Left alive on purpose, equivalent: `poker.rs`
+  `LargestCountWithWildEvaluator::initial_state` -> `Ok(Default::default())` (that is `None`); `argsort.rs`
+  `count > max_count` / `count > tie_count` -> `>=` (on a tie the tie count ends equal to the max either way, so
+  nothing is appended until a larger count resets the index) and every `append_count > 0` -> `>=` (appending 0
+  is a no-op, and the `limit` break only fires when nothing more fits); `to_pool.rs` `explode_counts` guard `depth
+  < -1` -> `<= -1` / `< 1` (the guard only sees depths below -1 or above `u32::MAX`).
 - **Tuple comparison uses Python's `==` to find the first difference** (`Value::first_difference`, shared by
   `py_lt`, `ops::compare`, `Value::binary`): `Symbols('ab') == ('a', 'b')`, so `(Symbols('ab'),)` and
   `(('a', 'b'),)` compare by length, as Python does (they used to raise). Elements equal as dict keys skip
