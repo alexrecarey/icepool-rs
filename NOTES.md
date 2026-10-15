@@ -1215,3 +1215,6 @@ turns out wrong. Newest decisions at the top of each section.
   `Pool({expr: n})` (fixtures/t1a/again-dict-keys.jsonl).
 - JS suite: `again_truth` has an idiomatic route (fixtures.mjs, `ip.truth(x)`); node-args.json regenerated.
   fixtures/t1a pass through JS.
+- **Never run a bare `cargo fmt`**: the tree is not rustfmt-clean, so it rewrites dozens of files, including the
+  protected `crates/icepool-core/tests/fixtures.rs` (the guard rejects that). Format only your own files
+  (`rustfmt --edition 2021 <file>`), and run `harness/core/guard.sh $(git merge-base HEAD main) HEAD` before stopping.
