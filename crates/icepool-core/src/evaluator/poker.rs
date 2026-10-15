@@ -515,8 +515,9 @@ fn add_counts(a: i64, b: i64) -> Result<i64> {
 /// `largest_count(wild=, wild_low=, wild_high=)` uses).
 ///
 /// Each selector is `make_select_function(which)`: `None` selects nothing, a callable is called with the outcome,
-/// any other collection becomes a `frozenset` tested with `in`. The caller builds them, returning the truth value
-/// of the result.
+/// any other collection becomes a `frozenset` tested with `in`. The caller builds them, returning the selector's
+/// result as is: Python only takes its truth value where it uses it (`is_wild or ...`, `if is_wild_early`,
+/// `if is_wild_late`), and a result without one (a `Vector` from `identity`) raises only there.
 pub struct LargestCountWithWildEvaluator<S> {
     /// These outcomes' counts are combined with the counts of any other outcomes.
     pub wild: S,
@@ -526,7 +527,7 @@ pub struct LargestCountWithWildEvaluator<S> {
     pub wild_high: S,
 }
 
-impl<S: Fn(&Value) -> Result<bool>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
+impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
     /// `None` before the first outcome, then `(best, total_wild_early)`.
     type State = Option<(i64, i64)>;
     type Final = Value;
@@ -544,25 +545,32 @@ impl<S: Fn(&Value) -> Result<bool>> MultisetEvaluator<Value> for LargestCountWit
     ) -> Result<Option<Self::State>> {
         let count = counts[0];
         let is_wild = (self.wild)(outcome)?;
-        // `is_wild or select(outcome)`: the second selector only runs when the first is falsy.
-        let either = |select: &S| -> Result<bool> { Ok(is_wild || select(outcome)?) };
+        // `is_wild or select(outcome)`: `is_wild` itself if truthy, else the second selector's result.
+        let wild = is_wild.truthy()?;
+        let either = |select: &S| -> Result<Value> {
+            if wild {
+                Ok(is_wild.clone())
+            } else {
+                select(outcome)
+            }
+        };
         let (is_wild_early, is_wild_late) = if order.is_ascending() {
             (either(&self.wild_low)?, either(&self.wild_high)?)
         } else {
             (either(&self.wild_high)?, either(&self.wild_low)?)
         };
         let Some((mut best, mut total_wild_early)) = *state else {
-            return Ok(Some(Some(if is_wild_early {
+            return Ok(Some(Some(if is_wild_early.truthy()? {
                 (count, count)
             } else {
                 (count, 0)
             })));
         };
-        if is_wild_late {
+        if is_wild_late.truthy()? {
             best = add_counts(best, count)?;
         }
         best = best.max(add_counts(count, total_wild_early)?);
-        if is_wild_early {
+        if is_wild_early.truthy()? {
             total_wild_early = add_counts(total_wild_early, count)?;
         }
         Ok(Some(Some((best, total_wild_early))))

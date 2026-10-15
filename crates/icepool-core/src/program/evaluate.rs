@@ -346,20 +346,23 @@ pub fn sum_map(p: PValue, map: PValue) -> Result<PValue, PErr> {
     }
 }
 
-type Select = Box<dyn Fn(&Value) -> crate::error::Result<bool> + Send + Sync>;
+type Select = Box<dyn Fn(&Value) -> crate::error::Result<Value> + Send + Sync>;
 
-/// `make_select_function(which)`: `None` selects nothing, a callable is called with the outcome (its truth value
-/// is used), any other collection becomes a `frozenset` tested with `in`.
+/// `make_select_function(which)`: `None` selects nothing (`False`), a callable is called with the outcome (its
+/// result as is: the evaluator takes its truth value where Python does; a result that is not a plain value, a die,
+/// gives its truth value now), any other collection becomes a `frozenset` tested with `in`.
 fn make_select_function(which: PValue) -> Result<Select, PErr> {
     let set: FxHashSet<Key> = match which {
-        PValue::Value(Value::None) => return Ok(Box::new(|_| Ok(false))),
+        PValue::Value(Value::None) => return Ok(Box::new(|_| Ok(Value::Bool(false)))),
         PValue::Func(f) => match &*f {
             // A dict is not callable: `frozenset(dict)` is its keys.
             Func::Mapping(m) => m.keys().cloned().collect(),
             _ => {
                 return Ok(Box::new(move |o: &Value| {
-                    truthy(&f.call(vec![PValue::Value(o.clone())]).map_err(core_error)?)
-                        .map_err(core_error)
+                    match f.call(vec![PValue::Value(o.clone())]).map_err(core_error)? {
+                        PValue::Value(v) => Ok(v),
+                        p => truthy(&p).map(Value::Bool).map_err(core_error),
+                    }
                 }))
             }
         },
@@ -386,7 +389,7 @@ fn make_select_function(which: PValue) -> Result<Select, PErr> {
         _ => return Err(PErr::Unimplemented("this wild selector".into())),
     };
     Ok(Box::new(move |o: &Value| {
-        Ok(set.contains(&Key::Value(o.clone())))
+        Ok(Value::Bool(set.contains(&Key::Value(o.clone()))))
     }))
 }
 
