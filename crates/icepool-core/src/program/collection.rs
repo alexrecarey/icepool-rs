@@ -31,7 +31,7 @@ fn values(items: Vec<PValue>) -> Result<Vec<Value>, PErr> {
     items.into_iter().map(value).collect()
 }
 
-fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PErr> {
+pub(super) fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PErr> {
     let type_name = match receiver {
         PValue::Value(v) => v.type_name(),
         _ => "object",

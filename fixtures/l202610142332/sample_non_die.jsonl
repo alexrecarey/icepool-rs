@@ -1,0 +1,9 @@
+{"program":{"op":"sample","die":3,"seed":0,"n":0},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"sample","die":3,"seed":0,"n":2},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"sample","die":{"str":"x"},"seed":5,"n":-2},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"sample","die":{"str":"x"},"seed":5,"n":1},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"sample","die":{"bool":true},"seed":{"bool":true},"n":1},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"sample","die":{"symbols":"ab"},"seed":7,"n":3},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"sample","die":{"symbols":"ab"},"seed":7,"n":0},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"sample","die":{"op":"floordiv","a":{"symbols":"a - "},"b":{"op":"coin","n":{"float":"0.5"},"d":1,"max_denominator":3}},"seed":0,"n":0},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"sample","die":{"op":"d","sides":6},"seed":0,"n":0},"expected":{"ok":true,"value":{"tuple":[]}}}

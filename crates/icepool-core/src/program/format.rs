@@ -3,6 +3,7 @@
 //! truth values, `equals`, and `hash_key` comparisons.
 
 use super::catalogue::truthy;
+use super::collection::attribute_error;
 use super::ops::{py_iter, to_die, type_error};
 use super::{PErr, PValue};
 use crate::format::{
@@ -74,7 +75,6 @@ pub fn common_outcome_length(die: PValue) -> Result<PValue, PErr> {
 
 /// `random.seed(seed); tuple(die.sample() for _ in range(n))`.
 pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
-    let (d, _) = named_die(&die)?;
     // `random.seed` takes a bool as the int it is; other seed types hash or convert differently (not ported).
     let seed = match seed {
         PValue::Value(Value::Int(i)) => i,
@@ -85,6 +85,19 @@ pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
         PValue::Value(Value::Int(n)) => i64::try_from(&n).unwrap_or(i64::MAX).max(0),
         _ => return Err(PErr::Unimplemented("a non-int sample count".into())),
     };
+    // `die.sample()` is looked up lazily in the generator: on a plain value it is an AttributeError, but only
+    // once the generator runs, so with `n <= 0` the result is `()`. `Symbols.__getattr__` answers any public name
+    // with `self['sample']`, the sub-`Symbols` of those letters, which is then not callable.
+    if let PValue::Value(v) = &die {
+        if n == 0 {
+            return Ok(PValue::Value(Value::tuple(Vec::new())));
+        }
+        if let Value::Symbols(_) = v {
+            return type_error("'Symbols' object is not callable");
+        }
+        return attribute_error(&die, "sample");
+    }
+    let (d, _) = named_die(&die)?;
     let mut random = Random::new(&seed);
     let den: Quantity = d.denominator();
     let mut out = Vec::new();

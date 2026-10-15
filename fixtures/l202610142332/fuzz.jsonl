@@ -1,0 +1,1 @@
+{"program":{"op":"sample","die":{"op":"floordiv","a":{"symbols":"a - "},"b":{"op":"coin","n":{"float":"0.5"},"d":1,"max_denominator":3}},"seed":0,"n":4},"expected":{"ok":false,"error":"AttributeError"}}
