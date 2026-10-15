@@ -1300,3 +1300,14 @@ turns out wrong. Newest decisions at the top of each section.
   PoolComposition one). base.py 787->789 and l.412-414 (`remove`), l.81 were already covered when T1d started (later
   tasks' generators).
 - JS: node-args.json regenerated (it also lacked T1c's `mx_str`, `break_str`); the new nodes go through `call()`.
+
+- **T1e: method forms of ported Die functions.** Most was already there when T1e started: nodes `die_sequence`
+  (collection.rs, `cartesian_product` of the die with itself), `die_stochastic_round` (function.rs, a `map` of
+  `Func::StochasticRound`) and `mean_time_to_sum` (core `Die::mean_time_to_sum` with the caller's cache vector; the
+  facade's `_mean_time_to_sum_cache` is a Python list passed to `icepool_rs.mean_time_to_sum`, done by S5c). New:
+  node `die_mean_time_to_absorb` (markov.py; program/map_tools.rs `die_mean_time_to_absorb` = `the_die` then the free
+  function's `mean_time_to_absorb`, as die.py l.535 does). Its generator reuses `_process(finite=True)` and wraps a
+  non-die start state (an int, pair_walk's tuple) into `Die([state])`, since `self` must be a die. JS: route via
+  `die.meanTimeToAbsorb` in fixtures.mjs `IDIOMATIC`; node-args.json regenerated. Fixtures: t1e/die-mean-time-to-absorb.
+  A facade fuzz run once reported `FAIL None` on its very first program while run-facade.sh was rebuilding the
+  extension (maturin); the same seed is clean afterwards: a timeout from the rebuild, not a port bug.

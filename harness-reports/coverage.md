@@ -8,12 +8,12 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 
 | programs | count | over the time budget |
 |---|---:|---:|
-| fixtures | 9792 | 0 |
-| fuzz 1:2000:3 | 1796 | 0 |
-| fuzz 11:10000:4 | 9130 | 0 |
+| fixtures | 9805 | 0 |
+| fuzz 1:2000:3 | 1800 | 0 |
+| fuzz 11:10000:4 | 9145 | 0 |
 | fuzz khepri:7:150:3 | 150 | 0 |
 
-**Total: 5786/5921 statements (98%), 1761/1864 branches (94%).**
+**Total: 5787/5921 statements (98%), 1760/1864 branches (94%).**
 
 ## Modules, by unexecuted statements
 
@@ -21,9 +21,9 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 |---|---:|---:|---:|---:|---:|---:|
 | `collection/vector.py` | 170 | 29 | 83% | 36 | 20 | 5 |
 | `order.py` | 104 | 21 | 80% | 64 | 17 | 2 |
-| `population/die.py` | 538 | 16 | 97% | 202 | 15 | 1 |
+| `population/die.py` | 538 | 15 | 97% | 202 | 15 | 0 |
 | `collection/counts.py` | 110 | 12 | 89% | 16 | 5 | 7 |
-| `collection/symbols.py` | 231 | 11 | 95% | 96 | 12 | 0 |
+| `collection/symbols.py` | 231 | 12 | 95% | 96 | 13 | 0 |
 | `generator/pool.py` | 229 | 5 | 98% | 62 | 0 | 4 |
 | `expression/multiset_expression.py` | 326 | 4 | 99% | 66 | 2 | 0 |
 | `expression/multiset_tuple_expression.py` | 80 | 4 | 95% | 16 | 2 | 2 |
@@ -39,7 +39,6 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 | `population/die_with_truth.py` | 32 | 2 | 94% | 4 | 2 | 0 |
 | `evaluator/keep.py` | 36 | 1 | 97% | 16 | 1 | 0 |
 | `evaluator/multiset_evaluator.py` | 74 | 1 | 99% | 16 | 1 | 0 |
-| `expression/multiset_parameter.py` | 61 | 1 | 98% | 4 | 0 | 1 |
 | `generator/keep.py` | 143 | 1 | 99% | 58 | 0 | 1 |
 | `generator/multiset_tuple_generator.py` | 26 | 1 | 96% | 0 | 0 | 1 |
 | `typing.py` | 62 | 1 | 98% | 14 | 2 | 0 |
@@ -47,7 +46,7 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 | `operator/pair.py` | 199 | 0 | 100% | 64 | 2 | 0 |
 | `population/format.py` | 191 | 0 | 100% | 106 | 5 | 0 |
 
-Fully covered: `__init__.py`, `collection/__init__.py`, `collection/vector_with_truth_only.py`, `evaluator/__init__.py`, `evaluator/basic.py`, `evaluator/comparison.py`, `evaluator/lexi.py`, `evaluator/poker.py`, `expand.py`, `expression/__init__.py`, `expression/multiset_mixture.py`, `function.py`, `generator/__init__.py`, `generator/compound_keep.py`, `generator/deal.py`, `generator/multiset_generator.py`, `generator/weightless.py`, `lexi.py`, `map_tools/__init__.py`, `map_tools/common.py`, `map_tools/function.py`, `math.py`, `operator/__init__.py`, `operator/adjust_counts.py`, `operator/binary.py`, `operator/debug.py`, `operator/filter_outcomes.py`, `operator/keep.py`, `operator/multiset_operator.py`, `operator/versus.py`, `population/__init__.py`, `population/base.py`, `population/deck.py`, `wallenius.py`.
+Fully covered: `__init__.py`, `collection/__init__.py`, `collection/vector_with_truth_only.py`, `evaluator/__init__.py`, `evaluator/basic.py`, `evaluator/comparison.py`, `evaluator/lexi.py`, `evaluator/poker.py`, `expand.py`, `expression/__init__.py`, `expression/multiset_mixture.py`, `expression/multiset_parameter.py`, `function.py`, `generator/__init__.py`, `generator/compound_keep.py`, `generator/deal.py`, `generator/multiset_generator.py`, `generator/weightless.py`, `lexi.py`, `map_tools/__init__.py`, `map_tools/common.py`, `map_tools/function.py`, `math.py`, `operator/__init__.py`, `operator/adjust_counts.py`, `operator/binary.py`, `operator/debug.py`, `operator/filter_outcomes.py`, `operator/keep.py`, `operator/multiset_operator.py`, `operator/versus.py`, `population/__init__.py`, `population/base.py`, `population/deck.py`, `wallenius.py`.
 
 ## Functions never entered
 
@@ -62,10 +61,8 @@ Grouped by module, biggest first (statement count in brackets). `<locals>` are n
 - **`expression/multiset_tuple_expression.py`** (2 statements): `MultisetTupleIndex._static_keepable` [1, l.108], `MultisetTupleSlice._static_keepable` [1, l.157]
 - **`map_tools/markov_chain.py`** (2 statements): `SparseVector.__delitem__` [1, l.43], `SparseVector.__str__` [1, l.73]
 - **`evaluator/multiset_function.py`** (1 statements): `ConstantEvaluator._should_cache` [1, l.162]
-- **`expression/multiset_parameter.py`** (1 statements): `MultisetParameterBase._static_keepable` [1, l.40]
 - **`generator/keep.py`** (1 statements): `KeepGenerator.has_zero_keeps` [1, l.58]
 - **`generator/multiset_tuple_generator.py`** (1 statements): `MultisetTupleGenerator._static_keepable` [1, l.31]
-- **`population/die.py`** (1 statements): `Die.mean_time_to_absorb` [1, l.535]
 
 ## Reached functions with the most unexecuted code (top 60)
 
@@ -79,6 +76,7 @@ Missed statements, then missed branch arcs (`from->to`; a negative target is a f
 | `creation_args.py` `merge_duplicates` | 2 / 11 | 2 (114->115, 122->123) | 115, 123 |
 | `expression/multiset_expression.py` `MultisetExpression.__radd__` | 2 / 4 | 0 (-) | 165-166 |
 | `population/format.py` `gather_cols` | 0 / 36 | 4 (108->110, 111->89, 119->122, 126->89) | - |
+| `collection/symbols.py` `Symbols.__sub__` | 1 / 6 | 1 (165->166) | 166 |
 | `collection/symbols.py` `Symbols.__rsub__` | 1 / 6 | 1 (173->174) | 174 |
 | `collection/symbols.py` `Symbols.__and__` | 1 / 6 | 1 (186->187) | 187 |
 | `collection/symbols.py` `Symbols.__or__` | 1 / 6 | 1 (200->201) | 201 |
@@ -132,14 +130,13 @@ Missed statements, then missed branch arcs (`from->to`; a negative target is a f
 | `operator/pair.py` `MultisetSortPair._next_state` | 0 / 23 | 1 (94->97) | - |
 | `operator/pair.py` `MultisetSortPairWhile._next_state` | 0 / 40 | 1 (199->202) | - |
 | `population/format.py` `make_headers` | 0 / 20 | 1 (75->78) | - |
-| `typing.py` `count_positional_parameters` | 0 / 14 | 1 (99->95) | - |
 
 ## Every unexecuted line, per module
 
 For looking up a specific area. Line numbers are in the pinned oracle checkout.
 
 - `collection/counts.py`: 46, 48, 55, 60, 64, 100, 103, 106-107, 109, 113, 116
-- `collection/symbols.py`: 174, 187, 201, 216, 324-326, 340, 357, 374, 384
+- `collection/symbols.py`: 166, 174, 187, 201, 216, 324-326, 340, 357, 374, 384
 - `collection/vector.py`: 26-29, 31, 33-36, 55-58, 60-63, 67-68, 70-73, 97, 121, 264-265, 268, 272
 - `creation_args.py`: 93, 115, 123
 - `evaluator/argsort.py`: 94, 132
@@ -148,7 +145,6 @@ For looking up a specific area. Line numbers are in the pinned oracle checkout.
 - `evaluator/multiset_function.py`: 162, 323, 428
 - `expression/multiset_expression.py`: 135, 165-166, 1341
 - `expression/multiset_expression_base.py`: 163, 166
-- `expression/multiset_parameter.py`: 40
 - `expression/multiset_tuple_expression.py`: 108, 118, 157, 168
 - `generator/keep.py`: 58
 - `generator/multi_deal.py`: 62-65
@@ -158,7 +154,7 @@ For looking up a specific area. Line numbers are in the pinned oracle checkout.
 - `map_tools/markov_chain.py`: 43, 73, 212
 - `order.py`: 47-50, 54-56, 111, 119-123, 125-129, 131, 152, 195
 - `population/again.py`: 106, 186
-- `population/die.py`: 535, 763, 929, 966, 1272, 1284, 1296, 1308, 1320, 1332, 1344, 1356, 1368, 1380, 1392, 1404
+- `population/die.py`: 763, 929, 966, 1272, 1284, 1296, 1308, 1320, 1332, 1344, 1356, 1368, 1380, 1392, 1404
 - `population/die_with_truth.py`: 44, 54
 - `population/keep.py`: 127, 183, 236, 263
 - `typing.py`: 67
