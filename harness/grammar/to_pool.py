@@ -137,16 +137,26 @@ def _gen_reroll_to_pool(g):
             "mode": {"str": mode}}
 
 
+def _gen_wallenius_deal_expr(g):
+    """Wallenius.deal is a map_to_pool over the sorted tuples of weights pulled (wallenius.py)."""
+    from harness.grammar.function import _gen_wallenius
+    p = _gen_wallenius(g, 0)
+    del p["method"]
+    return {**p, "op": "wallenius_deal_expr"}
+
+
 def _gen_to_pool_evaluate(g, depth):
     from harness.grammar.multiset import _keep
     r = g.rng
     k = r.random()
-    if k < 0.4:
+    if k < 0.35:
         e = _gen_map_to_pool(g)
-    elif k < 0.7:
+    elif k < 0.6:
         e = _gen_explode_to_pool(g)
-    else:
+    elif k < 0.85:
         e = _gen_reroll_to_pool(g)
+    else:
+        e = _gen_wallenius_deal_expr(g)
     if r.random() < 0.3:
         # Keep-like operations apply to each pool of a mixture of keep generators.
         e = _keep(g, e)
@@ -156,6 +166,6 @@ def _gen_to_pool_evaluate(g, depth):
 @node("to_pool_evaluate", "die", gen=_gen_to_pool_evaluate, weight=1.0)
 def to_pool_evaluate(expr, method):
     """getattr(expr, method)() for a mixture of pools (or what explode_to_pool / reroll_to_pool return when they
-    shortcut to a single pool)."""
+    shortcut to a single pool; or a Wallenius deal, also a map_to_pool)."""
     fresh_caches()
     return getattr(expr, method)()

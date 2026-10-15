@@ -202,6 +202,36 @@ pub fn function(f: Arc<dyn HostFunction>) -> PValue {
     PValue::Func(Arc::new(super::catalogue::Func::Host(f)))
 }
 
+/// `icepool.from_rv(rv, outcomes, denominator, **kwargs)` for a host random variable, duck-typed as Python's
+/// (`scipy.stats`-like, see harness/catalogue/rvs.py): `cdf` is its bound `rv.cdf`, called once with a sequence
+/// (and the kwargs) and returning an iterable of probabilities; `has_pdf` is `hasattr(rv, 'pdf')`, which makes
+/// it continuous (the CDF is taken at the midpoints between the outcomes).
+pub fn from_rv(
+    cdf: Arc<dyn HostFunction>,
+    has_pdf: bool,
+    outcomes: PValue,
+    denominator: PValue,
+    kwargs: Vec<(String, PValue)>,
+) -> std::result::Result<PValue, PErr> {
+    super::function::from_cdf(
+        has_pdf,
+        |xs| cdf.call(vec![xs], kwargs),
+        outcomes,
+        denominator,
+    )
+}
+
+/// A host mapping (a JS `Map`) as Python's `dict(items)`: keys are equal when Python's `==` says so (`1`, `1.0`
+/// and `True` are one key: the first one's position, the last one's value), not by the host's own key equality.
+/// Where Python takes a callable or a mapping (`map`, `reroll`, `group_by`, ...) it acts as `mapping.get(o, o)`,
+/// exactly as the catalogue's `mapping`.
+pub fn mapping(items: PValue) -> std::result::Result<PValue, PErr> {
+    let items = super::ops::dict_items(items)?;
+    Ok(PValue::Func(Arc::new(super::catalogue::Func::Mapping(
+        items.into_iter().collect(),
+    ))))
+}
+
 #[cfg(test)]
 mod tests {
     //! A host multiset function must trace and evaluate exactly as the same body written as a program (`mf_def`),

@@ -8,6 +8,7 @@ use crate::value::builtins::{getitem, py_len, to_float, Index};
 use crate::value::pystr::{py_repr, py_str};
 use crate::value::{BinOp, Symbols, Vector};
 use crate::{Quantity, Value};
+use dashu_int::IBig;
 
 fn value(x: PValue) -> Result<Value, PErr> {
     match x {
@@ -39,6 +40,28 @@ pub(super) fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PEr
     type_error(format!(
         "AttributeError: '{type_name}' object has no attribute '{attr}'"
     ))
+}
+
+/// `die.sequence(rolls)`: `icepool.cartesian_product(*(die for _ in range(rolls)), outcome_type=tuple)`, every
+/// sequence of `rolls` rolls as a die of tuples (no rolls: the tuple `()` itself, not a die).
+pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
+    let die = PValue::Die(super::map::the_die(die)?);
+    // `range(rolls)`: an int (a bool is one), none for a negative one.
+    let rolls = match rolls {
+        PValue::Value(Value::Bool(b)) => b as usize,
+        PValue::Value(Value::Int(i)) if i < IBig::ZERO => 0,
+        PValue::Value(Value::Int(i)) => {
+            usize::try_from(i).map_err(|_| PErr::Unimplemented("a huge sequence length".into()))?
+        }
+        PValue::Value(v) => {
+            return type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                v.type_name()
+            ))
+        }
+        _ => return type_error("object cannot be interpreted as an integer"),
+    };
+    cartesian_product(PValue::List(vec![die; rolls]), true)
 }
 
 /// `icepool.vectorize(*args)` (or `tupleize` when `tuple`), i.e. `cartesian_product(*args, outcome_type=...)`:

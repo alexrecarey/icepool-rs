@@ -91,6 +91,9 @@ pub enum Func {
     PairList,
     /// `lambda x: icepool.Reroll if x == k else [x, k]` (map_to_pool: Reroll drops the outcome).
     RerollOrPair(PValue),
+    /// `lambda x: icepool.stochastic_round(x, max_denominator=m)`: what `Die.stochastic_round` maps with (no
+    /// catalogue name: node `die_stochastic_round` makes it).
+    StochasticRound(PValue),
     /// `{k: v for k, v in pairs}`: a mapping, not a callable.
     Mapping(FxHashMap<Key, PValue>),
     /// A callable of the host language (the JS facade's functions), called back through the host.
@@ -107,7 +110,8 @@ impl Func {
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
             "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "mul2"
-            | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" | "count_max" | "pair_list" => 0,
+            | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" | "count_max"
+            | "pair_list" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
             | "pair_walk" | "count_if_gt_k" | "n_of" | "pool_d" | "reroll_or_pair" => 1,
@@ -328,6 +332,7 @@ impl Func {
                 super::pool::die_pool(d(n.clone())?, x)?
             }
             PairList => PValue::List(vec![x(), x()]),
+            StochasticRound(m) => super::function::stochastic_round(x(), m.clone())?,
             RerollOrPair(k) => {
                 let x = x();
                 if py_eq(&x, k)? {
@@ -555,7 +560,12 @@ fn list_times(items: Vec<PValue>, n: &PValue) -> Result<Vec<PValue>, PErr> {
             _ => return Err(PErr::Unimplemented("a huge list".into())),
         }
     };
-    Ok(items.iter().cycle().take(items.len() * n).cloned().collect())
+    Ok(items
+        .iter()
+        .cycle()
+        .take(items.len() * n)
+        .cloned()
+        .collect())
 }
 
 #[cfg(test)]

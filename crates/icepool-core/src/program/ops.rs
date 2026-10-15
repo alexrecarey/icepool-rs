@@ -709,6 +709,18 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
                 args.exactly(["rv", "params", "outcomes", "denominator"])?;
             function::from_rv(rv, params, outcomes, den)
         }
+        "die_stochastic_round" => {
+            let [die, m] = args.exactly(["die", "max_denominator"])?;
+            function::die_stochastic_round(die, m)
+        }
+        "die_sequence" => {
+            let [die, rolls] = args.exactly(["die", "rolls"])?;
+            collection::die_sequence(die, rolls)
+        }
+        "wallenius_deal_expr" => {
+            let [data, mapping, hand_size] = args.exactly(["data", "mapping", "hand_size"])?;
+            function::wallenius_deal_expr(data, mapping, hand_size)
+        }
         "wallenius_deal" => {
             let [data, mapping, hand_size, method] =
                 args.exactly(["data", "mapping", "hand_size", "method"])?;

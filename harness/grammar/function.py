@@ -107,6 +107,26 @@ def stochastic_round(x, max_denominator):
     return icepool.stochastic_round(x, max_denominator=max_denominator)
 
 
+def _gen_die_stochastic_round(g, depth):
+    r = g.rng
+    if r.random() < 0.8:
+        # Fractional outcomes (no NaN: a die cannot sort it), now and then an int, a bool or a str.
+        outcomes = [_probability(g) for _ in range(r.randint(1, 4))]
+        outcomes = [o for o in outcomes if o not in ({"float": "nan"},)] or [{"frac": [1, 2]}]
+        die = {"op": "die_typed", "outcomes": outcomes}
+    else:
+        die = g.make("die", depth)
+    return {"op": "die_stochastic_round", "die": die, "max_denominator": _max_denominator(g)}
+
+
+@node("die_stochastic_round", "die", gen=_gen_die_stochastic_round, weight=0.3)
+def die_stochastic_round(die, max_denominator):
+    """die.stochastic_round(max_denominator=max_denominator): die.map(lambda x: icepool.stochastic_round(x,
+    max_denominator=max_denominator)), each outcome rounded up with probability x - floor(x)."""
+    return die.stochastic_round(max_denominator=max_denominator)
+
+
+
 @node("one_hot", "die", gen=lambda g, depth: {"op": "one_hot", "sides": _sides(g)}, leaf=True, weight=0.3)
 def one_hot(sides):
     """icepool.one_hot(sides): a die of Vectors with one True (range(sides): a non-positive int is empty)."""
@@ -294,3 +314,11 @@ def wallenius_deal(data, mapping, hand_size, method):
     noncentral hypergeometric distribution (the whole weight of a card goes away when it is pulled); data are
     (outcome, weight) pairs, or a mapping to weights or (weight, quantity)."""
     return getattr(icepool.Wallenius(dict(data) if mapping else data).deal(hand_size), method)()
+
+
+@node("wallenius_deal_expr", "mexpr")
+def wallenius_deal_expr(data, mapping, hand_size):
+    """icepool.Wallenius(dict(data) if mapping else data).deal(hand_size): the hand as a multiset expression (a
+    mixture of deals, or Pool([]) for a hand of 0). Kind "mexpr" without a generator of its own, as the
+    to_pool.py nodes: `to_pool_evaluate` builds one and evaluates it."""
+    return icepool.Wallenius(dict(data) if mapping else data).deal(hand_size)

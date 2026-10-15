@@ -229,5 +229,8 @@
   "iter_cartesian_product": "ported",
   "complex": "ported",
   "cx_binary": "ported",
-  "cx_unary": "ported"
+  "cx_unary": "ported",
+  "die_sequence": "ported",
+  "die_stochastic_round": "ported",
+  "wallenius_deal_expr": "ported"
 }

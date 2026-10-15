@@ -187,3 +187,23 @@ def iter_cartesian_product(args):
     """tuple(icepool.iter_cartesian_product(*args)): (outcomes, quantity) per joint outcome, in itertools.product
     order (a die's or deck's items, a multiset expression's expand() items, anything else as itself)."""
     return tuple(icepool.iter_cartesian_product(*args))
+
+
+def _gen_die_sequence(g, depth):
+    r = g.rng
+    if r.random() < 0.7:
+        die, rolls = {"op": "d", "sides": r.randint(1, 4)}, r.randint(0, 3)
+    else:
+        # Any die, few rolls (the product of its outcome count).
+        die, rolls = g.make("die", min(depth, 1)), r.randint(0, 2)
+    if r.random() < 0.05:
+        rolls = r.choice([-1, {"bool": True}, {"float": "2.0"}, {"str": "2"}])
+    return {"op": "die_sequence", "die": die, "rolls": rolls}
+
+
+@node("die_sequence", "die", gen=_gen_die_sequence, weight=0.3)
+def die_sequence(die, rolls):
+    """die.sequence(rolls): cartesian_product(*(die for _ in range(rolls)), outcome_type=tuple), every ordered
+    sequence of rolls as a die of tuples (rolls 0, or negative: the tuple () itself)."""
+    return die.sequence(rolls)
+

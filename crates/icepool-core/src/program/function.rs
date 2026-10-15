@@ -150,6 +150,21 @@ pub fn stochastic_round(x: PValue, max_denominator: PValue) -> Result<PValue, PE
     binary(BinOp::Add, PValue::Value(integer_part), coin)
 }
 
+/// `die.stochastic_round(max_denominator=m)`: `die.map(lambda x: icepool.stochastic_round(x, max_denominator=m))`.
+pub fn die_stochastic_round(die: PValue, max_denominator: PValue) -> Result<PValue, PErr> {
+    let f = PValue::Func(Arc::new(super::catalogue::Func::StochasticRound(
+        max_denominator,
+    )));
+    // Only dice have the method (a `DieWithTruth` maps as a plain die).
+    let die = PValue::Die(the_die(die)?);
+    super::map::map(
+        f,
+        PValue::List(vec![die]),
+        PValue::Value(Value::None),
+        vec![],
+    )
+}
+
 /// `icepool.one_hot(sides)`.
 pub fn one_hot(sides: PValue) -> Result<PValue, PErr> {
     Ok(PValue::Die(function::one_hot(&value(sides)?)?))
@@ -368,9 +383,8 @@ impl Rv {
     }
 }
 
-/// `icepool.from_rv(RVS[rv](*params), outcomes, denominator)`: a die from a random variable's CDF (continuous
-/// distributions use midpoints between the outcomes), each cumulative probability scaled by `denominator` and
-/// rounded (`int(round(x * denominator))`), then `from_cumulative`.
+/// `icepool.from_rv(RVS[rv](*params), outcomes, denominator)`: a die from a random variable's CDF, see
+/// [`from_cdf`].
 pub fn from_rv(
     rv: PValue,
     params: PValue,
@@ -378,29 +392,48 @@ pub fn from_rv(
     denominator: PValue,
 ) -> Result<PValue, PErr> {
     let rv = Rv::new(rv, params)?;
-    let outcome_values = values(py_iter(outcomes.clone())?)?;
+    let cdf = |xs: PValue| -> Result<PValue, PErr> { Ok(list(rv.cdf(&values(py_iter(xs)?)?)?)) };
+    from_cdf(matches!(rv, Rv::Continuous(..)), cdf, outcomes, denominator)
+}
+
+/// A Python list of values.
+fn list(xs: Vec<Value>) -> PValue {
+    PValue::List(xs.into_iter().map(PValue::Value).collect())
+}
+
+/// The body of `icepool.from_rv(rv, outcomes, denominator)` for any rv: `has_pdf` is `hasattr(rv, 'pdf')`, `cdf`
+/// is `rv.cdf(xs, **kwargs)`, called once (with the outcomes as given, or a list of midpoints) and iterated.
+/// Continuous distributions use midpoints between the outcomes; each cumulative probability is scaled by
+/// `denominator` and rounded (`int(round(x * denominator))`), then `from_cumulative`.
+pub(super) fn from_cdf(
+    has_pdf: bool,
+    cdf: impl FnOnce(PValue) -> Result<PValue, PErr>,
+    outcomes: PValue,
+    denominator: PValue,
+) -> Result<PValue, PErr> {
     let denominator = value(denominator)?;
-    let scale = |cdf: Vec<Value>| -> Result<Vec<Value>, Error> {
-        cdf.iter()
-            .map(|x| x.binary(BinOp::Mul, &denominator)?.round(&Value::None))
+    let scale = |cdf: PValue| -> Result<Vec<Value>, PErr> {
+        values(py_iter(cdf)?)?
+            .iter()
+            .map(|x| Ok(x.binary(BinOp::Mul, &denominator)?.round(&Value::None)?))
             .collect()
     };
-    let quantities_le = match &rv {
-        Rv::Continuous(..) => {
-            // Continuous distributions use midpoints.
-            let midpoints = outcome_values
-                .iter()
-                .zip(outcome_values.iter().skip(1))
-                .map(|(a, b)| {
-                    a.binary(BinOp::Add, b)?
-                        .binary(BinOp::TrueDiv, &Value::from(2))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut q = scale(rv.cdf(&midpoints)?)?;
-            q.push(denominator.clone());
-            q
-        }
-        Rv::Discrete(..) => scale(rv.cdf(&outcome_values)?)?,
+    let quantities_le = if has_pdf {
+        // Continuous distributions use midpoints.
+        let outcome_values = values(py_iter(outcomes.clone())?)?;
+        let midpoints = outcome_values
+            .iter()
+            .zip(outcome_values.iter().skip(1))
+            .map(|(a, b)| {
+                a.binary(BinOp::Add, b)?
+                    .binary(BinOp::TrueDiv, &Value::from(2))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut q = scale(cdf(list(midpoints))?)?;
+        q.push(denominator.clone());
+        q
+    } else {
+        scale(cdf(outcomes.clone())?)?
     };
     from_cumulative(
         outcomes,
@@ -466,16 +499,22 @@ impl Wallenius {
             pairs
         };
         for (outcome, v) in pairs {
-            let v = value(v)?;
-            let (weight, quantity) = match (&v, mapping) {
-                (_, false) | (Value::Int(_) | Value::Bool(_), true) => (v, Value::from(1)),
-                _ => {
-                    let Ok([w, q]) = <[PValue; 2]>::try_from(py_iter(PValue::Value(v))?) else {
+            // A weight is a dict key: a list is unhashable.
+            let weight_value = |w: PValue| match w {
+                PValue::List(_) => type_error("unhashable type: 'list'"),
+                w => value(w),
+            };
+            let (weight, quantity) = match (v, mapping) {
+                (v, false) => (weight_value(v)?, Value::from(1)),
+                // `isinstance(v, int)` (a bool is one); anything else unpacks as `weight, quantity` (a list too).
+                (PValue::Value(v @ (Value::Int(_) | Value::Bool(_))), true) => (v, Value::from(1)),
+                (v, true) => {
+                    let Ok([w, q]) = <[PValue; 2]>::try_from(py_iter(v)?) else {
                         return raise(Error::Value(
                             "not enough or too many values to unpack (expected 2)".into(),
                         ));
                     };
-                    (value(w)?, value(q)?)
+                    (weight_value(w)?, value(q)?)
                 }
             };
             weight.check_hashable()?;
@@ -615,12 +654,11 @@ fn wallenius_weights(
     Ok(result)
 }
 
-/// `getattr(icepool.Wallenius(dict(data) if mapping else data).deal(hand_size), method)()`.
-pub fn wallenius_deal(
+/// `icepool.Wallenius(dict(data) if mapping else data).deal(hand_size)`: the multiset expression of the hand.
+pub fn wallenius_deal_expr(
     data: PValue,
     mapping: PValue,
     hand_size: PValue,
-    method: PValue,
 ) -> Result<PValue, PErr> {
     let wallenius = Wallenius::new(data, flag(&mapping)?)?;
     let hand_size = match value(hand_size)? {
@@ -643,9 +681,19 @@ pub fn wallenius_deal(
     if depth > IBig::from(MAX_WALLENIUS_DEPTH) {
         return Err(PErr::Unimplemented("a Wallenius hand this deep".into()));
     }
+    Ok(super::expression::into_pvalue(wallenius.deal(&hand_size)?))
+}
+
+/// `getattr(icepool.Wallenius(dict(data) if mapping else data).deal(hand_size), method)()`.
+pub fn wallenius_deal(
+    data: PValue,
+    mapping: PValue,
+    hand_size: PValue,
+    method: PValue,
+) -> Result<PValue, PErr> {
+    let expr = wallenius_deal_expr(data, mapping, hand_size)?;
     let Value::Str(method) = value(method)? else {
         return type_error("attribute name must be string");
     };
-    let expr = wallenius.deal(&hand_size)?;
-    super::evaluate::method_evaluation(&method, super::expression::into_pvalue(expr))
+    super::evaluate::method_evaluation(&method, expr)
 }
