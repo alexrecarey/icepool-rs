@@ -163,7 +163,7 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
                 };
                 // Raised as soon as it is evaluated (see `call`), before any later argument runs.
                 if let PValue::DieWithTruthError(e, _) = &v {
-                    if !matches!(op, "truth" | "coll_truth" | "equals_self") {
+                    if !matches!(op, "truth" | "coll_truth" | "equals_self" | "equals") {
                         return Err(e.clone().into());
                     }
                 }
@@ -186,8 +186,9 @@ pub fn eval(x: &Json) -> Result<PValue, PErr> {
 /// One node applied to its evaluated arguments: what the facades call (the JS facade's methods are nodes). The
 /// lazy nodes (`khepri`, `mf_def`) take raw JSON and only run through [`eval`].
 pub fn call(op: &str, args: Vec<(&str, PValue)>) -> Result<PValue, PErr> {
-    // Only `bool(x)` (and `x.equals(x)`, which checks identity first) can use a `DieWithTruth` whose data raises.
-    if !matches!(op, "truth" | "coll_truth" | "equals_self") {
+    // Only `bool(x)`, `x.equals(x)` (which checks identity first) and `x.equals(y)` (which checks `y` is a `Die`
+    // first) can use a `DieWithTruth` whose data raises.
+    if !matches!(op, "truth" | "coll_truth" | "equals_self" | "equals") {
         for (_, v) in &args {
             if let PValue::DieWithTruthError(e, _) = v {
                 return Err(e.clone().into());

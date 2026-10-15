@@ -147,6 +147,21 @@ pub fn truth(x: PValue) -> Result<PValue, PErr> {
 
 /// `a.equals(b, simplify=simplify)`: `False` if `b` is not a die.
 pub fn equals(a: PValue, b: PValue, simplify: PValue) -> Result<PValue, PErr> {
+    // `if not isinstance(other, Die): return False` comes before any data is computed: a `DieWithTruth` whose data
+    // raises only raises once both are dice (their `hash_key`s).
+    let is_die = |x: &PValue| {
+        matches!(x, PValue::Die(_) | PValue::DieWithTruth(..) | PValue::DieWithTruthError(..))
+    };
+    if let PValue::DieWithTruthError(e, _) = &a {
+        return if is_die(&b) {
+            Err(e.clone().into())
+        } else {
+            Ok(PValue::Value(Value::Bool(false)))
+        };
+    }
+    if let (true, PValue::DieWithTruthError(e, _)) = (is_die(&a), &b) {
+        return Err(e.clone().into());
+    }
     let Ok((a, _)) = named_die(&a) else {
         return type_error("AttributeError: 'equals'");
     };
