@@ -297,9 +297,6 @@ mod tests {
         let program = r#"{"op":"mean_time_to_sum","die":{"op":"d","sides":3},"targets":[100000000000000000000]}"#;
         let r = run(&serde_json::from_str(program).unwrap());
         assert_eq!(r["ok"], json!(false));
-        assert_eq!(
-            r["error"],
-            json!("unimplemented: mean_time_to_sum of a huge target")
-        );
+        assert_eq!(r["error"], json!("unimplemented: mean_time_to_sum of a huge target"));
     }
 }

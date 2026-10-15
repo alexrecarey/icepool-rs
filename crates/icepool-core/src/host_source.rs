@@ -131,11 +131,7 @@ mod tests {
         fn pop(&self, _: Order, _: &i64) -> Result<Vec<SourcePopped<i64>>> {
             let rest = fixed(self.key, vec![], Some(0), true);
             let count = Count::Int(self.size.unwrap_or(0));
-            Ok(vec![(
-                MultisetSource::Host(rest),
-                count,
-                Quantity::from(3u8),
-            )])
+            Ok(vec![(MultisetSource::Host(rest), count, Quantity::from(3u8))])
         }
         fn host_eq(&self, other: &dyn HostSourceObject<i64>) -> bool {
             other

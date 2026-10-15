@@ -66,10 +66,7 @@ pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value
 }
 
 /// A core source as the `icepool_rs` object the facade wraps (`PoolSource._new_rust(...)` and so on).
-pub(crate) fn source_object<'py>(
-    py: Python<'py>,
-    s: &MultisetSource<Value>,
-) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> PyResult<Bound<'py, PyAny>> {
     Ok(match s {
         MultisetSource::Pool(s) => Bound::new(py, RsPoolSource { source: s.clone() })?.into_any(),
         MultisetSource::Deal(s) => Bound::new(py, RsDealSource { source: s.clone() })?.into_any(),
@@ -279,10 +276,7 @@ impl CountFunction<Value> for HostCountFunction {
             };
             if let Ok(t) = count.cast::<PyTuple>() {
                 if t.is_exact_instance_of::<PyTuple>() {
-                    let items = t
-                        .iter()
-                        .map(|x| int(&x))
-                        .collect::<icepool_core::Result<Vec<_>>>()?;
+                    let items = t.iter().map(|x| int(&x)).collect::<icepool_core::Result<Vec<_>>>()?;
                     return Ok(Count::Tuple(items.into()));
                 }
             }

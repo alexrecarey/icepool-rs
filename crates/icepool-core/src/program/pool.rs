@@ -401,11 +401,7 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         }
         (_, None) => {
             let list = matches!(index, PValue::List(_));
-            Ok(into_pvalue(multiset_keep(
-                e,
-                multiset_keep_seq(index)?,
-                list,
-            )))
+            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list)))
         }
     }
 }

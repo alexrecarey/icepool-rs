@@ -25,10 +25,7 @@ pub fn population_append<'py>(
     outcome: &Bound<'py, PyAny>,
     quantity: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyList>> {
-    let d = die
-        .get()
-        .die
-        .append(&from_py(outcome)?, &from_py(quantity)?);
+    let d = die.get().die.append(&from_py(outcome)?, &from_py(quantity)?);
     Ok(data(py, d.map(Some))?.expect("append always makes data"))
 }
 
@@ -123,15 +120,9 @@ pub fn mean_time_to_sum<'py>(
     cache: &Bound<'py, PyList>,
     target: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let mut values = cache
-        .iter()
-        .map(|v| from_py(&v))
-        .collect::<PyResult<Vec<Value>>>()?;
+    let mut values = cache.iter().map(|v| from_py(&v)).collect::<PyResult<Vec<Value>>>()?;
     let known = values.len();
-    let result = die
-        .get()
-        .die
-        .mean_time_to_sum(&mut values, &from_py(target)?);
+    let result = die.get().die.mean_time_to_sum(&mut values, &from_py(target)?);
     for v in &values[known..] {
         cache.append(to_py(py, v)?)?;
     }

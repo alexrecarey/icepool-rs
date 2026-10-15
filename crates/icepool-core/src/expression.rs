@@ -216,16 +216,7 @@ fn initial_tree<O: PartialEq>(
     let calls = tree
         .calls
         .iter()
-        .map(|call| {
-            initial_tree(
-                call,
-                order,
-                outcomes,
-                source_sizes,
-                &output_sizes,
-                statelets,
-            )
-        })
+        .map(|call| initial_tree(call, order, outcomes, source_sizes, &output_sizes, statelets))
         .collect::<Result<_>>()?;
     Ok(CountTree::Calls(calls))
 }
@@ -239,14 +230,7 @@ pub fn initial_state<O: PartialEq>(
     mut source_sizes: impl Iterator<Item = Result<Option<Count>>>,
 ) -> Result<(Statelets, CountTree<Option<Count>>)> {
     let mut statelets = Vec::new();
-    let sizes = initial_tree(
-        tree,
-        order,
-        outcomes,
-        &mut source_sizes,
-        &[],
-        &mut statelets,
-    )?;
+    let sizes = initial_tree(tree, order, outcomes, &mut source_sizes, &[], &mut statelets)?;
     Ok((Arc::from(statelets), sizes))
 }
 

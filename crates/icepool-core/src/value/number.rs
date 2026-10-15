@@ -234,18 +234,7 @@ mod tests {
     #[test]
     fn float_hash_matches_rational_hash() {
         let mut x: u64 = 0x2545_F491_4F6C_DD1D;
-        let mut floats = vec![
-            0.0,
-            -0.0,
-            1.0,
-            -1.0,
-            0.5,
-            f64::MIN_POSITIVE,
-            5e-324,
-            f64::MAX,
-            -f64::MAX,
-            1e100,
-        ];
+        let mut floats = vec![0.0, -0.0, 1.0, -1.0, 0.5, f64::MIN_POSITIVE, 5e-324, f64::MAX, -f64::MAX, 1e100];
         for _ in 0..100_000 {
             // xorshift64: random bit patterns cover every exponent.
             x ^= x << 13;
@@ -255,20 +244,10 @@ mod tests {
         }
         for f in floats.into_iter().filter(|f| f.is_finite()) {
             let r = RBig::try_from(f).unwrap();
-            assert_eq!(
-                hash_finite_float(f),
-                hash_rational(r.numerator(), r.denominator()),
-                "{f:e}"
-            );
+            assert_eq!(hash_finite_float(f), hash_rational(r.numerator(), r.denominator()), "{f:e}");
         }
         // CPython 3.13: `[hash(x) for x in [-1.0, 0.1, -2.5, 1e300, 5e-324]]`.
-        let python = [
-            -2,
-            230584300921369408,
-            -1152921504606846978,
-            1224995262755759164,
-            16777216,
-        ];
+        let python = [-2, 230584300921369408, -1152921504606846978, 1224995262755759164, 16777216];
         for (f, h) in [-1.0, 0.1, -2.5, 1e300, 5e-324].into_iter().zip(python) {
             assert_eq!(Num::Float(f).py_hash(), h, "{f:e}");
         }

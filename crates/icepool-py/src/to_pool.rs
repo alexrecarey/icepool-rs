@@ -57,9 +57,7 @@ pub fn map_to_pool<'py>(
 }
 
 /// `n @ die` with a Python `n`: `Die([n]) @ die` (`Die.__rmatmul__`).
-fn rmatmul(
-    py: Python<'_>,
-) -> impl Fn(&Value, &CoreDie<Value>) -> Result<CoreDie<Value>, HostErr> + '_ {
+fn rmatmul(py: Python<'_>) -> impl Fn(&Value, &CoreDie<Value>) -> Result<CoreDie<Value>, HostErr> + '_ {
     move |n, die| {
         let n = CoreDie::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
         Ok(matmul_core(py, n, die)?)

@@ -257,8 +257,9 @@ pub fn reroll_to_pool(
         _ => return Err(PErr::Unimplemented("this reroll_to_pool mode".into())),
     };
     let sub = |a: &Value, b: &Value| a.binary(crate::value::BinOp::Sub, b);
-    let die_pool_of =
-        |die: &Die<Value>, n: &Value| die_pool(PValue::Die(die.clone()), PValue::Value(n.clone()));
+    let die_pool_of = |die: &Die<Value>, n: &Value| {
+        die_pool(PValue::Die(die.clone()), PValue::Value(n.clone()))
+    };
     // `pool_composition.map_to_pool(make_pool, star=True)`.
     let mut data = Vec::new();
     for (composition, quantity) in pool_composition.items() {

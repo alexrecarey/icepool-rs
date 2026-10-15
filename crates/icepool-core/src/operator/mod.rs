@@ -335,13 +335,13 @@ impl<O: PartialEq> Operator<O> {
                     0
                 }))
             }
-            Operator::FilterOutcomes { filter, invert } => {
-                stateless(Ok(if filter_outcomes::keeps(filter, *invert, outcome)? {
+            Operator::FilterOutcomes { filter, invert } => stateless(Ok(
+                if filter_outcomes::keeps(filter, *invert, outcome)? {
                     counts[0]
                 } else {
                     0
-                }))
-            }
+                },
+            )),
             Operator::FilterOutcomesBinary { invert } => stateless(Ok(
                 filter_outcomes::binary_next_state(*invert, counts[0], counts[1]),
             )),
@@ -382,13 +382,13 @@ impl<O: PartialEq> Operator<O> {
                 KeepCountsComparison::Ne => child_counts[0].clone(),
                 _ => return Err(tuple_error()),
             }),
-            Operator::FilterOutcomes { filter, invert } => {
-                stateless(if filter_outcomes::keeps(filter, *invert, outcome)? {
+            Operator::FilterOutcomes { filter, invert } => stateless(
+                if filter_outcomes::keeps(filter, *invert, outcome)? {
                     child_counts[0].clone()
                 } else {
                     Count::Int(0)
-                })
-            }
+                },
+            ),
             // `target_count > 0` compares; the source count is only passed on.
             Operator::FilterOutcomesBinary { invert } => {
                 let target = int(&child_counts[1])?;
@@ -453,8 +453,7 @@ mod tests {
     fn next_state_checks_the_number_of_children() {
         // The driver calls `initial_state` first, which checks the same; `next_state` stands on its own.
         let unique = Operator::<i64>::Unique(1);
-        let next =
-            |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
+        let next = |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
         assert!(matches!(next(&[]), Err(Error::Index(_))));
         // Extra children are not read (Python's `child_counts[0]`).
         assert_eq!(

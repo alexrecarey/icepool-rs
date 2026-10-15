@@ -36,19 +36,14 @@ pub(crate) fn facade_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Val
 /// A Python source object as a host source (its hash taken now: an unhashable source raises here).
 pub(crate) fn host_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value>> {
     let hash = s.hash()? as u64;
-    Ok(MultisetSource::Host(HostSource::new(Arc::new(
-        PyHostSource {
-            object: s.clone().unbind(),
-            hash,
-        },
-    ))))
+    Ok(MultisetSource::Host(HostSource::new(Arc::new(PyHostSource {
+        object: s.clone().unbind(),
+        hash,
+    }))))
 }
 
 /// The Python object of a host source, for `source_object`.
-pub(crate) fn host_object<'py>(
-    py: Python<'py>,
-    s: &HostSource<Value>,
-) -> Option<Bound<'py, PyAny>> {
+pub(crate) fn host_object<'py>(py: Python<'py>, s: &HostSource<Value>) -> Option<Bound<'py, PyAny>> {
     s.object()
         .as_any()
         .downcast_ref::<PyHostSource>()
@@ -137,9 +132,9 @@ impl HostSourceObject<Value> for PyHostSource {
                 .map_err(|e| callback_error(py, e))?;
             let mut result = Vec::new();
             for item in popped {
-                let (source, c, weight): (Bound<'_, PyAny>, Bound<'_, PyAny>, Bound<'_, PyAny>) =
-                    item.and_then(|i| i.extract())
-                        .map_err(|e| callback_error(py, e))?;
+                let (source, c, weight): (Bound<'_, PyAny>, Bound<'_, PyAny>, Bound<'_, PyAny>) = item
+                    .and_then(|i| i.extract())
+                    .map_err(|e| callback_error(py, e))?;
                 result.push((
                     facade_source(&source).map_err(host_error)?,
                     count(&c)?,

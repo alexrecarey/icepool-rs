@@ -17,10 +17,12 @@ pub(super) fn initial_state(
         (lexi_tuple, 1)
     } else {
         let right_size = match &child_sizes[1] {
-            None => return Err(Error::UnsupportedOrder(
-                "Reverse order not supported unless the size of the right operand is inferrable."
-                    .into(),
-            )),
+            None => {
+                return Err(Error::UnsupportedOrder(
+                    "Reverse order not supported unless the size of the right operand is inferrable."
+                        .into(),
+                ))
+            }
             Some(Count::Int(n)) => *n,
             // `countdown = right_size`, compared with a count by every next state.
             Some(Count::Tuple(t)) => return Ok((Statelet::TupleSize(t.clone()), None)),
