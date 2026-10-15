@@ -903,3 +903,24 @@ turns out wrong. Newest decisions at the top of each section.
   right operand (`_small`) so programs stay cheap.
 - The oracle drops zero quantities passed to `Die({...})` at construction: `Die({1: 0, 3: 5})` has one outcome.
   Zero quantities still survive when mixing a die that has them (`Die([X, 3])` keeps X's zeros; `Die([X])` is X).
+- L202610142332 (long gate red):
+  - `cargo test`'s "status.json: NotFound" came from the shared `CARGO_TARGET_DIR`: cargo names a path package's
+    artifacts without its location and checks source mtimes by relative path, so `fixtures-<hash>` built in one
+    worktree (its `env!("CARGO_MANIFEST_DIR")` baked in) was reused from another, which then read the first
+    worktree's fixtures or failed once it was deleted. `crates/icepool-core/build.rs` ties the fingerprint to `PWD`
+    (gate.sh runs cargo from the checkout root) and this checkout's own path. Each worktree switch now rebuilds
+    icepool-core (~20s).
+  - The silent "fuzz: fresh seed: FAILED" with no output was the oracle being OOM-killed (exit 137): a straight
+    evaluation over a pool holding 10**16 (`stochastic_round(1e16)`, typed floats) makes Python build
+    `consecutive()` over that range, and SIGALRM can't interrupt the allocation. Generators now ask
+    `pool.py` `huge_range` before choosing a straight (`straight_safe_method`; evaluate.py's straight nodes regenerate
+    the pool). If a fuzz run dies without printing, look for exit 137 / huge allocations first; run one seed under
+    `/usr/bin/time -f %M`, or the oracle with `resource.setrlimit(RLIMIT_AS)` to catch a MemoryError.
+  - `dz_attr`'s free-form names are capped at two digits: a pooled `z961` lands in the recursion-limit band where
+    the port says unimplemented (evaluate.rs `check_recursion`).
+  - `sample` of a plain value: AttributeError (a `Symbols` answers `.sample` with a sub-`Symbols`, so it's
+    "not callable"), but `()` when `n <= 0` because the generator never runs. Catalogue `first` now uses
+    `builtins::getitem` (Vectors index like tuples).
+  - Not fixed (not a bug): `die_stat` mean of tuple outcomes multiplies the first tuple by its quantity before
+    `0 + tuple` raises, like Python. With quantities ~10**7 that takes ~2.4 GB in the port (Value is wider than a
+    PyObject pointer). Under the 20s port timeout and well within memory today.
