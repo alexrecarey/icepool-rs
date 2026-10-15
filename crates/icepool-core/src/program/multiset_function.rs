@@ -13,6 +13,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use dashu_int::IBig;
 use serde_json::{Map, Value as Json};
 
 use super::expression::{prepare, product, MExpr};
@@ -146,7 +147,7 @@ pub fn host_function(
     }))
 }
 
-/// Node `mf_var`: argument `i` of the innermost function being traced.
+/// Node `mf_var`: argument `i` of the innermost function being traced (`args[i]`, negative from the end).
 pub fn mf_var(i: PValue) -> Result<PValue, PErr> {
     let PValue::Value(Value::Int(i)) = i else {
         return Err(PErr::Unimplemented("a variable index".into()));
@@ -156,6 +157,12 @@ pub fn mf_var(i: PValue) -> Result<PValue, PErr> {
         let (args, _) = v
             .last()
             .ok_or_else(|| PErr::Unimplemented("mf_var outside a function body".into()))?;
+        // Python's `args[i]`: a negative index counts from the end.
+        let i = if i < IBig::ZERO {
+            i + IBig::from(args.len())
+        } else {
+            i
+        };
         usize::try_from(&i)
             .ok()
             .and_then(|i| args.get(i))

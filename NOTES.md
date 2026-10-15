@@ -177,7 +177,29 @@ turns out wrong. Newest decisions at the top of each section.
   JS callbacks/evaluators against the oracle; `mapping` stays the core's); results re-encoded by JS and compared as
   compare.py does. `node test/fixtures.test.mjs fixtures/s4` runs a subset. When you add a node with a JS method,
   add its route in fixtures.mjs `IDIOMATIC` and its declaration in icepool.d.ts (api.test.mjs checks every export
-  is declared). Hand-checked boundary cases: fixtures/s6/js-boundary. Left: S6b (@multiset_function from JS), S6c.
+  is declared). Hand-checked boundary cases: fixtures/s6/js-boundary. Left: S6c (S6b is done, below).
+
+- **S6b: `multisetFunction(f)` in the JS facade.** The program layer's `FunctionDef` body is `Body::Program` (mf_def)
+  or `Body::Host(Arc<dyn HostFunction>)` (`program::host::multiset_function(f, params, var, kwonly)`): tracing calls
+  the host with the parameter expressions and the kwargs, exactly where `eval(body)` runs for a program body (VARS is
+  only pushed for programs). Everything else (raw results, nesting, joint results, constants, binding TypeErrors) is
+  the S4d/S4f code unchanged. `host::evaluate` now records a `RawResult` when an input holds a parameter (`Host` owns
+  an `Arc<dyn HostEvaluator>`), so JS evaluators work in bodies; the JS side keeps an evaluator in `evaluators` until
+  the core drops its `JsEvaluator` (`Drop` -> `HOST.release`, one id space with functions). WASM export
+  `multiset_function({"f": {"$fn"}, "params", "var", "kwonly"})`; tuple expressions reach JS as kind `tuple_expr`
+  (`MultisetTupleExpression`, `hand`/`slice`; `MultiDeal` extends it). `MultisetFunction.call(...xs, { star, ...kw })`
+  always uses `mf_call_kw`: `star` left out (undefined) is inferred, `star: null` is Python's `star=None` (no star).
+  JS signature: `params` defaults to `f.length` (give the options parameter a default), `rest`, `kwonly`.
+  Native unit tests of the host-body path: program/host.rs tests (a host body vs the same mf_def program).
+- JS fixture runner: `mf_def` is `ip.multisetFunction` of a JS function evaluating the body program (JS `MF_VARS`
+  stack; `mf_var` / `mf_kwarg` read it, Python indexing), `mf_call` / `mf_call_kw` are `f.call`, `mx_tuple_index` /
+  `mx_tuple_slice` route on `MultisetTupleExpression`. A malformed mf_def falls back to the program-JSON call.
+  At S6b: fixtures/s4d, s4f, s4e and s6b all pass through JS; 27k generated mf_call / mf_call_kw / mx_tuple_evaluate /
+  tuple_op_evaluate programs (`G.NODES[op].gen` + `tool.oracle` into a jsonl, then fixtures.mjs `check()` per line)
+  clean through JS and natively. Whole JS suite: 2 failures left, both l202610142332/first_vector.jsonl (S6c).
+- Fixed: `mf_var(-1)` raised IndexError; Python's `_VARS[-1][0][i]` counts from the end (fixtures/s6b).
+  `Pool.keep(array)` in JS passed a list, so a mixture of such keeps raised "unhashable" (s4f/edge-cases:104):
+  arrays are tuples there too now.
 
 - **S5: the check that nothing of Vector / Symbols / wallenius / function.py / `__init__` exports is left.** S5a/S5b
   covered the area; the open Python work is all in tasks (FACADE-AUDIT.md: S3c, S4e, S4f, K6c, S5c). S5 compared

@@ -201,3 +201,186 @@ pub fn is_tuple_expression(v: &PValue) -> bool {
 pub fn function(f: Arc<dyn HostFunction>) -> PValue {
     PValue::Func(Arc::new(super::catalogue::Func::Host(f)))
 }
+
+#[cfg(test)]
+mod tests {
+    //! A host multiset function must trace and evaluate exactly as the same body written as a program (`mf_def`),
+    //! host evaluators inside it included (the JS facade's tests check the same against the oracle).
+    use super::*;
+    use crate::program::{call, eval, wire::result_of};
+    use serde_json::json;
+
+    type BodyFn = fn(Vec<PValue>, Vec<(String, PValue)>) -> std::result::Result<PValue, PErr>;
+
+    struct Body(BodyFn);
+
+    impl fmt::Debug for Body {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("Body")
+        }
+    }
+
+    impl HostFunction for Body {
+        fn positional(&self) -> (usize, Option<usize>) {
+            (0, None)
+        }
+        fn call(
+            &self,
+            args: Vec<PValue>,
+            kwargs: Vec<(String, PValue)>,
+        ) -> std::result::Result<PValue, PErr> {
+            (self.0)(args, kwargs)
+        }
+    }
+
+    /// Counts the elements of outcomes over 2 (`state + count`), as a host evaluator.
+    #[derive(Debug)]
+    struct CountHigh;
+
+    impl HostEvaluator for CountHigh {
+        fn initial_state(&self, _: Order, _: &[Value], _: &[Value]) -> Result<Value> {
+            Ok(Value::from(0))
+        }
+        fn next_state(
+            &self,
+            state: &Value,
+            _: Order,
+            o: &Value,
+            counts: &[Value],
+        ) -> Result<Option<Value>> {
+            let int = |v: &Value| match v {
+                Value::Int(i) => i64::try_from(i).expect("a small int"),
+                _ => panic!("an int"),
+            };
+            let high = int(o) > 2;
+            Ok(Some(Value::from(
+                int(state) + if high { int(&counts[0]) } else { 0 },
+            )))
+        }
+        fn extra_outcomes(&self, _: &[Value]) -> Result<Vec<Value>> {
+            Ok(Vec::new())
+        }
+        fn final_outcome(
+            &self,
+            s: &Value,
+            _: Order,
+            _: &[Value],
+            _: &[Value],
+        ) -> Result<Final<PValue>> {
+            Ok(Final::Outcome(PValue::Value(s.clone())))
+        }
+    }
+
+    fn s(x: &str) -> PValue {
+        PValue::Value(Value::str(x))
+    }
+
+    fn pools() -> PValue {
+        PValue::List(vec![
+            eval(&json!({"op": "die_pool", "die": {"op": "d", "sides": 4}, "rolls": 2})).unwrap(),
+            eval(&json!({"op": "die_pool", "die": {"op": "d", "sides": 3}, "rolls": 1})).unwrap(),
+        ])
+    }
+
+    fn mf_call(f: PValue, kwargs: Vec<(PValue, PValue)>) -> serde_json::Value {
+        let kwargs = PValue::List(
+            kwargs
+                .into_iter()
+                .map(|(k, v)| PValue::tuple(vec![k, v]))
+                .collect(),
+        );
+        result_of(
+            &call(
+                "mf_call_kw",
+                vec![("f", f), ("args", pools()), ("kwargs", kwargs)],
+            )
+            .unwrap_or_else(|e| panic!("{e:?}")),
+        )
+    }
+
+    #[test]
+    fn host_body_traces_as_a_program_body() {
+        // `(a - b).size(), (a + b).sum()` as a joint result.
+        let host = multiset_function(
+            Arc::new(Body(|args, _| {
+                let diff = call(
+                    "mx_binary",
+                    vec![
+                        ("a", args[0].clone()),
+                        ("o", s("-")),
+                        ("b", args[1].clone()),
+                    ],
+                )?;
+                let both = call(
+                    "mx_binary",
+                    vec![
+                        ("a", args[0].clone()),
+                        ("o", s("+")),
+                        ("b", args[1].clone()),
+                    ],
+                )?;
+                Ok(PValue::tuple(vec![
+                    call("mx_evaluate", vec![("expr", diff), ("method", s("size"))])?,
+                    call("mx_evaluate", vec![("expr", both), ("method", s("sum"))])?,
+                ]))
+            })),
+            2,
+            false,
+            Vec::new(),
+        );
+        let var = |i| json!({"op": "mf_var", "i": i});
+        let program = eval(&json!({"op": "mf_def", "params": 2, "var": {"bool": false}, "body": {"op": "tuple", "items": [
+            {"op": "mx_evaluate", "method": {"str": "size"}, "expr": {"op": "mx_binary", "a": var(0), "o": {"str": "-"}, "b": var(1)}},
+            {"op": "mx_evaluate", "method": {"str": "sum"}, "expr": {"op": "mx_binary", "a": var(0), "o": {"str": "+"}, "b": var(1)}},
+        ]}}))
+        .unwrap();
+        let expected = mf_call(program, Vec::new());
+        assert_eq!(expected["ok"], json!(true));
+        assert_eq!(mf_call(host, Vec::new()), expected);
+    }
+
+    #[test]
+    fn host_evaluator_in_a_body_is_recorded() {
+        // `CountHigh().evaluate(a | b)` and a keyword-only argument returned as a constant.
+        let host = multiset_function(
+            Arc::new(Body(|args, kwargs| {
+                let union = call(
+                    "mx_binary",
+                    vec![
+                        ("a", args[0].clone()),
+                        ("o", s("|")),
+                        ("b", args[1].clone()),
+                    ],
+                )?;
+                let evaluator: Arc<dyn HostEvaluator> = Arc::new(CountHigh);
+                let recorded = evaluate(&evaluator, PValue::List(vec![union]))?;
+                assert!(matches!(recorded, PValue::RawResult(_)));
+                Ok(PValue::tuple(vec![recorded, kwargs[0].1.clone()]))
+            })),
+            2,
+            false,
+            vec!["k".into()],
+        );
+        // The same evaluation outside a function, with the constant beside it.
+        let union = call(
+            "mx_binary",
+            vec![
+                ("a", py_iter(pools()).unwrap()[0].clone()),
+                ("o", s("|")),
+                ("b", py_iter(pools()).unwrap()[1].clone()),
+            ],
+        )
+        .unwrap();
+        let evaluator: Arc<dyn HostEvaluator> = Arc::new(CountHigh);
+        let PValue::Die(direct) = evaluate(&evaluator, PValue::List(vec![union])).unwrap() else {
+            panic!("not a die")
+        };
+        let expected: Vec<_> = direct
+            .items()
+            .iter()
+            .map(|(o, q)| json!([{"tuple": [result_of(&PValue::Value(o.clone()))["value"], 7]}, q.to_string().parse::<u64>().unwrap()]))
+            .collect();
+        let result = mf_call(host, vec![(s("k"), PValue::Value(Value::from(7)))]);
+        assert_eq!(result["die"], json!(expected));
+    }
+}

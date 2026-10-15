@@ -35,6 +35,13 @@ new Deck([1, 2, 3], 4).deal(2).sum();
 - **Evaluators**: subclass `MultisetEvaluator` (or call `evaluator({...})`) with `nextState(state, order, outcome,
   ...counts)` and optionally `initialState`, `finalOutcome`, `extraOutcomes`. States can be values, arrays or plain
   objects (keyed by their JSON). Throw `UnsupportedOrder` to ask for the other order.
+- **Multiset functions** (`@multiset_function`): `multisetFunction((a, b) => [a.sub(b).size(), b.sub(a).size()])`
+  returns a `MultisetFunction`; `f.call(pool1, pool2)` traces the JS function with parameter expressions (a
+  `MultisetTupleExpression`, with `hand(i)`, for an unstarred `MultiDeal` input) and evaluates what it returns: an
+  evaluation, an array of them (a joint evaluation), constants. Evaluations inside the function (expression methods,
+  JS evaluators, other multiset functions) only record what to evaluate. Options: `params` (default `f.length`),
+  `rest` (`(a, ...more) => ...`), `kwonly` (names of keyword-only arguments, passed to `f` as a trailing options
+  object: `f.call(pool, { target: [5, 6] })`); `star` is inferred unless given.
 - **Errors**: icepool's exceptions are thrown as `IcepoolError` with `pythonType` (`"ValueError"`, ...); an exception
   thrown by your callback reaches you unchanged.
 - **Memory**: dice, pools and decks live in WASM memory and are freed when their JS objects are garbage-collected.
