@@ -5,6 +5,34 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **map_to_pool, explode_to_pool, reroll_to_pool (S3c).** Core `to_pool.rs`: `explode_counts` (explode_to_pool's
+  `rolls @ Die(single_data)`, Vectors `(i, 1)` / `(depth + 1, 0)`) and `reroll_composition` (reroll_to_pool's
+  `map(step, initial_state, star=True, repeat=depth - 1)` on the core `TransitionCache` + `map_repeat`, `final_step`,
+  `multiply_to_denominator`), both generic over the caller's `n @ die` (`matmul`, as count mode's Again does). Counts
+  are `Value`s with Python's arithmetic (`rolls @ coin` keeps bools for one roll; float `rolls + max_rerolls` makes
+  float quantities: TypeError like `Die()`; a non-int `repeat` is `range()`'s TypeError after the self-loop die;
+  explode `depth < -1` always ends in `Die`'s TypeError on a float weight). Program layer `program/to_pool.rs`:
+  `map_to_pool` (multiset expression args are *not* expanded, unlike `map`; zero args with star -> IndexError),
+  `explode_to_pool` (`[explode] * x + [not_explode] * nx` = `Pool::new` with non-positive counts left out: a die
+  put in 0 times would still add its outcomes), `reroll_to_pool` (`make_pool` over `die_pool`, `binary_op("+")`,
+  `pool_highest_lowest`; a non-str mode falls to the ValueError with its `str`). Nodes (harness/grammar/to_pool.py,
+  kind "mexpr", no gen: a mixture's repr has addresses): `map_to_pool`, `die_map_to_pool` (`f=None` = identity),
+  `explode_to_pool`, `reroll_to_pool`, and the root `to_pool_evaluate` (= mx_evaluate; its generator builds one
+  of them over small dice, 30% under a keep-like op). Catalogue functions only for map_to_pool (`Entry.pool`, never
+  picked by `fn_node` at random, called by name): `n_of`, `pool_d`, `pair_list`, `reroll_or_pair` (JS ports in
+  crates/icepool-wasm/js/test/catalogue.mjs). Fuzz: `--ops to_pool_evaluate` (self-contained); at S3c 5x5000 fresh
+  clean through icepool-run and the facade; fixtures/s3c (113).
+- Gaps found, not S3c's: `die_pool(die, 'x')` (a str keep index) and `Pool([pool, pool])` (a pool of pools: Python
+  expands it) are Unimplemented in the program layer; `die.reroll(depth=1.5)` too. The generator avoids them.
+- Facade: `icepool_rs.map_to_pool(transition, star, [arg_items...], kwargs)` = the loop, the host-callback calls and
+  `pool in REROLL_TYPES` (Python's `in`); function.py then does `Pool(pool)` / `data[pool] += q` /
+  `MultisetMixture(data)` as upstream. `icepool_rs.explode_counts(dens..., rolls, depth)` (depth extracted as i64:
+  a float is range()'s TypeError) and `reroll_composition(dens..., rolls, max_rerolls, depth)` (after `depth ==
+  'inf'`); die.py then calls `count_die.map_to_pool(lambda...)` / `pool_composition.map_to_pool(make_pool)` as
+  upstream, so `make_pool` and the lambda are host callbacks. `Wallenius.deal` goes through the same map_to_pool.
+  Oracle-process history: `map_to_pool(lambda: [E.A]).sum()` gave `1` in the long-lived oracle of the facade tests
+  (the shared sum evaluator's room cache is keyed by `==`), so test cases use fresh outcomes.
+
 - **S6: the JS facade (`crates/icepool-wasm/js`, npm package `icepool-wasm`).** Every JS method is one grammar
   node run by the program layer (`program::call(op, args)`, the node dispatch `eval` uses, now public), so the JS
   API computes what the oracle-checked nodes compute and needs no Rust per method. Layers: `src/facade.rs` (wasm
@@ -38,7 +66,7 @@ turns out wrong. Newest decisions at the top of each section.
   `pool_middle` / the sum evaluation), `map_function` (maps.py; given `f` directly upstream binds only `**kwargs`,
   so `star` is dropped, the decorator form keeps it) and `die_method` (die_methods.py: `die[x]`, `x in die`, `len`,
   iteration, the `CountsKeysView` / `ValuesView` / `ItemsView` indexing, slicing and `==`, min/max_outcome,
-  is_empty). `map_to_pool` still has no node (S3c). Fuzz `die_method` together with die nodes
+  is_empty). `map_to_pool` has nodes since S3c. Fuzz `die_method` together with die nodes
   (`--ops die_method,d,die,...`): alone the generator cannot build its die argument and tests nothing.
 - **icepool.d / icepool.z are `@functools.cache`d** (keyed by `==` for non-int arguments): in the long-lived fuzz
   oracle `z(True)` made `z(Fraction(1))` return a die. Nodes calling d / z run `basic.fresh_dz()` first
@@ -96,7 +124,7 @@ turns out wrong. Newest decisions at the top of each section.
   scipy's; Rust mirror `Rv` in function.rs), `wallenius_deal` (`getattr(Wallenius(data).deal(n), method)()`).
   Wallenius in the program layer: `Deck().append` via `deck_from_data`, `_wallenius_weights` with a per-call cache
   (Python's `@cache` gives equal results), `map_to_pool` done inline (deals summed with `binary_op("+")`, inners
-  merged by `add_inner`), so it needs no `map_to_pool` node (S3c). Hands deeper than 40 cards are Unsupported
+  merged by `add_inner`; the `map_to_pool` nodes came with S3c). Hands deeper than 40 cards are Unsupported
   (Python's recursion limit). Fuzz: `--ops z,dz_attr,coin,stochastic_round,one_hot,pointwise,extreme_outcome,
   consecutive,sorted_union,harmonize_denominators,reduce,accumulate,from_rv,wallenius_deal,d,fn,die_typed`; at
   S5b 5000 fresh clean both ways, 218 edge-case fixtures in fixtures/s5b/function.
@@ -109,7 +137,7 @@ turns out wrong. Newest decisions at the top of each section.
   operations: `d`/`z`/`__getattr__` (`Die(range)`), `stochastic_round` (`math.floor` + `coin` + `int + Die`),
   `from_cumulative` (subtraction loop over user ints, then `Die(dict)`), `from_rv` (`rv.cdf` is the user's),
   `reduce` / `accumulate` (loops over the core `map`), `Wallenius` (Deck / Die / Deal / mixtures on the core;
-  its `map_to_pool` loop is Python until S3c). Facade audit: FACADE-AUDIT.md.
+  its `map_to_pool` loop is the core's since S3c). Facade audit: FACADE-AUDIT.md.
 
 - **Vector and Symbols as native values (S5a).** Core `value/vector.rs` (`Vector { data: Option<Arc<[Value]>>,
   truth: Option<Arc<Value>> }`; `data: None` is `VectorWithTruthOnly`, whose every use but `bool()`/`repr()` raises
@@ -418,7 +446,7 @@ turns out wrong. Newest decisions at the top of each section.
   functions, `icepool.Die(objects, times)` and `icepool.tupleize` are host callbacks. A non-int depth/count raises
   TypeError where `range()` would. A bare `AgainExpression()` is not additive: the core's
   `Again::Again { is_additive }` carries the flag (S3). `Die.explode` now runs on the core too
-  (map_final is a host callback of `map_simple`). `explode_to_pool` needs Vector + `map_to_pool`: task S3c.
+  (map_final is a host callback of `map_simple`). `explode_to_pool`: done in S3c.
 
 - **Formatting, sampling, `==` on the core (S2b).** Core `format.rs` = population/format.py (`format(die,
   type_name, spec, csv_table)` does `Population.format`'s spec parsing and default columns; `table` = headers +

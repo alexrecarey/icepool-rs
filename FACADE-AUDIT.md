@@ -52,7 +52,7 @@ ran on the core or composed core calls). Status:
 | `map_tools/__init__.py` | via | empty |
 | `map_tools/common.py` | via | `Break`, `TransitionType`, `transition_and_star` |
 | `map_tools/core_impl.py` | core | `map_simple`; `TransitionCache` hands its args to the core |
-| `map_tools/function.py` | partly | map (all modes), map_and_time, mean_time_to_absorb on the core; reduce / accumulate / map_function loop over the core `map`; `map_to_pool` is a Python loop (S3c) |
+| `map_tools/function.py` | partly | map (all modes), map_and_time, mean_time_to_absorb on the core; reduce / accumulate / map_function loop over the core `map`; `map_to_pool`'s loop and callbacks on the core, `Pool(...)` / `MultisetMixture` stay Python (S3c) |
 | `map_tools/markov_chain.py` | core | `absorbing_markov_chain` |
 | `math.py` | dead | only Python-backend paths |
 | `operator/__init__.py` | via | imports |
@@ -69,16 +69,16 @@ ran on the core or composed core calls). Status:
 | `population/again.py` | core | both modes; expression functions are callbacks |
 | `population/base.py` | partly | statistics, quantities, format, sample, group_by on the core; `append` / `remove` / `to_one_hot` and the Deck paths of `zero` / `split` are Python (S5c) |
 | `population/deck.py` | core | `map` is a Python per-outcome loop before `Deck(...)` (S5c) |
-| `population/die.py` | core | `sign` / `cmp` native (S2); `is_in` / `count` / `if_else` compose `map` as upstream does; `map_to_pool` / `explode_to_pool` / `reroll_to_pool` end in the Python `map_to_pool` (S3c); `mean_time_to_sum` is a Python recursion over core calls (S5c) |
+| `population/die.py` | core | `sign` / `cmp` native (S2); `is_in` / `count` / `if_else` compose `map` as upstream does; `explode_to_pool` / `reroll_to_pool` compute their count / composition dice on the core and end in the core `map_to_pool` (S3c; `make_pool` is a host callback); `mean_time_to_sum` is a Python recursion over core calls (S5c) |
 | `population/die_with_truth.py` | via | lazy calls into the core |
 | `population/format.py` | core | csv writing by Python's csv module by design |
 | `population/keep.py` | via | `_sum_slice` dispatches to core `+`, `_lowest/_highest_single`, pools |
 | `typing.py` | via | protocols, enums, `infer_star` |
-| `wallenius.py` | partly | Deck / Die / Deal / mixtures on the core; `Deck.append` / `Die.remove` are Counter arithmetic (S5c) and `deal` ends in `map_to_pool` (S3c) |
+| `wallenius.py` | partly | Deck / Die / Deal / mixtures on the core; `Deck.append` / `Die.remove` are Counter arithmetic (S5c) and `deal` ends in the core `map_to_pool` (S3c) |
 
 ## Real work still in Python under rust
 
-1. `map_to_pool` (behind `Die.map_to_pool`, `explode_to_pool`, `reroll_to_pool`, `Wallenius.deal`): **S3c**.
+1. ~~`map_to_pool`~~: on the core since S3c (the result's `Pool(...)` and `MultisetMixture` are facade classes).
 2. Evaluations over `weightless()` generators: **S4e**.
 3. Evaluators called back from the core driver: `SumEvaluator(map)`, `LargestCountWithWild`,
    `AllStraightsReduceCounts`, argsort, `LexiComparisonEvaluator`, keep with an index beyond i64: **K6c**.

@@ -129,7 +129,24 @@ export const FUNCTIONS = {
     arity(arguments, 3);
     return ge(ops.add(a, b), k) ? [a, b] : [b, ops.add(a, roll)];
   },
+  // map_to_pool's: what `Pool(...)` takes (a Python list is a `List`), or an expression.
+  n_of: (n) => function (x) { arity(arguments, 1); return listTimes([x], n); },
+  pool_d: (n) => function (x) { arity(arguments, 1); return ip.d(n).pool(x); },
+  pair_list: () => function (a, b) { arity(arguments, 2); return ip.List.of(a, b); },
+  reroll_or_pair: (k) => function (x) { arity(arguments, 1); return eq(x, k) ? ip.Reroll : ip.List.of(x, k); },
 };
+
+/** Python's `list * n`: none for `n <= 0`, TypeError for a non-int `n` (a bool is an int). */
+function listTimes(items, n) {
+  if (typeof n === "boolean") n = Number(n);
+  if (typeof n === "bigint") n = Number(n);
+  if (typeof n !== "number" || !Number.isInteger(n)) {
+    throw new TypeError("can't multiply sequence by non-int");
+  }
+  const out = ip.List.of();
+  for (let i = 0; i < n; i++) out.push(...items);
+  return out;
+}
 
 /** `MultisetEvaluator.consecutive`: every int from the first outcome to the last. */
 function consecutive(outcomes) {
