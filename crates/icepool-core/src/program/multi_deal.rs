@@ -132,7 +132,7 @@ pub fn multi_deal_pop(md: PValue, order: PValue, outcome: PValue) -> Result<PVal
                 Value::tuple(vec![
                     items(source.deck()),
                     hand_groups(source.hand_groups()),
-                    Value::tuple(counts.iter().map(|&c| int(c)).collect()),
+                    Value::tuple(counts.iter().map(int).collect()),
                     int(weight),
                 ])
             })

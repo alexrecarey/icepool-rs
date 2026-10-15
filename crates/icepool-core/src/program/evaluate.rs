@@ -223,10 +223,7 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     let index = match value(index)? {
         Value::None => None,
-        Value::Int(i) => Some(
-            i64::try_from(&i)
-                .map_err(|_| PErr::Unimplemented("a keep index beyond 64 bits".into()))?,
-        ),
+        Value::Int(i) => Some(i.into()),
         _ => {
             return Err(PErr::Unimplemented(
                 "a keep index that is not an int".into(),

@@ -8,7 +8,8 @@ use dashu_int::IBig;
 use super::evaluate::run;
 use super::expression::{
     as_expression, as_tuple_expression, binary_op, counts, into_pvalue, keepable_mixture,
-    map_mixture, multiset_keep, multiset_keep_seq, KeepIndexArg, the_expression, tuple_slice, MExpr,
+    map_mixture, multiset_keep, multiset_keep_seq, the_expression, tuple_slice, KeepIndexArg,
+    MExpr,
 };
 use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
@@ -21,7 +22,7 @@ use crate::operator::MultisetKeepIndex;
 use crate::order::Order;
 use crate::pool::MultisetSource;
 use crate::value::{BinOp, UnOp};
-use crate::{Deal, Die, Pool, Value};
+use crate::{Deal, Die, Int, Pool, Value};
 
 /// `pool.sum()`.
 fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
@@ -55,11 +56,11 @@ fn opt_int(x: &PValue, what: &str) -> Result<Option<i64>, PErr> {
     }
 }
 
-/// An int that must be exact (a keep count, a multiplier).
-fn exact_int(x: &PValue, what: &str) -> Result<i64, PErr> {
+/// An int that must be exact (a keep count, a multiplier): Python's ints are unbounded, and so are counts.
+fn exact_int(x: &PValue, what: &str) -> Result<Int, PErr> {
     int_value(x)
-        .and_then(|i| i64::try_from(i).ok())
-        .ok_or_else(|| PErr::Unimplemented(format!("{what} that is not a 64-bit int")))
+        .map(Int::from)
+        .ok_or_else(|| PErr::Unimplemented(format!("{what} that is not an int")))
 }
 
 pub(super) fn the_pool(x: PValue) -> Result<Pool<Value>, PErr> {
@@ -92,15 +93,15 @@ impl KeepGen {
         })
     }
 
-    pub(super) fn multiply_counts(&self, constant: i64) -> Result<Self, Error> {
-        Ok(match self {
-            KeepGen::Pool(p) => KeepGen::Pool(p.multiply_counts(constant)?),
-            KeepGen::Deal(d) => KeepGen::Deal(d.multiply_counts(constant)?),
-            KeepGen::Compound(c) => KeepGen::Compound(c.multiply_counts(constant)?),
-        })
+    pub(super) fn multiply_counts(&self, constant: &Int) -> Self {
+        match self {
+            KeepGen::Pool(p) => KeepGen::Pool(p.multiply_counts(constant)),
+            KeepGen::Deal(d) => KeepGen::Deal(d.multiply_counts(constant)),
+            KeepGen::Compound(c) => KeepGen::Compound(c.multiply_counts(constant)),
+        }
     }
 
-    pub(super) fn keep_size(&self) -> Result<i64, Error> {
+    pub(super) fn keep_size(&self) -> Int {
         match self {
             KeepGen::Pool(p) => p.keep_size(),
             KeepGen::Deal(d) => d.keep_size(),
@@ -138,7 +139,11 @@ fn keep_slice(e: MExpr, slice: Slice) -> Result<PValue, PErr> {
         }
         _ => {
             let bound = |x: Option<i64>| PValue::Value(x.map_or(Value::None, Value::from));
-            let given = [bound(slice.start), bound(slice.stop), PValue::Value(Value::None)];
+            let given = [
+                bound(slice.start),
+                bound(slice.stop),
+                PValue::Value(Value::None),
+            ];
             multiset_keep(
                 e,
                 MultisetKeepIndex::Slice {
@@ -399,15 +404,21 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         (MExpr::Gen(g), None) if !g.has_negative_keeps() => {
             Ok(into_pvalue(MExpr::Gen(g.keep(&sequence_index(index)?)?)))
         }
-        (_, Some(i)) => {
-            let index = i64::try_from(i)
-                .map_err(|_| PErr::Unimplemented("a keep index beyond 64 bits".into()))?;
-            run(KeepEvaluator { index: Some(index) }, &[e])
-        }
+        (_, Some(i)) => run(
+            KeepEvaluator {
+                index: Some(i.into()),
+            },
+            &[e],
+        ),
         (_, None) => {
             let list = matches!(index, PValue::List(_));
             let given = KeepIndexArg::Given(index.clone());
-            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list, given)))
+            Ok(into_pvalue(multiset_keep(
+                e,
+                multiset_keep_seq(index)?,
+                list,
+                given,
+            )))
         }
     }
 }
@@ -497,7 +508,7 @@ pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PE
         },
         _ => Tie::Invalid,
     };
-    let slice = middle_slice(pool.keep_size()?, keep, tie)?;
+    let slice = middle_slice(&pool.keep_size(), &keep, tie)?;
     keep_slice(MExpr::Gen(pool), slice)
 }
 
@@ -619,8 +630,8 @@ fn int(n: impl Into<IBig>) -> Value {
     Value::Int(n.into())
 }
 
-fn int_tuple(xs: &[i64]) -> Value {
-    Value::tuple(xs.iter().map(|&x| int(x)).collect())
+fn int_tuple(xs: &[Int]) -> Value {
+    Value::tuple(xs.iter().map(int).collect())
 }
 
 /// `pool._dice` / `source.dice`: a tuple of `(die, count)` pairs.
@@ -637,7 +648,7 @@ pub fn pool_info(pool: PValue) -> Result<PValue, PErr> {
     let pool = the_pool(pool)?;
     Ok(PValue::tuple(vec![
         PValue::Value(int_tuple(pool.keep_tuple())),
-        PValue::Value(int(pool.keep_size()?)),
+        PValue::Value(int(pool.keep_size())),
         PValue::Value(int(pool.raw_size())),
         PValue::Value(int(pool.denominator())),
         PValue::Value(Value::tuple(pool.outcomes().to_vec())),

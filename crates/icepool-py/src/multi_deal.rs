@@ -11,12 +11,12 @@ use std::sync::Arc;
 use dashu_int::IBig;
 use icepool_core::multi_deal::MultiDealSource;
 use icepool_core::order::{Order, OrderReason};
-use icepool_core::{MultiDeal, Value};
+use icepool_core::{Int, MultiDeal, Value};
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyTuple};
 
-use crate::convert::{from_py, int_from_py, quantity_to_py, to_py_err};
+use crate::convert::{counts_to_py, from_py, int_from_py, quantity_to_py, to_py_err};
 use crate::deck::RsDeck;
 use crate::pool::{hash_of, outcome_tuple};
 
@@ -58,10 +58,6 @@ pub fn multi_deal_new(
 
 /// One possibility of `pop`: `(popped source, counts, weight)`.
 type Popped<'py> = (RsMultiDealSource, Bound<'py, PyTuple>, Bound<'py, PyAny>);
-
-fn int_tuple<'py>(py: Python<'py>, xs: &[i64]) -> PyResult<Bound<'py, PyTuple>> {
-    PyTuple::new(py, xs)
-}
 
 #[pymethods]
 impl RsMultiDeal {
@@ -118,7 +114,7 @@ impl RsMultiDealSource {
 
     /// `size()`: the hand sizes.
     fn size<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        int_tuple(py, &self.source.size())
+        counts_to_py(py, &self.source.size())
     }
 
     fn is_resolvable(&self) -> bool {
@@ -150,10 +146,10 @@ impl RsMultiDealSource {
             .map_err(to_py_err)?;
         popped
             .into_iter()
-            .map(|(source, counts, weight): (_, Arc<[i64]>, _)| {
+            .map(|(source, counts, weight): (_, Arc<[Int]>, _)| {
                 Ok((
                     RsMultiDealSource { source },
-                    int_tuple(py, &counts)?,
+                    counts_to_py(py, &counts)?,
                     quantity_to_py(py, &weight)?,
                 ))
             })

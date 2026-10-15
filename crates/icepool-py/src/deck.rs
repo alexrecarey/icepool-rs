@@ -17,7 +17,9 @@ use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyTuple};
 
-use crate::convert::{from_py, int_from_py, quantity_to_py, to_py, to_py_err};
+use crate::convert::{
+    count_to_py, counts_to_py, from_py, int_from_py, quantity_to_py, to_py, to_py_err,
+};
 use crate::pool::{exact_count, hash_of, keep_index, outcome_tuple};
 use crate::{die_arg, quantity, RsDie};
 
@@ -212,7 +214,7 @@ pub fn deal_new(deck: &Bound<'_, RsDeck>, hand_size: &Bound<'_, PyAny>) -> PyRes
 #[pymethods]
 impl RsDeal {
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        PyTuple::new(py, self.deal.keep_tuple())
+        counts_to_py(py, self.deal.keep_tuple())
     }
 
     /// `comb(deck.size(), hand_size)`.
@@ -240,10 +242,7 @@ impl RsDeal {
 
     /// `KeepGenerator.multiply_counts`.
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsDeal> {
-        let deal = self
-            .deal
-            .multiply_counts(exact_count(constant)?)
-            .map_err(to_py_err)?;
+        let deal = self.deal.multiply_counts(&exact_count(constant)?);
         Ok(RsDeal { deal })
     }
 
@@ -279,7 +278,7 @@ impl RsDealSource {
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        PyTuple::new(py, self.source.keep_tuple())
+        counts_to_py(py, self.source.keep_tuple())
     }
 
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -287,8 +286,8 @@ impl RsDealSource {
     }
 
     /// `KeepSource.size`: `None` with negative counts.
-    fn size(&self) -> PyResult<Option<i64>> {
-        self.source.size().map_err(to_py_err)
+    fn size<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.source.size().map(|s| count_to_py(py, &s)).transpose()
     }
 
     fn is_resolvable(&self) -> bool {
@@ -308,7 +307,7 @@ impl RsDealSource {
         py: Python<'py>,
         order: i64,
         outcome: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<(RsDealSource, i64, Bound<'py, PyAny>)>> {
+    ) -> PyResult<Vec<crate::pool::IntPopped<'py, RsDealSource>>> {
         let order = if order > 0 {
             Order::Ascending
         } else {
@@ -321,7 +320,11 @@ impl RsDealSource {
         popped
             .into_iter()
             .map(|(source, count, weight)| {
-                Ok((RsDealSource { source }, count, quantity_to_py(py, &weight)?))
+                Ok((
+                    RsDealSource { source },
+                    count_to_py(py, &count)?,
+                    quantity_to_py(py, &weight)?,
+                ))
             })
             .collect()
     }

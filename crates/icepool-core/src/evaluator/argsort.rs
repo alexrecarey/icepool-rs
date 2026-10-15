@@ -3,7 +3,9 @@
 
 use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
+use crate::keep_tuple::list_len;
 use crate::order::Order;
+use crate::Int;
 use crate::Value;
 
 /// What to do with an outcome that appears in more than one multiset.
@@ -52,7 +54,7 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
     type State = Vec<i64>;
     type Final = Value;
 
-    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<i64>]) -> Result<Vec<i64>> {
+    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<Int>]) -> Result<Vec<i64>> {
         check_order(order, &self.order, "argsort")?;
         Ok(Vec::new())
     }
@@ -62,21 +64,26 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
         state: &Vec<i64>,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Vec<i64>>> {
         let mut state = state.clone();
         // `min(count, limit - len(state))`, or the count without a limit.
-        let room = |state: &Vec<i64>, count: i64| match self.limit {
+        let room = |state: &Vec<i64>, count: Int| match self.limit {
             None => count,
-            Some(limit) => count.min(limit - state.len() as i64),
+            Some(limit) => count.min(Int::from(limit) - Int::from(state.len())),
+        };
+        // `(index, ) * append_count`: Python builds it in memory.
+        let append = |state: &mut Vec<i64>, index: i64, append_count: &Int| -> Result<()> {
+            state.extend(std::iter::repeat_n(index, list_len(append_count)?));
+            Ok(())
         };
         match self.tie {
             Tie::Drop => {
                 if below(state.len(), self.limit) {
-                    let mut max_count = 0;
-                    let mut tie_count = 0;
+                    let mut max_count = &Int::ZERO;
+                    let mut tie_count = &Int::ZERO;
                     let mut max_index = 0;
-                    for (index, &count) in counts.iter().enumerate() {
+                    for (index, count) in counts.iter().enumerate() {
                         if count > max_count {
                             tie_count = max_count;
                             max_count = count;
@@ -86,20 +93,20 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
                         }
                     }
                     let append_count = room(&state, max_count - tie_count);
-                    if append_count > 0 {
-                        state.extend(std::iter::repeat_n(max_index, append_count as usize));
+                    if append_count.is_positive() {
+                        append(&mut state, max_index, &append_count)?;
                     }
                 }
             }
             Tie::Left | Tie::Right => {
-                let mut indexed: Vec<(usize, i64)> = counts.iter().copied().enumerate().collect();
+                let mut indexed: Vec<(usize, Int)> = counts.iter().cloned().enumerate().collect();
                 if self.tie == Tie::Right {
                     indexed.reverse();
                 }
                 for (index, count) in indexed {
                     let append_count = room(&state, count);
-                    if append_count > 0 {
-                        state.extend(std::iter::repeat_n(index as i64, append_count as usize));
+                    if append_count.is_positive() {
+                        append(&mut state, index as i64, &append_count)?;
                         if Some(state.len() as i64) == self.limit {
                             break;
                         }
@@ -115,7 +122,7 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
         final_state: &Vec<i64>,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         let mut result: Vec<Value> = final_state.iter().map(|&i| Value::from(i)).collect();
         if let (Some(limit), Some(pad)) = (self.limit, &self.limit_pad) {
@@ -141,7 +148,7 @@ impl MultisetEvaluator<Value> for ArgsortGroupedEvaluator {
     type State = Vec<Vec<i64>>;
     type Final = Value;
 
-    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<i64>]) -> Result<Self::State> {
+    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<Int>]) -> Result<Self::State> {
         check_order(order, &self.order, "argsort_grouped")?;
         Ok(Vec::new())
     }
@@ -151,16 +158,15 @@ impl MultisetEvaluator<Value> for ArgsortGroupedEvaluator {
         state: &Self::State,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Self::State>> {
         let mut state = state.clone();
-        if below(state.len(), self.limit) && counts.iter().any(|&count| count > 0) {
+        if below(state.len(), self.limit) && counts.iter().any(Int::is_positive) {
             // `sum(((i, ) * count for i, count in enumerate(counts)), start=())`
-            let to_append = counts
-                .iter()
-                .enumerate()
-                .flat_map(|(i, &count)| std::iter::repeat_n(i as i64, count.max(0) as usize))
-                .collect();
+            let mut to_append = Vec::new();
+            for (i, count) in counts.iter().enumerate() {
+                to_append.extend(std::iter::repeat_n(i as i64, list_len(count)?));
+            }
             state.push(to_append);
         }
         Ok(Some(state))
@@ -171,7 +177,7 @@ impl MultisetEvaluator<Value> for ArgsortGroupedEvaluator {
         final_state: &Self::State,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(Final::Outcome(Value::tuple(
             final_state

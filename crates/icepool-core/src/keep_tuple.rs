@@ -1,10 +1,11 @@
 //! Port of the keep-tuple helpers of icepool `generator/keep.py` and the slice helpers of `population/keep.py`.
 //!
 //! A keep tuple has one count per die of a pool, in ascending order of the rolls: how many times that sorted
-//! position is counted (0 drops it; it may be more than 1 or negative). Python ints are unbounded; the port keeps
-//! counts in `i64` and says `Unsupported` where they would overflow (no program comes close).
+//! position is counted (0 drops it; it may be more than 1 or negative). Counts are unbounded, as Python's ints
+//! ([`Int`]); the number of positions is bounded by the pool size.
 
 use crate::error::{Error, Result};
+use crate::Int;
 
 /// A Python slice `start:stop` (step must be `None`: see `KeepIndex::Slice`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,46 +54,39 @@ pub enum KeepIndex {
     /// A `slice`: the selected dice are counted once each. `step` is whether a step was given (never supported).
     Slice { slice: Slice, step: bool },
     /// A sequence of one count per die, `None` standing for at most one `...` (`Ellipsis`).
-    Seq(Vec<Option<i64>>),
-}
-
-fn overflow<T>() -> Result<T> {
-    Err(Error::Unsupported("keep counts beyond 64 bits".into()))
+    Seq(Vec<Option<Int>>),
 }
 
 /// `sum(counts)`.
-pub fn sum_counts(counts: &[i64]) -> Result<i64> {
-    counts
-        .iter()
-        .try_fold(0i64, |a, &b| a.checked_add(b))
-        .map_or_else(overflow, Ok)
+pub fn sum_counts(counts: &[Int]) -> Int {
+    counts.iter().sum()
 }
 
 /// Expresses `index` as a keep_tuple.
 ///
 /// Raises `IndexError` if more than one `Ellipsis` is used, if a sequence without `...` does not have `pool_size`
 /// elements, for an `int` out of range, or for a slice with a step.
-pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> {
+pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<Int>> {
     let index_error = |msg: &str| Err(Error::Index(msg.into()));
     match index {
         KeepIndex::Int(i) => {
-            let mut result = vec![0; pool_size];
+            let mut result = vec![Int::ZERO; pool_size];
             // `result[index] = 1`, negative indices counting from the end.
             let n = pool_size as i64;
             let pos = if *i < 0 { i.saturating_add(n) } else { *i };
             if !(0..n).contains(&pos) {
                 return index_error("list assignment index out of range");
             }
-            result[pos as usize] = 1;
+            result[pos as usize] = Int::ONE;
             Ok(result)
         }
         KeepIndex::Slice { slice, step } => {
             if *step {
                 return index_error("step is not supported for pool subscripting");
             }
-            let mut result = vec![0; pool_size];
+            let mut result = vec![Int::ZERO; pool_size];
             for x in &mut result[slice.range(pool_size)] {
-                *x = 1;
+                *x = Int::ONE;
             }
             Ok(result)
         }
@@ -110,9 +104,9 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> 
                 }
             }
             // The following code is designed to replace Ellipsis with actual zeros.
-            let ints = |xs: &[Option<i64>]| -> Vec<i64> {
+            let ints = |xs: &[Option<Int>]| -> Vec<Int> {
                 xs.iter()
-                    .map(|x| x.expect("only the split is ..."))
+                    .map(|x| x.clone().expect("only the split is ..."))
                     .collect()
             };
             let Some(split) = split else {
@@ -123,7 +117,7 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> 
             };
             let len = index.len();
             let extra_dice = pool_size as i64 - len as i64 + 1;
-            let zeros = vec![0; extra_dice.max(0) as usize];
+            let zeros = vec![Int::ZERO; extra_dice.max(0) as usize];
             if split == 0 {
                 // Ellipsis on left.
                 let index = ints(&index[1..]);
@@ -142,11 +136,9 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> 
                 }
             } else if extra_dice < 0 {
                 // Ellipsis in center, with more counts than dice: the sum of the two one-sided `...`.
-                let mut result = vec![0i64; pool_size];
-                for i in 0..split.min(pool_size) {
-                    result[i] = result[i]
-                        .checked_add(index[i].expect("left of the split"))
-                        .map_or_else(overflow, Ok)?;
+                let mut result = vec![Int::ZERO; pool_size];
+                for (r, x) in result.iter_mut().zip(&index[..split.min(pool_size)]) {
+                    *r += x.as_ref().expect("left of the split");
                 }
                 // `for i in range(-1, max(reverse_split - 1, -pool_size - 1), -1)`, indexing from the end. With
                 // enough dice this reaches the `...` itself: Python then raises adding it to an int.
@@ -154,13 +146,12 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> 
                 let stop = (reverse_split - 1).max(-(pool_size as i64) - 1);
                 let mut i = -1;
                 while i > stop {
-                    let Some(x) = index[(len as i64 + i) as usize] else {
+                    let Some(x) = &index[(len as i64 + i) as usize] else {
                         return Err(Error::Type(
                             "unsupported operand type(s) for +=: 'int' and 'ellipsis'".into(),
                         ));
                     };
-                    let r = &mut result[(pool_size as i64 + i) as usize];
-                    *r = r.checked_add(x).map_or_else(overflow, Ok)?;
+                    result[(pool_size as i64 + i) as usize] += x;
                     i -= 1;
                 }
                 Ok(result)
@@ -173,57 +164,96 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<i64>> 
 }
 
 /// Pops elements off the front of the keep tuple, returning the remaining tuple and the sum of the elements.
-pub fn pop_min_from_keep_tuple(keep_tuple: &[i64], count: usize) -> Result<(Vec<i64>, i64)> {
+pub fn pop_min_from_keep_tuple(keep_tuple: &[Int], count: usize) -> (Vec<Int>, Int) {
     let k = count.min(keep_tuple.len());
-    Ok((keep_tuple[k..].to_vec(), sum_counts(&keep_tuple[..k])?))
+    (keep_tuple[k..].to_vec(), sum_counts(&keep_tuple[..k]))
 }
 
 /// Pops elements off the back of the keep tuple, returning the remaining tuple and the sum of the elements.
-pub fn pop_max_from_keep_tuple(keep_tuple: &[i64], count: usize) -> Result<(Vec<i64>, i64)> {
+pub fn pop_max_from_keep_tuple(keep_tuple: &[Int], count: usize) -> (Vec<Int>, Int) {
     // `keep_tuple[:-0]` would be empty, hence the special case.
     if count == 0 {
-        return Ok((keep_tuple.to_vec(), 0));
+        return (keep_tuple.to_vec(), Int::ZERO);
     }
     let k = keep_tuple.len().saturating_sub(count);
-    Ok((keep_tuple[..k].to_vec(), sum_counts(&keep_tuple[k..])?))
+    (keep_tuple[..k].to_vec(), sum_counts(&keep_tuple[k..]))
 }
 
 /// Applies a keep tuple on top of a base keep tuple (whose counts are not negative).
 ///
 /// Each base position counted `x` times takes the next `x` counts of `apply` and counts their sum.
-pub fn compose_keep_tuples(base: &[i64], apply: &[i64]) -> Result<Vec<i64>> {
+pub fn compose_keep_tuples(base: &[Int], apply: &[Int]) -> Vec<Int> {
     let mut apply = apply;
     let mut result = Vec::with_capacity(base.len());
-    for &x in base {
-        let x = usize::try_from(x).expect("compose_keep_tuples needs non-negative base counts");
-        let k = x.min(apply.len());
-        result.push(sum_counts(&apply[..k])?);
+    for x in base {
+        debug_assert!(
+            !x.is_negative(),
+            "compose_keep_tuples needs non-negative base counts"
+        );
+        // Any count past the end takes the rest.
+        let k = x.clamp_usize().min(apply.len());
+        result.push(sum_counts(&apply[..k]));
         apply = &apply[k..];
     }
-    Ok(result)
+    result
 }
 
 /// `KeepGenerator.keep` on a keep tuple: the keep tuple for `index` relative to the elements counted so far,
 /// composed on top of `keep_tuple`. If any of the current counts are negative, Python falls back to the
 /// less-capable `MultisetExpression` version and the result is not a keep generator: not ported yet.
-pub fn keep(keep_tuple: &[i64], index: &KeepIndex) -> Result<Vec<i64>> {
-    if keep_tuple.iter().any(|&x| x < 0) {
+pub fn keep(keep_tuple: &[Int], index: &KeepIndex) -> Result<Vec<Int>> {
+    if keep_tuple.iter().any(Int::is_negative) {
         return Err(Error::Unsupported(
             "keep on a generator with negative counts (a MultisetKeep expression)".into(),
         ));
     }
-    let keep_size = usize::try_from(sum_counts(keep_tuple)?).expect("no negative counts");
+    let keep_size = keep_size_as_len(&sum_counts(keep_tuple), index)?;
     let relative_keep_tuple = make_keep_tuple(keep_size, index)?;
-    compose_keep_tuples(keep_tuple, &relative_keep_tuple)
+    Ok(compose_keep_tuples(keep_tuple, &relative_keep_tuple))
 }
 
+/// The keep size `make_keep_tuple` builds a relative keep tuple of. Counts are unbounded, so the keep size may be
+/// far more than any pool: Python then compares the length of a sequence without `...` (`IndexError`) and else
+/// builds a list of that length (`[0] * pool_size`), `OverflowError` beyond 64 bits and `MemoryError` when it
+/// cannot allocate. The port builds up to [`MAX_KEEP_SIZE`], raises past [`MEMORY_ERROR_SIZE`], and in between
+/// (where Python might still answer, given time and memory) says `Unsupported`.
+fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
+    if let KeepIndex::Seq(index) = index {
+        if index.iter().all(Option::is_some) && Int::from(index.len()) != *keep_size {
+            return Err(Error::Index(
+                "Length of index does not match pool size".into(),
+            ));
+        }
+    }
+    list_len(keep_size)
+}
+
+/// The length of a list of `n` elements Python builds (`[0] * n`, `(x,) * n`; empty for `n <= 0`), within the
+/// limits of [`keep_size_as_len`].
+pub fn list_len(n: &Int) -> Result<usize> {
+    if !n.is_positive() {
+        return Ok(0);
+    }
+    match n.to_usize() {
+        Some(n) if n <= MAX_KEEP_SIZE => Ok(n),
+        Some(n) if n < MEMORY_ERROR_SIZE => {
+            Err(Error::Unsupported(format!("a keep tuple of size {n}")))
+        }
+        _ => Err(Error::Overflow(format!(
+            "a keep tuple of size {n} (Python: MemoryError or OverflowError)"
+        ))),
+    }
+}
+
+/// The largest keep size the port builds a relative keep tuple of (the pool size limit).
+pub const MAX_KEEP_SIZE: usize = crate::pool::MAX_POOL_SIZE;
+
+/// From this length on a Python list of ints (8 bytes per element, 512 GiB) is beyond any memory: `MemoryError`.
+pub const MEMORY_ERROR_SIZE: usize = 1 << 36;
+
 /// `KeepGenerator.multiply_counts`: every count multiplied by `constant` (`-g` is `-1 * g`).
-pub fn multiply_counts(keep_tuple: &[i64], constant: i64) -> Result<Vec<i64>> {
-    keep_tuple
-        .iter()
-        .map(|n| n.checked_mul(constant))
-        .collect::<Option<Vec<_>>>()
-        .map_or_else(overflow, Ok)
+pub fn multiply_counts(keep_tuple: &[Int], constant: &Int) -> Vec<Int> {
+    keep_tuple.iter().map(|n| n * constant).collect()
 }
 
 fn check_non_negative(name: &str, x: Option<i64>) -> Result<()> {
@@ -283,13 +313,15 @@ pub enum Tie {
 ///
 /// When `keep` exceeds `keep_size` with the same parity, `start` is negative and Python's slice then counts it from
 /// the end (so not everything is kept, despite the docstring). Copied as is.
-pub fn middle_slice(keep_size: i64, keep: i64, tie: Tie) -> Result<Slice> {
-    if keep < 0 {
+pub fn middle_slice(keep_size: &Int, keep: &Int, tie: Tie) -> Result<Slice> {
+    if keep.is_negative() {
         return Err(Error::Value(format!("keep={keep} cannot be negative.")));
     }
-    let start = if keep.rem_euclid(2) == keep_size.rem_euclid(2) {
+    let half = |x: Int| x.floor_divmod(&Int::small(2));
+    let parity = |x: &Int| half(x.clone()).map(|(_, r)| r);
+    let start = if parity(keep)? == parity(keep_size)? {
         // The "good" case.
-        (keep_size - keep).div_euclid(2)
+        half(keep_size - keep)?.0
     } else {
         // Need to consult the tiebreaker.
         match tie {
@@ -298,8 +330,8 @@ pub fn middle_slice(keep_size: i64, keep: i64, tie: Tie) -> Result<Slice> {
                     "The middle {keep} of {keep_size} elements is ambiguous."
                 )))
             }
-            Tie::High => (keep_size + 1 - keep).div_euclid(2),
-            Tie::Low => (keep_size - 1 - keep).div_euclid(2),
+            Tie::High => half(keep_size + 1 - keep)?.0,
+            Tie::Low => half(keep_size - 1 - keep)?.0,
             Tie::Invalid => {
                 return Err(Error::Value(
                     "Invalid value for tie. Expected 'error', 'low', or 'high'.".into(),
@@ -307,7 +339,16 @@ pub fn middle_slice(keep_size: i64, keep: i64, tie: Tie) -> Result<Slice> {
             }
         }
     };
-    Ok(Slice::new(Some(start), Some(start + keep)))
+    // Slicing clamps its bounds to the length, and a keep tuple is never longer than `i64::MAX`
+    // (`keep_size_as_len`): saturating the bounds keeps the same elements.
+    let bound = |x: Int| {
+        x.to_i64()
+            .unwrap_or(if x.is_negative() { i64::MIN } else { i64::MAX })
+    };
+    Ok(Slice::new(
+        Some(bound(start.clone())),
+        Some(bound(start + keep)),
+    ))
 }
 
 #[cfg(test)]
@@ -315,7 +356,11 @@ mod tests {
     use super::*;
 
     fn seq(xs: &[Option<i64>]) -> KeepIndex {
-        KeepIndex::Seq(xs.to_vec())
+        KeepIndex::Seq(xs.iter().map(|x| x.map(Int::from)).collect())
+    }
+
+    fn ints(xs: &[i64]) -> Vec<Int> {
+        xs.iter().map(|&x| Int::from(x)).collect()
     }
 
     #[test]
@@ -324,16 +369,22 @@ mod tests {
         // `g[1, ..., 1]` on five dice acts as `g[1, 0, 0, 0, 1]`; on two dice as `g[1, 1]`.
         assert_eq!(
             make_keep_tuple(5, &seq(&[o(1), e, o(1)])).unwrap(),
-            [1, 0, 0, 0, 1]
+            ints(&[1, 0, 0, 0, 1])
         );
-        assert_eq!(make_keep_tuple(2, &seq(&[o(1), e, o(1)])).unwrap(), [1, 1]);
+        assert_eq!(
+            make_keep_tuple(2, &seq(&[o(1), e, o(1)])).unwrap(),
+            ints(&[1, 1])
+        );
         // `g[..., 1, 2, 3]` on two dice acts as `g[2, 3]`.
         assert_eq!(
             make_keep_tuple(2, &seq(&[e, o(1), o(2), o(3)])).unwrap(),
-            [2, 3]
+            ints(&[2, 3])
         );
         // `g[-1, ..., 1]` on a single die: the -1 and 1 cancel.
-        assert_eq!(make_keep_tuple(1, &seq(&[o(-1), e, o(1)])).unwrap(), [0]);
+        assert_eq!(
+            make_keep_tuple(1, &seq(&[o(-1), e, o(1)])).unwrap(),
+            ints(&[0])
+        );
         assert!(make_keep_tuple(2, &seq(&[e, o(1), e])).is_err());
         // Center `...`, too many counts, enough dice to reach the `...` itself: Python adds it to an int.
         assert!(matches!(
@@ -354,15 +405,48 @@ mod tests {
         )
         .unwrap();
         let b = make_keep_tuple(2, &KeepIndex::Int(-1)).unwrap();
-        assert_eq!(compose_keep_tuples(&a, &b).unwrap(), [0, 1, 0, 0]);
-        assert_eq!(pop_max_from_keep_tuple(&[1, 2, 3], 5).unwrap(), (vec![], 6));
+        assert_eq!(compose_keep_tuples(&a, &b), ints(&[0, 1, 0, 0]));
         assert_eq!(
-            pop_max_from_keep_tuple(&[1, 2, 3], 0).unwrap(),
-            (vec![1, 2, 3], 0)
+            pop_max_from_keep_tuple(&ints(&[1, 2, 3]), 5),
+            (vec![], Int::from(6))
         );
         assert_eq!(
-            pop_min_from_keep_tuple(&[1, 2, 3], 2).unwrap(),
-            (vec![3], 3)
+            pop_max_from_keep_tuple(&ints(&[1, 2, 3]), 0),
+            (ints(&[1, 2, 3]), Int::ZERO)
         );
+        assert_eq!(
+            pop_min_from_keep_tuple(&ints(&[1, 2, 3]), 2),
+            (ints(&[3]), Int::from(3))
+        );
+    }
+
+    #[test]
+    fn counts_beyond_64_bits() {
+        let big = Int::from(1i64 << 62);
+        // Two counts of 2**62 keep 2**63 elements; keeping again needs a relative keep tuple that long.
+        let tuple = vec![big.clone(), big.clone()];
+        assert_eq!(sum_counts(&tuple), &big * 2);
+        assert!(matches!(
+            keep(&tuple, &KeepIndex::Int(0)),
+            Err(Error::Overflow(_))
+        ));
+        assert!(matches!(
+            keep(&tuple, &seq(&[Some(1)])),
+            Err(Error::Index(_))
+        ));
+        // Composing takes everything left past a huge base count.
+        assert_eq!(
+            compose_keep_tuples(std::slice::from_ref(&big), &ints(&[1, 2])),
+            ints(&[3])
+        );
+        assert_eq!(
+            multiply_counts(&ints(&[1, -1]), &big),
+            vec![big.clone(), -&big]
+        );
+        // The middle 2**70 of 3: the slice bounds saturate, and slicing clamps them as Python does.
+        let keep = &big * 256;
+        let slice = middle_slice(&Int::from(3), &keep, Tie::High).unwrap();
+        assert_eq!(slice.canonical(3), (0, 3));
+        assert!(keep_size_as_len(&(&big * 4), &KeepIndex::Int(0)).is_err());
     }
 }

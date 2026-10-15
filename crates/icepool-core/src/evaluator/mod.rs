@@ -32,6 +32,7 @@ use crate::function::sorted_union;
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::pool::{Count, MultisetSource};
+use crate::Int;
 use crate::Quantity;
 
 /// What `final_outcome` produced: an outcome for the result `Die`, `icepool.Reroll` (dropped), or `None` (which
@@ -62,7 +63,7 @@ pub trait MultisetEvaluator<O> {
         &self,
         order: Order,
         outcomes: &[O],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Self::State>;
 
     /// State transition function: the next state given the previous state, an outcome, and the count of that
@@ -73,7 +74,7 @@ pub trait MultisetEvaluator<O> {
         state: &Self::State,
         order: Order,
         outcome: &O,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Self::State>>;
 
     /// Optional method to specify extra outcomes that should be seen as inputs to `next_state()`. These will be
@@ -88,7 +89,7 @@ pub trait MultisetEvaluator<O> {
         final_state: &Self::State,
         order: Order,
         outcomes: &[O],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Final<Self::Final>>;
 
     /// What the driver calls: [`Self::initial_state`] with the sizes as the sources give them. An `int` size is
@@ -115,10 +116,10 @@ pub trait MultisetEvaluator<O> {
         let counts = counts
             .iter()
             .map(|c| match c {
-                Count::Int(c) => Ok(*c),
+                Count::Int(c) => Ok(c.clone()),
                 Count::Tuple(_) => Err(tuple_unsupported()),
             })
-            .collect::<Result<Vec<i64>>>()?;
+            .collect::<Result<Vec<Int>>>()?;
         self.next_state(state, order, outcome, &counts)
     }
 
@@ -172,12 +173,12 @@ fn tuple_unsupported() -> Error {
     Error::Unsupported("a multiset tuple input (MultiDeal) to this evaluator".into())
 }
 
-fn int_sizes(sizes: &[Option<Count>]) -> Result<Vec<Option<i64>>> {
+fn int_sizes(sizes: &[Option<Count>]) -> Result<Vec<Option<Int>>> {
     sizes
         .iter()
         .map(|s| match s {
             None => Ok(None),
-            Some(Count::Int(s)) => Ok(Some(*s)),
+            Some(Count::Int(s)) => Ok(Some(s.clone())),
             Some(Count::Tuple(_)) => Err(tuple_unsupported()),
         })
         .collect()
@@ -521,8 +522,12 @@ pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
             Algorithm::Forward => pop_order,
         };
         // `initial_room`: the statelets (and so the sizes of the inputs), then the main state.
-        let (initial_statelets, arg_sizes) =
-            expression::initial_state(tree, eval_order, &all_outcomes, sources.iter().map(MultisetSource::size))?;
+        let (initial_statelets, arg_sizes) = expression::initial_state(
+            tree,
+            eval_order,
+            &all_outcomes,
+            sources.iter().map(MultisetSource::size),
+        )?;
         let initial_state = evaluator.initial_state_tree(eval_order, &all_outcomes, &arg_sizes)?;
         let mut dungeon = Dungeon::new(
             evaluator,

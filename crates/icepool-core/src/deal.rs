@@ -19,13 +19,13 @@ use crate::math::comb;
 use crate::order::{lo_hi_skip, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::pool::{Popped, MAX_POOL_SIZE};
-use crate::Quantity;
+use crate::{Int, Quantity};
 
 /// `Deal` (a `KeepGenerator`): a hand of `len(keep_tuple)` cards dealt from `deck`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Deal<O> {
     deck: Deck<O>,
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
 }
 
 impl<O: Outcome> Deal<O> {
@@ -52,7 +52,7 @@ impl<O: Outcome> Deal<O> {
             .ok_or_else(|| Error::Overflow("too many cards dealt".into()))?;
         Ok(Deal {
             deck,
-            keep_tuple: vec![1; n].into(),
+            keep_tuple: vec![Int::ONE; n].into(),
         })
     }
 
@@ -61,7 +61,7 @@ impl<O: Outcome> Deal<O> {
         &self.deck
     }
 
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
@@ -71,12 +71,12 @@ impl<O: Outcome> Deal<O> {
     }
 
     /// The total count produced by this generator.
-    pub fn keep_size(&self) -> Result<i64> {
+    pub fn keep_size(&self) -> Int {
         sum_counts(&self.keep_tuple)
     }
 
     pub fn has_negative_keeps(&self) -> bool {
-        self.keep_tuple.iter().any(|&x| x < 0)
+        self.keep_tuple.iter().any(Int::is_negative)
     }
 
     /// `comb(deck.size(), hand_size)`.
@@ -85,7 +85,7 @@ impl<O: Outcome> Deal<O> {
     }
 
     /// `_set_keep_tuple`: a copy with a modified keep tuple.
-    pub fn with_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
+    pub fn with_keep_tuple(&self, keep_tuple: Vec<Int>) -> Self {
         Deal {
             deck: self.deck.clone(),
             keep_tuple: keep_tuple.into(),
@@ -98,8 +98,8 @@ impl<O: Outcome> Deal<O> {
     }
 
     /// `KeepGenerator.multiply_counts`.
-    pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
-        Ok(self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
+    pub fn multiply_counts(&self, constant: &Int) -> Self {
+        self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant))
     }
 
     /// `_make_source`.
@@ -125,7 +125,7 @@ pub struct DealSource<O> {
     outcomes: Arc<[O]>,
     lo: usize,
     hi: usize,
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
 }
 
 impl<O: PartialEq> PartialEq for DealSource<O> {
@@ -148,7 +148,7 @@ impl<O: Outcome> DealSource<O> {
         &self.deck
     }
 
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
@@ -158,11 +158,11 @@ impl<O: Outcome> DealSource<O> {
     }
 
     /// `KeepSource.size`: the total count, unknown (`None`) with negative counts.
-    pub fn size(&self) -> Result<Option<i64>> {
-        if self.keep_tuple.iter().any(|&x| x < 0) {
-            return Ok(None);
+    pub fn size(&self) -> Option<Int> {
+        if self.keep_tuple.iter().any(Int::is_negative) {
+            return None;
         }
-        sum_counts(&self.keep_tuple).map(Some)
+        Some(sum_counts(&self.keep_tuple))
     }
 
     pub fn is_resolvable(&self) -> bool {
@@ -192,7 +192,7 @@ impl<O: Outcome> DealSource<O> {
     /// Possibilities where no count remains in the keep tuple are not yielded one by one: the rest of the hand is
     /// dumped in exchange for the denominator, and they come last as one deal with an empty keep tuple.
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
-        let unchanged = || Ok(vec![(self.clone(), 0, Quantity::ONE)]);
+        let unchanged = || Ok(vec![(self.clone(), Int::ZERO, Quantity::ONE)]);
         if self.deck.is_empty() {
             return unchanged();
         }
@@ -210,7 +210,7 @@ impl<O: Outcome> DealSource<O> {
         } else {
             (self.deck.pop_max()?, self.lo, self.hi - 1)
         };
-        let next_source = |deck, keep_tuple: Vec<i64>| DealSource {
+        let next_source = |deck, keep_tuple: Vec<Int>| DealSource {
             deck,
             outcomes: self.outcomes.clone(),
             lo,
@@ -234,13 +234,13 @@ impl<O: Outcome> DealSource<O> {
         let mut skip_weight: Option<Quantity> = None;
         for count in min_count..=max_count {
             let (popped_keep_tuple, result_count) = if ascending {
-                pop_min_from_keep_tuple(&self.keep_tuple, count)?
+                pop_min_from_keep_tuple(&self.keep_tuple, count)
             } else {
-                pop_max_from_keep_tuple(&self.keep_tuple, count)?
+                pop_max_from_keep_tuple(&self.keep_tuple, count)
             };
             let popped_deal = next_source(popped_deck.clone(), popped_keep_tuple);
             let weight = comb(&deck_count, count);
-            if popped_deal.keep_tuple.iter().all(|&x| x == 0) {
+            if popped_deal.keep_tuple.iter().all(Int::is_zero) {
                 // Dump all dice in exchange for the denominator.
                 *skip_weight.get_or_insert(Quantity::ZERO) += weight * popped_deal.denominator();
                 continue;
@@ -249,7 +249,7 @@ impl<O: Outcome> DealSource<O> {
         }
         if let Some(skip_weight) = skip_weight {
             let popped_deal = next_source(popped_deck, Vec::new());
-            result.push((popped_deal, sum_counts(&self.keep_tuple)?, skip_weight));
+            result.push((popped_deal, sum_counts(&self.keep_tuple), skip_weight));
         }
         Ok(result)
     }

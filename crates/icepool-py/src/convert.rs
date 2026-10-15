@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
-use icepool_core::{Error, Value};
+use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{
     PyAttributeError, PyIndexError, PyKeyError, PyNotImplementedError, PyOverflowError,
     PyRecursionError, PyTypeError, PyValueError, PyZeroDivisionError,
@@ -306,6 +306,32 @@ pub fn int_to_py<'py>(py: Python<'py>, i: &IBig) -> PyResult<Bound<'py, PyAny>> 
     }
     let hex = format!("{i:x}");
     py.get_type::<PyInt>().call1((hex, 16))
+}
+
+/// A multiset count (unbounded, as Python's ints) as a Python `int`.
+pub fn count_to_py<'py>(py: Python<'py>, c: &Int) -> PyResult<Bound<'py, PyAny>> {
+    match c.to_i64() {
+        Some(small) => Ok(small.into_pyobject(py)?.into_any()),
+        None => int_to_py(py, &c.to_ibig()),
+    }
+}
+
+/// Counts (a keep tuple, a tuple count) as a Python tuple of `int`s.
+pub fn counts_to_py<'py>(py: Python<'py>, cs: &[Int]) -> PyResult<Bound<'py, PyTuple>> {
+    PyTuple::new(
+        py,
+        cs.iter()
+            .map(|c| count_to_py(py, c))
+            .collect::<PyResult<Vec<_>>>()?,
+    )
+}
+
+/// A Python `int` as a multiset count.
+pub fn count_from_py(x: &Bound<'_, PyAny>) -> PyResult<Int> {
+    if let Ok(i) = x.extract::<i64>() {
+        return Ok(Int::from(i));
+    }
+    Ok(int_from_py(x)?.into())
 }
 
 pub fn quantity_to_py<'py>(py: Python<'py>, q: &UBig) -> PyResult<Bound<'py, PyAny>> {

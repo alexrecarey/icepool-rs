@@ -7,7 +7,7 @@ use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
 use crate::value::BinOp;
-use crate::Value;
+use crate::{Int, Value};
 
 /// More consecutive outcomes than this and the port refuses (`range` of a huge span: Python would take minutes).
 const MAX_CONSECUTIVE: usize = 1 << 20;
@@ -49,20 +49,20 @@ fn items(state: &Value) -> &[Value] {
     }
 }
 
-/// An int inside a state (all of them are made from `i64` counts here).
-fn as_i64(x: &Value) -> i64 {
+/// An int inside a state (all of them are made from counts here).
+fn as_count(x: &Value) -> Int {
     match x {
-        Value::Int(i) => i64::try_from(i).expect("counts fit in i64"),
+        Value::Int(i) => i.into(),
         _ => unreachable!("count states hold ints"),
     }
 }
 
-fn int_tuple(xs: impl IntoIterator<Item = i64>) -> Value {
+fn int_tuple(xs: impl IntoIterator<Item = Int>) -> Value {
     Value::tuple(xs.into_iter().map(int).collect())
 }
 
 /// `tuple(sorted(xs, reverse=True))` for ints.
-fn sorted_descending(mut xs: Vec<i64>) -> Vec<i64> {
+fn sorted_descending(mut xs: Vec<Int>) -> Vec<Int> {
     xs.sort_unstable_by(|a, b| b.cmp(a));
     xs
 }
@@ -76,7 +76,7 @@ impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -85,18 +85,18 @@ impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
         state: &Value,
         _: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        let count = counts[0].max(0);
-        let pair = |o: Value, c: i64| Ok(Some(Value::tuple(vec![o, int(c)])));
+        let count = counts[0].clone().max(Int::ZERO);
+        let pair = |o: Value, c: Int| Ok(Some(Value::tuple(vec![o, int(c)])));
         let Value::Tuple(s) = state else {
             return pair(outcome.clone(), count);
         };
-        if count > 0 && outcome.binary(BinOp::Gt, &s[0])?.truthy()? {
+        if count.is_positive() && outcome.binary(BinOp::Gt, &s[0])?.truthy()? {
             return pair(outcome.clone(), count);
         }
-        if count == 0 && s[1] == int(0) {
-            return pair(Value::py_min(outcome.clone(), s[0].clone())?, 0);
+        if count.is_zero() && s[1] == int(0) {
+            return pair(Value::py_min(outcome.clone(), s[0].clone())?, Int::ZERO);
         }
         Ok(Some(state.clone()))
     }
@@ -111,7 +111,7 @@ impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
@@ -129,7 +129,7 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -138,15 +138,15 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        let count = counts[0];
+        let count = counts[0].clone();
         // `state = state or ()`
         let state = items(state);
         if self.filter == Value::str("all")
-            || int(count).binary(BinOp::Ge, &self.filter)?.truthy()?
+            || int(&count).binary(BinOp::Ge, &self.filter)?.truthy()?
         {
-            let mut xs: Vec<i64> = state.iter().map(as_i64).collect();
+            let mut xs: Vec<Int> = state.iter().map(as_count).collect();
             xs.push(count);
             Ok(Some(int_tuple(sorted_descending(xs))))
         } else {
@@ -164,7 +164,7 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(Final::Outcome(match final_state {
             Value::None => Value::tuple(Vec::new()),
@@ -180,7 +180,7 @@ impl MultisetEvaluator<Value> for LargestCountEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -189,10 +189,10 @@ impl MultisetEvaluator<Value> for LargestCountEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         // `max(state or count, count)`: a state of 0 is falsy too, which matters for negative counts.
-        let count = int(counts[0]);
+        let count = int(&counts[0]);
         let first = if state.truthy()? {
             state.clone()
         } else {
@@ -206,7 +206,7 @@ impl MultisetEvaluator<Value> for LargestCountEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
@@ -219,7 +219,7 @@ impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -228,10 +228,10 @@ impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
         state: &Value,
         _: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         // `max(state or (count, outcome), (count, outcome))`
-        let pair = Value::tuple(vec![int(counts[0]), outcome.clone()]);
+        let pair = Value::tuple(vec![int(&counts[0]), outcome.clone()]);
         let first = if state.truthy()? {
             state.clone()
         } else {
@@ -245,7 +245,7 @@ impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
@@ -262,7 +262,7 @@ impl MultisetEvaluator<Value> for CountSubsetEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -271,10 +271,10 @@ impl MultisetEvaluator<Value> for CountSubsetEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        let (left, right) = (counts[0], counts[1]);
-        if right == 0 {
+        let (left, right) = (&counts[0], &counts[1]);
+        if right.is_zero() {
             return Ok(Some(state.clone()));
         }
         let current = int(left).binary(BinOp::FloorDiv, &int(right))?;
@@ -289,7 +289,7 @@ impl MultisetEvaluator<Value> for CountSubsetEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         match final_state {
             Value::None => match &self.empty_divisor {
@@ -311,7 +311,7 @@ impl MultisetEvaluator<Value> for LargestStraightEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -320,19 +320,19 @@ impl MultisetEvaluator<Value> for LargestStraightEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         // `best_run, run = state or (0, 0)`
         let (best_run, mut run) = match items(state) {
-            [b, r] => (as_i64(b), as_i64(r)),
-            _ => (0, 0),
+            [b, r] => (as_count(b), as_count(r)),
+            _ => (Int::ZERO, Int::ZERO),
         };
         if counts[0] >= 1 {
             run += 1;
         } else {
-            run = 0;
+            run = Int::ZERO;
         }
-        Ok(Some(int_tuple([best_run.max(run), run])))
+        Ok(Some(int_tuple([best_run.max(run.clone()), run])))
     }
 
     fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
@@ -344,7 +344,7 @@ impl MultisetEvaluator<Value> for LargestStraightEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(Final::Outcome(match items(final_state) {
             [best, _] => best.clone(),
@@ -367,7 +367,7 @@ impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, order: Order, outcomes: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, order: Order, outcomes: &[Value], _: &[Option<Int>]) -> Result<Value> {
         let end = if order.value() > 0 {
             outcomes.last()
         } else {
@@ -382,30 +382,30 @@ impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
         state: &Value,
         order: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         let [best_run, best_outcome, run] = items(state) else {
             unreachable!("a 3-tuple state")
         };
-        let (best_run, mut run) = (as_i64(best_run), as_i64(run));
+        let (best_run, mut run) = (as_count(best_run), as_count(run));
         if counts[0] >= 1 {
             run += 1;
         } else {
-            run = 0;
+            run = Int::ZERO;
         }
-        let state = |a: i64, o: Value, r: i64| Ok(Some(Value::tuple(vec![int(a), o, int(r)])));
+        let state = |a: &Int, o: Value, r: &Int| Ok(Some(Value::tuple(vec![int(a), o, int(r)])));
         if self.prioritize_highest == (order.value() > 0) {
             if run >= best_run {
-                state(run, outcome.clone(), run)
+                state(&run, outcome.clone(), &run)
             } else {
-                state(best_run, best_outcome.clone(), run)
+                state(&best_run, best_outcome.clone(), &run)
             }
         } else if run > best_run {
             // `outcome - (run - 1) * order.value`
-            let offset = int(run - 1).binary(BinOp::Mul, &int(order.value()))?;
-            state(run, outcome.binary(BinOp::Sub, &offset)?, run)
+            let offset = int(&run - 1).binary(BinOp::Mul, &int(order.value()))?;
+            state(&run, outcome.binary(BinOp::Sub, &offset)?, &run)
         } else {
-            state(best_run, best_outcome.clone(), run)
+            state(&best_run, best_outcome.clone(), &run)
         }
     }
 
@@ -418,7 +418,7 @@ impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         let [best_run, best_outcome, _] = items(final_state) else {
             unreachable!("a 3-tuple state")
@@ -437,11 +437,11 @@ impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
 pub struct AllStraightsEvaluator;
 
 /// `(current_runs, ended_runs) = state or ((), ())`.
-fn runs(state: &Value) -> (Vec<i64>, Vec<i64>) {
+fn runs(state: &Value) -> (Vec<Int>, Vec<Int>) {
     match items(state) {
         [current, ended] => (
-            items(current).iter().map(as_i64).collect(),
-            items(ended).iter().map(as_i64).collect(),
+            items(current).iter().map(as_count).collect(),
+            items(ended).iter().map(as_count).collect(),
         ),
         _ => (Vec::new(), Vec::new()),
     }
@@ -451,7 +451,7 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -460,25 +460,28 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         let (current_runs, ended_runs) = runs(state);
-        let count = counts[0];
+        let count = &counts[0];
         let len = current_runs.len() as i64;
-        let (next_current_runs, next_ended_runs) = if count < len {
+        let (next_current_runs, next_ended_runs) = if *count < len {
             // `current_runs[:count]` / `current_runs[count:]`: a negative count counts from the end.
-            let split = if count < 0 {
-                (len + count).max(0)
+            let split = (count + len).max(Int::ZERO).clamp_usize().min(len as usize);
+            let split = if count.is_negative() {
+                split
             } else {
-                count
-            } as usize;
-            let next_current: Vec<i64> = current_runs[..split].iter().map(|x| x + 1).collect();
+                count.clamp_usize()
+            };
+            let next_current: Vec<Int> = current_runs[..split].iter().map(|x| x + 1).collect();
             let mut ended = ended_runs;
             ended.extend_from_slice(&current_runs[split..]);
             (next_current, sorted_descending(ended))
         } else {
-            let mut next_current: Vec<i64> = current_runs.iter().map(|x| x + 1).collect();
-            next_current.extend(std::iter::repeat_n(1, (count - len) as usize));
+            let mut next_current: Vec<Int> = current_runs.iter().map(|x| x + 1).collect();
+            // `(1, ) * (count - len(current_runs))`
+            let more = crate::keep_tuple::list_len(&(count - len))?;
+            next_current.extend(std::iter::repeat_n(Int::ONE, more));
             (next_current, ended_runs)
         };
         Ok(Some(Value::tuple(vec![
@@ -496,19 +499,12 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         let (mut all, ended) = runs(final_state);
         all.extend(ended);
         Ok(Final::Outcome(int_tuple(sorted_descending(all))))
     }
-}
-
-/// `count + total` and friends on the `int` counts of a state; Python's ints do not overflow, the port says
-/// unsupported rather than wrap.
-fn add_counts(a: i64, b: i64) -> Result<i64> {
-    a.checked_add(b)
-        .ok_or_else(|| Error::Unsupported("a count beyond 64 bits".into()))
 }
 
 /// The size of the largest matching set, with wilds (`LargestCountWithWildEvaluator`, what
@@ -529,10 +525,10 @@ pub struct LargestCountWithWildEvaluator<S> {
 
 impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
     /// `None` before the first outcome, then `(best, total_wild_early)`.
-    type State = Option<(i64, i64)>;
+    type State = Option<(Int, Int)>;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Self::State> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Self::State> {
         Ok(None)
     }
 
@@ -541,9 +537,9 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
         state: &Self::State,
         order: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Self::State>> {
-        let count = counts[0];
+        let count = &counts[0];
         let is_wild = (self.wild)(outcome)?;
         // `is_wild or select(outcome)`: `is_wild` itself if truthy, else the second selector's result.
         let wild = is_wild.truthy()?;
@@ -559,19 +555,20 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
         } else {
             (either(&self.wild_high)?, either(&self.wild_low)?)
         };
-        let Some((mut best, mut total_wild_early)) = *state else {
+        let Some((best, total_wild_early)) = state else {
             return Ok(Some(Some(if is_wild_early.truthy()? {
-                (count, count)
+                (count.clone(), count.clone())
             } else {
-                (count, 0)
+                (count.clone(), Int::ZERO)
             })));
         };
+        let (mut best, mut total_wild_early) = (best.clone(), total_wild_early.clone());
         if is_wild_late.truthy()? {
-            best = add_counts(best, count)?;
+            best += count;
         }
-        best = best.max(add_counts(count, total_wild_early)?);
+        best = best.max(count + &total_wild_early);
         if is_wild_early.truthy()? {
-            total_wild_early = add_counts(total_wild_early, count)?;
+            total_wild_early += count;
         }
         Ok(Some(Some((best, total_wild_early))))
     }
@@ -581,11 +578,11 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
         final_state: &Self::State,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         match final_state {
             // `final_state[0]`
-            Some((best, _)) => Ok(Final::Outcome(int(*best))),
+            Some((best, _)) => Ok(Final::Outcome(int(best))),
             None => Err(Error::Type("'NoneType' object is not subscriptable".into())),
         }
     }
@@ -622,7 +619,7 @@ impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -631,11 +628,11 @@ impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         let (mut length, mut score, mut ended_runs) = reduce_state(state);
-        let count = counts[0];
-        if count > 0 {
+        let count = &counts[0];
+        if count.is_positive() {
             if length == Value::None {
                 length = int(1);
                 score = int(count);
@@ -666,7 +663,7 @@ impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         let (length, score, mut ended_runs) = reduce_state(final_state);
         if length != Value::None {

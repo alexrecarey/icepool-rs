@@ -14,6 +14,7 @@ use crate::error::Result;
 use crate::evaluator::{Final, MultisetEvaluator};
 use crate::order::Order;
 use crate::pool::Count;
+use crate::Int;
 use crate::Value;
 
 /// A host callable passed where Python takes one (`map`, `reroll(which)`, `group_by(key)`, ...): it becomes a
@@ -59,8 +60,8 @@ pub trait HostEvaluator: Send + Sync + fmt::Debug {
 /// A count or size as the Python object the evaluator methods receive.
 fn count_value(c: &Count) -> Value {
     match c {
-        Count::Int(c) => Value::from(*c),
-        Count::Tuple(cs) => Value::tuple(cs.iter().map(|&c| Value::from(c)).collect()),
+        Count::Int(c) => Value::from(c),
+        Count::Tuple(cs) => Value::tuple(cs.iter().map(Value::from).collect()),
     }
 }
 
@@ -71,10 +72,10 @@ fn size_values(sizes: &[Option<Count>]) -> Vec<Value> {
         .collect()
 }
 
-fn int_sizes(sizes: &[Option<i64>]) -> Vec<Value> {
+fn int_sizes(sizes: &[Option<Int>]) -> Vec<Value> {
     sizes
         .iter()
-        .map(|s| s.map_or(Value::None, Value::from))
+        .map(|s| s.as_ref().map_or(Value::None, Value::from))
         .collect()
 }
 
@@ -91,7 +92,7 @@ impl MultisetEvaluator<Value> for Host {
         &self,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Value> {
         self.0.initial_state(order, outcomes, &int_sizes(sizes))
     }
@@ -101,9 +102,9 @@ impl MultisetEvaluator<Value> for Host {
         state: &Value,
         order: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        let counts: Vec<Value> = counts.iter().map(|&c| Value::from(c)).collect();
+        let counts: Vec<Value> = counts.iter().map(Value::from).collect();
         self.0.next_state(state, order, outcome, &counts)
     }
 
@@ -116,7 +117,7 @@ impl MultisetEvaluator<Value> for Host {
         final_state: &Value,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Final<PValue>> {
         self.0
             .final_outcome(final_state, order, outcomes, &int_sizes(sizes))

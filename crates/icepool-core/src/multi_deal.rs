@@ -18,7 +18,7 @@ use crate::math::{comb, iter_hypergeom};
 use crate::order::{Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::pool::MAX_POOL_SIZE;
-use crate::Quantity;
+use crate::{Int, Quantity};
 
 /// A hand group: `(hand_size, group_size)`, `group_size` hands of `hand_size` cards each.
 pub type HandGroup = (usize, usize);
@@ -147,7 +147,7 @@ impl<O: Outcome> MultiDeal<O> {
 
 /// One possibility after popping an outcome from a `MultiDealSource`: the rest of the source, the count of the
 /// popped outcome in each hand, its weight.
-pub type TuplePopped<S> = (S, Arc<[i64]>, Quantity);
+pub type TuplePopped<S> = (S, Arc<[Int]>, Quantity);
 
 /// `MultiDealSource`: the cards not popped yet and the hand groups still to fill.
 ///
@@ -192,15 +192,14 @@ impl<O: Outcome> MultiDealSource<O> {
     }
 
     /// `size()`: the hand sizes (a tuple source's size is a tuple).
-    pub fn size(&self) -> Arc<[i64]> {
-        self.hand_sizes_i64()
+    pub fn size(&self) -> Arc<[Int]> {
+        self.hand_size_counts()
     }
 
-    fn hand_sizes_i64(&self) -> Arc<[i64]> {
-        // Every hand size is at most the deck's size, which fits the hand count's limits.
+    fn hand_size_counts(&self) -> Arc<[Int]> {
         hand_sizes(&self.hand_groups)
             .into_iter()
-            .map(|h| h as i64)
+            .map(Int::from)
             .collect()
     }
 
@@ -224,7 +223,13 @@ impl<O: Outcome> MultiDealSource<O> {
     /// are all empty, with the hand sizes as counts.
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<TuplePopped<Self>>> {
         let n_hands = hand_count(&self.hand_groups);
-        let unchanged = || Ok(vec![(self.clone(), vec![0; n_hands].into(), Quantity::ONE)]);
+        let unchanged = || {
+            Ok(vec![(
+                self.clone(),
+                vec![Int::ZERO; n_hands].into(),
+                Quantity::ONE,
+            )])
+        };
         if self.outcomes().is_empty() {
             return unchanged();
         }
@@ -291,13 +296,13 @@ impl<O: Outcome> MultiDealSource<O> {
                         weight * popped_source.denominator();
                     continue;
                 }
-                let counts = counts.into_iter().map(|c| c as i64).collect();
+                let counts = counts.into_iter().map(Int::from).collect();
                 result.push((popped_source, counts, weight));
             }
         }
         if let Some(skip_weight) = skip_weight {
             let skip_source = next_source(vec![(0, 1); n_hands]);
-            result.push((skip_source, self.hand_sizes_i64(), skip_weight));
+            result.push((skip_source, self.hand_size_counts(), skip_weight));
         }
         Ok(result)
     }

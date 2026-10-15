@@ -6,9 +6,9 @@
 //! state (the "statelet") is a [`Statelet`]. How the nodes of an expression are wired together and driven is in
 //! `crate::expression`.
 //!
-//! Counts are `int`s in Python and `i64` here. Python's counts could become other numbers through a user
-//! `map_counts` function or a non-`int` constant; the callers refuse those (`Unsupported`) before they get here.
-//! Arithmetic past `i64` is `Unsupported` too.
+//! Counts are `int`s in Python and unbounded [`Int`]s here. Python's counts could become other numbers through a
+//! user `map_counts` function or a non-`int` constant; the callers refuse those (`Unsupported`) before they get
+//! here.
 //!
 //! An operator applied to a multiset *tuple* expression (a `MultiDeal`, a tuple parameter) gets tuple counts and
 //! sizes. Python has no special case for them: its arithmetic just runs on tuples, which mostly raises
@@ -30,6 +30,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 use crate::order::Order;
 use crate::pool::Count;
+use crate::Int;
 
 pub use adjust_counts::{CountFunction, KeepCountsComparison};
 pub use binary::BinaryOperator;
@@ -45,15 +46,15 @@ pub enum Operator<O> {
     /// `MultisetMapCounts`: `function(outcome, *counts)`.
     MapCounts(Arc<dyn CountFunction<O> + Send + Sync>),
     /// `MultisetMultiplyCounts`: `count * constant`.
-    MultiplyCounts(i64),
+    MultiplyCounts(Int),
     /// `MultisetFloordivCounts`: `count // constant`.
-    FloordivCounts(i64),
+    FloordivCounts(Int),
     /// `MultisetModuloCounts`: `count % constant`.
-    ModuloCounts(i64),
+    ModuloCounts(Int),
     /// `MultisetUnique`: `min(count, constant)`.
-    Unique(i64),
+    Unique(Int),
     /// `MultisetKeepCounts`: the count if it fits the comparison with the constant, else 0.
-    KeepCounts(KeepCountsComparison, i64),
+    KeepCounts(KeepCountsComparison, Int),
     /// `MultisetFilterOutcomes`: the count if the outcome passes the filter (`!= invert`), else 0.
     FilterOutcomes {
         filter: OutcomeFilter<O>,
@@ -114,7 +115,7 @@ impl<O> Operator<O> {
             Operator::MultiplyCounts(n) => format!("({} * {n})", child()),
             Operator::FloordivCounts(n) => format!("({} // {n})", child()),
             Operator::ModuloCounts(n) => format!("({} % {n})", child()),
-            Operator::Unique(1) => format!("{}.unique()", child()),
+            Operator::Unique(n) if *n == 1 => format!("{}.unique()", child()),
             Operator::Unique(n) => format!("{}.unique({n})", child()),
             Operator::KeepCounts(c, n) => format!("{}.keep_counts('{}', {n})", child(), c.symbol()),
             // The unary filter shows neither its function nor its set of outcomes.
@@ -160,43 +161,43 @@ pub enum Statelet {
     /// `(keep_tuple, keep_more)`: a keep tuple that pops from the left regardless of order, and whether items are
     /// kept after running out of it.
     Keep {
-        keep_tuple: Arc<[i64]>,
+        keep_tuple: Arc<[Int]>,
         keep_more: bool,
     },
     /// `(lexi_tuple, countdown)`.
     Versus {
         lexi_tuple: (i64, i64, i64),
-        countdown: i64,
+        countdown: Int,
     },
     /// `(lexi_tuple, forward_order, left_lead, countdown)`.
     SortPair {
         lexi_tuple: [i64; 4],
         forward_order: bool,
-        left_lead: i64,
-        countdown: Option<i64>,
+        left_lead: Int,
+        countdown: Option<Int>,
     },
     /// `(lexi_tuple, left_lead, countdown)`; `lexi_tuple` and `left_lead` become `None` once the "while" ends.
     SortPairWhile {
         lexi_tuple: Option<[i64; 4]>,
-        left_lead: Option<i64>,
-        countdown: Option<i64>,
+        left_lead: Option<Int>,
+        countdown: Option<Int>,
     },
     /// `prev_pairable`.
-    MaxPairLate(i64),
+    MaxPairLate(Int),
     /// `(right_unpaired, right_remaining)`.
-    MaxPairEarly(i64, i64),
+    MaxPairEarly(Int, Int),
     /// The state of a pairing operator that stored a tuple size (`countdown = right_size`): every `_next_state`
     /// computes with it first, which is Python's `TypeError`.
-    TupleSize(Arc<[i64]>),
+    TupleSize(Arc<[Int]>),
     /// The state of an [`Operator::Host`].
     Host(crate::Value),
 }
 
 /// A count (or size) an operator computes with: a tuple is Python's `TypeError` from its arithmetic or
 /// comparison with an `int`.
-pub(crate) fn int(c: &Count) -> Result<i64> {
+pub(crate) fn int(c: &Count) -> Result<Int> {
     match c {
-        Count::Int(c) => Ok(*c),
+        Count::Int(c) => Ok(c.clone()),
         Count::Tuple(_) => Err(tuple_error()),
     }
 }
@@ -207,36 +208,27 @@ pub(crate) fn tuple_error() -> Error {
 }
 
 /// Python's `count * n` for a tuple count: the tuple repeated `n` times (empty if `n <= 0`).
-pub(crate) fn repeat(t: &[i64], n: i64) -> Result<Count> {
-    let n = usize::try_from(n.max(0)).map_err(|_| overflow())?;
+pub(crate) fn repeat(t: &[Int], n: &Int) -> Result<Count> {
+    if t.is_empty() || !n.is_positive() {
+        return Ok(Count::Tuple(Arc::from([])));
+    }
+    // Python builds any length it has memory for; past 2**24 elements the port says it does not cover it, and past
+    // 64 bits Python cannot either (OverflowError).
+    let n = n.to_len("a tuple count repeated")?;
     if t.len().saturating_mul(n) > 1 << 24 {
         return Err(Error::Unsupported("a tuple count of this length".into()));
     }
-    Ok(Count::Tuple(t.repeat(n).into()))
+    Ok(Count::Tuple(
+        t.iter().cycle().take(t.len() * n).cloned().collect(),
+    ))
 }
 
 /// `count * n` for any count.
-pub(crate) fn times(count: &Count, n: i64) -> Result<Count> {
+pub(crate) fn times(count: &Count, n: &Int) -> Result<Count> {
     match count {
-        Count::Int(c) => Ok(Count::Int(mul(*c, n)?)),
+        Count::Int(c) => Ok(Count::Int(c * n)),
         Count::Tuple(t) => repeat(t, n),
     }
-}
-
-pub(crate) fn overflow() -> Error {
-    Error::Unsupported("multiset counts beyond 64 bits".into())
-}
-
-pub(crate) fn add(a: i64, b: i64) -> Result<i64> {
-    a.checked_add(b).ok_or_else(overflow)
-}
-
-pub(crate) fn sub(a: i64, b: i64) -> Result<i64> {
-    a.checked_sub(b).ok_or_else(overflow)
-}
-
-pub(crate) fn mul(a: i64, b: i64) -> Result<i64> {
-    a.checked_mul(b).ok_or_else(overflow)
 }
 
 impl<O: PartialEq> Operator<O> {
@@ -277,7 +269,7 @@ impl<O: PartialEq> Operator<O> {
         match self {
             Operator::Binary(op) => op.initial_state(child_sizes),
             Operator::MultiplyCounts(c) => {
-                adjust_counts::multiply_initial_state(child_sizes[0].as_ref(), *c)
+                adjust_counts::multiply_initial_state(child_sizes[0].as_ref(), c)
             }
             Operator::Keep(index) => keep::initial_state(index, order, size(0)?),
             Operator::SortPair {
@@ -350,45 +342,45 @@ impl<O: PartialEq> Operator<O> {
         if child_counts.iter().any(|c| matches!(c, Count::Tuple(_))) {
             return self.next_state_tuple(state, outcome, child_counts);
         }
-        let counts = child_counts.iter().map(int).collect::<Result<Vec<i64>>>()?;
-        let stateless = |count: Result<i64>| Ok((Statelet::None, Count::Int(count?)));
+        let counts = child_counts.iter().map(int).collect::<Result<Vec<Int>>>()?;
+        let stateless = |count: Result<Int>| Ok((Statelet::None, Count::Int(count?)));
         match self {
             Operator::Binary(op) => stateless(op.next_state(&counts)),
             Operator::MapCounts(f) => Ok((Statelet::None, f.call(outcome, child_counts)?)),
-            Operator::MultiplyCounts(c) => stateless(mul(counts[0], *c)),
-            Operator::FloordivCounts(c) => stateless(adjust_counts::floordiv(counts[0], *c)),
-            Operator::ModuloCounts(c) => stateless(adjust_counts::modulo(counts[0], *c)),
-            Operator::Unique(c) => stateless(Ok(counts[0].min(*c))),
+            Operator::MultiplyCounts(c) => stateless(Ok(&counts[0] * c)),
+            Operator::FloordivCounts(c) => stateless(adjust_counts::floordiv(&counts[0], c)),
+            Operator::ModuloCounts(c) => stateless(adjust_counts::modulo(&counts[0], c)),
+            Operator::Unique(c) => stateless(Ok(counts[0].clone().min(c.clone()))),
             Operator::KeepCounts(comparison, c) => {
-                stateless(Ok(if comparison.test(counts[0], *c) {
-                    counts[0]
+                stateless(Ok(if comparison.test(&counts[0], c) {
+                    counts[0].clone()
                 } else {
-                    0
+                    Int::ZERO
                 }))
             }
-            Operator::FilterOutcomes { filter, invert } => stateless(Ok(
-                if filter_outcomes::keeps(filter, *invert, outcome)? {
-                    counts[0]
+            Operator::FilterOutcomes { filter, invert } => {
+                stateless(Ok(if filter_outcomes::keeps(filter, *invert, outcome)? {
+                    counts[0].clone()
                 } else {
-                    0
-                },
-            )),
+                    Int::ZERO
+                }))
+            }
             Operator::FilterOutcomesBinary { invert } => stateless(Ok(
-                filter_outcomes::binary_next_state(*invert, counts[0], counts[1]),
+                filter_outcomes::binary_next_state(*invert, &counts[0], &counts[1]),
             )),
-            Operator::Keep(_) => keep::next_state(state, counts[0]),
-            Operator::SortPair { .. } => pair::sort_pair_next_state(state, counts[0], counts[1]),
+            Operator::Keep(_) => keep::next_state(state, &counts[0]),
+            Operator::SortPair { .. } => pair::sort_pair_next_state(state, &counts[0], &counts[1]),
             Operator::SortPairWhile { keep, .. } => {
-                pair::sort_pair_while_next_state(*keep, state, counts[0], counts[1])
+                pair::sort_pair_while_next_state(*keep, state, &counts[0], &counts[1])
             }
             Operator::MaxPairLate {
                 pair_equal, keep, ..
-            } => pair::max_pair_late_next_state(*pair_equal, *keep, state, counts[0], counts[1]),
+            } => pair::max_pair_late_next_state(*pair_equal, *keep, state, &counts[0], &counts[1]),
             Operator::MaxPairEarly {
                 pair_equal, keep, ..
-            } => pair::max_pair_early_next_state(*pair_equal, *keep, state, counts[0], counts[1]),
-            Operator::Versus { .. } => versus::next_state(state, counts[0], counts[1]),
-            Operator::ForceOrder(_) => Ok((Statelet::None, Count::Int(counts[0]))),
+            } => pair::max_pair_early_next_state(*pair_equal, *keep, state, &counts[0], &counts[1]),
+            Operator::Versus { .. } => versus::next_state(state, &counts[0], &counts[1]),
+            Operator::ForceOrder(_) => Ok((Statelet::None, Count::Int(counts[0].clone()))),
             Operator::Host(_) => unreachable!("next_state calls the host first"),
         }
     }
@@ -406,27 +398,27 @@ impl<O: PartialEq> Operator<O> {
             // `reduce(self.merge_counts, child_counts)`.
             Operator::Binary(op) => stateless(op.reduce(child_counts)?),
             Operator::MapCounts(f) => stateless(f.call(outcome, child_counts)?),
-            Operator::MultiplyCounts(c) => stateless(times(&child_counts[0], *c)?),
+            Operator::MultiplyCounts(c) => stateless(times(&child_counts[0], c)?),
             // `count == constant` is False and `count != constant` True for a tuple; the others compare.
             Operator::KeepCounts(comparison, _) => stateless(match comparison {
-                KeepCountsComparison::Eq => Count::Int(0),
+                KeepCountsComparison::Eq => Count::Int(Int::ZERO),
                 KeepCountsComparison::Ne => child_counts[0].clone(),
                 _ => return Err(tuple_error()),
             }),
-            Operator::FilterOutcomes { filter, invert } => stateless(
-                if filter_outcomes::keeps(filter, *invert, outcome)? {
+            Operator::FilterOutcomes { filter, invert } => {
+                stateless(if filter_outcomes::keeps(filter, *invert, outcome)? {
                     child_counts[0].clone()
                 } else {
-                    Count::Int(0)
-                },
-            ),
+                    Count::Int(Int::ZERO)
+                })
+            }
             // `target_count > 0` compares; the source count is only passed on.
             Operator::FilterOutcomesBinary { invert } => {
                 let target = int(&child_counts[1])?;
-                stateless(if (target > 0) != *invert {
+                stateless(if target.is_positive() != *invert {
                     child_counts[0].clone()
                 } else {
-                    Count::Int(0)
+                    Count::Int(Int::ZERO)
                 })
             }
             // Once the "while" has ended the right count is never looked at.
@@ -435,7 +427,7 @@ impl<O: PartialEq> Operator<O> {
                 match state {
                     Statelet::SortPairWhile {
                         lexi_tuple: None, ..
-                    } => pair::sort_pair_while_next_state(*keep, state, left, 0),
+                    } => pair::sort_pair_while_next_state(*keep, state, &left, &Int::ZERO),
                     _ => Err(tuple_error()),
                 }
             }
@@ -445,8 +437,8 @@ impl<O: PartialEq> Operator<O> {
                 let Count::Tuple(left) = &child_counts[0] else {
                     unreachable!("a tuple count is the left one")
                 };
-                let (next, factor) = versus::next_state(state, 1, right)?;
-                Ok((next, repeat(left, int(&factor)?)?))
+                let (next, factor) = versus::next_state(state, &Int::ONE, &right)?;
+                Ok((next, repeat(left, &int(&factor)?)?))
             }
             Operator::ForceOrder(_) => stateless(child_counts[0].clone()),
             // `count // constant`, `count % constant`, `min(count, constant)`, `max(child_counts[0], 0)`, ...
@@ -469,27 +461,37 @@ mod tests {
     #[test]
     fn repeat_allows_tuple_counts_up_to_2_pow_24_elements() {
         // Python would build any length; past the limit the port says it does not cover it.
-        match repeat(&[0, 1], 1 << 23).unwrap() {
+        let t = [Int::ZERO, Int::ONE];
+        match repeat(&t, &Int::from(1i64 << 23)).unwrap() {
             Count::Tuple(t) => assert_eq!(t.len(), 1 << 24),
             Count::Int(_) => panic!("a tuple repeated is a tuple"),
         }
         assert!(matches!(
-            repeat(&[0, 1], (1 << 23) + 1),
+            repeat(&t, &Int::from((1i64 << 23) + 1)),
             Err(Error::Unsupported(_))
         ));
-        assert_eq!(repeat(&[1], -2).unwrap(), Count::Tuple(Arc::from([])));
+        // Past 64 bits Python raises OverflowError.
+        assert!(matches!(
+            repeat(&t, &(Int::from(i64::MAX) + 1)),
+            Err(Error::Overflow(_))
+        ));
+        assert_eq!(
+            repeat(&[Int::ONE], &Int::from(-2)).unwrap(),
+            Count::Tuple(Arc::from([]))
+        );
     }
 
     #[test]
     fn next_state_checks_the_number_of_children() {
         // The driver calls `initial_state` first, which checks the same; `next_state` stands on its own.
-        let unique = Operator::<i64>::Unique(1);
-        let next = |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
+        let unique = Operator::<i64>::Unique(Int::ONE);
+        let next =
+            |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
         assert!(matches!(next(&[]), Err(Error::Index(_))));
         // Extra children are not read (Python's `child_counts[0]`).
         assert_eq!(
-            next(&[Count::Int(3), Count::Int(5)]).unwrap(),
-            (Statelet::None, Count::Int(1))
+            next(&[Count::Int(3.into()), Count::Int(5.into())]).unwrap(),
+            (Statelet::None, Count::Int(Int::ONE))
         );
     }
 }

@@ -27,7 +27,7 @@ use crate::pool::{Count, MultisetSource, Pool};
 use crate::value::builtins::{getitem, Index};
 use crate::value::BinOp;
 use crate::weightless::WeightlessSource;
-use crate::{MultiDeal, Quantity, Value};
+use crate::{Int, MultiDeal, Quantity, Value};
 
 /// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
 #[derive(Clone)]
@@ -347,7 +347,13 @@ pub fn tuple_index(x: PValue, index: PValue) -> Result<PValue, PErr> {
         };
     };
     Ok(match int_arg(&index) {
-        Some(i) => PValue::Expr(MExpr::TupleIndex(Arc::new((e, i?)))),
+        // An index beyond 64 bits is out of range anyway (IndexError when evaluated): saturating keeps that.
+        Some(i) => {
+            let i = i
+                .to_i64()
+                .unwrap_or(if i.is_negative() { i64::MIN } else { i64::MAX });
+            PValue::Expr(MExpr::TupleIndex(Arc::new((e, i))))
+        }
         None => PValue::Value(Value::None),
     })
 }
@@ -407,20 +413,16 @@ fn binary(op: BinaryOperator, children: Vec<MExpr>) -> MExpr {
 fn keep_generator_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
     let gens: Option<Vec<&KeepGen>> = args.iter().map(MExpr::keepable).collect();
     if let Some(gens) = gens {
-        let mut size = 0i64;
-        for g in &gens {
-            size = size
-                .checked_add(g.keep_size()?)
-                .ok_or_else(|| PErr::Unimplemented("keep sizes beyond 64 bits".into()))?;
-        }
+        let size: Int = gens.iter().map(|g| g.keep_size()).sum();
         let sources = gens
             .iter()
             .map(|g| g.source())
             .collect::<Result<Vec<_>, _>>()?;
-        let len = usize::try_from(size).expect("no negative keeps");
+        // `(1, ) * sum(generator.keep_size() for generator in generators)`
+        let len = crate::keep_tuple::list_len(&size)?;
         return Ok(MExpr::Gen(KeepGen::Compound(CompoundKeep::new(
             sources,
-            vec![1; len],
+            vec![Int::ONE; len],
         ))));
     }
     Ok(binary(BinaryOperator::AdditiveUnion, args))
@@ -552,19 +554,18 @@ pub fn method(name: &str, args: PValue, keep_negative_counts: PValue) -> Result<
 }
 
 /// An `int` argument (Python's `isinstance(n, int)`, so also a bool), if it is one.
-fn int_arg(x: &PValue) -> Option<Result<i64, PErr>> {
-    let i = match x {
-        PValue::Value(Value::Int(i)) => i.clone(),
-        PValue::Value(Value::Bool(b)) => (*b as i64).into(),
-        _ => return None,
-    };
-    Some(i64::try_from(&i).map_err(|_| PErr::Unimplemented("a count beyond 64 bits".into())))
+fn int_arg(x: &PValue) -> Option<Int> {
+    match x {
+        PValue::Value(Value::Int(i)) => Some(i.into()),
+        PValue::Value(Value::Bool(b)) => Some((*b as i64).into()),
+        _ => None,
+    }
 }
 
 /// A constant stored by an operator and used in count arithmetic: the port takes `int`s only.
-fn constant(x: &PValue) -> Result<i64, PErr> {
+fn constant(x: &PValue) -> Result<Int, PErr> {
     match int_arg(x) {
-        Some(n) => n,
+        Some(n) => Ok(n),
         None => Err(PErr::Unimplemented(
             "a multiset count constant that is not an int".into(),
         )),
@@ -572,7 +573,7 @@ fn constant(x: &PValue) -> Result<i64, PErr> {
 }
 
 /// `unique(True)` is `min(count, True)`, which keeps a bool count: not modelled.
-fn int_constant(x: &PValue) -> Result<i64, PErr> {
+fn int_constant(x: &PValue) -> Result<Int, PErr> {
     match x {
         PValue::Value(Value::Bool(_)) => Err(PErr::Unimplemented("a bool count constant".into())),
         x => constant(x),
@@ -581,15 +582,18 @@ fn int_constant(x: &PValue) -> Result<i64, PErr> {
 
 /// `expr * n` and `-expr` on a keep generator change its keep tuple; on any other expression they build
 /// `MultisetMultiplyCounts`.
-fn multiply_counts(e: MExpr, n: i64) -> Result<MExpr, PErr> {
+fn multiply_counts(e: MExpr, n: Int) -> Result<MExpr, PErr> {
     if let Some(inners) = keepable_mixture(&e) {
         let mixture = map_mixture(inners, |inner| {
-            Ok(into_pvalue(multiply_counts(the_expression(inner)?, n)?))
+            Ok(into_pvalue(multiply_counts(
+                the_expression(inner)?,
+                n.clone(),
+            )?))
         })?;
         return the_expression(mixture);
     }
     Ok(match e {
-        MExpr::Gen(g) => MExpr::Gen(g.multiply_counts(n)?),
+        MExpr::Gen(g) => MExpr::Gen(g.multiply_counts(&n)),
         e => MExpr::op(Operator::MultiplyCounts(n), vec![e]),
     })
 }
@@ -622,21 +626,24 @@ pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PVal
         "mul" | "rmul" => match int_arg(&n) {
             // `int.__mul__` returns NotImplemented for an expression: `n * expr` is `expr.__rmul__(n)`, which is
             // `multiply_counts(n)` like `__mul__` ("commutable in this case").
-            Some(n) => multiply_counts(e, n?)?,
+            Some(n) => multiply_counts(e, n)?,
             None => return not_int(e, BinOp::Mul, n, op == "rmul"),
         },
-        "neg" => multiply_counts(e, -1)?,
-        "pos" => MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![e]),
+        "neg" => multiply_counts(e, Int::from(-1))?,
+        "pos" => MExpr::op(
+            Operator::KeepCounts(KeepCountsComparison::Ge, Int::ZERO),
+            vec![e],
+        ),
         "multiply_counts" => multiply_counts(e, constant(&n)?)?,
         "floordiv" => match int_arg(&n) {
-            Some(n) => MExpr::op(Operator::FloordivCounts(n?), vec![e]),
+            Some(n) => MExpr::op(Operator::FloordivCounts(n), vec![e]),
             None => {
                 return super::evaluate::count_subset(into_pvalue(e), n, PValue::Value(Value::None))
             }
         },
         "divide_counts" => MExpr::op(Operator::FloordivCounts(int_constant(&n)?), vec![e]),
         "mod" | "modulo_counts" => match int_arg(&n) {
-            Some(n) => MExpr::op(Operator::ModuloCounts(n?), vec![e]),
+            Some(n) => MExpr::op(Operator::ModuloCounts(n), vec![e]),
             None => return not_int(e, BinOp::Mod, n, false),
         },
         "unique" => MExpr::op(Operator::Unique(int_constant(&n)?), vec![e]),
@@ -725,9 +732,7 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
             PValue::Func(f) if f.positional().is_some() => {
                 OutcomeFilter::Function(Arc::new(CataloguePredicate(f)))
             }
-            PValue::Func(_) => {
-                return Err(PErr::Unimplemented("this keep_outcomes target".into()))
-            }
+            PValue::Func(_) => return Err(PErr::Unimplemented("this keep_outcomes target".into())),
             // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
             // `MultisetTupleIndex`es, whose hashes (of `(type, index)`) no outcome's matches, so nothing is in it.
             target if as_tuple_expression(&target).is_some() => {
@@ -830,8 +835,8 @@ fn same_operator(a: &Operator<Value>, b: &Operator<Value>) -> bool {
         (O::MultiplyCounts(a), O::MultiplyCounts(b))
         | (O::FloordivCounts(a), O::FloordivCounts(b))
         | (O::ModuloCounts(a), O::ModuloCounts(b))
-        | (O::Unique(a), O::Unique(b))
-        | (O::ForceOrder(a), O::ForceOrder(b)) => a == b,
+        | (O::Unique(a), O::Unique(b)) => a == b,
+        (O::ForceOrder(a), O::ForceOrder(b)) => a == b,
         // `(type(self), self._comparison, self._constant)`
         (O::KeepCounts(ca, a), O::KeepCounts(cb, b)) => (ca, a) == (cb, b),
         // `(type(self), self._func, self._invert)`
@@ -1058,7 +1063,7 @@ pub fn multiset_keep_seq(index: PValue) -> Result<MultisetKeepIndex, PErr> {
         .map(|x| match x {
             PValue::Ellipsis => Ok(None),
             x => match int_arg(&x) {
-                Some(n) => n.map(Some),
+                Some(n) => Ok(Some(n)),
                 None => Err(PErr::Unimplemented(
                     "a MultisetKeep index element that is not an int".into(),
                 )),
@@ -1079,7 +1084,7 @@ fn name(x: &PValue) -> Arc<str> {
 /// An `Order` argument (`Order(order)` on the Python side): -1, 0 or 1.
 fn order_arg(x: &PValue) -> Result<i64, PErr> {
     match int_arg(x) {
-        Some(Ok(o)) if (-1..=1).contains(&o) => Ok(o),
+        Some(o) if (Int::from(-1)..=Int::ONE).contains(&o) => Ok(o.to_i64().expect("-1, 0 or 1")),
         _ => Err(PErr::Unimplemented("an order that is not an Order".into())),
     }
 }
@@ -1137,7 +1142,12 @@ pub fn max_pair(
         }
         let result = if keep {
             // `+self & +other`
-            let pos = |x| MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![x]);
+            let pos = |x| {
+                MExpr::op(
+                    Operator::KeepCounts(KeepCountsComparison::Ge, Int::ZERO),
+                    vec![x],
+                )
+            };
             binary(BinaryOperator::Intersection, vec![pos(e), pos(other)])
         } else {
             // `self - other`
@@ -1229,7 +1239,9 @@ fn expression_str(e: &MExpr) -> Result<String, PErr> {
         MExpr::Gen(KeepGen::Pool(p)) => pool_str(p.dice(), p.keep_tuple()),
         MExpr::Gen(KeepGen::Deal(d)) => super::deck::deal_text(d.deck(), d.hand_size()),
         MExpr::Gen(KeepGen::Compound(c)) => compound_str(c.inner_sources(), c.keep_tuple()),
-        MExpr::MultiDeal(md) => Ok(super::deck::deal_repr_and_str(&PValue::MultiDeal(md.clone()))?.1),
+        MExpr::MultiDeal(md) => {
+            Ok(super::deck::deal_repr_and_str(&PValue::MultiDeal(md.clone()))?.1)
+        }
         MExpr::Weightless(_) => Err(address("WeightlessGenerator")),
         MExpr::Op(node) => {
             let children = node
@@ -1270,14 +1282,15 @@ fn expression_str(e: &MExpr) -> Result<String, PErr> {
 }
 
 /// `Pool.__str__`: a header, then `  {repr(die)} : {count},` per die (in `hash_key` order).
-fn pool_str(dice: &[(crate::Die<Value>, usize)], keep_tuple: &[i64]) -> Result<String, PErr> {
+fn pool_str(dice: &[(crate::Die<Value>, usize)], keep_tuple: &[Int]) -> Result<String, PErr> {
     let raw_size: usize = dice.iter().map(|(_, count)| count).sum();
     let mut text = format!(
         "Pool of {raw_size} dice with keep_tuple={}\n",
         keep_tuple_repr(keep_tuple)?
     );
     for (die, count) in dice {
-        let PValue::Value(Value::Str(die)) = super::die_methods::repr(PValue::Die(die.clone()))? else {
+        let PValue::Value(Value::Str(die)) = super::die_methods::repr(PValue::Die(die.clone()))?
+        else {
             unreachable!("repr() is a str")
         };
         text += &format!("  {die} : {count},\n");
@@ -1287,7 +1300,7 @@ fn pool_str(dice: &[(crate::Die<Value>, usize)], keep_tuple: &[i64]) -> Result<S
 
 /// `CompoundKeepGenerator.__str__`, from its inner generators' sources (which keep their dice or deck and keep
 /// tuple).
-fn compound_str(inners: &[MultisetSource<Value>], keep_tuple: &[i64]) -> Result<String, PErr> {
+fn compound_str(inners: &[MultisetSource<Value>], keep_tuple: &[Int]) -> Result<String, PErr> {
     let inners = inners
         .iter()
         .map(|inner| match inner {
@@ -1304,8 +1317,8 @@ fn compound_str(inners: &[MultisetSource<Value>], keep_tuple: &[i64]) -> Result<
     ))
 }
 
-fn keep_tuple_repr(keep_tuple: &[i64]) -> Result<String, PErr> {
-    let t = Value::tuple(keep_tuple.iter().map(|&k| Value::from(k)).collect());
+fn keep_tuple_repr(keep_tuple: &[Int]) -> Result<String, PErr> {
+    let t = Value::tuple(keep_tuple.iter().map(Value::from).collect());
     Ok(crate::value::pystr::py_repr(&t)?)
 }
 

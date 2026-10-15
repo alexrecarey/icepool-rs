@@ -27,6 +27,7 @@ use crate::function::sorted_union;
 use crate::order::Order;
 use crate::outcome::Outcome;
 use crate::pool::Count;
+use crate::Int;
 
 /// A state of any hashable type: `==` and hash are the type's own (states of different types are never compared:
 /// each position of the call tree has one evaluator).
@@ -349,9 +350,9 @@ impl<'a, O: Outcome, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
         &self,
         order: Order,
         outcomes: &[O],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<CallState> {
-        let sizes = sizes.iter().map(|s| s.map(Count::Int)).collect();
+        let sizes = sizes.iter().map(|s| s.clone().map(Count::Int)).collect();
         self.initial_state_tree(order, outcomes, &CountTree::Leaf(sizes))
     }
 
@@ -360,9 +361,9 @@ impl<'a, O: Outcome, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
         state: &CallState,
         order: Order,
         outcome: &O,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<CallState>> {
-        let counts = counts.iter().map(|&c| Count::Int(c)).collect();
+        let counts = counts.iter().map(|c| Count::Int(c.clone())).collect();
         self.next_state_tree(state, order, outcome, &CountTree::Leaf(counts))
     }
 
@@ -375,9 +376,9 @@ impl<'a, O: Outcome, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
         final_state: &CallState,
         order: Order,
         outcomes: &[O],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Final<F>> {
-        let sizes = sizes.iter().map(|s| s.map(Count::Int)).collect();
+        let sizes = sizes.iter().map(|s| s.clone().map(Count::Int)).collect();
         self.final_outcome_tree(final_state, order, outcomes, &CountTree::Leaf(sizes))
     }
 

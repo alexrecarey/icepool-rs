@@ -18,7 +18,7 @@ use crate::format::Formatted;
 use crate::order::Order;
 use crate::population::Data;
 use crate::value::Num;
-use crate::{Deal, Deck, Die, Quantity, Value};
+use crate::{Deal, Deck, Die, Int, Quantity, Value};
 
 pub(super) fn the_deck(x: PValue) -> Result<Deck<Value>, PErr> {
     match x {
@@ -368,8 +368,8 @@ pub fn deal(deck: PValue, hand_size: PValue) -> Result<PValue, PErr> {
     Ok(PValue::Deal(Deal::new(deck, &hand_size)?))
 }
 
-fn int_tuple(xs: &[i64]) -> Value {
-    Value::tuple(xs.iter().map(|&x| int(x)).collect())
+fn int_tuple(xs: &[Int]) -> Value {
+    Value::tuple(xs.iter().map(int).collect())
 }
 
 /// `(tuple(deal.deck().items()), deal.keep_tuple(), deal.hand_size(), deal.keep_size(), deal.denominator(),
@@ -380,7 +380,7 @@ pub fn deal_info(deal: PValue) -> Result<PValue, PErr> {
         items(deal.deck()),
         int_tuple(deal.keep_tuple()),
         int(deal.hand_size()),
-        int(deal.keep_size()?),
+        int(deal.keep_size()),
         int(deal.denominator()),
         Value::tuple(deal.deck().outcomes().cloned().collect()),
     ])))

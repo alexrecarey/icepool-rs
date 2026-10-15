@@ -23,7 +23,7 @@ use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::weightless::WeightlessSource;
-use crate::Quantity;
+use crate::{Int, Quantity};
 
 /// Above this many dice the port refuses a pool (`(1,) * n` keep tuple): Python would spend minutes or run out of
 /// memory.
@@ -76,7 +76,7 @@ pub struct Pool<O> {
     /// in zero times.
     outcomes: Arc<[O]>,
     /// How many times to count each sorted roll, lowest first.
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
 }
 
 impl<O: Outcome> Pool<O> {
@@ -99,14 +99,14 @@ impl<O: Outcome> Pool<O> {
         }
         // Includes dice with zero qty.
         let outcomes = sorted_union(dice.iter().map(|(d, _)| d.outcomes()))?;
-        Self::from_mapping(dice_counts, outcomes.into(), vec![1; size].into())
+        Self::from_mapping(dice_counts, outcomes.into(), vec![Int::ONE; size].into())
     }
 
     /// `Pool._new_from_mapping`: `dice_counts` in insertion order.
     fn from_mapping(
         dice_counts: Vec<(Die<O>, usize)>,
         outcomes: Arc<[O]>,
-        keep_tuple: Arc<[i64]>,
+        keep_tuple: Arc<[Int]>,
     ) -> Result<Self> {
         Ok(Pool {
             dice: sort_dice(dice_counts)?,
@@ -126,12 +126,12 @@ impl<O: Outcome> Pool<O> {
     }
 
     /// The tuple indicating which elements will be counted.
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
     /// The total count produced by this generator.
-    pub fn keep_size(&self) -> Result<i64> {
+    pub fn keep_size(&self) -> Int {
         sum_counts(&self.keep_tuple)
     }
 
@@ -146,11 +146,11 @@ impl<O: Outcome> Pool<O> {
 
     /// Whether any element of the keep tuple is negative.
     pub fn has_negative_keeps(&self) -> bool {
-        self.keep_tuple.iter().any(|&x| x < 0)
+        self.keep_tuple.iter().any(Int::is_negative)
     }
 
     /// Produces a copy with a modified keep_tuple.
-    fn set_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
+    fn set_keep_tuple(&self, keep_tuple: Vec<Int>) -> Self {
         Pool {
             dice: self.dice.clone(),
             outcomes: self.outcomes.clone(),
@@ -172,18 +172,18 @@ impl<O: Outcome> Pool<O> {
     }
 
     /// `pool * constant`, `constant * pool`, and `-pool` (constant -1): every count multiplied.
-    pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
-        Ok(self.set_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
+    pub fn multiply_counts(&self, constant: &Int) -> Self {
+        self.set_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant))
     }
 
     /// `Pool.additive_union` of pools: if all sorted positions count the same, the pools merge into one pool.
     /// `None` when they don't (Python builds a `CompoundKeepGenerator` or an expression instead).
     pub fn additive_union(pools: &[Pool<O>]) -> Result<Option<Self>> {
-        let keep_tuple: Vec<i64> = pools
+        let keep_tuple: Vec<Int> = pools
             .iter()
-            .flat_map(|p| p.keep_tuple.iter().copied())
+            .flat_map(|p| p.keep_tuple.iter().cloned())
             .collect();
-        if !keep_tuple.iter().all(|&x| x == keep_tuple[0]) {
+        if !keep_tuple.iter().all(|x| *x == keep_tuple[0]) {
             return Ok(None);
         }
         let mut dice = Vec::new();
@@ -229,14 +229,14 @@ pub enum MultisetSource<O> {
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
-pub type Popped<S> = (S, i64, Quantity);
+pub type Popped<S> = (S, Int, Quantity);
 
 /// What a source produces for one outcome, and its size: an `int` (multiset generators) or a tuple of `int`s
 /// (multiset tuple generators). The evaluator's `next_state` receives it as is.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Count {
-    Int(i64),
-    Tuple(Arc<[i64]>),
+    Int(Int),
+    Tuple(Arc<[Int]>),
 }
 
 /// A source's possibilities as the driver sees them.
@@ -270,10 +270,10 @@ impl<O: Outcome> MultisetSource<O> {
     /// A tuple source's size is the tuple of its hands' sizes.
     pub fn size(&self) -> Result<Option<Count>> {
         Ok(match self {
-            MultisetSource::Pool(s) => s.size()?.map(Count::Int),
-            MultisetSource::Deal(s) => s.size()?.map(Count::Int),
+            MultisetSource::Pool(s) => s.size().map(Count::Int),
+            MultisetSource::Deal(s) => s.size().map(Count::Int),
             MultisetSource::MultiDeal(s) => Some(Count::Tuple(s.size())),
-            MultisetSource::CompoundKeep(s) => s.size()?.map(Count::Int),
+            MultisetSource::CompoundKeep(s) => s.size().map(Count::Int),
             MultisetSource::Weightless(s) => s.size()?,
             MultisetSource::Host(s) => s.size()?,
         })
@@ -335,7 +335,7 @@ pub struct PoolSource<O> {
     outcomes: Arc<[O]>,
     lo: usize,
     hi: usize,
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
 }
 
 impl<O: PartialEq> PartialEq for PoolSource<O> {
@@ -362,7 +362,7 @@ impl<O: Outcome> PoolSource<O> {
         &self.outcomes[self.lo..self.hi]
     }
 
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
@@ -371,11 +371,11 @@ impl<O: Outcome> PoolSource<O> {
     }
 
     /// `KeepSource.size`: the total count, unknown (`None`) with negative counts.
-    pub fn size(&self) -> Result<Option<i64>> {
-        if self.keep_tuple.iter().any(|&x| x < 0) {
-            return Ok(None);
+    pub fn size(&self) -> Option<Int> {
+        if self.keep_tuple.iter().any(Int::is_negative) {
+            return None;
         }
-        sum_counts(&self.keep_tuple).map(Some)
+        Some(sum_counts(&self.keep_tuple))
     }
 
     pub fn is_resolvable(&self) -> bool {
@@ -413,7 +413,7 @@ impl<O: Outcome> PoolSource<O> {
     /// keep tuple are not yielded one by one: their dice are dumped in exchange for the denominator, and they come
     /// last as one empty pool.
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
-        let unchanged = || Ok(vec![(self.clone(), 0, Quantity::ONE)]);
+        let unchanged = || Ok(vec![(self.clone(), Int::ZERO, Quantity::ONE)]);
         if self.lo == self.hi {
             return unchanged();
         }
@@ -432,7 +432,7 @@ impl<O: Outcome> PoolSource<O> {
             .iter()
             .map(|(die, die_count)| iter_die_pop(die, *die_count, outcome, ascending))
             .collect::<Result<Vec<_>>>()?;
-        let next_source = |dice, keep_tuple: Vec<i64>| PoolSource {
+        let next_source = |dice, keep_tuple: Vec<Int>| PoolSource {
             dice,
             outcomes: self.outcomes.clone(),
             lo: next_lo,
@@ -453,12 +453,12 @@ impl<O: Outcome> PoolSource<O> {
                 result_weight *= weight;
             }
             let (popped_keep_tuple, result_count) = if ascending {
-                pop_min_from_keep_tuple(&self.keep_tuple, total_hits)?
+                pop_min_from_keep_tuple(&self.keep_tuple, total_hits)
             } else {
-                pop_max_from_keep_tuple(&self.keep_tuple, total_hits)?
+                pop_max_from_keep_tuple(&self.keep_tuple, total_hits)
             };
             let popped_pool = next_source(sort_dice(next_dice_counts)?, popped_keep_tuple);
-            if popped_pool.keep_tuple.iter().all(|&x| x == 0) {
+            if popped_pool.keep_tuple.iter().all(Int::is_zero) {
                 // Dump all dice in exchange for the denominator.
                 *skip_weight.get_or_insert(Quantity::ZERO) +=
                     result_weight * popped_pool.denominator();
@@ -468,7 +468,7 @@ impl<O: Outcome> PoolSource<O> {
         }
         if let Some(skip_weight) = skip_weight {
             let popped_pool = next_source(Arc::new([]), Vec::new());
-            result.push((popped_pool, sum_counts(&self.keep_tuple)?, skip_weight));
+            result.push((popped_pool, sum_counts(&self.keep_tuple), skip_weight));
         }
         Ok(result)
     }

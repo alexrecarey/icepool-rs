@@ -5,6 +5,7 @@ use std::ops::Neg;
 use crate::die::Die;
 use crate::error::{Error, Result};
 use crate::outcome::Outcome;
+use crate::Int;
 
 /// Can be used to define what order outcomes are seen in by MultisetEvaluators.
 ///
@@ -199,14 +200,14 @@ pub fn can_truncate<'a, O: Outcome + 'a>(
 }
 
 /// The number of dice that can be skipped from the ends of keep_tuple: `(lo_skip, hi_skip)`.
-pub fn lo_hi_skip(keep_tuple: &[i64]) -> (usize, usize) {
-    let Some(lo_skip) = keep_tuple.iter().position(|&c| c != 0) else {
+pub fn lo_hi_skip(keep_tuple: &[Int]) -> (usize, usize) {
+    let Some(lo_skip) = keep_tuple.iter().position(|c| !c.is_zero()) else {
         return (keep_tuple.len(), keep_tuple.len());
     };
     let hi_skip = keep_tuple
         .iter()
         .rev()
-        .position(|&c| c != 0)
+        .position(|c| !c.is_zero())
         .expect("a nonzero count exists");
     (lo_skip, hi_skip)
 }

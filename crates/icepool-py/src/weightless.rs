@@ -8,9 +8,8 @@ use icepool_core::weightless::WeightlessSource;
 use icepool_core::Value;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use pyo3::IntoPyObjectExt;
 
-use crate::convert::{from_py, to_py_err};
+use crate::convert::{count_to_py, counts_to_py, from_py, to_py_err};
 use crate::expression::{core_source, source_object};
 use crate::pool::{hash_of, outcome_tuple};
 
@@ -31,8 +30,8 @@ pub fn weightless_source(wrapped: &Bound<'_, PyAny>) -> PyResult<RsWeightlessSou
 /// A count or size as Python has it: an `int`, or a tuple of `int`s.
 fn count_py<'py>(py: Python<'py>, c: &Count) -> PyResult<Bound<'py, PyAny>> {
     match c {
-        Count::Int(c) => c.into_bound_py_any(py),
-        Count::Tuple(cs) => PyTuple::new(py, cs.iter()).map(Bound::into_any),
+        Count::Int(c) => count_to_py(py, c),
+        Count::Tuple(cs) => counts_to_py(py, cs).map(Bound::into_any),
     }
 }
 

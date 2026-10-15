@@ -16,25 +16,25 @@ use crate::keep_tuple::{
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::pool::{Count, MultisetSource, Popped, Product};
-use crate::Quantity;
+use crate::{Int, Quantity};
 
 /// `CompoundKeepGenerator(inners, keep_tuple)`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CompoundKeep<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
 }
 
 impl<O: Outcome> CompoundKeep<O> {
     /// `CompoundKeepGenerator(inners, keep_tuple)`, given the inners' sources.
-    pub fn new(inner_sources: Vec<MultisetSource<O>>, keep_tuple: Vec<i64>) -> Self {
+    pub fn new(inner_sources: Vec<MultisetSource<O>>, keep_tuple: Vec<Int>) -> Self {
         CompoundKeep {
             inner_sources: inner_sources.into(),
             keep_tuple: keep_tuple.into(),
         }
     }
 
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
@@ -43,16 +43,16 @@ impl<O: Outcome> CompoundKeep<O> {
     }
 
     /// `keep_size()`: the total count produced by this generator.
-    pub fn keep_size(&self) -> Result<i64> {
+    pub fn keep_size(&self) -> Int {
         sum_counts(&self.keep_tuple)
     }
 
     pub fn has_negative_keeps(&self) -> bool {
-        self.keep_tuple.iter().any(|&x| x < 0)
+        self.keep_tuple.iter().any(Int::is_negative)
     }
 
     /// `_set_keep_tuple`: a copy with a modified keep tuple.
-    pub fn with_keep_tuple(&self, keep_tuple: Vec<i64>) -> Self {
+    pub fn with_keep_tuple(&self, keep_tuple: Vec<Int>) -> Self {
         CompoundKeep {
             inner_sources: self.inner_sources.clone(),
             keep_tuple: keep_tuple.into(),
@@ -65,8 +65,8 @@ impl<O: Outcome> CompoundKeep<O> {
     }
 
     /// `KeepGenerator.multiply_counts`.
-    pub fn multiply_counts(&self, constant: i64) -> Result<Self> {
-        Ok(self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant)?))
+    pub fn multiply_counts(&self, constant: &Int) -> Self {
+        self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant))
     }
 
     /// `_make_source`.
@@ -80,7 +80,7 @@ impl<O: Outcome> CompoundKeep<O> {
 #[derive(Clone, Debug)]
 pub struct CompoundKeepSource<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
-    keep_tuple: Arc<[i64]>,
+    keep_tuple: Arc<[Int]>,
     /// `outcomes()`: the sorted union of the inner sources' (remaining) outcomes, computed when first asked (Python
     /// computes it per call: sorting can raise, and an evaluation with an unresolvable source never asks).
     outcomes: OnceLock<Arc<[O]>>,
@@ -102,7 +102,7 @@ impl<O: Hash> Hash for CompoundKeepSource<O> {
 }
 
 impl<O: Outcome> CompoundKeepSource<O> {
-    fn new(inner_sources: Arc<[MultisetSource<O>]>, keep_tuple: Arc<[i64]>) -> Result<Self> {
+    fn new(inner_sources: Arc<[MultisetSource<O>]>, keep_tuple: Arc<[Int]>) -> Result<Self> {
         Ok(CompoundKeepSource {
             inner_sources,
             keep_tuple,
@@ -123,7 +123,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
         Ok(self.outcomes.get_or_init(|| outcomes.into()))
     }
 
-    pub fn keep_tuple(&self) -> &[i64] {
+    pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
@@ -132,11 +132,11 @@ impl<O: Outcome> CompoundKeepSource<O> {
     }
 
     /// `KeepSource.size`: `None` if any count is negative.
-    pub fn size(&self) -> Result<Option<i64>> {
-        if self.keep_tuple.iter().any(|&x| x < 0) {
-            return Ok(None);
+    pub fn size(&self) -> Option<Int> {
+        if self.keep_tuple.iter().any(Int::is_negative) {
+            return None;
         }
-        sum_counts(&self.keep_tuple).map(Some)
+        Some(sum_counts(&self.keep_tuple))
     }
 
     pub fn is_resolvable(&self) -> Result<bool> {
@@ -171,7 +171,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
         let mut result = Vec::new();
         for t in Product::new(&pops) {
             let mut sources = Vec::with_capacity(t.len());
-            let mut total_count = 0i64;
+            let mut total_count = Int::ZERO;
             let mut total_weight = Quantity::ONE;
             for (source, count, weight) in t {
                 let Count::Int(count) = count else {
@@ -180,18 +180,21 @@ impl<O: Outcome> CompoundKeepSource<O> {
                     ));
                 };
                 sources.push(source.clone());
-                total_count = total_count
-                    .checked_add(*count)
-                    .ok_or_else(|| Error::Unsupported("counts beyond 64 bits".into()))?;
+                total_count += count;
                 total_weight *= weight;
             }
             // The inner generators never have negative keeps (`additive_union` checks).
-            let total_count = usize::try_from(total_count)
-                .map_err(|_| Error::Unsupported("a negative count in a compound keep".into()))?;
+            if total_count.is_negative() {
+                return Err(Error::Unsupported(
+                    "a negative count in a compound keep".into(),
+                ));
+            }
+            // `keep_tuple[total:]`: any total past the end takes everything.
+            let total_count = total_count.clamp_usize();
             let (popped_keep_tuple, result_count) = if order.is_ascending() {
-                pop_min_from_keep_tuple(&self.keep_tuple, total_count)?
+                pop_min_from_keep_tuple(&self.keep_tuple, total_count)
             } else {
-                pop_max_from_keep_tuple(&self.keep_tuple, total_count)?
+                pop_max_from_keep_tuple(&self.keep_tuple, total_count)
             };
             let popped = CompoundKeepSource::new(sources.into(), popped_keep_tuple.into())?;
             result.push((popped, result_count, total_weight));

@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use crate::error::Result;
+use crate::Int;
 
 /// A callable returning `True` iff the outcome should be kept (Python calls `bool()` on its result).
 pub trait OutcomePredicate<O> {
@@ -34,10 +35,10 @@ pub(super) fn keeps<O: PartialEq>(
 
 /// `MultisetFilterOutcomesBinary._next_state`: the source count if the target count is positive (`!= invert`).
 /// This version has a variable target.
-pub(super) fn binary_next_state(invert: bool, source_count: i64, target_count: i64) -> i64 {
-    if (target_count > 0) != invert {
-        source_count
+pub(super) fn binary_next_state(invert: bool, source_count: &Int, target_count: &Int) -> Int {
+    if target_count.is_positive() != invert {
+        source_count.clone()
     } else {
-        0
+        Int::ZERO
     }
 }

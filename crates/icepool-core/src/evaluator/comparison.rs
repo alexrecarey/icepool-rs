@@ -3,6 +3,7 @@
 use super::{Final, MultisetEvaluator};
 use crate::error::Result;
 use crate::order::Order;
+use crate::Int;
 use crate::Value;
 
 /// Which comparison a `ComparisonEvaluator` makes.
@@ -23,7 +24,7 @@ pub struct ComparisonEvaluator(pub Comparison);
 impl ComparisonEvaluator {
     /// Called for each outcome and produces a pair of bools. The final outcome is true iff any of the first and
     /// all of the second bool are `True`.
-    fn any_all(&self, left: i64, right: i64) -> (bool, bool) {
+    fn any_all(&self, left: &Int, right: &Int) -> (bool, bool) {
         use Comparison::*;
         match self.0 {
             IsProperSubset => (left < right, left <= right),
@@ -32,7 +33,7 @@ impl ComparisonEvaluator {
             IsSuperset => (true, left >= right),
             IsEqualSet => (true, left == right),
             IsNotEqualSet => (left != right, true),
-            IsDisjointSet => (true, !(left > 0 && right > 0)),
+            IsDisjointSet => (true, !(left.is_positive() && right.is_positive())),
         }
     }
 
@@ -51,7 +52,7 @@ impl MultisetEvaluator<Value> for ComparisonEvaluator {
     type State = Option<(bool, bool)>;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Self::State> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Self::State> {
         Ok(None)
     }
 
@@ -60,10 +61,10 @@ impl MultisetEvaluator<Value> for ComparisonEvaluator {
         state: &Self::State,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Self::State>> {
         let (has_any, has_all) = state.unwrap_or((false, true));
-        let (this_any, this_all) = self.any_all(counts[0], counts[1]);
+        let (this_any, this_all) = self.any_all(&counts[0], &counts[1]);
         let has_all = has_all && this_all;
         let has_any = has_all && (has_any || this_any);
         Ok(Some(Some((has_any, has_all))))
@@ -74,7 +75,7 @@ impl MultisetEvaluator<Value> for ComparisonEvaluator {
         final_state: &Self::State,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(Final::Outcome(Value::Bool(match final_state {
             None => self.default_outcome(),

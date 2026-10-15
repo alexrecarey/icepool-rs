@@ -11,12 +11,15 @@ use dashu_int::IBig;
 use icepool_core::keep_tuple::{KeepIndex, Slice};
 use icepool_core::order::{Order, OrderReason};
 use icepool_core::pool::PoolSource;
-use icepool_core::{Pool, Value};
+use icepool_core::{Int, Pool, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyEllipsis, PyInt, PyList, PySlice, PyTuple};
 
-use crate::convert::{from_py, int_from_py, quantity_to_py, to_py, to_py_err};
+use crate::convert::{
+    count_from_py, count_to_py, counts_to_py, from_py, int_from_py, quantity_to_py, to_py,
+    to_py_err,
+};
 use crate::RsDie;
 
 /// A pool of the Rust core (`Pool<Value>`), held by the facade's `Pool` as `_rs`.
@@ -59,16 +62,18 @@ pub fn pool_new(dice: Vec<Bound<'_, RsDie>>, times: Vec<Bound<'_, PyAny>>) -> Py
     })
 }
 
-/// A Python int as an `i64` count; Python ints are unbounded, the core's keep tuples are not.
-pub(crate) fn exact_count(x: &Bound<'_, PyAny>) -> PyResult<i64> {
+/// One possibility of a source's `pop`: `(popped source, count, weight)`, the count and weight as Python ints.
+pub(crate) type IntPopped<'py, S> = (S, Bound<'py, PyAny>, Bound<'py, PyAny>);
+
+/// A Python int as a count (unbounded, as Python's).
+pub(crate) fn exact_count(x: &Bound<'_, PyAny>) -> PyResult<Int> {
     if !x.is_instance_of::<PyInt>() {
         return Err(PyNotImplementedError::new_err(format!(
             "icepool_rs: a keep count of type '{}'",
             x.get_type().name()?
         )));
     }
-    i64::try_from(int_from_py(x)?)
-        .map_err(|_| PyNotImplementedError::new_err("icepool_rs: keep counts beyond 64 bits"))
+    count_from_py(x)
 }
 
 /// An int used as an index or a slice bound: past `i64` it saturates, which Python's list indexing and slicing
@@ -116,10 +121,6 @@ pub(crate) fn keep_index(index: &Bound<'_, PyAny>) -> PyResult<KeepIndex> {
     Ok(KeepIndex::Seq(counts))
 }
 
-fn int_tuple<'py>(py: Python<'py>, xs: &[i64]) -> PyResult<Bound<'py, PyTuple>> {
-    PyTuple::new(py, xs)
-}
-
 pub(crate) fn outcome_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
     PyTuple::new(
         py,
@@ -161,7 +162,7 @@ impl RsPool {
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        int_tuple(py, self.pool.keep_tuple())
+        counts_to_py(py, self.pool.keep_tuple())
     }
 
     fn raw_size(&self) -> usize {
@@ -181,10 +182,7 @@ impl RsPool {
 
     /// `KeepGenerator.multiply_counts`: every count multiplied by an int (`-pool` is `-1 * pool`).
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsPool> {
-        let pool = self
-            .pool
-            .multiply_counts(exact_count(constant)?)
-            .map_err(to_py_err)?;
+        let pool = self.pool.multiply_counts(&exact_count(constant)?);
         Ok(RsPool { pool })
     }
 
@@ -229,7 +227,7 @@ impl RsPoolSource {
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        int_tuple(py, self.source.keep_tuple())
+        counts_to_py(py, self.source.keep_tuple())
     }
 
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -237,8 +235,8 @@ impl RsPoolSource {
     }
 
     /// `KeepSource.size`: `None` with negative counts.
-    fn size(&self) -> PyResult<Option<i64>> {
-        self.source.size().map_err(to_py_err)
+    fn size<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.source.size().map(|s| count_to_py(py, &s)).transpose()
     }
 
     fn is_resolvable(&self) -> bool {
@@ -258,7 +256,7 @@ impl RsPoolSource {
         py: Python<'py>,
         order: i64,
         outcome: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<(RsPoolSource, i64, Bound<'py, PyAny>)>> {
+    ) -> PyResult<Vec<IntPopped<'py, RsPoolSource>>> {
         let order = if order > 0 {
             Order::Ascending
         } else {
@@ -271,7 +269,11 @@ impl RsPoolSource {
         popped
             .into_iter()
             .map(|(source, count, weight)| {
-                Ok((RsPoolSource { source }, count, quantity_to_py(py, &weight)?))
+                Ok((
+                    RsPoolSource { source },
+                    count_to_py(py, &count)?,
+                    quantity_to_py(py, &weight)?,
+                ))
             })
             .collect()
     }

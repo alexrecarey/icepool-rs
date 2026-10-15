@@ -27,6 +27,7 @@ use crate::order::Order;
 use crate::outcome::{Outcome, SumOutcome};
 use crate::pool::MultisetSource;
 use crate::value::ratio_to_f64;
+use crate::Int;
 use crate::{d, Die, DieArg, Error, Pool, Quantity, Result, Value};
 
 /// The roll's outcome: `(a_crit, a_hit, b_crit, b_hit)`.
@@ -283,7 +284,7 @@ impl MultisetEvaluator<i64> for FaceToFace {
     type State = [i64; 4];
     type Final = [i64; 4];
 
-    fn initial_state(&self, order: Order, _: &[i64], _: &[Option<i64>]) -> Result<[i64; 4]> {
+    fn initial_state(&self, order: Order, _: &[i64], _: &[Option<Int>]) -> Result<[i64; 4]> {
         // Outcomes must be seen lowest first: a result only cancels the other side's successes already counted.
         if order != Order::Ascending {
             return Err(Error::UnsupportedOrder(String::new()));
@@ -296,10 +297,10 @@ impl MultisetEvaluator<i64> for FaceToFace {
         state: &[i64; 4],
         _: Order,
         &outcome: &i64,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<[i64; 4]>> {
         let [mut a_crit, mut a_hit, mut b_crit, mut b_hit] = *state;
-        let (a_count, b_count) = (counts[0], counts[1]);
+        let (a_count, b_count) = (small(&counts[0])?, small(&counts[1])?);
         if outcome == 0 {
             // miss
             return Ok(Some(*state));
@@ -334,10 +335,17 @@ impl MultisetEvaluator<i64> for FaceToFace {
         final_state: &[i64; 4],
         _: Order,
         _: &[i64],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<[i64; 4]>> {
         Ok(Final::Outcome(*final_state))
     }
+}
+
+/// A count of a khepri pool, which has at most a few dozen dice.
+fn small(count: &Int) -> Result<i64> {
+    count
+        .to_i64()
+        .ok_or_else(|| Error::Overflow("i64 count overflowed".into()))
 }
 
 /// `pool.sum()` (icepool's `SumEvaluator` without a map) for int pools. The state is `None` until the first
@@ -348,7 +356,7 @@ impl MultisetEvaluator<i64> for Sum {
     type State = Option<i64>;
     type Final = i64;
 
-    fn initial_state(&self, _: Order, _: &[i64], _: &[Option<i64>]) -> Result<Option<i64>> {
+    fn initial_state(&self, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Option<i64>> {
         Ok(None)
     }
 
@@ -357,10 +365,10 @@ impl MultisetEvaluator<i64> for Sum {
         state: &Option<i64>,
         _: Order,
         &outcome: &i64,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Option<i64>>> {
         let term = outcome
-            .checked_mul(counts[0])
+            .checked_mul(small(&counts[0])?)
             .ok_or_else(|| Error::Overflow("i64 product overflowed".into()))?;
         Ok(Some(Some(match state {
             None => term,
@@ -373,7 +381,7 @@ impl MultisetEvaluator<i64> for Sum {
         final_state: &Option<i64>,
         _: Order,
         _: &[i64],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<i64>> {
         Ok(match final_state {
             Some(s) => Final::Outcome(*s),

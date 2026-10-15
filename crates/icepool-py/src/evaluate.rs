@@ -38,13 +38,14 @@ use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, M
 use icepool_core::expression::{free_variable, CallTree};
 use icepool_core::order::Order;
 use icepool_core::pool::{Count, MultisetSource};
-use icepool_core::{Error, Quantity, Value};
+use icepool_core::{Error, Int, Quantity, Value};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple, PyType};
-use pyo3::IntoPyObjectExt;
 
-use crate::convert::{from_py, host_error, quantity_to_py, to_py, to_py_err};
+use crate::convert::{
+    count_from_py, count_to_py, counts_to_py, from_py, host_error, quantity_to_py, to_py, to_py_err,
+};
 use crate::expression::{core_source, flat};
 
 /// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`), so it raises
@@ -137,7 +138,10 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
             ascending: param(0)?.extract()?,
         }),
         "keep" => v.visit(KeepEvaluator {
-            index: param(0)?.extract()?,
+            index: match param(0)? {
+                index if index.is_none() => None,
+                index => Some(count_from_py(index)?),
+            },
         }),
         "highest_outcome_and_count" => v.visit(HighestOutcomeAndCountEvaluator),
         "all_counts" => v.visit(AllCountsEvaluator {
@@ -325,18 +329,18 @@ impl<'py> HostEvaluator<'py> {
 /// A count or size as Python gets it: an `int`, or a tuple of `int`s for a `MultiDeal` input.
 pub(crate) fn count_py<'py>(py: Python<'py>, c: &Count) -> icepool_core::Result<Bound<'py, PyAny>> {
     match c {
-        Count::Int(c) => c.into_bound_py_any(py),
-        Count::Tuple(cs) => PyTuple::new(py, cs.iter()).map(Bound::into_any),
+        Count::Int(c) => count_to_py(py, c),
+        Count::Tuple(cs) => counts_to_py(py, cs).map(Bound::into_any),
     }
     .map_err(host_error)
 }
 
-fn int_counts(counts: &[i64]) -> Vec<Count> {
-    counts.iter().map(|&c| Count::Int(c)).collect()
+fn int_counts(counts: &[Int]) -> Vec<Count> {
+    counts.iter().map(|c| Count::Int(c.clone())).collect()
 }
 
-fn int_sizes(sizes: &[Option<i64>]) -> Vec<Option<Count>> {
-    sizes.iter().map(|s| s.map(Count::Int)).collect()
+fn int_sizes(sizes: &[Option<Int>]) -> Vec<Option<Count>> {
+    sizes.iter().map(|s| s.clone().map(Count::Int)).collect()
 }
 
 fn values_tuple<'py>(py: Python<'py>, xs: &[Value]) -> PyResult<Bound<'py, PyTuple>> {
@@ -359,7 +363,7 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
         &self,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> icepool_core::Result<Value> {
         self.initial_state_counts(order, outcomes, &int_sizes(sizes))
     }
@@ -369,7 +373,7 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
         state: &Value,
         order: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> icepool_core::Result<Option<Value>> {
         self.next_state_counts(state, order, outcome, &int_counts(counts))
     }
@@ -379,7 +383,7 @@ impl<'py> MultisetEvaluator<Value> for HostEvaluator<'py> {
         final_state: &Value,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> icepool_core::Result<Final<Py<PyAny>>> {
         self.final_outcome_counts(final_state, order, outcomes, &int_sizes(sizes))
     }

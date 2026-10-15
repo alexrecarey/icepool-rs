@@ -1,19 +1,22 @@
 //! Port of icepool `operator/pair.py`: `MultisetSortPair`, `MultisetSortPairWhile`, `MultisetMaxPairLate` and
 //! `MultisetMaxPairEarly`, which pair the elements of the left multiset with those of the right.
 
-use super::{add, int, mul, sub, Statelet};
+use super::{int, Statelet};
 use crate::error::{Error, Result};
 use crate::lexi::compute_lexi_tuple_with_extra;
 use crate::pool::Count;
+use crate::Int;
+
+const ZERO: Int = Int::ZERO;
 
 fn two(child_sizes: &[Option<Count>]) -> (Option<&Count>, Option<&Count>) {
     (child_sizes[0].as_ref(), child_sizes[1].as_ref())
 }
 
 /// `countdown = right_size` stores the size as it is: a tuple one makes the next state raise (`TupleSize`).
-fn stored(size: &Count, statelet: impl FnOnce(i64) -> Statelet) -> Statelet {
+fn stored(size: &Count, statelet: impl FnOnce(Int) -> Statelet) -> Statelet {
     match size {
-        Count::Int(n) => statelet(*n),
+        Count::Int(n) => statelet(n.clone()),
         Count::Tuple(t) => Statelet::TupleSize(t.clone()),
     }
 }
@@ -40,7 +43,7 @@ pub(super) fn sort_pair_initial_state(
         forward_order = true;
         // drop right_extra
         lexi_tuple = [left_first, left_extra, tie, right_first];
-        left_lead = 0;
+        left_lead = ZERO;
         if left_first == left_extra {
             countdown = None;
         } else {
@@ -68,12 +71,12 @@ pub(super) fn sort_pair_initial_state(
         };
         let (left_size, right_size) = (int(left_size)?, int(right_size)?);
         if left_first == left_extra {
-            left_lead = sub(right_size, left_size)?;
+            left_lead = right_size - left_size;
             countdown = None;
         } else {
             // The first `countdown` elements will be counted as extra.
-            left_lead = 0;
-            countdown = Some(sub(left_size, right_size)?.max(0));
+            left_lead = ZERO;
+            countdown = Some((left_size - right_size).max(ZERO));
         }
     }
     Ok((
@@ -90,65 +93,67 @@ pub(super) fn sort_pair_initial_state(
 /// The pairing step shared by both sort_pair operators: how many of `left_count` elements pair with right
 /// elements seen before (`right_first_count`), with right elements of this outcome (`tie_count`), and with right
 /// elements seen later (`left_first_count`). Updates `left_lead`.
-fn pair_counts(left_lead: &mut i64, left_count: i64, right_count: i64) -> Result<(i64, i64, i64)> {
+fn pair_counts(left_lead: &mut Int, left_count: &Int, right_count: &Int) -> (Int, Int, Int) {
     // The number of left elements that paired with previously-seen right elements.
-    let right_first_count = (-*left_lead).min(left_count).max(0);
-    let tie_count = if *left_lead >= 0 {
-        sub(right_count, *left_lead)?.min(left_count).max(0)
+    let right_first_count = (-&*left_lead).min(left_count.clone()).max(ZERO);
+    let tie_count = if !left_lead.is_negative() {
+        (right_count - &*left_lead)
+            .min(left_count.clone())
+            .max(ZERO)
     } else {
-        add(left_count, *left_lead)?.min(right_count).max(0)
+        (left_count + &*left_lead)
+            .min(right_count.clone())
+            .max(ZERO)
     };
-    *left_lead = add(*left_lead, sub(left_count, right_count)?)?;
-    let left_first_count = (*left_lead).min(left_count).max(0);
-    Ok((right_first_count, tie_count, left_first_count))
+    *left_lead += left_count - right_count;
+    let left_first_count = left_lead.clone().min(left_count.clone()).max(ZERO);
+    (right_first_count, tie_count, left_first_count)
 }
 
 /// `MultisetSortPair._next_state`.
 pub(super) fn sort_pair_next_state(
     state: &Statelet,
-    left_count: i64,
-    right_count: i64,
+    left_count: &Int,
+    right_count: &Int,
 ) -> Result<(Statelet, Count)> {
-    let &Statelet::SortPair {
+    let Statelet::SortPair {
         lexi_tuple,
         forward_order,
-        mut left_lead,
-        mut countdown,
+        left_lead,
+        countdown,
     } = state
     else {
         unreachable!("a sort_pair node's statelet")
     };
+    let (lexi_tuple, forward_order) = (*lexi_tuple, *forward_order);
+    let (mut left_lead, mut countdown) = (left_lead.clone(), countdown.clone());
     let [left_first, left_extra, tie, right_first] = lexi_tuple;
-    let mut left_count = left_count;
+    let mut left_count = left_count.clone();
     let extra_count;
     match &mut countdown {
         None => {
-            extra_count = 0;
-            left_count = left_count.max(0);
+            extra_count = ZERO;
+            left_count = left_count.max(ZERO);
         }
         Some(countdown) => {
             if forward_order {
-                extra_count = sub(left_count, *countdown)?.max(0);
-                left_count = left_count.min(*countdown);
-                *countdown = sub(*countdown, left_count)?;
+                extra_count = (&left_count - &*countdown).max(ZERO);
+                left_count = left_count.min(countdown.clone());
+                *countdown -= &left_count;
             } else {
-                extra_count = left_count.min(*countdown);
-                left_count = sub(left_count, *countdown)?.max(0);
-                *countdown = sub(*countdown, extra_count)?;
+                extra_count = left_count.clone().min(countdown.clone());
+                left_count = (&left_count - &*countdown).max(ZERO);
+                *countdown -= &extra_count;
             }
         }
     }
-    let right_count = right_count.max(0);
+    let right_count = right_count.clone().max(ZERO);
     let (right_first_count, tie_count, left_first_count) =
-        pair_counts(&mut left_lead, left_count, right_count)?;
-    let count = [
-        mul(right_first_count, right_first)?,
-        mul(tie_count, tie)?,
-        mul(left_first_count, left_first)?,
-        mul(extra_count, left_extra)?,
-    ]
-    .into_iter()
-    .try_fold(0, add)?;
+        pair_counts(&mut left_lead, &left_count, &right_count);
+    let count = right_first_count * right_first
+        + tie_count * tie
+        + left_first_count * left_first
+        + extra_count * left_extra;
     Ok((
         Statelet::SortPair {
             lexi_tuple,
@@ -179,7 +184,7 @@ pub(super) fn sort_pair_while_initial_state(
     let lexi_tuple = [left_first, left_extra, tie, right_first];
     let statelet = |countdown| Statelet::SortPairWhile {
         lexi_tuple: Some(lexi_tuple),
-        left_lead: Some(0),
+        left_lead: Some(ZERO),
         countdown,
     };
     if left_first == left_extra {
@@ -198,35 +203,37 @@ pub(super) fn sort_pair_while_initial_state(
 pub(super) fn sort_pair_while_next_state(
     keep: bool,
     state: &Statelet,
-    left_count: i64,
-    right_count: i64,
+    left_count: &Int,
+    right_count: &Int,
 ) -> Result<(Statelet, Count)> {
-    let &Statelet::SortPairWhile {
+    let Statelet::SortPairWhile {
         lexi_tuple,
         left_lead,
-        mut countdown,
+        countdown,
     } = state
     else {
         unreachable!("a sort_pair_while node's statelet")
     };
-    let mut left_count = left_count;
+    let (lexi_tuple, left_lead, mut countdown) =
+        (*lexi_tuple, left_lead.clone(), countdown.clone());
+    let mut left_count = left_count.clone();
     let extra_count;
     match &mut countdown {
         None => {
-            extra_count = 0;
-            left_count = left_count.max(0);
+            extra_count = ZERO;
+            left_count = left_count.max(ZERO);
         }
         Some(countdown) => {
-            extra_count = sub(left_count, *countdown)?.max(0);
-            left_count = left_count.min(*countdown);
-            *countdown = sub(*countdown, left_count)?;
+            extra_count = (&left_count - &*countdown).max(ZERO);
+            left_count = left_count.min(countdown.clone());
+            *countdown -= &left_count;
         }
     }
 
     let (Some([left_first, left_extra, tie, right_first]), Some(mut left_lead)) =
         (lexi_tuple, left_lead)
     else {
-        let count = if keep { 0 } else { left_count };
+        let count = if keep { ZERO } else { left_count };
         let state = Statelet::SortPairWhile {
             lexi_tuple: None,
             left_lead: None,
@@ -234,32 +241,32 @@ pub(super) fn sort_pair_while_next_state(
         };
         return Ok((state, Count::Int(count)));
     };
-    let right_count = right_count.max(0);
+    let right_count = right_count.clone().max(ZERO);
     let (right_first_count, tie_count, left_first_count) =
-        pair_counts(&mut left_lead, left_count, right_count)?;
+        pair_counts(&mut left_lead, &left_count, &right_count);
 
     let (mut lexi_tuple, mut left_lead) = (lexi_tuple, Some(left_lead));
     let mut end = || {
         lexi_tuple = None;
         left_lead = None;
     };
-    let mut count = if right_first_count > 0 && right_first == 0 {
+    let mut count = if right_first_count.is_positive() && right_first == 0 {
         end();
-        0
-    } else if tie_count > 0 && tie == 0 {
+        ZERO
+    } else if tie_count.is_positive() && tie == 0 {
         end();
         right_first_count
-    } else if left_first_count > 0 && left_first == 0 {
+    } else if left_first_count.is_positive() && left_first == 0 {
         end();
-        add(right_first_count, tie_count)?
-    } else if extra_count > 0 && left_extra == 0 {
+        right_first_count + tie_count
+    } else if extra_count.is_positive() && left_extra == 0 {
         end();
-        add(add(right_first_count, tie_count)?, left_first_count)?
+        right_first_count + tie_count + left_first_count
     } else {
-        add(left_count, extra_count)?
+        &left_count + &extra_count
     };
     if !keep {
-        count = sub(add(left_count, extra_count)?, count)?;
+        count = left_count + extra_count - count;
     }
     Ok((
         Statelet::SortPairWhile {
@@ -286,7 +293,7 @@ pub(super) fn max_pair_late_initial_state(
     order: i64,
 ) -> Result<(Statelet, Option<Count>)> {
     if order == self_order {
-        Ok((Statelet::MaxPairLate(0), None))
+        Ok((Statelet::MaxPairLate(ZERO), None))
     } else {
         Err(max_pair_wrong_order(self_order))
     }
@@ -297,24 +304,24 @@ pub(super) fn max_pair_late_next_state(
     pair_equal: bool,
     keep: bool,
     state: &Statelet,
-    left_count: i64,
-    right_count: i64,
+    left_count: &Int,
+    right_count: &Int,
 ) -> Result<(Statelet, Count)> {
-    let &Statelet::MaxPairLate(prev_pairable) = state else {
+    let Statelet::MaxPairLate(prev_pairable) = state else {
         unreachable!("a max_pair node's statelet")
     };
-    let left_count = left_count.max(0);
-    let right_count = right_count.max(0);
+    let left_count = left_count.clone().max(ZERO);
+    let right_count = right_count.clone().max(ZERO);
     let new_pairs = if pair_equal {
-        add(prev_pairable, right_count)?.min(left_count)
+        (prev_pairable + &right_count).min(left_count.clone())
     } else {
-        prev_pairable.min(left_count)
+        prev_pairable.clone().min(left_count.clone())
     };
-    let prev_pairable = add(prev_pairable, sub(right_count, new_pairs)?)?;
+    let prev_pairable = prev_pairable + (right_count - &new_pairs);
     let count = if keep {
         new_pairs
     } else {
-        sub(left_count, new_pairs)?
+        left_count - new_pairs
     };
     Ok((Statelet::MaxPairLate(prev_pairable), Count::Int(count)))
 }
@@ -333,7 +340,7 @@ pub(super) fn max_pair_early_initial_state(
                 "The size of the right operand must be inferrable.".into(),
             ));
         };
-        let statelet = stored(right_size, |n| Statelet::MaxPairEarly(n, n));
+        let statelet = stored(right_size, |n| Statelet::MaxPairEarly(n.clone(), n));
         Ok((statelet, None))
     } else {
         Err(max_pair_wrong_order(self_order))
@@ -345,28 +352,30 @@ pub(super) fn max_pair_early_next_state(
     pair_equal: bool,
     keep: bool,
     state: &Statelet,
-    left_count: i64,
-    right_count: i64,
+    left_count: &Int,
+    right_count: &Int,
 ) -> Result<(Statelet, Count)> {
-    let &Statelet::MaxPairEarly(mut right_unpaired, mut right_remaining) = state else {
+    let Statelet::MaxPairEarly(right_unpaired, right_remaining) = state else {
         unreachable!("a max_pair node's statelet")
     };
-    let left_count = left_count.max(0);
-    let right_count = right_count.max(0);
+    let (mut right_unpaired, mut right_remaining) =
+        (right_unpaired.clone(), right_remaining.clone());
+    let left_count = left_count.clone().max(ZERO);
+    let right_count = right_count.clone().max(ZERO);
     let mut count;
     if pair_equal {
-        count = right_unpaired.min(left_count);
-        right_unpaired = sub(right_unpaired, count)?;
-        right_remaining = sub(right_remaining, right_count)?;
-        right_unpaired = right_unpaired.min(right_remaining);
+        count = right_unpaired.clone().min(left_count.clone());
+        right_unpaired -= &count;
+        right_remaining -= &right_count;
+        right_unpaired = right_unpaired.min(right_remaining.clone());
     } else {
-        right_remaining = sub(right_remaining, right_count)?;
-        right_unpaired = right_unpaired.min(right_remaining);
-        count = right_unpaired.min(left_count);
-        right_unpaired = sub(right_unpaired, count)?;
+        right_remaining -= &right_count;
+        right_unpaired = right_unpaired.min(right_remaining.clone());
+        count = right_unpaired.clone().min(left_count.clone());
+        right_unpaired -= &count;
     }
     if !keep {
-        count = sub(left_count, count)?;
+        count = left_count - count;
     }
     Ok((
         Statelet::MaxPairEarly(right_unpaired, right_remaining),

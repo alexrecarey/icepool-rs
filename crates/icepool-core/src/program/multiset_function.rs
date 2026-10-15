@@ -26,6 +26,7 @@ use crate::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
 use crate::expression::CallTree;
 use crate::order::Order;
 use crate::pool::MultisetSource;
+use crate::Int;
 use crate::{Quantity, Value};
 
 /// An evaluator called in a function body, type-erased, with final outcomes as program values.
@@ -236,11 +237,11 @@ impl MultisetEvaluator<Value> for Constant {
     type State = ();
     type Final = PValue;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> crate::Result<()> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> crate::Result<()> {
         Ok(())
     }
 
-    fn next_state(&self, _: &(), _: Order, _: &Value, _: &[i64]) -> crate::Result<Option<()>> {
+    fn next_state(&self, _: &(), _: Order, _: &Value, _: &[Int]) -> crate::Result<Option<()>> {
         Ok(Some(()))
     }
 
@@ -249,7 +250,7 @@ impl MultisetEvaluator<Value> for Constant {
         _: &(),
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> crate::Result<Final<PValue>> {
         Ok(final_of(self.0.clone()))
     }
@@ -407,7 +408,11 @@ fn prepare_function(
         None => f.params > inputs.len(),
     };
     // `self._wrapped(*multiset_variables, **kwargs)` without `star`.
-    let kwargs: Vec<(String, PValue)> = kwargs.iter().filter(|(k, _)| k != "star").cloned().collect();
+    let kwargs: Vec<(String, PValue)> = kwargs
+        .iter()
+        .filter(|(k, _)| k != "star")
+        .cloned()
+        .collect();
     let mut vars = Vec::new();
     let rest = if star {
         let Some(first) = inputs.first() else {
@@ -443,7 +448,11 @@ fn prepare_function(
             "wrapped() got an unexpected keyword argument '{k}'"
         ));
     }
-    if let Some(k) = f.kwonly.iter().find(|k| kwargs.iter().all(|(n, _)| n != *k)) {
+    if let Some(k) = f
+        .kwonly
+        .iter()
+        .find(|k| kwargs.iter().all(|(n, _)| n != *k))
+    {
         return type_error(format!(
             "wrapped() missing 1 required keyword-only argument: '{k}'"
         ));

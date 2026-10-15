@@ -119,7 +119,7 @@ mod tests {
             Ok(self.outcomes.clone())
         }
         fn size(&self) -> Result<Option<Count>> {
-            Ok(self.size.map(Count::Int))
+            Ok(self.size.map(|s| Count::Int(s.into())))
         }
         fn is_resolvable(&self) -> Result<bool> {
             Ok(self.resolvable)
@@ -130,8 +130,12 @@ mod tests {
         /// Pops everything at once: one possibility, the source emptied, with the whole size as the count.
         fn pop(&self, _: Order, _: &i64) -> Result<Vec<SourcePopped<i64>>> {
             let rest = fixed(self.key, vec![], Some(0), true);
-            let count = Count::Int(self.size.unwrap_or(0));
-            Ok(vec![(MultisetSource::Host(rest), count, Quantity::from(3u8))])
+            let count = Count::Int(self.size.unwrap_or(0).into());
+            Ok(vec![(
+                MultisetSource::Host(rest),
+                count,
+                Quantity::from(3u8),
+            )])
         }
         fn host_eq(&self, other: &dyn HostSourceObject<i64>) -> bool {
             other
@@ -162,14 +166,14 @@ mod tests {
         assert_eq!(s.outcomes().unwrap(), &[1, 2, 3]);
         // The second call borrows the outcomes taken the first time.
         assert_eq!(s.outcomes().unwrap(), &[1, 2, 3]);
-        assert_eq!(s.size().unwrap(), Some(Count::Int(2)));
+        assert_eq!(s.size().unwrap(), Some(Count::Int(2.into())));
         assert!(s.is_resolvable().unwrap());
         assert!(!fixed(7, vec![], None, false).is_resolvable().unwrap());
         assert_eq!(fixed(7, vec![], None, false).size().unwrap(), None);
         let popped = s.pop(Order::Ascending, &1).unwrap();
         assert_eq!(popped.len(), 1);
         let (rest, count, weight) = &popped[0];
-        assert_eq!(*count, Count::Int(2));
+        assert_eq!(*count, Count::Int(2.into()));
         assert_eq!(*weight, Quantity::from(3u8));
         assert_eq!(rest.outcomes().unwrap(), &[] as &[i64]);
     }

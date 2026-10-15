@@ -25,7 +25,7 @@ use crate::operator::{Operator, Statelet};
 use crate::order::Order;
 use crate::pool::Count;
 use crate::value::builtins::{getitem, Index};
-use crate::Value;
+use crate::{Int, Value};
 
 /// One node of a prepared expression.
 #[derive(Clone)]
@@ -116,25 +116,22 @@ fn no_source() -> Error {
 /// A count as the Python value it is: an `int` or a tuple of them.
 pub fn count_value(c: &Count) -> Value {
     match c {
-        Count::Int(c) => Value::from(*c),
-        Count::Tuple(cs) => Value::tuple(cs.iter().map(|&c| Value::from(c)).collect()),
+        Count::Int(c) => Value::from(c),
+        Count::Tuple(cs) => Value::tuple(cs.iter().map(Value::from).collect()),
     }
 }
 
-/// A Python value as a count, if it is one the port models: an `int` or a tuple of `int`s (not bools), within 64
-/// bits.
+/// A Python value as a count, if it is one the port models: an `int` or a tuple of `int`s (not bools).
 pub fn value_count(v: &Value) -> Result<Count> {
     match v {
-        Value::Int(i) => i64::try_from(i)
-            .map(Count::Int)
-            .map_err(|_| Error::Unsupported("multiset counts beyond 64 bits".into())),
+        Value::Int(i) => Ok(Count::Int(i.into())),
         Value::Tuple(t) => t
             .iter()
             .map(|x| match x {
-                Value::Int(i) => i64::try_from(i).ok(),
+                Value::Int(i) => Some(Int::from(i)),
                 _ => None,
             })
-            .collect::<Option<Vec<i64>>>()
+            .collect::<Option<Vec<Int>>>()
             .map(|t| Count::Tuple(t.into()))
             .ok_or_else(|| Error::Unsupported("a tuple count that is not ints".into())),
         _ => Err(Error::Unsupported("a count that is not an int".into())),
@@ -216,7 +213,16 @@ fn initial_tree<O: PartialEq>(
     let calls = tree
         .calls
         .iter()
-        .map(|call| initial_tree(call, order, outcomes, source_sizes, &output_sizes, statelets))
+        .map(|call| {
+            initial_tree(
+                call,
+                order,
+                outcomes,
+                source_sizes,
+                &output_sizes,
+                statelets,
+            )
+        })
         .collect::<Result<_>>()?;
     Ok(CountTree::Calls(calls))
 }
@@ -230,7 +236,14 @@ pub fn initial_state<O: PartialEq>(
     mut source_sizes: impl Iterator<Item = Result<Option<Count>>>,
 ) -> Result<(Statelets, CountTree<Option<Count>>)> {
     let mut statelets = Vec::new();
-    let sizes = initial_tree(tree, order, outcomes, &mut source_sizes, &[], &mut statelets)?;
+    let sizes = initial_tree(
+        tree,
+        order,
+        outcomes,
+        &mut source_sizes,
+        &[],
+        &mut statelets,
+    )?;
     Ok((Arc::from(statelets), sizes))
 }
 

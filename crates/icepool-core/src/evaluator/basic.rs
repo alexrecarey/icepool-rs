@@ -10,6 +10,7 @@ use crate::error::Result;
 use crate::order::Order;
 use crate::outcome::Outcome;
 use crate::value::BinOp;
+use crate::Int;
 use crate::Value;
 
 /// The default `final_outcome`: the final state itself (`None` is refused by the driver).
@@ -20,8 +21,8 @@ pub(crate) fn state_as_outcome(state: &Value) -> Final<Value> {
     }
 }
 
-pub(crate) fn int(i: i64) -> Value {
-    Value::from(i)
+pub(crate) fn int(i: impl Into<Value>) -> Value {
+    i.into()
 }
 
 /// `sorted(items, reverse=True)`: a reverse sort reverses, sorts stably and reverses back (so equal items keep
@@ -47,7 +48,7 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -56,14 +57,14 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
         state: &Value,
         _: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         // `(state or ()) + (outcome, ) * count`
         let mut items: Vec<Value> = match state {
             Value::Tuple(t) => t.to_vec(),
             _ => Vec::new(),
         };
-        let count = usize::try_from(counts[0]).unwrap_or(0);
+        let count = crate::keep_tuple::list_len(&counts[0])?;
         items.extend(std::iter::repeat_n(outcome.clone(), count));
         Ok(Some(Value::tuple(items)))
     }
@@ -73,7 +74,7 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         let items: Vec<Value> = match final_state {
             Value::Tuple(t) => t.to_vec(),
@@ -96,7 +97,7 @@ impl MultisetEvaluator<Value> for SumEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -105,9 +106,9 @@ impl MultisetEvaluator<Value> for SumEvaluator {
         state: &Value,
         _: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(add_to_sum(state, outcome.clone(), counts[0])?))
+        Ok(Some(add_to_sum(state, outcome.clone(), &counts[0])?))
     }
 
     fn final_outcome(
@@ -115,24 +116,24 @@ impl MultisetEvaluator<Value> for SumEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
 }
 
 /// `SumEvaluator.next_state` after the (optional) map: `outcome * count` added to the state.
-fn add_to_sum(state: &Value, outcome: Value, count: i64) -> Result<Value> {
+fn add_to_sum(state: &Value, outcome: Value, count: &Int) -> Result<Value> {
     Ok(match state {
         Value::None => {
-            if count == 1 {
+            if *count == 1 {
                 // The outcome does not need to support addition or multiplication in this case.
                 outcome
             } else {
-                outcome.binary(BinOp::Mul, &int(count))?
+                outcome.binary(BinOp::Mul, &count.into())?
             }
         }
-        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, &int(count))?)?,
+        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, &count.into())?)?,
     })
 }
 
@@ -147,7 +148,7 @@ impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvalu
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
 
@@ -156,9 +157,9 @@ impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvalu
         state: &Value,
         _: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(add_to_sum(state, (self.map)(outcome)?, counts[0])?))
+        Ok(Some(add_to_sum(state, (self.map)(outcome)?, &counts[0])?))
     }
 
     fn final_outcome(
@@ -166,7 +167,7 @@ impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvalu
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
@@ -181,7 +182,7 @@ impl MultisetEvaluator<Value> for SizeEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(int(0))
     }
 
@@ -190,9 +191,9 @@ impl MultisetEvaluator<Value> for SizeEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(state.binary(BinOp::Add, &int(counts[0]))?))
+        Ok(Some(state.binary(BinOp::Add, &Value::from(&counts[0]))?))
     }
 
     fn final_outcome(
@@ -200,7 +201,7 @@ impl MultisetEvaluator<Value> for SizeEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         // `final_state or 0`
         Ok(Final::Outcome(if final_state.truthy()? {
@@ -218,7 +219,7 @@ impl MultisetEvaluator<Value> for ProductOfCountsEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(int(1))
     }
 
@@ -227,9 +228,9 @@ impl MultisetEvaluator<Value> for ProductOfCountsEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(state.binary(BinOp::Mul, &int(counts[0]))?))
+        Ok(Some(state.binary(BinOp::Mul, &Value::from(&counts[0]))?))
     }
 
     fn final_outcome(
@@ -237,7 +238,7 @@ impl MultisetEvaluator<Value> for ProductOfCountsEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(state_as_outcome(final_state))
     }
@@ -252,7 +253,7 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
     type State = Value;
     type Final = Value;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::Bool(true))
     }
 
@@ -261,11 +262,11 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         state: &Value,
         _: Order,
         _: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         // `state and (count == 0)`
         Ok(Some(if state.truthy()? {
-            Value::Bool(counts[0] == 0)
+            Value::Bool(counts[0].is_zero())
         } else {
             state.clone()
         }))
@@ -276,7 +277,7 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         final_state: &Value,
         _: Order,
         _: &[Value],
-        _: &[Option<i64>],
+        _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         Ok(if self.any {
             Final::Outcome(Value::Bool(!final_state.truthy()?))

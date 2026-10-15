@@ -341,7 +341,7 @@ fn round_half_even(n: &IBig, d: &IBig) -> IBig {
 }
 
 /// Python's `divmod` on ints: the quotient rounds toward minus infinity, the remainder takes the divisor's sign.
-fn floor_divmod(a: &IBig, b: &IBig) -> (IBig, IBig) {
+pub(crate) fn floor_divmod(a: &IBig, b: &IBig) -> (IBig, IBig) {
     let (mut q, mut r) = a.clone().div_rem(b.clone());
     if r != IBig::ZERO && ((r < IBig::ZERO) != (*b < IBig::ZERO)) {
         q -= IBig::ONE;

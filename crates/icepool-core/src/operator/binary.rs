@@ -1,8 +1,9 @@
 //! Port of icepool `operator/binary.py`: operators merging the counts of any number of expressions.
 
-use super::{add, int, sub, tuple_error, Statelet};
+use super::{int, tuple_error, Statelet};
 use crate::error::{Error, Result};
 use crate::pool::Count;
+use crate::Int;
 
 /// The `MultisetBinaryOperator` subclasses. Given more than two children, the counts are `reduce`d.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -34,27 +35,27 @@ impl BinaryOperator {
     }
 
     /// `merge_counts`: merge counts produced by the left and right expression.
-    fn merge_counts(self, left: i64, right: i64) -> Result<i64> {
-        Ok(match self {
-            BinaryOperator::Intersection => left.min(right),
-            BinaryOperator::DifferenceDropNegative => sub(left, right)?.max(0),
-            BinaryOperator::DifferenceKeepNegative => sub(left, right)?,
-            BinaryOperator::Union => left.max(right),
-            BinaryOperator::AdditiveUnion => add(left, right)?,
-            BinaryOperator::SymmetricDifference => sub(left, right)?
-                .checked_abs()
-                .ok_or_else(super::overflow)?,
-        })
+    fn merge_counts(self, left: &Int, right: &Int) -> Int {
+        match self {
+            BinaryOperator::Intersection => left.min(right).clone(),
+            BinaryOperator::DifferenceDropNegative => (left - right).max(Int::ZERO),
+            BinaryOperator::DifferenceKeepNegative => left - right,
+            BinaryOperator::Union => left.max(right).clone(),
+            BinaryOperator::AdditiveUnion => left + right,
+            BinaryOperator::SymmetricDifference => (left - right).abs(),
+        }
     }
 
     /// `reduce(self.merge_counts, child_counts)`.
-    pub(super) fn next_state(self, child_counts: &[i64]) -> Result<i64> {
-        let Some((&first, rest)) = child_counts.split_first() else {
+    pub(super) fn next_state(self, child_counts: &[Int]) -> Result<Int> {
+        let Some((first, rest)) = child_counts.split_first() else {
             return Err(Error::Type(
                 "reduce() of empty iterable with no initial value".into(),
             ));
         };
-        rest.iter().try_fold(first, |a, &b| self.merge_counts(a, b))
+        Ok(rest
+            .iter()
+            .fold(first.clone(), |a, b| self.merge_counts(&a, b)))
     }
 
     /// `merge_counts` when a count is a tuple: Python's `min` / `max` compare two tuples lexicographically (as
@@ -68,7 +69,9 @@ impl BinaryOperator {
             BinaryOperator::Intersection if r < l => right.clone(),
             BinaryOperator::Union if r > l => right.clone(),
             BinaryOperator::Intersection | BinaryOperator::Union => left,
-            BinaryOperator::AdditiveUnion => Count::Tuple(l.iter().chain(r.iter()).copied().collect()),
+            BinaryOperator::AdditiveUnion => {
+                Count::Tuple(l.iter().chain(r.iter()).cloned().collect())
+            }
             _ => return Err(tuple_error()),
         })
     }
@@ -82,7 +85,7 @@ impl BinaryOperator {
             ));
         };
         rest.iter().try_fold(first.clone(), |a, b| match (&a, b) {
-            (Count::Int(a), Count::Int(b)) => Ok(Count::Int(self.merge_counts(*a, *b)?)),
+            (Count::Int(a), Count::Int(b)) => Ok(Count::Int(self.merge_counts(a, b))),
             _ => self.merge_tuple_counts(a, b),
         })
     }
@@ -99,7 +102,7 @@ impl BinaryOperator {
         let size = child_sizes
             .iter()
             .flatten()
-            .try_fold(0, |a, b| add(a, int(b)?))?;
+            .try_fold(Int::ZERO, |a, b| Ok::<_, crate::Error>(a + int(b)?))?;
         Ok((Statelet::None, Some(Count::Int(size))))
     }
 }

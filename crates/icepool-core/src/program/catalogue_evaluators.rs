@@ -14,6 +14,7 @@ use crate::order::Order;
 use crate::pool::Count;
 use crate::value::builtins::py_sum;
 use crate::value::BinOp;
+use crate::Int;
 use crate::Value;
 
 #[derive(Debug)]
@@ -140,8 +141,8 @@ impl CatalogueEvaluator {
 /// `MultiDeal` input), or `None` (a size with negative counts).
 fn count_value(c: &Count) -> Value {
     match c {
-        Count::Int(c) => int(*c),
-        Count::Tuple(cs) => Value::tuple(cs.iter().map(|&c| int(c)).collect()),
+        Count::Int(c) => int(c),
+        Count::Tuple(cs) => Value::tuple(cs.iter().map(int).collect()),
     }
 }
 
@@ -152,12 +153,12 @@ fn size_values(sizes: &[Option<Count>]) -> Vec<Value> {
         .collect()
 }
 
-fn int_counts(counts: &[i64]) -> Vec<Count> {
-    counts.iter().map(|&c| Count::Int(c)).collect()
+fn int_counts(counts: &[Int]) -> Vec<Count> {
+    counts.iter().map(|c| Count::Int(c.clone())).collect()
 }
 
-fn int_sizes(sizes: &[Option<i64>]) -> Vec<Option<Count>> {
-    sizes.iter().map(|s| s.map(Count::Int)).collect()
+fn int_sizes(sizes: &[Option<Int>]) -> Vec<Option<Count>> {
+    sizes.iter().map(|s| s.clone().map(Count::Int)).collect()
 }
 
 /// `iter(x)` over a tuple; anything else here is an int or `None`, which is not iterable (`TypeError`).
@@ -182,7 +183,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
         &self,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Value> {
         self.initial_state_counts(order, outcomes, &int_sizes(sizes))
     }
@@ -192,7 +193,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
         state: &Value,
         order: Order,
         outcome: &Value,
-        counts: &[i64],
+        counts: &[Int],
     ) -> Result<Option<Value>> {
         self.next_state_counts(state, order, outcome, &int_counts(counts))
     }
@@ -202,7 +203,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
         final_state: &Value,
         order: Order,
         outcomes: &[Value],
-        sizes: &[Option<i64>],
+        sizes: &[Option<Int>],
     ) -> Result<Final<PValue>> {
         self.final_outcome_counts(final_state, order, outcomes, &int_sizes(sizes))
     }

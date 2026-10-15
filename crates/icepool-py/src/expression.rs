@@ -19,12 +19,15 @@ use icepool_core::operator::{
 use icepool_core::order::{Order, OrderReason};
 use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::value::builtins::Index;
-use icepool_core::{Error, Value};
+use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyEllipsis, PyInt, PyList, PySlice, PyTuple, PyType};
 
-use crate::convert::{from_py, host_error, int_from_py, quantity_to_py, to_py, to_py_err};
+use crate::convert::{
+    count_from_py, count_to_py, counts_to_py, from_py, host_error, int_from_py, quantity_to_py,
+    to_py, to_py_err,
+};
 use crate::deck::RsDealSource;
 use crate::evaluate::count_py;
 use crate::multi_deal::RsMultiDealSource;
@@ -66,7 +69,10 @@ pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value
 }
 
 /// A core source as the `icepool_rs` object the facade wraps (`PoolSource._new_rust(...)` and so on).
-pub(crate) fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn source_object<'py>(
+    py: Python<'py>,
+    s: &MultisetSource<Value>,
+) -> PyResult<Bound<'py, PyAny>> {
     Ok(match s {
         MultisetSource::Pool(s) => Bound::new(py, RsPoolSource { source: s.clone() })?.into_any(),
         MultisetSource::Deal(s) => Bound::new(py, RsDealSource { source: s.clone() })?.into_any(),
@@ -85,7 +91,7 @@ pub(crate) fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> 
     })
 }
 
-fn keep_counts(keep_tuple: &[Bound<'_, PyAny>]) -> PyResult<Vec<i64>> {
+fn keep_counts(keep_tuple: &[Bound<'_, PyAny>]) -> PyResult<Vec<Int>> {
     keep_tuple.iter().map(exact_count).collect()
 }
 
@@ -107,7 +113,7 @@ pub fn compound_keep_new(
 #[pymethods]
 impl RsCompoundKeep {
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        PyTuple::new(py, self.compound.keep_tuple())
+        counts_to_py(py, self.compound.keep_tuple())
     }
 
     /// `_set_keep_tuple`.
@@ -126,10 +132,7 @@ impl RsCompoundKeep {
 
     /// `KeepGenerator.multiply_counts`.
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsCompoundKeep> {
-        let compound = self
-            .compound
-            .multiply_counts(exact_count(constant)?)
-            .map_err(to_py_err)?;
+        let compound = self.compound.multiply_counts(&exact_count(constant)?);
         Ok(RsCompoundKeep { compound })
     }
 
@@ -160,7 +163,7 @@ impl RsCompoundKeepSource {
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        PyTuple::new(py, self.source.keep_tuple())
+        counts_to_py(py, self.source.keep_tuple())
     }
 
     /// The inner sources as `icepool_rs` objects, for the facade to wrap.
@@ -175,8 +178,8 @@ impl RsCompoundKeepSource {
     }
 
     /// `KeepSource.size`: `None` with negative counts.
-    fn size(&self) -> PyResult<Option<i64>> {
-        self.source.size().map_err(to_py_err)
+    fn size<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.source.size().map(|s| count_to_py(py, &s)).transpose()
     }
 
     fn is_resolvable(&self) -> PyResult<bool> {
@@ -196,7 +199,7 @@ impl RsCompoundKeepSource {
         py: Python<'py>,
         order: i64,
         outcome: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<(RsCompoundKeepSource, i64, Bound<'py, PyAny>)>> {
+    ) -> PyResult<Vec<crate::pool::IntPopped<'py, RsCompoundKeepSource>>> {
         let order = if order > 0 {
             Order::Ascending
         } else {
@@ -211,7 +214,7 @@ impl RsCompoundKeepSource {
             .map(|(source, count, weight)| {
                 Ok((
                     RsCompoundKeepSource { source },
-                    count,
+                    count_to_py(py, &count)?,
                     quantity_to_py(py, &weight)?,
                 ))
             })
@@ -264,19 +267,20 @@ impl CountFunction<Value> for HostCountFunction {
                 .bind(py)
                 .call1(args)
                 .map_err(|e| callback_error(py, e))?;
-            let int = |x: &Bound<'_, PyAny>| -> icepool_core::Result<i64> {
+            let int = |x: &Bound<'_, PyAny>| -> icepool_core::Result<Int> {
                 if x.is_instance_of::<PyBool>() || !x.is_instance_of::<PyInt>() {
                     return Err(Error::Unsupported(
                         "a map_counts function returning something other than an int".into(),
                     ));
                 }
-                let x = int_from_py(x).map_err(host_error)?;
-                i64::try_from(&x)
-                    .map_err(|_| Error::Unsupported("a map_counts count beyond 64 bits".into()))
+                count_from_py(x).map_err(host_error)
             };
             if let Ok(t) = count.cast::<PyTuple>() {
                 if t.is_exact_instance_of::<PyTuple>() {
-                    let items = t.iter().map(|x| int(&x)).collect::<icepool_core::Result<Vec<_>>>()?;
+                    let items = t
+                        .iter()
+                        .map(|x| int(&x))
+                        .collect::<icepool_core::Result<Vec<_>>>()?;
                     return Ok(Count::Tuple(items.into()));
                 }
             }
@@ -403,7 +407,7 @@ fn unsupported(what: &str) -> PyErr {
     PyNotImplementedError::new_err(format!("icepool_rs: {what}"))
 }
 
-/// An `int` attribute of an operator (a constant, an `Order`): `i64`, or a facade gap.
+/// An `int` attribute of an operator that is an `Order` or a lexi tuple element: `i64`, or a facade gap.
 fn int_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<i64> {
     if !x.is_instance_of::<PyInt>() {
         return Err(unsupported(&format!("{what} that is not an int")));
@@ -411,12 +415,20 @@ fn int_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<i64> {
     i64::try_from(&int_from_py(x)?).map_err(|_| unsupported(&format!("{what} beyond 64 bits")))
 }
 
+/// A count constant of an operator (or a `MultisetKeep` index element): any `int`, as Python's are unbounded.
+fn count_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<Int> {
+    if !x.is_instance_of::<PyInt>() {
+        return Err(unsupported(&format!("{what} that is not an int")));
+    }
+    count_from_py(x)
+}
+
 /// A count constant that `min(count, constant)` would return as is (`unique`): a bool would stay a bool.
-fn strict_int_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<i64> {
+fn strict_count_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<Int> {
     if x.is_instance_of::<PyBool>() {
         return Err(unsupported(&format!("{what} that is a bool")));
     }
-    int_attr(x, what)
+    count_attr(x, what)
 }
 
 /// A `str` attribute that Python only compares with string literals: anything else never matches (ValueError
@@ -469,17 +481,14 @@ fn keep_index_attr(index: &Bound<'_, PyAny>) -> PyResult<MultisetKeepIndex> {
                 if x.is(PyEllipsis::get(x.py())) {
                     Ok(None)
                 } else {
-                    int_attr(&x, "a MultisetKeep index element").map(Some)
+                    count_attr(&x, "a MultisetKeep index element").map(Some)
                 }
             })
             .collect::<PyResult<_>>()?;
         return Ok(MultisetKeepIndex::Seq(items));
     }
     // Neither a slice nor a `Sequence`: `_initial_state` raises TypeError, naming its type.
-    let sequence = index
-        .py()
-        .import("collections.abc")?
-        .getattr("Sequence")?;
+    let sequence = index.py().import("collections.abc")?.getattr("Sequence")?;
     if !index.is_instance(&sequence)? {
         let name: String = index.get_type().getattr("__name__")?.extract()?;
         return Ok(MultisetKeepIndex::Invalid(name.into()));
@@ -509,18 +518,18 @@ fn operator(spec: &Bound<'_, PyTuple>) -> PyResult<Operator<Value>> {
         }),
         "map_counts" => Operator::MapCounts(Arc::new(HostCountFunction(a(1)?.unbind()))),
         "multiply_counts" => {
-            Operator::MultiplyCounts(int_attr(&a(1)?, "a multiply_counts constant")?)
+            Operator::MultiplyCounts(count_attr(&a(1)?, "a multiply_counts constant")?)
         }
         "floordiv_counts" => {
-            Operator::FloordivCounts(int_attr(&a(1)?, "a divide_counts constant")?)
+            Operator::FloordivCounts(count_attr(&a(1)?, "a divide_counts constant")?)
         }
-        "modulo_counts" => Operator::ModuloCounts(int_attr(&a(1)?, "a modulo_counts constant")?),
-        "unique" => Operator::Unique(strict_int_attr(&a(1)?, "a unique constant")?),
+        "modulo_counts" => Operator::ModuloCounts(count_attr(&a(1)?, "a modulo_counts constant")?),
+        "unique" => Operator::Unique(strict_count_attr(&a(1)?, "a unique constant")?),
         "keep_counts" => {
             let comparison: String = a(1)?.extract()?;
             Operator::KeepCounts(
                 KeepCountsComparison::parse(&comparison).map_err(to_py_err)?,
-                int_attr(&a(2)?, "a keep_counts constant")?,
+                count_attr(&a(2)?, "a keep_counts constant")?,
             )
         }
         "filter_function" => Operator::FilterOutcomes {
