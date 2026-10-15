@@ -1,6 +1,6 @@
 // Type-checks typical uses of the API against icepool.d.ts (build.sh --test runs `tsc --noEmit` on it; it is never
 // executed). A declaration that drifts from core.js shows up here or in the JS tests.
-import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction } from "../icepool.js";
+import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction, fromRv, Wallenius, mapToPool, List } from "../icepool.js";
 import type { Outcome, MultisetExpression } from "../icepool.js";
 
 const d6: Die = d(6);
@@ -37,8 +37,17 @@ const twoWay = multisetFunction((a: MultisetExpression, b: MultisetExpression) =
 const traced: Die = twoWay.call(new Pool([d6, d6]), [1, 2]);
 const countIn: Die = multisetFunction((a: MultisetExpression, { target }: { target?: number[] } = {}) =>
   a.keepOutcomes(target ?? []).size(), { kwonly: ["target"] }).call(new Pool([d6]), { target: [6] });
+const fromJsRv: Die = fromRv({ cdf: (xs: Outcome[]) => xs.map(() => 0.5) }, [1, 2], 10, { scale: 2 });
+const dealt: Die = new Wallenius(new Map<Outcome, number | [number, number]>([[1, 2], [2, [1, 3]]])).deal(2).sum();
+const viaMap: Die = d6.map(new Map([[1, 6]])).reroll(new Map([[6, null]]), { depth: 1 });
+const sequences: Die = d6.sequence(2).add(d6.keep(3, -1)).add(d6.keepSlice(3, 1));
+const timeToTen: Fraction = d6.meanTimeToSum(10);
+const rounded: Die = d6.truediv(4).stochasticRound({ maxDenominator: 10 });
+const pools: Die = d6.mapToPool((x: number) => List.of(x, x)).sum().add(mapToPool((x: number) => List.of(x), d6).sum())
+  .add(d6.explodeToPool(2, [6], { depth: 1 }).sum()).add(d6.rerollToPool(2, [1], { maxRerolls: 1 }).sum());
 
 export {
   quantities, items, mean, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,
-  quantity, product, counted, objectStates, traced, countIn,
+  quantity, product, counted, objectStates, traced, countIn, fromJsRv, dealt, viaMap, sequences, timeToTen, rounded,
+  pools,
 };

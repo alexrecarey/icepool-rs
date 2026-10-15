@@ -42,8 +42,13 @@ function arity(args, n) {
   if (args.length !== n) throw new TypeError(`takes ${n} positional arguments but ${args.length} were given`);
 }
 
-/** `t[0]`: a tuple's or str's first item. */
+/** `t[0]`: a tuple's, Vector's or str's first item. */
 function first(t) {
+  if (t instanceof ip.Vector) {
+    // A VectorWithTruthOnly (no items) cannot be indexed.
+    if (t.items === null) throw new TypeError("object is not subscriptable");
+    t = t.items;
+  }
   if (!Array.isArray(t) && typeof t !== "string") throw new TypeError("object is not subscriptable");
   if (t.length === 0) throw new RangeError("IndexError: index out of range");
   return t[0];
@@ -134,6 +139,23 @@ export const FUNCTIONS = {
   pool_d: (n) => function (x) { arity(arguments, 1); return ip.d(n).pool(x); },
   pair_list: () => function (a, b) { arity(arguments, 2); return ip.List.of(a, b); },
   reroll_or_pair: (k) => function (x) { arity(arguments, 1); return eq(x, k) ? ip.Reroll : ip.List.of(x, k); },
+};
+
+/** harness/catalogue/rvs.py: random variables duck-typed like `scipy.stats` ones (`cdf` takes a sequence and
+ * returns a list; a continuous one has a `pdf`), with Python's operators. */
+const F0 = new ip.Float(0);
+const F1 = new ip.Float(1);
+export const RVS = {
+  /** The ints lo..hi-1 (hi excluded), like `scipy.stats.randint(lo, hi)`. */
+  discrete_uniform: (lo, hi) => ({
+    cdf: (xs) =>
+      Array.from(xs, (x) => min(max(ops.truediv(ops.add(ops.sub(ops.floor(x), lo), 1), ops.sub(hi, lo)), F0), F1)),
+  }),
+  /** Uniform on [lo, hi]. */
+  continuous_uniform: (lo, hi) => ({
+    pdf: (x) => (le(lo, x) && le(x, hi) ? ops.truediv(1, ops.sub(hi, lo)) : F0),
+    cdf: (xs) => Array.from(xs, (x) => min(max(ops.truediv(ops.sub(x, lo), ops.sub(hi, lo)), F0), F1)),
+  }),
 };
 
 /** Python's `list * n`: none for `n <= 0`, TypeError for a non-int `n` (a bool is an int). */

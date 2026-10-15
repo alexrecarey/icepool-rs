@@ -32,6 +32,11 @@ new Deck([1, 2, 3], 4).deal(2).sum();
   `MultisetExpression.mapCounts`... take JS functions. Like Python, `map` unpacks tuple outcomes (`star`) when the
   function needs more parameters than it is given; it counts `f.length`, so give an options parameter a default:
   `map((x, { k } = {}) => x + k, d6, { k: 1 })`.
+- **Mappings**: where Python takes a dict (`map`, `reroll`, `groupBy`, `Wallenius`, `new Die(...)`...), pass a JS
+  `Map`. Its keys are compared as Python's dict compares them: `1`, `1.0` and `true` are one key, and so are two
+  equal arrays (tuples), which a JS `Map` would keep apart.
+- **Random variables**: `fromRv(rv, outcomes, denominator, kwargs)` duck-types the rv as Python does
+  (`scipy.stats`-like): `rv.cdf(xs, kwargs)` returns the cumulative probabilities; an rv with a `pdf` is continuous.
 - **Evaluators**: subclass `MultisetEvaluator` (or call `evaluator({...})`) with `nextState(state, order, outcome,
   ...counts)` and optionally `initialState`, `finalOutcome`, `extraOutcomes`. States can be values, arrays or plain
   objects (keyed by their JSON). Throw `UnsupportedOrder` to ask for the other order.

@@ -21,8 +21,9 @@ export type Int = number | bigint;
 /** What dice operators and constructors accept on the other side: an outcome, a die, or an Again expression. */
 export type Operand = Outcome | Die | AgainExpression;
 
-/** A selection of outcomes (`reroll`, `filter`, `split`, `explode`, ...): a predicate or the outcomes themselves. */
-export type Which = ((...outcomes: any[]) => unknown) | readonly Outcome[] | null;
+/** A selection of outcomes (`reroll`, `filter`, `split`, `explode`, ...): a predicate or the outcomes themselves
+ * (a Map: its keys, as Python's dict). */
+export type Which = ((...outcomes: any[]) => unknown) | readonly Outcome[] | Map<unknown, unknown> | null;
 
 /** `Order.Ascending` (1), `Order.Descending` (-1) or `Order.Any` (0). */
 export type OrderValue = 1 | -1 | 0;
@@ -31,6 +32,10 @@ export type Comparison = "==" | "!=" | "<=" | "<" | ">=" | ">";
 
 /** What a `map` function may return. */
 export type MapResult = Operand | typeof Reroll | typeof Restart | Break | readonly MapResult[];
+
+/** What `map` takes: a function, or a Map (Python's dict: `mapping.get(outcome, outcome)`, keys compared with
+ * Python's `==`, so `1`, `1.0` and `true` are one key). */
+export type Repl = ((...args: any[]) => MapResult) | Map<unknown, MapResult> | CoreFunction;
 
 // --- Errors -------------------------------------------------------------------------------------------------------
 
@@ -200,11 +205,13 @@ export class Die extends Handle implements Iterable<Outcome> {
   explode(which?: Which, options?: { star?: boolean | null; depth?: Int; end?: Operand | typeof Reroll | null }): Die;
 
   /** `map(f, die, ...extraArgs, options)`. */
-  map(f: (...args: any[]) => MapResult, ...rest: unknown[]): Die;
+  map(f: Repl, ...rest: unknown[]): Die;
   mapAndTime(f: (...args: any[]) => MapResult, ...rest: unknown[]): Die;
   meanTimeToAbsorb(f: (...args: any[]) => MapResult, ...rest: unknown[]): Fraction;
+  /** The expected number of rolls to reach a sum of at least `target`. */
+  meanTimeToSum(target: Int): Fraction;
   timeToSum(target: Int, maxTime?: Int | null, dnf?: Int | typeof Reroll | null): Die;
-  groupBy(key: ((...args: any[]) => Outcome) , options?: { star?: boolean | null }): Map<Outcome, Die>;
+  groupBy(key: ((...args: any[]) => Outcome) | Map<unknown, Outcome>, options?: { star?: boolean | null }): Map<Outcome, Die>;
   groupByIndex(index: Int): Map<Outcome, Die>;
   isIn(outcomes: readonly Outcome[]): Die;
   count(rolls: Int, outcomes: readonly Outcome[]): Die;
@@ -214,6 +221,21 @@ export class Die extends Handle implements Iterable<Outcome> {
   lowest(rolls: Int, keep?: Int | null, drop?: Int | null): Die;
   middle(rolls: Int, keep?: Int, options?: { tie?: "error" | "high" | "low" }): Die;
   pool(rolls?: Int | readonly Int[]): Pool;
+  /** `keep(counts)` (one count per sorted roll), or `keep(rolls, index)`: an int index (that sorted roll) or counts. */
+  keep(rolls: Int | readonly Int[], index?: Int | readonly (Int | typeof Ellipsis)[] | null): Die;
+  /** `die.keep(rolls, slice(start, stop, step))`. */
+  keepSlice(rolls: Int, start?: Int | null, stop?: Int | null, step?: Int | null): Die;
+  /** Every ordered sequence of `rolls` rolls, as a die of arrays (`[]` itself for 0 rolls). */
+  sequence(rolls: Int): Die;
+
+  /** `mapToPool(f, die, ...extraArgs)`; `f` null: the outcomes are the pools' contents. */
+  mapToPool(f?: Repl | null, ...rest: unknown[]): MultisetExpression;
+  explodeToPool(rolls?: Int, outcomes?: Which, options?: { star?: boolean | null; depth?: Int }): MultisetExpression;
+  rerollToPool(
+    rolls: Int,
+    outcomes: Which | undefined,
+    options: { maxRerolls: Int; star?: boolean | null; depth?: Int; mode?: "random" | "low" | "high" | "drop" },
+  ): MultisetExpression;
 
   simplify(): Die;
   zero(): Die;
@@ -226,6 +248,8 @@ export class Die extends Handle implements Iterable<Outcome> {
   divideQuantities(divisor: Int): Die;
   moduloQuantities(divisor: Int): Die;
   equals(other: unknown, options?: { simplify?: boolean }): boolean;
+  /** Each outcome rounded up with probability `x - floor(x)`, else down. */
+  stochasticRound(options?: { maxDenominator?: Int | null }): Die;
 
   items(): [Outcome, bigint][];
   outcomes(): Outcome[];
@@ -297,10 +321,21 @@ export function oneHot(sides: Int): Die;
 export function stochasticRound(x: number | Fraction | Float, options?: { maxDenominator?: Int | null }): Die;
 export function fromCumulative(outcomes: readonly Outcome[], cumulative: readonly (Int | Die)[], options?: { reverse?: boolean }): Die;
 
+/** A random variable as `fromRv` takes it (duck-typed like `scipy.stats`): `cdf` of a sequence; a `pdf` makes it
+ * continuous. */
+export interface RandomVariable {
+  cdf(xs: Outcome[], kwargs?: { [kwarg: string]: unknown }): Iterable<number | Fraction | Float>;
+  pdf?: unknown;
+}
+/** `icepool.from_rv(rv, outcomes, denominator, **kwargs)`: kwargs go to `rv.cdf`. */
+export function fromRv(rv: RandomVariable, outcomes: readonly Outcome[], denominator: Int, kwargs?: { [kwarg: string]: unknown }): Die;
+
 // --- Free functions -----------------------------------------------------------------------------------------------
 
 /** `map(f, ...args, { star, repeat, ...kwargs })`. */
-export function map(f: ((...args: any[]) => MapResult) | CoreFunction, ...rest: unknown[]): Die;
+export function map(f: Repl, ...rest: unknown[]): Die;
+/** `map_to_pool(f, ...args, { star })`: `f` returns a pool's contents (a `List`), a multiset expression or Reroll. */
+export function mapToPool(f: Repl, ...rest: unknown[]): MultisetExpression;
 export function mapAndTime(f: (...args: any[]) => MapResult, initial: Operand, ...rest: unknown[]): Die;
 export function meanTimeToAbsorb(f: (...args: any[]) => MapResult, initial: Operand, ...rest: unknown[]): Fraction;
 export function mapFunction(f: (...args: any[]) => MapResult, options?: { star?: boolean | null; [kwarg: string]: unknown }): (...args: unknown[]) => Die;
@@ -490,6 +525,14 @@ export class MultiDeal extends MultisetTupleExpression {
   denominator(): bigint;
   outcomes(): Outcome[];
   repr(): string;
+}
+
+// --- Wallenius ----------------------------------------------------------------------------------------------------
+
+/** `icepool.Wallenius(data)`: `[outcome, weight]` pairs, or a Map of outcome -> weight or `[weight, quantity]`. */
+export class Wallenius {
+  constructor(data: readonly (readonly [Outcome, Int])[] | Map<Outcome, Int | readonly [Int, Int]>);
+  deal(handSize: Int): MultisetExpression;
 }
 
 // --- Again --------------------------------------------------------------------------------------------------------

@@ -190,6 +190,9 @@ function enc(x) {
   if (x instanceof Break) return `{"$break":${enc(x.outcome)}}`;
   if (x instanceof RawJSON) return x.text;
   if (x instanceof StateKey) return `{"$json":${JSON.stringify(x.key)}}`;
+  // A Map where Python takes a mapping (`map`, `reroll`, `groupBy`, ...): a dict, whose keys the core compares
+  // with Python's `==` (so `1`, `1.0` and `true` are one key, as in Python; a JS Map keeps them apart).
+  if (x instanceof Map) return `{"$map":[${Array.from(x, ([k, v]) => `[${enc(k)},${enc(v)}]`).join(",")}]}`;
   throw new TypeError(`icepool: cannot pass ${Object.prototype.toString.call(x)} to the core`);
 }
 
@@ -480,6 +483,10 @@ export class Die extends Operand {
   meanTimeToAbsorb(f, ...rest) {
     return meanTimeToAbsorb(f, this, ...rest);
   }
+  /** The expected number of rolls to reach a sum of at least `target` (a Fraction). */
+  meanTimeToSum(target) {
+    return call("mean_time_to_sum", { die: this, targets: List.of(target) })[0];
+  }
   timeToSum(target, maxTime = null, dnf = null) {
     return call("time_to_sum", { die: this, target, max_time: maxTime, dnf });
   }
@@ -516,9 +523,48 @@ export class Die extends Operand {
   middle(rolls, keep = 1, { tie = "error" } = {}) {
     return call("die_middle", { die: this, rolls, keep, tie });
   }
+  /** `die.keep(rolls, index)`: roll `rolls` dice, sort them and sum the selected ones. `rolls` an array of counts
+   * (one per sorted roll) and no index; or an int and an index: an int (the roll at that sorted position) or an
+   * array of counts. */
+  keep(rolls, index = null) {
+    return call("die_keep", { die: this, rolls, index });
+  }
+  /** `die.keep(rolls, slice(start, stop, step))`: the sorted rolls in the slice, summed. */
+  keepSlice(rolls, start = null, stop = null, step = null) {
+    return call("die_keep_slice", { die: this, rolls, start, stop, step });
+  }
+  /** Every ordered sequence of `rolls` rolls, as a die of arrays (Python's tuples); `[]` itself for 0 rolls. */
+  sequence(rolls) {
+    return call("die_sequence", { die: this, rolls });
+  }
   /** `rolls` copies of this die as a pool (a list of counts: a keep tuple). */
   pool(rolls = 1) {
     return call("die_pool", { die: this, rolls: Array.isArray(rolls) ? list(rolls) : rolls });
+  }
+
+  // Pools from a die (EXPERIMENTAL in icepool).
+  /** `die.map_to_pool(f, ...extraArgs, { star })`: `mapToPool(f, die, ...extraArgs)`; `f` null uses the outcomes
+   * themselves as the pools' contents. */
+  mapToPool(f = null, ...rest) {
+    const [args, { star = null }] = opts(rest);
+    return call("die_map_to_pool", { die: this, f, args: List.from(args), star });
+  }
+  /** Each explosion is a separate die of the pool; `outcomes` null explodes the max outcome. */
+  explodeToPool(rolls = 1, outcomes = null, { star = null, depth = 9 } = {}) {
+    return call("explode_to_pool", { die: this, rolls, outcomes: list(outcomes), star, depth });
+  }
+  /** At most `maxRerolls` rerolls (an int or Infinity) shared across a pool of `rolls` dice; `mode` is 'random',
+   * 'low', 'high' or 'drop'. */
+  rerollToPool(rolls, outcomes = null, { maxRerolls, star = null, depth = 1, mode = "random" } = {}) {
+    return call("reroll_to_pool", {
+      die: this,
+      rolls,
+      outcomes: list(outcomes),
+      max_rerolls: maxRerolls === Infinity ? "inf" : maxRerolls,
+      star,
+      depth: depth === Infinity ? "inf" : depth,
+      mode,
+    });
   }
 
   // Transformations.
@@ -551,6 +597,10 @@ export class Die extends Operand {
   }
   moduloQuantities(divisor) {
     return call("quantities_op", { die: this, method: "modulo_quantities", x: divisor });
+  }
+  /** Each outcome rounded up with probability `x - floor(x)`, else down. */
+  stochasticRound({ maxDenominator = null } = {}) {
+    return call("die_stochastic_round", { die: this, max_denominator: maxDenominator });
   }
   equals(other, { simplify = false } = {}) {
     return call("equals", { a: this, b: other, simplify });
@@ -723,6 +773,21 @@ export function fromCumulative(outcomes, cumulative, { reverse = false } = {}) {
   return call("from_cumulative", { outcomes: list(outcomes), cumulative: list(cumulative), reverse });
 }
 
+/** `icepool.from_rv(rv, outcomes, denominator, **kwargs)`: a die from a random variable's CDF, as Python's, which
+ * duck-types `scipy.stats` objects: `rv.cdf(xs, kwargs)` takes an array (a `List`) and returns an iterable of
+ * probabilities, called once; an rv with a `pdf` property is continuous (the CDF is taken at the midpoints between
+ * the outcomes). `kwargs` reach `cdf` as a trailing options object, when there are any. */
+export function fromRv(rv, outcomes, denominator, kwargs = {}) {
+  if (rv === null || typeof rv !== "object" || typeof rv.cdf !== "function") {
+    throw new TypeError("icepool: fromRv takes an object with a cdf method");
+  }
+  // `hasattr(rv, 'pdf')`.
+  const pdf = "pdf" in rv;
+  const cdf = (...args) => rv.cdf(...args);
+  const args = `{"cdf":${enc(cdf)},"pdf":${pdf},"outcomes":${enc(outcomes)},"denominator":${enc(denominator)},"kwargs":${argsText(kwargs)}}`;
+  return dec(unwrap(W.from_rv(args)));
+}
+
 // --- Free functions -----------------------------------------------------------------------------------------------
 
 /** `icepool.map(f, ...args, { star, repeat, ...kwargs })`: `repeat` an int or Infinity; any other option is passed
@@ -754,6 +819,14 @@ export function mapAndTime(f, initial, ...rest) {
 export function meanTimeToAbsorb(f, initial, ...rest) {
   const [args, { star = null }] = opts(rest);
   return call("mean_time_to_absorb", { f, initial, args: List.from(args), star });
+}
+
+/** `icepool.map_to_pool(f, ...args, { star })` (EXPERIMENTAL in icepool): `f`'s result for each joint outcome of
+ * the args (dice expand, anything else as it is) is a pool (what `new Pool(...)` takes, a `List` of dice or
+ * outcomes, or a multiset expression; `Reroll` drops the outcome); the result is the mixture of those pools. */
+export function mapToPool(f, ...rest) {
+  const [args, { star = null }] = opts(rest);
+  return call("map_to_pool", { f, args: List.from(args), star });
 }
 
 /** `icepool.map_function(f, { star, ...kwargs })`: `f` as a function of dice (decorator form: `star` is kept). */
@@ -1152,6 +1225,25 @@ export class MultiDeal extends MultisetTupleExpression {
   outcomes() { return this.info()[5]; }
   toString() { return call("deal_str", { deal: this })[1]; }
   repr() { return call("deal_str", { deal: this })[0]; }
+}
+
+// --- Wallenius ----------------------------------------------------------------------------------------------------
+
+/** `icepool.Wallenius(data)` (EXPERIMENTAL in icepool): Wallenius' noncentral hypergeometric distribution, sampling
+ * without replacement with weights, where the whole weight of a card goes away when it is pulled. `data` is an
+ * array of `[outcome, weight]` pairs, or a Map from outcomes to a weight or a `[weight, quantity]` pair (a Python
+ * dict: keys equal by Python's `==`). */
+export class Wallenius {
+  constructor(data) {
+    this._mapping = data instanceof Map;
+    this._data = this._mapping ? mapItems(data) : list(data);
+    // Python checks the data in the constructor: a hand of 0 builds the weights and stops there.
+    call("wallenius_deal_expr", { data: this._data, mapping: this._mapping, hand_size: 0 });
+  }
+  /** The multiset of `handSize` outcomes dealt, as a multiset expression (`.sum()`, `.expand()`, ...). */
+  deal(handSize) {
+    return call("wallenius_deal_expr", { data: this._data, mapping: this._mapping, hand_size: handSize });
+  }
 }
 
 // --- Again --------------------------------------------------------------------------------------------------------

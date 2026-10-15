@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ip from "../node.js";
-import { EVALUATORS, FUNCTIONS } from "./catalogue.mjs";
+import { EVALUATORS, FUNCTIONS, RVS } from "./catalogue.mjs";
 
 /** Each node's argument names (harness/grammar/, by `run`'s signature). Regenerate when nodes are added:
  *  uv run python -c "import inspect, json; from harness.core.grammar_api import NODES, load_grammar; load_grammar();
@@ -155,6 +155,8 @@ const isExpr = (x) => x instanceof ip.MultisetExpression;
 const isList = (x) => x instanceof ip.List;
 const camel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 const ok = (value) => ({ value });
+/** A sequence of `[key, value]` pairs (what `dict(...)` takes without raising). */
+const isPairs = (x) => Array.isArray(x) && x.every((kv) => Array.isArray(kv) && kv.length === 2);
 
 const BINARY = ["add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor"];
 const COMPARE = ["lt", "le", "gt", "ge", "eq", "ne"];
@@ -183,9 +185,14 @@ const IDIOMATIC = {
   again_count: ({ outcomes, count, depth, end }) =>
     isList(outcomes) && count !== null && ok(new ip.Die(outcomes, { againCount: count, againDepth: depth, againEnd: end })),
   tuple: ({ items }) => isList(items) && ok(Array.from(items)),
-  // The factories' own arity is checked by the core's catalogue (a TypeError).
-  fn: ({ name, params }) =>
-    name in FUNCTIONS && isList(params) && params.length === FUNCTIONS[name].length && ok(FUNCTIONS[name](...params)),
+  // The factories' own arity is checked by the core's catalogue (a TypeError). The "mapping" dict is a JS Map
+  // (whose keys the core compares as Python's dict does).
+  fn: ({ name, params }) => {
+    if (name === "mapping") {
+      return isList(params) && params.length === 1 && isPairs(params[0]) && ok(new Map(params[0]));
+    }
+    return name in FUNCTIONS && isList(params) && params.length === FUNCTIONS[name].length && ok(FUNCTIONS[name](...params));
+  },
   evaluate: ({ name, params, args }) =>
     name in EVALUATORS && isList(params) && params.length === EVALUATORS[name].length && isList(args) && ok(EVALUATORS[name](...params).evaluate(...args)),
   multi_deal_evaluate: ({ name, params, args }) =>
@@ -219,6 +226,15 @@ const IDIOMATIC = {
   multiply_to_denominator: ({ die, denominator }) => isDie(die) && ok(die.multiplyToDenominator(denominator)),
   quantities_op: ({ die, method, x }) => isDie(die) && typeof method === "string" && camel(method) in die && ok(die[camel(method)](x)),
   equals: ({ a, b, simplify }) => isDie(a) && ok(a.equals(b, { simplify })),
+  die_keep: ({ die, rolls, index }) => isDie(die) && ok(die.keep(rolls, index)),
+  die_keep_slice: ({ die, rolls, start, stop, step }) => isDie(die) && ok(die.keepSlice(rolls, start, stop, step)),
+  die_sequence: ({ die, rolls }) => isDie(die) && ok(die.sequence(rolls)),
+  die_stochastic_round: ({ die, max_denominator }) => isDie(die) && ok(die.stochasticRound({ maxDenominator: max_denominator })),
+  mean_time_to_sum: ({ die, targets }) => isDie(die) && isList(targets) && ok(Array.from(targets, (t) => die.meanTimeToSum(t))),
+  die_map_to_pool: ({ die, f, args, star }) => isDie(die) && isList(args) && ok(die.mapToPool(f, ...args, { star })),
+  explode_to_pool: ({ die, rolls, outcomes, star, depth }) => isDie(die) && ok(die.explodeToPool(rolls, outcomes, { star, depth })),
+  reroll_to_pool: ({ die, rolls, outcomes, max_rerolls, star, depth, mode }) =>
+    isDie(die) && ok(die.rerollToPool(rolls, outcomes, { maxRerolls: max_rerolls, star, depth, mode })),
   time_to_sum: ({ die, target, max_time, dnf }) => isDie(die) && ok(die.timeToSum(target, max_time, dnf)),
   group_by: ({ die, key, star }) => isDie(die) && ok(Array.from(die.groupBy(key, { star }))),
   group_by_index: ({ die, index }) => isDie(die) && ok(Array.from(die.groupByIndex(index))),
@@ -280,6 +296,20 @@ const IDIOMATIC = {
   one_hot: ({ sides }) => ok(ip.oneHot(sides)),
   stochastic_round: ({ x, max_denominator }) => ok(ip.stochasticRound(x, { maxDenominator: max_denominator })),
   from_cumulative: ({ outcomes, cumulative, reverse }) => ok(ip.fromCumulative(outcomes, cumulative, { reverse })),
+  from_rv: ({ rv, params, outcomes, denominator }) =>
+    typeof rv === "string" && Object.hasOwn(RVS, rv) && isList(params) && params.length === 2 &&
+    ok(ip.fromRv(RVS[rv](...params), outcomes, denominator)),
+  map_to_pool: ({ f, args, star }) => isList(args) && ok(ip.mapToPool(f, ...args, { star })),
+  to_pool_evaluate: ({ expr, method }) =>
+    isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
+  wallenius_deal_expr: ({ data, mapping, hand_size }) => {
+    const w = wallenius(data, mapping);
+    return w !== undefined && ok(w.deal(hand_size));
+  },
+  wallenius_deal: ({ data, mapping, hand_size, method }) => {
+    const w = typeof method === "string" && MX_EVALUATIONS.has(method) ? wallenius(data, mapping) : undefined;
+    return w !== undefined && ok(w.deal(hand_size)[camel(method)]());
+  },
   pointwise: ({ args, max, spread }) => isList(args) && spread === true && ok(max === true ? ip.pointwiseMax(...args) : max === false ? ip.pointwiseMin(...args) : undefined),
   extreme_outcome: ({ args, max, spread }) =>
     isList(args) && spread === true && typeof max === "boolean" && ok(max ? ip.maxOutcome(...args) : ip.minOutcome(...args)),
@@ -409,6 +439,14 @@ const IDIOMATIC = {
   coll_truth: ({ x }) => ok(ip.truth(x)),
   truth: ({ x }) => x instanceof ip.DieWithTruth && ok(x.truth()),
 };
+
+/** `icepool.Wallenius(dict(data) if mapping else data)` as a JS `Wallenius` (a Map for the dict), if the arguments
+ * fit (else undefined: the generic call). */
+function wallenius(data, mapping) {
+  if (typeof mapping !== "boolean" || !isList(data)) return undefined;
+  if (!mapping) return new ip.Wallenius(data);
+  return isPairs(data) ? new ip.Wallenius(new Map(data)) : undefined;
+}
 
 const STATS = new Set(["mean", "variance", "standard_deviation", "sd", "skewness", "excess_kurtosis", "mode",
   "modal_quantity", "median", "median_low", "median_high", "min_outcome", "max_outcome", "denominator", "is_empty"]);

@@ -13,3 +13,17 @@ Is LGPL-derived code acceptable here (e.g. relicense those files, or the WASM pa
 replaced? The alternative is an independent correctly-rounded implementation, which would match glibc in nearly
 all cases but not provably all. Until you decide, the ports stay in: natively they are unused (the platform glibc
 is called), only the wasm32 build runs them.
+
+## S6c: put the JS suite in the long gate (harness/core/gate.sh is the loop's)
+
+The JS facade's suite, `crates/icepool-wasm/js/build.sh --test`, runs every fixture through the JS API (the
+idiomatic methods, JS callbacks and evaluators, JS Maps as dicts), the API tests and a `tsc` type check. It is GREEN
+at S6c (all fixtures, 0 failing; ~40 s with a warm cargo cache) but no gate runs it, so a core change can break the
+JS facade unnoticed. Please add it to the long gate, next to "fixtures through wasm" (it needs `wasm-pack` and
+`node` >= 22; `tsc` is optional, the script skips it when missing):
+
+```bash
+  if command -v wasm-pack > /dev/null && command -v node > /dev/null; then
+    step "JS suite" crates/icepool-wasm/js/build.sh --test
+  fi
+```

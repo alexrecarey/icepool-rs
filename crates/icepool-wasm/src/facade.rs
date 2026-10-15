@@ -23,6 +23,7 @@
 //! | `Reroll`, `Restart`, `...` | `{"$special": "Reroll" \| "Restart" \| "Ellipsis"}` |
 //! | `Break(x)` | `{"$break": x}` |
 //! | a JS function | `{"$fn": <id>, "n": <its length>}` (JS keeps the function, see `host_call`) |
+//! | a JS `Map` (JS -> Rust only) | `{"$map": [[key, value], ...]}`: a Python dict (`program::host::mapping`) |
 //! | an evaluator state that is a JS object | `{"$json": "<canonical JSON>"}`: hashed and compared by that key |
 //! | anything else | `{"$h": <handle>, "kind": "die" \| "die_truth" \| "pool" \| ...}` (`"truth"` for `die_truth`) |
 //!
@@ -178,6 +179,39 @@ pub fn multiset_function(args: &str) -> String {
             _ => return Err(bad("kwonly")),
         };
         Ok(program::host::multiset_function(f, params, var, kwonly))
+    })();
+    envelope(result.and_then(|v| to_js(&v)))
+}
+
+/// `icepool.from_rv(rv, outcomes, denominator, **kwargs)` for a JS random variable: `{"cdf": {"$fn": id, "n":
+/// length}, "pdf": bool, "outcomes": x, "denominator": x, "kwargs": {name: x}}`, where `cdf` is the rv's bound
+/// `cdf` method and `pdf` says whether it has one (Python's `hasattr(rv, 'pdf')`: a continuous distribution).
+#[wasm_bindgen]
+pub fn from_rv(args: &str) -> String {
+    let result = (|| {
+        let args = parse(args)?;
+        let id = args["cdf"]["$fn"]
+            .as_u64()
+            .ok_or_else(|| bad("function id"))? as u32;
+        let cdf = Arc::new(JsFunction {
+            id,
+            length: args["cdf"]["n"].as_u64().unwrap_or(0) as usize,
+        });
+        let pdf = args["pdf"].as_bool().ok_or_else(|| bad("pdf"))?;
+        let Json::Object(kw) = &args["kwargs"] else {
+            return Err(bad("kwargs"));
+        };
+        let kwargs = kw
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), from_js(v)?)))
+            .collect::<Result<Vec<_>, PErr>>()?;
+        program::host::from_rv(
+            cdf,
+            pdf,
+            from_js(&args["outcomes"])?,
+            from_js(&args["denominator"])?,
+            kwargs,
+        )
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -357,6 +391,15 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                 data.push((c, value_of(from_js(n)?)?));
             }
             PValue::Value(Value::Symbols(Symbols::raw(data)))
+        }
+        // A JS Map: Python's `dict(items)` (keys equal by Python's `==`).
+        Json::Object(m) if m.contains_key("$map") => {
+            let Some(Json::Array(items)) = m.get("$map") else {
+                return Err(bad("$map"));
+            };
+            program::host::mapping(PValue::List(
+                items.iter().map(from_js).collect::<Result<_, _>>()?,
+            ))?
         }
         Json::Object(m) if m.contains_key("$fn") => {
             let id = m["$fn"].as_u64().ok_or_else(|| bad("function id"))? as u32;

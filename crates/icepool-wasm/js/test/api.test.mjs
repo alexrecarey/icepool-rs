@@ -205,6 +205,64 @@ test("Again, pools, decks", () => {
   assert.equal(ip.highest(d(6), d(8)).maxOutcome(), 8);
 });
 
+test("fromRv takes a JS random variable: cdf with kwargs, a pdf makes it continuous", () => {
+  const calls = [];
+  // `cdf(xs, scale=1)`: `[min(max(x / (4 * scale), 0.0), 1.0) for x in xs]`.
+  const rv = {
+    cdf(xs, { scale = 1 } = {}) {
+      calls.push(Array.from(xs));
+      return Array.from(xs, (x) => Math.min(Math.max(x / (4 * scale), 0), 1));
+    },
+  };
+  assert.deepEqual(ip.fromRv(rv, [0, 1, 2, 3, 4], 100).items(), [[1, 25n], [2, 25n], [3, 25n], [4, 25n]]);
+  assert.deepEqual(ip.fromRv(rv, [0, 1, 2, 3, 4], 100, { scale: 2 }).items(), [[1, 12n], [2, 13n], [3, 13n], [4, 12n]]);
+  // Continuous (Python's `hasattr(rv, 'pdf')`): the CDF at the midpoints, once.
+  calls.length = 0;
+  const continuous = { pdf: () => 0, cdf: rv.cdf };
+  assert.deepEqual(ip.fromRv(continuous, [1, 2, 3], 10).items(), [[1, 4n], [2, 2n], [3, 4n]]);
+  assert.deepEqual(calls, [[1.5, 2.5]]);
+  const mine = new RangeError("mine");
+  assert.throws(() => ip.fromRv({ cdf: () => { throw mine; } }, [1, 2], 10), (e) => e === mine);
+  assert.throws(() => ip.fromRv({}, [1, 2], 10), TypeError);
+});
+
+test("Wallenius: data -> deal(n) -> evaluations; a Map's keys are Python dict keys", () => {
+  // `Wallenius({1: 1, True: 3, 2: (2, 2)})` is `{1: 3, 2: (2, 2)}` in Python; the JS Map has three keys.
+  const w = new ip.Wallenius(new Map([[1, 1], [true, 3], [2, [2, 2]]]));
+  assert.deepEqual(w.deal(2).expand().items(), [[[1, 2], 108n], [[2, 2], 32n]]);
+  assert.deepEqual(new ip.Wallenius([[1, 1], [2, 3]]).deal(1).sum().items(), [[1, 1n], [2, 3n]]);
+  // Python checks the data in the constructor.
+  assert.throws(() => new ip.Wallenius([[1, 2, 3]]), (e) => e.pythonType === "ValueError");
+});
+
+test("Die methods: sequence, keep, meanTimeToSum, stochasticRound, the to-pool methods", () => {
+  assert.deepEqual(d(2).sequence(2).items(), [[[1, 1], 1n], [[1, 2], 1n], [[2, 1], 1n], [[2, 2], 1n]]);
+  assert.deepEqual(d(2).sequence(0), []);
+  assert.deepEqual(d(6).keep([0, 0, 1]).items().slice(0, 3), [[1, 1n], [2, 7n], [3, 19n]]);
+  assert.deepEqual(d(6).keep(3, -1).items().slice(0, 3), [[1, 1n], [2, 7n], [3, 19n]]);
+  assert.deepEqual(d(6).keepSlice(4, 1).items().slice(0, 3), [[3, 1n], [4, 4n], [5, 10n]]);
+  assert.deepEqual(d(6).meanTimeToSum(10), new Fraction(33495175n, 10077696n));
+  assert.deepEqual(new Die([0.5, 1.25]).stochasticRound().items(), [[0, 2n], [1, 5n], [2, 1n]]);
+  const nOf = (x) => ip.List.from(Array(x).fill(x));
+  assert.deepEqual(d(3).mapToPool(nOf).sum().items(), [[1, 1n], [4, 1n], [9, 1n]]);
+  assert.deepEqual(ip.mapToPool(nOf, d(3)).sum().items(), [[1, 1n], [4, 1n], [9, 1n]]);
+  assert.deepEqual(d(3).explodeToPool(2, null, { depth: 1 }).sum().quantities(), [9n, 18n, 9n, 6n, 12n, 12n, 7n, 2n, 3n, 2n, 1n]);
+  assert.deepEqual(d(3).rerollToPool(2, [1], { maxRerolls: 1 }).sum().items(), [[2, 1n], [3, 3n], [4, 8n], [5, 10n], [6, 5n]]);
+});
+
+test("a Map is a Python dict where icepool takes a mapping: keys equal by Python's ==", () => {
+  // `{1: 10, True: 20, 2.0: 30}` is `{1: 20, 2.0: 30}`.
+  const m = new Map([[1, 10], [true, 20], [new Float(2), 30]]);
+  assert.deepEqual(d(3).map(m).items(), [[3, 1n], [20, 1n], [30, 1n]]);
+  assert.deepEqual(d(4).reroll(new Map([[1, null]]), { depth: 1 }).items(), [[1, 1n], [2, 5n], [3, 5n], [4, 5n]]);
+  const groups = d(4).groupBy(new Map([[1, "lo"], [2, "lo"], [new Float(3), "hi"], [4, "hi"]]));
+  assert.deepEqual([...groups.keys()], ["lo", "hi"]);
+  assert.deepEqual(groups.get("hi").outcomes(), [3, 4]);
+  // A tuple key: equal arrays are one key, though a JS Map keeps them apart.
+  const pairs = new Die([[1, 2], [2, 1]]).map(new Map([[[1, 2], [0, 0]], [[1, 2], [9, 9]]]));
+  assert.deepEqual(pairs.outcomes(), [[2, 1], [9, 9]]);
+});
+
 test("Vector and Symbols", () => {
   const v = new Vector([1, 2]).add(new Vector([10, 20]));
   assert.deepEqual(v.items, [11, 22]);
