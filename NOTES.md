@@ -177,7 +177,7 @@ turns out wrong. Newest decisions at the top of each section.
   JS callbacks/evaluators against the oracle; `mapping` stays the core's); results re-encoded by JS and compared as
   compare.py does. `node test/fixtures.test.mjs fixtures/s4` runs a subset. When you add a node with a JS method,
   add its route in fixtures.mjs `IDIOMATIC` and its declaration in icepool.d.ts (api.test.mjs checks every export
-  is declared). Hand-checked boundary cases: fixtures/s6/js-boundary. Left: S6c (S6b is done, below).
+  is declared). Hand-checked boundary cases: fixtures/s6/js-boundary. S6b and S6c (below) finished it.
 
 - **S6b: `multisetFunction(f)` in the JS facade.** The program layer's `FunctionDef` body is `Body::Program` (mf_def)
   or `Body::Host(Arc<dyn HostFunction>)` (`program::host::multiset_function(f, params, var, kwonly)`): tracing calls
@@ -200,6 +200,28 @@ turns out wrong. Newest decisions at the top of each section.
 - Fixed: `mf_var(-1)` raised IndexError; Python's `_VARS[-1][0][i]` counts from the end (fixtures/s6b).
   `Pool.keep(array)` in JS passed a list, so a mixture of such keeps raised "unhashable" (s4f/edge-cases:104):
   arrays are tuples there too now.
+
+- **S6c: the rest of the Python surface in JS.** New nodes: `die_sequence` (population.py; Rust
+  `collection::die_sequence` = cartesian_product of `range(rolls)` copies, `()` for 0 rolls), `die_stochastic_round`
+  (function.py; `map` with the internal `Func::StochasticRound(m)`, no catalogue name), `wallenius_deal_expr`
+  (function.py, kind "mexpr", no gen: `to_pool_evaluate`'s generator builds it 15% of the time; `wallenius_deal` is
+  now `method_evaluation(wallenius_deal_expr(...))`). Wallenius mapping values may be Python lists (unpacked; a list
+  weight is unhashable TypeError). `function::from_cdf(has_pdf, cdf, outcomes, denominator)` is from_rv's body for
+  any rv: the catalogue `Rv` and `program::host::from_rv(cdf: Arc<dyn HostFunction>, has_pdf, ..., kwargs)` (a host
+  rv's bound `cdf` is just a HostFunction; WASM export `from_rv`). `program::host::mapping(items)` = Python's
+  `dict(items)` as `Func::Mapping`; JS-JSON `{"$map": [[k, v], ...]}` (JS -> Rust only) is how core.js `enc`
+  sends any JS `Map` (keys compared by Python `==`: 1 / 1.0 / true one key, equal arrays one key). JS constructors
+  that take a Map themselves (`new Die(Map)`, Pool, Deck, dPool, Symbols.from, Wallenius) still send its items.
+- JS API added: `fromRv(rv, outcomes, denominator, kwargs)` (`"pdf" in rv` is hasattr; `cdf(xs, kw)` called once),
+  `Wallenius(data | Map).deal(n)` (constructor validates with a hand of 0, as Python raises in `__init__`), Die
+  `keep(rolls, index)`, `keepSlice(rolls, start, stop, step)`, `sequence`, `meanTimeToSum`, `stochasticRound`,
+  `mapToPool`, `explodeToPool`, `rerollToPool` (`maxRerolls`/`depth` Infinity = 'inf'), free `mapToPool`.
+  fixtures.mjs routes all of these idiomatically (also `from_rv` through catalogue.mjs `RVS`, JS ports of rvs.py,
+  and the catalogue `mapping` as a JS `Map`). catalogue.mjs `first` indexes Vectors (fixed the 2 first_vector
+  failures). At S6c `build.sh --test` is fully GREEN (all fixtures, 18 API tests, tsc); 8000 generated programs of
+  the routed nodes also pass through JS. The suite is still not in a gate: asked in QUESTIONS.md (S6c).
+- Not ported (found here): `limit_denominator` with a float bound (`stochastic_round(x, max_denominator=2.0)`, also
+  `coin`): Unimplemented; Python goes through float arithmetic in `Fraction.limit_denominator`.
 
 - **S5: the check that nothing of Vector / Symbols / wallenius / function.py / `__init__` exports is left.** S5a/S5b
   covered the area; the open Python work is all in tasks (FACADE-AUDIT.md: S3c, S4e, S4f, K6c, S5c). S5 compared
