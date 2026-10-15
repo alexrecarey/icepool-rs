@@ -5,6 +5,28 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **str() of multiset expressions (T1c).** Node `mx_str` (multiset.py, kind "value"): `str(expr)` of a multiset
+  expression, a MultiDeal, or the die a pool's int index evaluates to. Only `str`: every expression's `repr` (and the
+  `str` of classes without a `__str__`: `weightless()`, map_counts, sort_pair / max_pair (not `==`) / versus,
+  force_order (not Any), MultisetTupleIndex / Slice) is `object.__repr__` with an address. The port raises
+  `Unimplemented` for those (`program/expression.rs` `address`); `gen_str_expression` never builds them. Core:
+  `Operator::py_str(children, keep_index)` (operator/mod.rs) plus `BinaryOperator::symbol` /
+  `KeepCountsComparison::symbol`. `MultisetKeep.__str__` shows the index *as given* (`[1, Ellipsis]` vs `(1,)` vs
+  `slice(1, None, 1)` vs `1.5` vs a die's table), which the core's `MultisetKeepIndex` does not keep: `OpNode` carries
+  it (`keep_index: Option<KeepIndexArg>`); `highest` / `lowest` / `middle` give `slice(a, b, None)`. Pools print from
+  `dice()` (hash_key order, zero-count dice dropped, as Python's `_dice`); `CompoundKeep([...])` prints its inners
+  from their *sources* (a Pool/Deal/CompoundKeep source keeps the dice/deck and keep tuple). Parameters carry their
+  name (`MExpr::Param { name }`): `FunctionDef::positional_name` copies `_get_positional_name` with `mf_def`'s
+  parameter names `p0..` / `rest` (a JS host function gets the same names; str is not exposed there). Known gap,
+  never generated: `expr * True` stores `1` (the core's constants are `i64`), so its str would say `* 1` where
+  Python says `* True`. Node `break_str` (maps.py): `(repr(b), str(b), hash(b) == hash(b))` for `b = Break(x)`
+  (hash raises for a VectorWithTruthOnly outcome). `vector_method` repr/str now also gets VectorWithTruthOnly.
+  `@multiset_function` bodies now and then return `mx_str` of an expression over the variables (a str constant).
+  Not reachable through the public API (left uncovered on purpose): `Counts.__str__` / `__repr__` / `__eq__` /
+  `__hash__` (only `die._data` is a Counts; keys()/values()/items() are views), `SparseVector.__str__` /
+  `__delitem__` (internal to absorbing_markov_chain_impl, never printed or deleted from). Fixtures: fixtures/t1c
+  (str-edge-cases 124, str-generated 441).
+
 - **The facade's leftover Python work (S5c).** Core: `Die<Value>::append` / `remove` / `one_hot_items`
   (population.rs; they return the `dict` items for `Die(...)` / `Deck(...)`, like `pad_to_denominator`),
   `Deck::zero` / `split`, `Die<Value>::mean_time_to_sum(cache, target)` (die.rs: extends the caller's cache as
