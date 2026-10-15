@@ -230,9 +230,17 @@ def _any_unary(g):
     return fn_node(g, pred=True)[0]
 
 
-@node("group_by", "value", weight=0.4,
-      gen=lambda g, depth: {"op": "group_by", "die": _stat_die(g, depth), "key": _any_unary(g),
-                            "star": g.rng.choice([None] * 8 + [True, False])})
+def _gen_group_by(g, depth):
+    if g.rng.random() < 0.25:
+        # A callable of several parameters over a die of tuples: star inferred (or given), each tuple unpacked.
+        name = g.rng.choice(["swap", "add2", "max2", "builtin_max", "first"])
+        return {"op": "group_by", "die": _tuple_die(g, depth), "key": fn_node(g, name=name)[0],
+                "star": g.rng.choice([None] * 4 + [True, False])}
+    return {"op": "group_by", "die": _stat_die(g, depth), "key": _any_unary(g),
+            "star": g.rng.choice([None] * 8 + [True, False])}
+
+
+@node("group_by", "value", weight=0.4, gen=_gen_group_by)
 def group_by(die, key, star):
     """tuple(die.group_by(key, star=star).items()): (key, die) per distinct key in first-seen order; a mapping
     leaves outcomes it lacks as their own key."""
