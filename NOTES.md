@@ -5,6 +5,53 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **The facade's leftover Python work (S5c).** Core: `Die<Value>::append` / `remove` / `one_hot_items`
+  (population.rs; they return the `dict` items for `Die(...)` / `Deck(...)`, like `pad_to_denominator`),
+  `Deck::zero` / `split`, `Die<Value>::mean_time_to_sum(cache, target)` (die.rs: extends the caller's cache as
+  Python's loop does; every recursive call hits the cache, so non-int outcomes / targets are the list-index or
+  `range()` TypeError), `expand::cartesian_product_items` (the overwrite-semantics `data` dict, shared by Die and
+  Deck results). Program layer: program/population.rs; `collection::cartesian_product` now takes decks (mixed with
+  dice: TypeError, checked argument by argument with Reroll) and multiset expressions (their `expand()` items);
+  `x in tuple` (map.rs `contains`) compares with Python's `==` like the list branch (`Symbols('') == ()`).
+  Nodes (harness/grammar/population.py, kind "value" unless noted): `pop_append`, `pop_remove`, `to_one_hot`,
+  `deck_zero` (kind deck), `deck_split`, `mean_time_to_sum` (a tuple of results for a list of targets, one cache),
+  `cartesian_product` (`outcome_type` tuple or Vector), `iter_cartesian_product` (a tuple of `(outcomes, q)`).
+  The fuzzer picks root kinds uniformly, so "value" nodes get few programs: generate them directly (a throwaway
+  `fixtures make tmp-x/...` of `NODES[op].gen` output, `fixtures verify` both ways, then move the file out of
+  fixtures/). At S5c ~46k such programs plus 5k-program fuzz runs clean both ways; fixtures/s5c (edge-cases 399,
+  contains-tuple-eq, largest-count-wild-lazy-truth).
+- Facade (crates/icepool-py/src/population.rs): `population_append` / `population_remove` (then
+  `_from_rust_data`), `to_one_hot(die, own_outcomes, outcomes, deck)` (a given sequence's `len` / `in` / `index`
+  are Python's, called from Rust; `len` only once there is an outcome), `deck_zero` / `deck_split`,
+  `call_per_outcome` (Deck.map's calls; `Deck(...)` of the results stays upstream's), `mean_time_to_sum(die,
+  cache_list, target)` (appends to the die's own `_mean_time_to_sum_cache`), `iter_cartesian_product(items...)`
+  and `cartesian_product_data(outcome_type, items...)` (a dict; `outcome_type` called back unless it is `tuple`).
+- **Host sources and host operators (S5c).** The core driver now takes what it has no variant for:
+  `MultisetSource::Host` (core host_source.rs: `HostSourceObject` callbacks, outcomes asked once, equality /
+  hash the host's) and `Operator::Host` + `Statelet::Host(Value)` (a `HostOperator`'s `initial_state(order,
+  outcomes, child_sizes)` / `next_state(state, order, outcome, child_counts)`; `Operator::initial_state` and
+  `expression::initial_state` take the evaluation's outcomes for it). `MultisetSource::is_resolvable` /
+  `order_preference` (and CompoundKeep's, Weightless's) return `Result` now. icepool-py host_source.rs: a facade
+  source without `_rs` is a host source (`core_source` falls back to it; popped sources holding `_rs` are the
+  core's again; `source_object` gives the Python object back); `UnsupportedOrder` from `pop` / `size` is the retry
+  signal, from `outcomes` / `is_resolvable` / `order_preference` it propagates (outside Python's `try`).
+  expression.rs `HostOperatorPy` for the spec `('host', dungeonlet.next_state, questlet.initial_state)`: called
+  with a list of child counts, an `Order`, an empty source iterator and `()` arg counts. evaluator_rust.py: any
+  free variable from a generator questlet is accepted (`_core_source`), sources passed through `_rust_sources`
+  (compound_keep.py `_rust_source`: `_rs` or the object), an operator without a spec (user subclass, subclass of a
+  built-in, or a cached dungeonlet disagreeing with its questlet) becomes the host spec, built-ins only without
+  tuple sources (`_tuple_source`: any `MultisetTupleSource`). multiset_evaluator_base.py raises
+  `NotImplementedError` for anything still not describable (custom Dungeon / Dungeonlet classes) instead of
+  running upstream's driver. Gaps: counts / sizes from a user source or operator that are not ints / int tuples
+  within 64 bits are NotImplementedError; built-ins fed tuple counts by a host operator are NotImplementedError
+  (S5d). Cases in crates/icepool-py/tests (user `Uniform` generator, `DoubleCounts` operator, `MyUnion(
+  MultisetUnion)`): no grammar nodes, the program language has no user classes. Make test classes' `hash_key`
+  include `type(self)`: the oracle's evaluators cache rooms by source equality across cases.
+- Fixed in passing: `LargestCountWithWildEvaluator` (poker.rs) took every selector's truth value at once; Python
+  keeps `is_wild or select(outcome)` as an object and asks its truth only in `if is_wild_early/late` (a Vector
+  from `identity` raised only in the port). Selectors (program evaluate.rs `make_select_function`) return values.
+- Left for S5d (tasks.json): built-in evaluators over tuple counts natively.
+
 - **Operators over tuple counts, operator equality, @multiset_function kwargs (S4f).** Core `operator/`: counts
   and sizes stay `Count` (`Int` | `Tuple`) through the operators. Python has no special case for a tuple count; its
   arithmetic just runs on it, so the port copies case by case: `operator::int` is the TypeError wherever Python
@@ -18,7 +65,7 @@ turns out wrong. Newest decisions at the top of each section.
   comparison raises; `UnsupportedOrder` / `OrderError` for a `None` size still come first. `CountFunction` (map_counts)
   takes and returns `Count`s (catalogue: `expression::count_value` / `value_count`; facade: `count_py`, a result
   that is an int or a flat tuple of ints, else a facade gap: a nested tuple, a bool). Only operators: built-in
-  evaluators still say `Unsupported` for tuple counts in icepool-run (S5c); the generators evaluate tuple-count
+  evaluators still say `Unsupported` for tuple counts in icepool-run (task S5d); the generators evaluate tuple-count
   expressions with catalogue evaluators (written over `Value`s) only.
 - Program layer: a multiset tuple expression is an operand of an expression's operators (reflected: `md + pool` is
   `pool.__radd__`), has no operators of its own (`md + md`, `md * 2`, `-md`, `+md` in `max_pair('==')` are
@@ -65,9 +112,8 @@ turns out wrong. Newest decisions at the top of each section.
   weightless_evaluate,weightless,d,die,deck` (only ~10% of those programs are weightless: generate the node directly
   for volume, as for mf_call). At S4e: 30k direct weightless_evaluate programs clean through icepool-run, 16k
   through the facade, plus 11k mf_call / mx_evaluate / evaluate; fixtures/s4e (56).
-- Facade: `WeightlessSource.__init__` builds `icepool_rs.weightless_source(wrapped._rs)` when the wrapped source has
-  `_rs` (every built-in one does under rust; a user generator's source does not, and then evaluations stay on
-  upstream's driver by input kind, FACADE-AUDIT item 5); `_new_rust` + lazy `_wrapped` (`_wrap_rust_source`, which
+- Facade: `WeightlessSource.__init__` builds `icepool_rs.weightless_source(_rust_source(wrapped))` (the wrapped
+  source's `_rs`; since S5c a user source without one is a host source inside it); `_new_rust` + lazy `_wrapped` (`_wrap_rust_source`, which
   knows `WeightlessSource` now), `pop` / `size` / `outcomes` / `order_preference` / `is_resolvable` / `hash_key` on
   the core. `evaluator_rust._core_source` accepts `WeightlessSource`; icepool-py `core_source` / `source_object`
   know `RsWeightlessSource` (crates/icepool-py/src/weightless.rs). In the upstream suite every evaluation now runs
@@ -605,8 +651,8 @@ turns out wrong. Newest decisions at the top of each section.
   subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
-- Still upstream's Python driver (by input kind, not a fallback): since S4e only sources the core does not know
-  (user generator subclasses, and weightless wrappers of them).
+- Upstream's Python driver is no longer used under rust (S5c): user sources / operators are host ones, and any
+  other unknown preparation raises `NotImplementedError` (see the S5c entry).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
   at top level and 20 frames deep). The oracle's real limit also depends on warm `_popped_max` and on the shared
