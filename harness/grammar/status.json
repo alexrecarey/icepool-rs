@@ -215,5 +215,8 @@
   "reroll_to_pool": "ported",
   "to_pool_evaluate": "ported",
   "weightless": "ported",
-  "weightless_evaluate": "ported"
+  "weightless_evaluate": "ported",
+  "mf_kwarg": "ported",
+  "mf_call_kw": "ported",
+  "tuple_op_evaluate": "ported"
 }

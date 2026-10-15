@@ -81,6 +81,8 @@ pub enum Func {
     CountDiff,
     /// `lambda outcome, *counts: sum(counts) if outcome > k else 0`
     CountIfGtK(PValue),
+    /// `lambda outcome, *counts: max(counts)`
+    CountMax,
     /// `lambda x: [x] * n` (map_to_pool: a pool of `n` copies of the outcome).
     NOf(PValue),
     /// `lambda x: icepool.d(n).pool(x)` (map_to_pool: an expression as the result).
@@ -105,7 +107,7 @@ impl Func {
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
             "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "mul2"
-            | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" | "pair_list" => 0,
+            | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" | "count_max" | "pair_list" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
             | "pair_walk" | "count_if_gt_k" | "n_of" | "pool_d" | "reroll_or_pair" => 1,
@@ -153,6 +155,7 @@ impl Func {
             "collatz" => Collatz,
             "pair_walk" => PairWalk(next()),
             "count_diff" => CountDiff,
+            "count_max" => CountMax,
             "count_if_gt_k" => CountIfGtK(next()),
             "n_of" => NOf(next()),
             "pool_d" => PoolD(next()),
@@ -171,7 +174,7 @@ impl Func {
             Mapping(_) => return None,
             Host(f) => return Some(f.positional()),
             Const(_) => return Some((0, None)),
-            CountDiff | CountIfGtK(_) => return Some((1, None)),
+            CountDiff | CountIfGtK(_) | CountMax => return Some((1, None)),
             ReadRoll | Swap | Add2 | Max2 | Mul2 | BreakEq | PairList | CapSum(_) | BreakAt(..)
             | RestartOn(..) | Walk(..) => 2,
             Sum3 | PairWalk(_) => 3,
@@ -247,6 +250,14 @@ impl Func {
                     return raise(Error::Index("tuple index out of range".into()));
                 };
                 return binary(BinOp::Sub, first.clone(), sum(&args[2..])?);
+            }
+            CountMax => {
+                // `max(counts)`: the first of the largest.
+                let mut counts = args.into_iter().skip(1);
+                let Some(first) = counts.next() else {
+                    return raise(Error::Value("max() iterable argument is empty".into()));
+                };
+                return counts.try_fold(first, py_max);
             }
             CountIfGtK(k) => {
                 return if truthy(&binary(BinOp::Gt, args[0].clone(), k.clone())?)? {
@@ -419,7 +430,9 @@ impl Func {
                     PValue::tuple(vec![b, next])
                 }
             }
-            Mapping(_) | CountDiff | CountIfGtK(_) | Host(_) => unreachable!("handled above"),
+            Mapping(_) | CountDiff | CountIfGtK(_) | CountMax | Host(_) => {
+                unreachable!("handled above")
+            }
         })
     }
 }

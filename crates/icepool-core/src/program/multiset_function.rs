@@ -2,9 +2,10 @@
 //! i.e. tracing the function body with parameters and preparing the call tree that the core
 //! (`crate::evaluator::multiset_function`) evaluates.
 //!
-//! A function is node `mf_def` (`params` positional parameters, `var` = a `*args` parameter, `body` a lazy
-//! program); inside its body node `mf_var` is its `i`-th argument (the innermost function's: a nested function's
-//! body is traced later, with its own arguments). Evaluating an expression that holds a parameter does not
+//! A function is node `mf_def` (`params` positional parameters, `var` = a `*args` parameter, `kwonly` the names
+//! of keyword-only parameters, `body` a lazy program); inside its body node `mf_var` is its `i`-th argument and
+//! `mf_kwarg` a keyword argument (the innermost function's: a nested function's body is traced later, with its own
+//! arguments). Evaluating an expression that holds a parameter does not
 //! evaluate: it returns a [`RawResult`] (Python's `MultisetFunctionRawResult`) recording the evaluator and its
 //! inputs. Calling the function (`mf_call`) traces the body and evaluates what it recorded.
 
@@ -34,6 +35,8 @@ pub struct FunctionDef {
     params: usize,
     /// Whether it has a `*args` parameter.
     var: bool,
+    /// Its keyword-only parameters (none has a default): non-multiset values passed by `f(..., name=value)`.
+    kwonly: Vec<String>,
     body: Json,
 }
 
@@ -49,7 +52,8 @@ pub enum RawEvaluator {
 pub struct RawResult {
     evaluator: RawEvaluator,
     exprs: Vec<MExpr>,
-    /// The keyword arguments of a nested function call (`star`); a leaf evaluator holds its own.
+    /// The keyword arguments of a nested function call (`star` and the function's own); a leaf evaluator holds
+    /// its own.
     kwargs: Vec<(String, PValue)>,
 }
 
@@ -59,25 +63,44 @@ impl std::fmt::Debug for RawResult {
     }
 }
 
+/// The positional and keyword arguments of a traced body.
+type Arguments = (Vec<PValue>, Vec<(String, PValue)>);
+
 thread_local! {
     /// The arguments of the function bodies being traced, innermost last.
-    static VARS: RefCell<Vec<Vec<PValue>>> = const { RefCell::new(Vec::new()) };
+    static VARS: RefCell<Vec<Arguments>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Node `mf_def`: `icepool.multiset_function(f)` for a function `f(p0, ..., p{params-1}[, *rest])` whose body is
-/// the lazy program `body`.
+/// Node `mf_def`: `icepool.multiset_function(f)` for a function `f(p0, ..., p{params-1}[, *rest][, *, k...])`
+/// whose body is the lazy program `body` (`kwonly`, the keyword-only names, may be left out).
 pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
     let keys: Vec<&str> = m
         .keys()
         .map(String::as_str)
         .filter(|k| *k != "op")
         .collect();
-    let (Some(params), Some(var), Some(body), 4) =
-        (m.get("params"), m.get("var"), m.get("body"), m.len())
-    else {
+    let kwonly = m.get("kwonly");
+    let (Some(params), Some(var), Some(body), true) = (
+        m.get("params"),
+        m.get("var"),
+        m.get("body"),
+        m.len() == 4 + usize::from(kwonly.is_some()),
+    ) else {
         return raise(Error::Type(format!(
-            "expected arguments [\"params\", \"var\", \"body\"], got {keys:?}"
+            "expected arguments [\"params\", \"var\", \"body\", \"kwonly\"], got {keys:?}"
         )));
+    };
+    let kwonly = match kwonly {
+        None => Vec::new(),
+        Some(names) => py_iter(eval(names)?)?
+            .into_iter()
+            .map(|name| match name {
+                PValue::Value(Value::Str(name)) => Ok(name.to_string()),
+                _ => Err(PErr::Unimplemented(
+                    "a keyword-only parameter name that is not a str".into(),
+                )),
+            })
+            .collect::<Result<_, _>>()?,
     };
     let params = match eval(params)? {
         PValue::Value(Value::Int(n)) => {
@@ -89,6 +112,7 @@ pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
     Ok(PValue::MultisetFunction(Arc::new(FunctionDef {
         params,
         var,
+        kwonly,
         body: body.clone(),
     })))
 }
@@ -100,7 +124,7 @@ pub fn mf_var(i: PValue) -> Result<PValue, PErr> {
     };
     VARS.with(|v| {
         let v = v.borrow();
-        let args = v
+        let (args, _) = v
             .last()
             .ok_or_else(|| PErr::Unimplemented("mf_var outside a function body".into()))?;
         usize::try_from(&i)
@@ -108,6 +132,25 @@ pub fn mf_var(i: PValue) -> Result<PValue, PErr> {
             .and_then(|i| args.get(i))
             .cloned()
             .ok_or_else(|| PErr::Raise(Error::Index("tuple index out of range".into())))
+    })
+}
+
+/// Node `mf_kwarg`: keyword argument `name` of the innermost function being traced (KeyError if it has none of
+/// that name).
+pub fn mf_kwarg(name: PValue) -> Result<PValue, PErr> {
+    let PValue::Value(Value::Str(name)) = name else {
+        return Err(PErr::Unimplemented("a keyword argument name".into()));
+    };
+    VARS.with(|v| {
+        let v = v.borrow();
+        let (_, kwargs) = v
+            .last()
+            .ok_or_else(|| PErr::Unimplemented("mf_kwarg outside a function body".into()))?;
+        kwargs
+            .iter()
+            .find(|(k, _)| **k == *name)
+            .map(|(_, x)| x.clone())
+            .ok_or_else(|| PErr::Raise(Error::Key(format!("{name:?}"))))
     })
 }
 
@@ -303,14 +346,11 @@ fn prepare_function(
 ) -> Result<Vec<Prepared>, PErr> {
     let star = match kwargs.iter().find(|(k, _)| k == "star") {
         Some((_, star)) => truthy(star)?,
-        // `infer_star`: more required parameters than inputs.
+        // `infer_star`: more required positional parameters than inputs.
         None => f.params > inputs.len(),
     };
-    if kwargs.iter().any(|(k, _)| k != "star") {
-        return Err(PErr::Unimplemented(
-            "keyword arguments to a multiset function".into(),
-        ));
-    }
+    // `self._wrapped(*multiset_variables, **kwargs)` without `star`.
+    let kwargs: Vec<(String, PValue)> = kwargs.iter().filter(|(k, _)| k != "star").cloned().collect();
     let mut vars = Vec::new();
     let rest = if star {
         let Some(first) = inputs.first() else {
@@ -332,7 +372,7 @@ fn prepare_function(
     for (i, e) in inputs.iter().enumerate().skip(rest) {
         vars.push(make_param(e, i)?);
     }
-    // `self._wrapped(*multiset_variables)`: Python checks the arity.
+    // `self._wrapped(*multiset_variables, **kwargs)`: Python binds the arguments to the signature.
     if vars.len() < f.params || (!f.var && vars.len() > f.params) {
         return type_error(format!(
             "wrapped() takes {} positional arguments but {} were given",
@@ -340,7 +380,17 @@ fn prepare_function(
             vars.len()
         ));
     }
-    VARS.with(|v| v.borrow_mut().push(vars));
+    if let Some((k, _)) = kwargs.iter().find(|(k, _)| !f.kwonly.contains(k)) {
+        return type_error(format!(
+            "wrapped() got an unexpected keyword argument '{k}'"
+        ));
+    }
+    if let Some(k) = f.kwonly.iter().find(|k| kwargs.iter().all(|(n, _)| n != *k)) {
+        return type_error(format!(
+            "wrapped() missing 1 required keyword-only argument: '{k}'"
+        ));
+    }
+    VARS.with(|v| v.borrow_mut().push((vars, kwargs)));
     let result = eval(&f.body);
     VARS.with(|v| v.borrow_mut().pop());
     let result = result?;
@@ -423,6 +473,20 @@ fn prepare_joint(outer: &[MExpr], raws: Vec<RawResult>) -> Result<Vec<Prepared>,
 
 /// Node `mf_call`: `f(*args)`, or `f(*args, star=star)` unless `star` is `None`.
 pub fn mf_call(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
+    let kwargs = match star {
+        PValue::Value(Value::None) => Vec::new(),
+        star => vec![("star".to_string(), star)],
+    };
+    call(f, args, kwargs)
+}
+
+/// Node `mf_call_kw`: `f(*args, **dict(kwargs))` (`star` among them or not).
+pub fn mf_call_kw(f: PValue, args: PValue, kwargs: PValue) -> Result<PValue, PErr> {
+    call(f, args, super::map::kwargs(kwargs)?)
+}
+
+/// `f.evaluate(*args, **kwargs)` for a multiset function `f`.
+fn call(f: PValue, args: PValue, kwargs: Vec<(String, PValue)>) -> Result<PValue, PErr> {
     let PValue::MultisetFunction(f) = f else {
         return type_error("not a multiset function");
     };
@@ -430,10 +494,6 @@ pub fn mf_call(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr> {
         .into_iter()
         .map(super::evaluate::implicit_convert)
         .collect::<Result<Vec<_>, _>>()?;
-    let kwargs = match star {
-        PValue::Value(Value::None) => Vec::new(),
-        star => vec![("star".to_string(), star)],
-    };
     // Inside another function's body: record the call.
     if exprs.iter().any(MExpr::has_parameter) {
         return Ok(PValue::RawResult(Arc::new(RawResult {

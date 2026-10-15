@@ -258,6 +258,13 @@ def count_if_gt_k(k):
     return lambda outcome, *counts: sum(counts) if outcome > k else 0
 
 
+@entry("count_max", args=_int_dice)
+def count_max():
+    """A map_counts function (outcome, *counts): the largest count (over tuple counts, the lexicographically
+    largest tuple; ValueError with no counts)."""
+    return lambda outcome, *counts: max(counts)
+
+
 @entry("add_kw", kw=True)
 def add_kw():
     """A keyword-only parameter: map_kw passes it as-is (a die is not expanded)."""

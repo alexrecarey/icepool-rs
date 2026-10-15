@@ -665,8 +665,15 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
             PValue::Func(f) if f.positional().is_some() => {
                 OutcomeFilter::Function(Arc::new(CataloguePredicate(f)))
             }
-            PValue::Func(_) | PValue::MultiDeal(_) => {
+            PValue::Func(_) => {
                 return Err(PErr::Unimplemented("this keep_outcomes target".into()))
+            }
+            // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
+            // `MultisetTupleIndex`es, whose hashes (of `(type, index)`) no outcome's matches, so nothing is in it.
+            target if as_tuple_expression(&target).is_some() => {
+                let e = as_tuple_expression(&target).expect("checked");
+                e.tuple_len()?;
+                OutcomeFilter::Set(Arc::from(Vec::new()))
             }
             // `frozenset(outcomes)`: iterate, every element hashable.
             target => {
@@ -689,8 +696,7 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
 }
 
 /// Whether a dict holding expression `a` finds it equal to `b` (`MultisetMixture` counts its inners in one): their
-/// `hash_key`s. Expressions of different classes have different hash keys and are never compared; the port only
-/// compares generators and parameters.
+/// `hash_key`s. Expressions of different classes have different hash keys and are never compared.
 pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
     Ok(match (a, b) {
         (MExpr::Gen(a), MExpr::Gen(b)) => same_generator(a, b),
@@ -738,12 +744,8 @@ pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             }
             true
         }
-        (a, b) if std::mem::discriminant(a) != std::mem::discriminant(b) => false,
-        _ => {
-            return Err(PErr::Unimplemented(
-                "comparing multiset expressions other than generators".into(),
-            ))
-        }
+        // Expressions of different classes have different hash keys (every pair of the same kind is above).
+        _ => false,
     })
 }
 
@@ -1045,9 +1047,14 @@ pub fn max_pair(
     priority: PValue,
 ) -> Result<PValue, PErr> {
     let e = the_expression(e)?;
+    let tuple_other = as_tuple_expression(&other).is_some();
     let other = implicit_convert(other)?;
     let comparison = name(&comparison);
     if &*comparison == "==" {
+        if keep && tuple_other {
+            // `+other`: a multiset tuple expression has no unary `+`.
+            return type_error("bad operand type for unary +");
+        }
         let result = if keep {
             // `+self & +other`
             let pos = |x| MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![x]);

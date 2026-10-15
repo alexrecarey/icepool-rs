@@ -154,6 +154,13 @@ def gen_expression(g, depth, budget=None, leaf=None):
     r = g.rng
     budget -= 1
     sub = lambda: gen_expression(g, depth, budget // 2, leaf)
+    if r.random() < 0.06:
+        # A mixture of expressions, now and then one of them twice: inners with equal hash keys (operators of the
+        # same class and parameters over equal children; a function is only equal to itself) count as one.
+        inners = [sub() for _ in range(r.choice([1, 2, 2, 3]))]
+        if r.random() < 0.6:
+            inners.insert(r.randint(0, len(inners)), r.choice(inners))
+        return {"op": "mx_mixture", "inners": inners}
     k = r.random()
     if k < 0.2:
         op = r.choice(list(_BINARY))

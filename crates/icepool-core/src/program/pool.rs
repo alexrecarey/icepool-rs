@@ -7,8 +7,8 @@ use dashu_int::IBig;
 
 use super::evaluate::run;
 use super::expression::{
-    as_expression, binary_op, counts, into_pvalue, keepable_mixture, map_mixture, multiset_keep,
-    multiset_keep_seq, the_expression, MExpr,
+    as_expression, as_tuple_expression, binary_op, counts, into_pvalue, keepable_mixture,
+    map_mixture, multiset_keep, multiset_keep_seq, the_expression, tuple_slice, MExpr,
 };
 use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
@@ -399,6 +399,10 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
 
 /// `pool[start:stop:step]`.
 pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Result<PValue, PErr> {
+    // A multiset tuple expression's `__getitem__`: some of its multisets.
+    if as_tuple_expression(&pool).is_some() {
+        return tuple_slice(pool, start, stop, step);
+    }
     let e = the_expression(pool)?;
     if let Some(inners) = keepable_mixture(&e) {
         return map_mixture(inners, |inner| {
@@ -556,6 +560,10 @@ pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Resul
 /// `pool * n` (without a pool, the plain operator): an int multiplies every count. Anything else is `NotImplemented` for the pool, and then for the
 /// other operand too (a die's `__rmul__` would make a die of pools: not ported).
 pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {
+    // A multiset tuple expression has no `*`, and an int none for it.
+    if as_tuple_expression(&pool).is_some() || as_tuple_expression(&n).is_some() {
+        return type_error("unsupported operand type(s) for *");
+    }
     match (as_expression(&pool).is_some(), as_expression(&n).is_some()) {
         (true, _) => counts(pool, "mul", PValue::Value(Value::None), n),
         // `n * pool`: the int returns NotImplemented, then `pool.__rmul__(n)`, which is `pool * n`.
@@ -566,6 +574,9 @@ pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {
 
 /// `-pool` (without a pool, the plain operator).
 pub fn pool_neg(pool: PValue) -> Result<PValue, PErr> {
+    if as_tuple_expression(&pool).is_some() {
+        return type_error("bad operand type for unary -");
+    }
     if as_expression(&pool).is_none() {
         return unary(UnOp::Neg, pool);
     }
@@ -580,7 +591,8 @@ pub fn pool_neg(pool: PValue) -> Result<PValue, PErr> {
 /// `a + b` (without a multiset expression, the plain operator). For two pools: one pool if every sorted position
 /// counts the same, else a `CompoundKeepGenerator`.
 pub fn pool_add(a: PValue, b: PValue) -> Result<PValue, PErr> {
-    if as_expression(&a).is_none() && as_expression(&b).is_none() {
+    let multiset = |x: &PValue| as_expression(x).is_some() || as_tuple_expression(x).is_some();
+    if !multiset(&a) && !multiset(&b) {
         return binary(BinOp::Add, a, b);
     }
     binary_op("+", a, b)

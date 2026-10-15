@@ -348,6 +348,14 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [f, a, star] = args.exactly(["f", "args", "star"])?;
             super::multiset_function::mf_call(f, a, star)
         }
+        "mf_call_kw" => {
+            let [f, a, kwargs] = args.exactly(["f", "args", "kwargs"])?;
+            super::multiset_function::mf_call_kw(f, a, kwargs)
+        }
+        "mf_kwarg" => {
+            let [name] = args.exactly(["name"])?;
+            super::multiset_function::mf_kwarg(name)
+        }
         "mx_evaluate" | "mx_tuple_evaluate" | "to_pool_evaluate" | "weightless_evaluate" => {
             let [e, method] = args.exactly(["expr", "method"])?;
             evaluate::method_evaluation(&str_arg(&method)?, e)
@@ -519,7 +527,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [p, index] = args.exactly(["pool", "index"])?;
             evaluate::keep_evaluate(p, index)
         }
-        "evaluate" | "multi_deal_evaluate" => {
+        "evaluate" | "multi_deal_evaluate" | "tuple_op_evaluate" => {
             let [name, params, a] = args.exactly(["name", "params", "args"])?;
             evaluate::catalogue(name, params, a, vec![])
         }

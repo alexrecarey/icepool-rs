@@ -3,32 +3,35 @@ expression/multiset_tuple_expression.py): functions of multisets traced with par
 tuple expressions (a MultiDeal's hands). Same rules as basic.py: the Python side is a direct call into icepool;
 generators keep programs small.
 
-A function is `mf_def`: `params` positional parameters (plus `*rest` if `var`) and a lazy `body` program, run each
-time icepool traces the function. Inside the body `mf_var` is the function's `i`-th argument (positional
-parameters first, then `*rest`): a MultisetParameter, or a MultisetTupleParameter for an unstarred MultiDeal.
-Variables always belong to the innermost function being traced. `mf_call` calls a function on inputs.
+A function is `mf_def`: `params` positional parameters (plus `*rest` if `var`, plus keyword-only parameters named
+in `kwonly`) and a lazy `body` program, run each time icepool traces the function. Inside the body `mf_var` is the
+function's `i`-th argument (positional parameters first, then `*rest`): a MultisetParameter, or a
+MultisetTupleParameter for an unstarred MultiDeal; `mf_kwarg` is a keyword argument, passed as it is. Variables
+always belong to the innermost function being traced. `mf_call` calls a function on inputs, `mf_call_kw` with
+keyword arguments.
 """
 import icepool
 
 from harness.core.grammar_api import evaluate, node
 from harness.grammar.pool import fresh_caches, straight_safe_method
 
-# The arguments of the bodies being traced, innermost last.
+# The (positional, keyword) arguments of the bodies being traced, innermost last.
 _VARS: list = []
 
 
-def _make_function(params, var, body):
-    """A real Python function `f(p0, ..., [*rest])` (icepool reads its signature) that evaluates `body` with its
-    arguments as the variables."""
-    names = [f"p{i}" for i in range(params)] + (["*rest"] if var else [])
+def _make_function(params, var, body, kwonly):
+    """A real Python function `f(p0, ..., [*rest], [*,] k...)` (icepool reads its signature) that evaluates `body`
+    with its arguments as the variables."""
+    names = [f"p{i}" for i in range(params)] + (["*rest"] if var else ["*"] if kwonly else []) + list(kwonly)
     args = "(" + "".join(f"p{i}, " for i in range(params)) + ")" + (" + rest" if var else "")
-    scope = {"_run": lambda a: _run_body(body, a)}
-    exec(f"def wrapped({', '.join(names)}):\n    return _run({args})\n", scope)  # noqa: S102
+    kwargs = "{" + "".join(f"{k!r}: {k}, " for k in kwonly) + "}"
+    scope = {"_run": lambda a, kw: _run_body(body, a, kw)}
+    exec(f"def wrapped({', '.join(names)}):\n    return _run({args}, {kwargs})\n", scope)  # noqa: S102
     return scope["wrapped"]
 
 
-def _run_body(body, args):
-    _VARS.append(args)
+def _run_body(body, args, kwargs):
+    _VARS.append((args, kwargs))
     try:
         return evaluate(body)
     finally:
@@ -36,16 +39,23 @@ def _run_body(body, args):
 
 
 @node("mf_def", "mfunc", lazy=("body",))
-def mf_def(params, var, body):
-    """icepool.multiset_function(f) for f(p0, ..., p{params-1}[, *rest]) returning the program `body`. Its repr
-    holds an address: no generator (mf_call makes them)."""
-    return icepool.multiset_function(_make_function(params, var, body))
+def mf_def(params, var, body, kwonly=()):
+    """icepool.multiset_function(f) for f(p0, ..., p{params-1}[, *rest][, *, k0, k1...]) returning the program
+    `body`; `kwonly` (the names k0, k1...) may be left out. Its repr holds an address: no generator (mf_call and
+    mf_call_kw make them)."""
+    return icepool.multiset_function(_make_function(params, var, body, kwonly))
 
 
 @node("mf_var", "mexpr")
 def mf_var(i):
     """The i-th argument of the innermost function body being traced (IndexError past the end)."""
-    return _VARS[-1][i]
+    return _VARS[-1][0][i]
+
+
+@node("mf_kwarg", "value")
+def mf_kwarg(name):
+    """Keyword argument `name` of the innermost function body being traced (KeyError if it has none)."""
+    return _VARS[-1][1][name]
 
 
 @node("mx_tuple_index", "mexpr")
@@ -104,8 +114,9 @@ def _single(g, kinds, i):
     return {"op": "mx_tuple_index", "expr": _var(i), "index": index}
 
 
-def _body_expr(g, depth, kinds):
-    """A multiset expression over the variables (and now and then a pool of the body's own)."""
+def _body_expr(g, depth, kinds, kwonly=()):
+    """A multiset expression over the variables (and now and then a pool of the body's own), now and then using a
+    keyword argument."""
     from harness.grammar.multiset import gen_expression
     from harness.grammar.pool import gen_pool
 
@@ -113,19 +124,50 @@ def _body_expr(g, depth, kinds):
         if not kinds or g.rng.random() < 0.15:
             return gen_pool(g, 0)
         return _single(g, kinds, g.rng.randrange(len(kinds)))
-    return gen_expression(g, depth, g.rng.choice([0, 0, 1, 1, 2]), leaf)
+    e = gen_expression(g, depth, g.rng.choice([0, 0, 1, 1, 2]), leaf)
+    if kwonly and g.rng.random() < 0.5:
+        e = _with_kwarg(g, e, kwonly)
+    return e
+
+
+def _kwarg(name):
+    return {"op": "mf_kwarg", "name": {"str": name}}
+
+
+def _with_kwarg(g, e, kwonly):
+    """An operation on `e` taking a keyword argument of the function as its parameter (a `target` is a collection
+    of outcomes, an `n` an int)."""
+    name = g.rng.choice(kwonly)
+    if name == "target" or g.rng.random() < 0.1:
+        return {"op": "mx_filter", "expr": e, "invert": {"bool": g.rng.random() < 0.5}, "target": _kwarg(name)}
+    o = g.rng.choice(["mul", "unique", "keep_counts", "floordiv", "multiply_counts"])
+    comparison = {"str": g.rng.choice(["==", "!=", "<=", "<", ">=", ">"])}
+    return {"op": "mx_counts", "expr": e, "o": {"str": o}, "comparison": comparison, "n": _kwarg(name)}
+
+
+# The keyword-only parameters a function may have (`star` is taken by icepool: it never reaches the body).
+_KW_NAMES = ["target", "n", "star"]
+
+
+def _kw_value(g, name):
+    if name == "target":
+        return [g.outcome() for _ in range(g.rng.randint(0, 3))]
+    if name == "star":
+        return {"bool": g.rng.random() < 0.5}
+    return g.rng.choice([0, 1, 1, 2, 3, -1])
 
 
 _METHODS = ["sum", "size", "empty", "any", "product_of_counts", "highest_outcome_and_count", "largest_count",
             "largest_count_and_outcome", "expand", "all_counts", "largest_straight", "all_straights"]
 
 
-def _evaluation(g, depth, kinds, nested):
+def _evaluation(g, depth, kinds, nested, kwonly=()):
     """One result of a body: mostly an evaluation over the variables."""
     from harness.catalogue.evaluators import ENTRIES
     r = g.rng.random()
+    body_expr = lambda: _body_expr(g, depth, kinds, kwonly)  # noqa: E731
     if r < 0.5:
-        expr = _body_expr(g, depth, kinds)
+        expr = body_expr()
         return {"op": "mx_evaluate", "expr": expr, "method": {"str": straight_safe_method(g, expr, _METHODS)}}
     if r < 0.72:
         name = g.rng.choice(["record", "record", "count_eq", "count_diff", "final_die", "seen", "reroll_at_least"])
@@ -133,45 +175,53 @@ def _evaluation(g, depth, kinds, nested):
         n = e.inputs(g) if name != "record" else g.rng.choice([1, 1, 2])
         args = []
         for _ in range(n):
-            # The evaluators written for any count see a tuple variable whole, too.
+            # The evaluators written for any count see a tuple variable whole too, or operators over it (tuple
+            # counts).
             tuples = [i for i, k in enumerate(kinds) if k is not None]
-            if tuples and name == "record" and g.rng.random() < 0.3:
-                args.append(_var(g.rng.choice(tuples)))
+            if tuples and g.rng.random() < (0.3 if name == "record" else 0.1):
+                t = lambda: _var(g.rng.choice(tuples))  # noqa: E731
+                args.append(t() if g.rng.random() < 0.5 else tuple_count_expression(g, depth, t))
             else:
-                args.append(_body_expr(g, depth, kinds))
+                args.append(body_expr())
         return {"op": "evaluate", "name": {"str": name}, "params": e.params(g), "args": args}
     if r < 0.76:
-        return {"op": "pool_issubset", "pool": _body_expr(g, depth, kinds), "other": _body_expr(g, depth, kinds)}
+        return {"op": "pool_issubset", "pool": body_expr(), "other": body_expr()}
     if r < 0.8:
-        return {"op": "pool_count_subset", "pool": _body_expr(g, depth, kinds),
-                "divisor": _body_expr(g, depth, kinds), "empty_divisor": None}
+        return {"op": "pool_count_subset", "pool": body_expr(), "divisor": body_expr(), "empty_divisor": None}
     if r < 0.86:
-        return {"op": "keep_evaluate", "pool": _body_expr(g, depth, kinds), "index": g.rng.choice([None, 0, 1, -1])}
+        return {"op": "keep_evaluate", "pool": body_expr(), "index": g.rng.choice([None, 0, 1, -1])}
     if r < 0.93 and nested:
-        # A nested function over expressions of the variables.
+        # A nested function over expressions of the variables (its keyword arguments now and then this
+        # function's own).
         n = g.rng.choice([1, 1, 2])
-        args = [_body_expr(g, depth, kinds) for _ in range(n)]
-        return _call(g, depth, args, [None] * n, nested=False)
+        args = [body_expr() for _ in range(n)]
+        return _call(g, depth, args, [None] * n, nested=False, kw=g.rng.random() < 0.3, outer_kwonly=kwonly)
+    if "n" in kwonly and r < 0.96:
+        # A keyword argument as the result: a constant (an int: a list in a joint result would make tuple
+        # outcomes holding lists, which the port does not model).
+        return _kwarg("n")
     # A constant: a die (or now and then a plain value), not an evaluation.
     return g.die(0) if g.rng.random() < 0.8 else g.rng.randint(0, 3)
 
 
-def _body(g, depth, kinds, nested=True):
+def _body(g, depth, kinds, nested=True, kwonly=()):
     """A function body: one result, or now and then a joint result (a list of them, or a non-sequence)."""
     r = g.rng.random()
     if r < 0.7:
-        return _evaluation(g, depth, kinds, nested)
+        return _evaluation(g, depth, kinds, nested, kwonly)
     if r < 0.97:
-        return [_evaluation(g, depth, kinds, nested) for _ in range(g.rng.choice([1, 2, 2, 3]))]
+        return [_evaluation(g, depth, kinds, nested, kwonly) for _ in range(g.rng.choice([1, 2, 2, 3]))]
     # Odd results: an expression without an evaluation (TypeError), an empty joint result (ValueError), an int
     # (TypeError: not iterable).
     return g.rng.choice([_body_expr(g, depth, kinds), [], 5])
 
 
-def _call(g, depth, args, kinds, nested=True):
+def _call(g, depth, args, kinds, nested=True, kw=False, outer_kwonly=()):
     """mf_call of a fresh function on `args` (whose tuple lengths are `kinds`). Mostly the function's arity fits
     its arguments (unpacking the first if it is starred), and `star` is left to Python's inference when that agrees
-    with the body's view of its variables, else given."""
+    with the body's view of its variables, else given. With `kw`, the function has keyword-only parameters and
+    mf_call_kw passes them (mostly exactly those; a value is now and then a keyword argument of the function being
+    traced, `outer_kwonly`)."""
     tuple_first = bool(kinds) and kinds[0] is not None
     star = None if g.rng.random() < 0.7 else {"bool": g.rng.random() < (0.7 if tuple_first else 0.1)}
     starred = tuple_first and (star == {"bool": True} or star is None and g.rng.random() < 0.5)
@@ -184,8 +234,24 @@ def _call(g, depth, args, kinds, nested=True):
         params = max(params + g.rng.choice([-1, 1]), 0)  # TypeError from the arity
     if star is None and (params > len(args)) != bool(starred):
         star = {"bool": bool(starred)}
-    f = {"op": "mf_def", "params": params, "var": {"bool": var}, "body": _body(g, depth, var_kinds, nested)}
-    return {"op": "mf_call", "f": f, "args": args, "star": star}
+    kwonly = []
+    if kw:
+        kwonly = g.rng.sample(_KW_NAMES[:2], g.rng.choice([1, 1, 2])) if g.rng.random() < 0.97 else ["star"]
+    body = _body(g, depth, var_kinds, nested, [k for k in kwonly if k != "star"])
+    f = {"op": "mf_def", "params": params, "var": {"bool": var}, "body": body}
+    if not kw:
+        return {"op": "mf_call", "f": f, "args": args, "star": star}
+    f["kwonly"] = [{"str": k} for k in kwonly]
+    names = [k for k in kwonly if k != "star"]
+    if g.rng.random() < 0.05 and names:
+        names.remove(g.rng.choice(names))  # TypeError: a missing keyword argument
+    if g.rng.random() < 0.05:
+        names.append(g.rng.choice(_KW_NAMES[:2]))  # TypeError: an unexpected one (or the same one twice)
+    kwargs = [[{"str": k}, _kwarg(k) if k in outer_kwonly and g.rng.random() < 0.5 else _kw_value(g, k)]
+              for k in names]
+    if star is not None:
+        kwargs.insert(g.rng.randint(0, len(kwargs)), [{"str": "star"}, star])
+    return {"op": "mf_call_kw", "f": f, "args": args, "kwargs": kwargs}
 
 
 def _gen_mf_call(g, depth):
@@ -193,6 +259,13 @@ def _gen_mf_call(g, depth):
     args = [_input(g, depth) for _ in range(n)]
     kinds = [_tuple_len(a) for a in args]
     return _call(g, depth, args, kinds)
+
+
+def _gen_mf_call_kw(g, depth):
+    n = g.rng.choice([1, 1, 1, 2, 2, 3])
+    args = [_input(g, depth) for _ in range(n)]
+    kinds = [_tuple_len(a) for a in args]
+    return _call(g, depth, args, kinds, kw=True)
 
 
 @node("mf_call", "die", gen=_gen_mf_call, weight=1.0)
@@ -221,9 +294,93 @@ def _gen_tuple_evaluate(g, depth):
     return {"op": "mx_tuple_evaluate", "expr": e, "method": {"str": straight_safe_method(g, e, _METHODS)}}
 
 
+@node("mf_call_kw", "die", gen=_gen_mf_call_kw, weight=0.5)
+def mf_call_kw(f, args, kwargs):
+    """f(*args, **dict(kwargs)) for a list of [name, value] pairs: keyword arguments for the function's keyword-only
+    parameters (passed to the body as they are), and `star`."""
+    fresh_caches()
+    return f(*args, **{k: v for k, v in kwargs})
+
+
 @node("mx_tuple_evaluate", "die", gen=_gen_tuple_evaluate, weight=0.5)
 def mx_tuple_evaluate(expr, method):
     """getattr(expr, method)() (as mx_evaluate) for an expression over a hand of a MultiDeal, outside any
     function."""
     fresh_caches()
     return getattr(expr, method)()
+
+
+# --- S4f: multiset operators over whole multiset tuple expressions ---------------------------------------------
+
+def tuple_count_expression(g, depth, tuple_leaf):
+    """A multiset expression over whole multiset tuple expressions (`tuple_leaf()` makes one: a MultiDeal, a tuple
+    variable): its counts are tuples, which Python's operators compute with as it does with any tuple (`min` /
+    `max` / `+` of two tuples, `tuple * n`, `==`), mostly raising TypeError. Then now and then more operators on
+    top (`gen_expression`, whose other operands are pools or more of these)."""
+    from harness.catalogue.functions import fn_node
+    from harness.grammar.multiset import gen_expression
+    from harness.grammar.pool import gen_pool
+    r = g.rng
+
+    def operand():
+        k = r.random()
+        if k < 0.6:
+            return tuple_leaf()
+        if k < 0.85:
+            return gen_pool(g, 0)
+        return [g.outcome() for _ in range(r.randint(0, 2))]
+
+    def base(g, depth):
+        k = r.random()
+        if k < 0.45:
+            # One child: `reduce` passes its tuple counts through; two tuples: min / max / concatenated / TypeError.
+            name = r.choice(["union", "intersection", "difference", "additive_union", "union", "intersection"])
+            args = [tuple_leaf()] + [operand() for _ in range(r.choice([0, 0, 1, 1, 2]))]
+            r.shuffle(args)
+            return {"op": "mx_method", "name": {"str": name}, "args": args,
+                    "keep_negative_counts": {"bool": r.random() < 0.3}}
+        if k < 0.65:
+            # A pool (or a list, or another tuple expression) and a tuple expression: the reflected operator if
+            # the tuple expression is on the left.
+            a, b = tuple_leaf(), operand()
+            if r.random() < 0.5:
+                a, b = b, a
+            return {"op": "mx_binary", "a": a, "o": {"str": r.choice(["+", "-", "&", "|", "^"])}, "b": b}
+        if k < 0.85:
+            f = fn_node(g, name=r.choice(["count_max", "count_max", "count_if_gt_k", "count_diff"]))[0]
+            return {"op": "mx_map_counts", "args": [tuple_leaf()] + [operand() for _ in range(r.choice([0, 1]))],
+                    "function": f}
+        if k < 0.93:
+            return gen_pool(g, 0)
+        # The tuple expression itself: an operator's other operand, or its methods (AttributeError).
+        return tuple_leaf()
+    if r.random() < 0.4:
+        return base(g, depth)
+    return gen_expression(g, depth, r.choice([1, 1, 2]), base)
+
+
+def _gen_tuple_op_evaluate(g, depth):
+    from harness.catalogue.evaluators import ENTRIES
+    from harness.grammar.deck import gen_multi_deal
+
+    def tuple_leaf():
+        md = gen_multi_deal(g, 0)
+        if g.rng.random() < 0.1:
+            return {"op": "mx_tuple_slice", "expr": md, "start": g.rng.choice([None, 1, -1]),
+                    "stop": g.rng.choice([None, 2, -1]), "step": None}
+        return md
+    # Evaluators written for any count (the built-in ones are not: they see a tuple where they expect an int).
+    name = g.rng.choice(["record", "record", "record", "hand_sums", "count_eq", "seen", "final_die"])
+    e = ENTRIES[name]
+    n = e.inputs(g) if name != "record" else g.rng.choice([1, 1, 2])
+    args = [tuple_count_expression(g, depth, tuple_leaf) for _ in range(n)]
+    return {"op": "tuple_op_evaluate", "name": {"str": name}, "params": e.params(g), "args": args}
+
+
+@node("tuple_op_evaluate", "die", gen=_gen_tuple_op_evaluate, weight=0.5)
+def tuple_op_evaluate(name, params, args):
+    """EVALUATORS[name](*params).evaluate(*args) (as evaluate) where the args are multiset operators applied to
+    whole multiset tuple expressions (MultiDeals): the operators get tuple counts and sizes."""
+    from harness.catalogue.evaluators import EVALUATORS
+    fresh_caches()
+    return EVALUATORS[name](*params).evaluate(*args)
