@@ -61,6 +61,7 @@ impl Num<'_> {
                     -HASH_INF
                 }
             }
+            Num::Float(f) => hash_finite_float(*f),
             _ => {
                 let r = self.exact().expect("finite");
                 hash_rational(r.numerator(), r.denominator())
@@ -71,6 +72,29 @@ impl Num<'_> {
         } else {
             h
         }
+    }
+}
+
+/// `_Py_HashDouble` for a finite float, from its bits rather than through an exact `RBig` (which made hashing
+/// float outcomes the bulk of `n @ (float die)`: P1). A finite float is `mant * 2**e` with `mant < 2**53 < P`, and
+/// `2**61 == 1 (mod P)`, so its hash is `mant` rotated left by `e mod 61` within 61 bits, negated for a negative
+/// float: the same value CPython's frexp loop and `hash_rational` compute.
+fn hash_finite_float(f: f64) -> i64 {
+    let bits = f.to_bits();
+    let exponent_bits = ((bits >> 52) & 0x7ff) as i64;
+    let fraction = bits & ((1 << 52) - 1);
+    // Subnormals have no implicit leading bit and the exponent of the least normal.
+    let (mant, e) = if exponent_bits == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1 << 52), exponent_bits - 1075)
+    };
+    let e = e.rem_euclid(61) as u32;
+    let x = ((mant << e) & P) | (mant >> (61 - e));
+    if f < 0.0 {
+        -(x as i64)
+    } else {
+        x as i64
     }
 }
 
@@ -205,6 +229,29 @@ fn positive_ratio_to_f64(a: &UBig, b: &UBig) -> crate::Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bit-level float hash agrees with the exact rational one on floats of every magnitude, subnormals included.
+    #[test]
+    fn float_hash_matches_rational_hash() {
+        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut floats = vec![0.0, -0.0, 1.0, -1.0, 0.5, f64::MIN_POSITIVE, 5e-324, f64::MAX, -f64::MAX, 1e100];
+        for _ in 0..100_000 {
+            // xorshift64: random bit patterns cover every exponent.
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            floats.push(f64::from_bits(x));
+        }
+        for f in floats.into_iter().filter(|f| f.is_finite()) {
+            let r = RBig::try_from(f).unwrap();
+            assert_eq!(hash_finite_float(f), hash_rational(r.numerator(), r.denominator()), "{f:e}");
+        }
+        // CPython 3.13: `[hash(x) for x in [-1.0, 0.1, -2.5, 1e300, 5e-324]]`.
+        let python = [-2, 230584300921369408, -1152921504606846978, 1224995262755759164, 16777216];
+        for (f, h) in [-1.0, 0.1, -2.5, 1e300, 5e-324].into_iter().zip(python) {
+            assert_eq!(Num::Float(f).py_hash(), h, "{f:e}");
+        }
+    }
 
     fn r(n: i64, d: i64) -> f64 {
         ratio_to_f64(&IBig::from(n), &IBig::from(d)).unwrap()
