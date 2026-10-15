@@ -36,6 +36,18 @@ impl KeepCountsComparison {
         })
     }
 
+    /// The comparison as given to the constructor (`__str__` shows it).
+    pub fn symbol(self) -> &'static str {
+        match self {
+            KeepCountsComparison::Eq => "==",
+            KeepCountsComparison::Ne => "!=",
+            KeepCountsComparison::Le => "<=",
+            KeepCountsComparison::Lt => "<",
+            KeepCountsComparison::Ge => ">=",
+            KeepCountsComparison::Gt => ">",
+        }
+    }
+
     pub(super) fn test(self, count: i64, constant: i64) -> bool {
         match self {
             KeepCountsComparison::Eq => count == constant,

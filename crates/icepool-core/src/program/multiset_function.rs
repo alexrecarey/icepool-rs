@@ -43,6 +43,22 @@ pub struct FunctionDef {
     body: Body,
 }
 
+impl FunctionDef {
+    /// `_get_positional_name(index)`: the name of the `index`-th multiset variable, shown by `str()` of its
+    /// parameter. `mf_def` names its function's parameters `p0, p1, ...` and `*rest` (harness/grammar/
+    /// multiset_function.py); a host function's names are not known, and it gets the same ones.
+    fn positional_name(&self, index: usize) -> Arc<str> {
+        if index < self.params {
+            format!("p{index}").into()
+        } else if self.var {
+            format!("rest[{index}]").into()
+        } else {
+            // The exception will be raised later.
+            "(too many args)".into()
+        }
+    }
+}
+
 /// What tracing the function runs: Python's `self._wrapped(*multiset_variables, **kwargs)`.
 #[derive(Debug)]
 enum Body {
@@ -358,12 +374,17 @@ fn convert(x: PValue) -> Result<RawResult, PErr> {
 }
 
 /// `MultisetExpressionBase._make_param(name, arg_index)`: a tuple expression makes a tuple parameter.
-fn make_param(e: &MExpr, arg_index: usize) -> Result<PValue, PErr> {
+fn make_param(e: &MExpr, name: Arc<str>, arg_index: usize) -> Result<PValue, PErr> {
     Ok(PValue::Expr(match e.tuple_len()? {
-        Some(len) => MExpr::TupleParam { arg_index, len },
+        Some(len) => MExpr::TupleParam {
+            arg_index,
+            len,
+            name,
+        },
         None => MExpr::Param {
             arg_index,
             star_index: None,
+            name,
         },
     }))
 }
@@ -399,6 +420,7 @@ fn prepare_function(
             vars.push(PValue::Expr(MExpr::Param {
                 arg_index: 0,
                 star_index: Some(i),
+                name: f.positional_name(vars.len()),
             }));
         }
         1
@@ -406,7 +428,7 @@ fn prepare_function(
         0
     };
     for (i, e) in inputs.iter().enumerate().skip(rest) {
-        vars.push(make_param(e, i)?);
+        vars.push(make_param(e, f.positional_name(vars.len()), i)?);
     }
     // `self._wrapped(*multiset_variables, **kwargs)`: Python binds the arguments to the signature.
     if vars.len() < f.params || (!f.var && vars.len() > f.params) {

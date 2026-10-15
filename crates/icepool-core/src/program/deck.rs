@@ -450,36 +450,53 @@ pub fn deck_method(deck: PValue, name: PValue, arg: PValue) -> Result<PValue, PE
 
 /// `(repr(deal), str(deal))` for a `Deal` or `MultiDeal`: `str` is a header line, then `str(self.deck())`.
 pub fn deal_str(deal: PValue) -> Result<PValue, PErr> {
+    let (repr, text) = deal_repr_and_str(&deal)?;
+    Ok(PValue::Value(Value::tuple(vec![
+        Value::str(&repr),
+        Value::str(&text),
+    ])))
+}
+
+/// `repr()` and `str()` of a `Deal` or `MultiDeal`.
+pub(super) fn deal_repr_and_str(deal: &PValue) -> Result<(String, String), PErr> {
     use super::wire::deck_repr;
-    let (repr, header, deck) = match &deal {
-        PValue::Deal(d) => (
+    match deal {
+        PValue::Deal(d) => Ok((
             format!(
                 "Deal({}, hand_size={})",
                 deck_repr(d.deck())?,
                 d.hand_size()
             ),
-            format!("Deal of hand_size={}", d.hand_size()),
-            d.deck(),
-        ),
+            deal_text(d.deck(), d.hand_size())?,
+        )),
         PValue::MultiDeal(md) => {
             let groups = super::multi_deal::hand_groups(md.hand_groups());
-            (
+            let header = format!(
+                "MultiDeal of hand_groups={}",
+                crate::value::pystr::py_repr(&groups)?
+            );
+            Ok((
                 super::multi_deal::repr(md, &deck_repr(md.deck())?)?,
-                format!(
-                    "MultiDeal of hand_groups={}",
-                    crate::value::pystr::py_repr(&groups)?
-                ),
-                md.deck(),
-            )
+                format!("{header} from deck:\n{}", deck_str(md.deck())?),
+            ))
         }
-        _ => return type_error("AttributeError: only deals have this method"),
-    };
+        _ => type_error("AttributeError: only deals have this method"),
+    }
+}
+
+/// `str(deal)` of a `Deal` of `hand_size` cards (also an inner of a `CompoundKeepGenerator`, by its source).
+pub(super) fn deal_text(deck: &Deck<Value>, hand_size: usize) -> Result<String, PErr> {
+    Ok(format!(
+        "Deal of hand_size={hand_size} from deck:\n{}",
+        deck_str(deck)?
+    ))
+}
+
+/// `str(deck)`: its table.
+fn deck_str(deck: &Deck<Value>) -> Result<String, PErr> {
     let Formatted::Text(table) = crate::format::format(deck.population(), "Deck", "", false)?
     else {
         unreachable!("only csv_table asks for a table")
     };
-    Ok(PValue::Value(Value::tuple(vec![
-        Value::str(&repr),
-        Value::str(&format!("{header} from deck:\n{table}")),
-    ])))
+    Ok(table)
 }

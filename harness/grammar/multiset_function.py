@@ -164,6 +164,8 @@ _METHODS = ["sum", "size", "empty", "any", "product_of_counts", "highest_outcome
 def _evaluation(g, depth, kinds, nested, kwonly=()):
     """One result of a body: mostly an evaluation over the variables."""
     from harness.catalogue.evaluators import ENTRIES
+    if kinds and g.rng.random() < 0.06:
+        return _param_str(g, depth, kinds)
     r = g.rng.random()
     body_expr = lambda: _body_expr(g, depth, kinds, kwonly)  # noqa: E731
     if r < 0.5:
@@ -202,6 +204,19 @@ def _evaluation(g, depth, kinds, nested, kwonly=()):
         return _kwarg("n")
     # A constant: a die (or now and then a plain value), not an evaluation.
     return g.die(0) if g.rng.random() < 0.8 else g.rng.randint(0, 3)
+
+
+def _param_str(g, depth, kinds):
+    """str() of an expression over the variables (a constant result: a str): a parameter's str is its name (`p0`,
+    `rest[2]`), a tuple variable's too. Not a hand of a tuple variable: MultisetTupleIndex has no __str__."""
+    from harness.grammar.multiset import gen_str_expression
+    from harness.grammar.pool import gen_pool
+
+    def leaf(g, depth):
+        if g.rng.random() < 0.1:
+            return gen_pool(g, 0)
+        return _var(g.rng.randrange(len(kinds)))
+    return {"op": "mx_str", "expr": gen_str_expression(g, depth, g.rng.choice([0, 0, 1, 2]), leaf)}
 
 
 def _body(g, depth, kinds, nested=True, kwonly=()):

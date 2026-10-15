@@ -188,3 +188,29 @@ def _gen_mixture(g, depth):
 def mixture(outcomes, times):
     """icepool.Die(outcomes, times) where outcomes mix dice, Reroll, and tuples holding dice."""
     return icepool.Die(outcomes, times)
+
+
+def _gen_break_str(g, depth):
+    r = g.rng.random()
+    if r < 0.15:
+        outcome = None
+    elif r < 0.3:
+        outcome = g.die(0)
+    elif r < 0.4:
+        # A VectorWithTruthOnly (vectors of different lengths compared): its repr and str are fine, its hash raises.
+        a, b = ([g.outcome() for _ in range(n)] for n in g.rng.sample([0, 1, 2, 3], 2))
+        outcome = {"op": "coll_binary", "a": {"op": "vector", "items": a}, "b": {"op": "vector", "items": b},
+                   "name": {"str": g.rng.choice(["lt", "le", "gt", "ge"])}}
+    elif r < 0.5:
+        outcome = {"op": "vector", "items": [_typed_outcome(g, "num") for _ in range(g.rng.randint(0, 2))]}
+    else:
+        outcome = _typed_outcome(g, "any")
+    return {"op": "break_str", "outcome": outcome}
+
+
+@node("break_str", "value", gen=_gen_break_str, weight=0.3)
+def break_str(outcome):
+    """b = icepool.Break(outcome); (repr(b), str(b), hash(b) == hash(b)): `Break(...)` with the outcome's repr /
+    str; hashing it hashes (Break, outcome), which raises for an unhashable outcome."""
+    b = icepool.Break(outcome)
+    return repr(b), str(b), hash(b) == hash(b)

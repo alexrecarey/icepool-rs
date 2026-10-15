@@ -190,6 +190,10 @@ def _gen_vector_method(g, depth):
     r = g.rng
     name = r.choice(VECTOR_METHODS)
     v = g.make("collection", depth) if r.random() < 0.3 else {"op": "vector", "items": vector_lit(g)["vector"]}
+    if name in ("repr", "str") and r.random() < 0.3:
+        # A VectorWithTruthOnly: vectors of different lengths compared.
+        a, b = ({"op": "vector", "items": vector_lit(g, n)["vector"]} for n in r.sample([0, 1, 2, 3], 2))
+        v = {"op": "coll_binary", "a": a, "b": b, "name": {"str": r.choice(["lt", "le", "gt", "ge"])}}
     arg = None
     if name == "append":
         arg = _element(g)

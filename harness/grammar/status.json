@@ -234,5 +234,7 @@
   "die_sequence": "ported",
   "die_stochastic_round": "ported",
   "wallenius_deal_expr": "ported",
-  "straight_and_outcome_evaluate": "ported"
+  "straight_and_outcome_evaluate": "ported",
+  "mx_str": "ported",
+  "break_str": "ported"
 }

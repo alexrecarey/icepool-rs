@@ -101,6 +101,37 @@ pub enum Operator<O> {
     Host(Arc<dyn HostOperator<O> + Send + Sync>),
 }
 
+impl<O> Operator<O> {
+    /// `str(operator)` given `str()` of its children and, for `MultisetKeep`, of its index as it was given (a
+    /// slice, list or tuple, which the core does not keep). `None` for the operators without a `__str__`
+    /// (`MultisetMapCounts`, the pairing and versus operators, `MultisetForceOrder`, host operators): theirs is
+    /// `object.__repr__`, a memory address.
+    pub fn py_str(&self, children: &[String], keep_index: Option<&str>) -> Option<String> {
+        let child = || children.first().map(String::as_str).unwrap_or_default();
+        Some(match self {
+            // `'(' + (' ' + self.symbol() + ' ').join(str(child) for child in self._children) + ')'`
+            Operator::Binary(op) => format!("({})", children.join(&format!(" {} ", op.symbol()))),
+            Operator::MultiplyCounts(n) => format!("({} * {n})", child()),
+            Operator::FloordivCounts(n) => format!("({} // {n})", child()),
+            Operator::ModuloCounts(n) => format!("({} % {n})", child()),
+            Operator::Unique(1) => format!("{}.unique()", child()),
+            Operator::Unique(n) => format!("{}.unique({n})", child()),
+            Operator::KeepCounts(c, n) => format!("{}.keep_counts('{}', {n})", child(), c.symbol()),
+            // The unary filter shows neither its function nor its set of outcomes.
+            Operator::FilterOutcomes { invert, .. } => {
+                let name = if *invert { "drop" } else { "keep" };
+                format!("{}.{name}_outcomes(...)", child())
+            }
+            Operator::FilterOutcomesBinary { invert } => {
+                let name = if *invert { "drop" } else { "keep" };
+                format!("{}.{name}_outcomes({})", child(), children.get(1)?)
+            }
+            Operator::Keep(_) => format!("{}[{}]", child(), keep_index?),
+            _ => return None,
+        })
+    }
+}
+
 /// The methods of an [`Operator::Host`]: `_initial_state(order, outcomes, child_sizes, source_sizes, arg_sizes)`
 /// and `_next_state(state, order, outcome, child_counts, source_counts, arg_counts)`, each returning the local
 /// state and this node's size or count. Only an operator's children are its business: the source and argument

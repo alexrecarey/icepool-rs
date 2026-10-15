@@ -42,12 +42,18 @@ pub enum MExpr {
     /// A `MultisetOperator` and its children.
     Op(Arc<OpNode>),
     /// `MultisetParameter`: argument `arg_index` of a `@multiset_function` (its `star_index` element if starred).
+    /// `name` is what `str()` shows: the function's parameter name.
     Param {
         arg_index: usize,
         star_index: Option<usize>,
+        name: Arc<str>,
     },
     /// `MultisetTupleParameter`: a multiset tuple argument (a `MultiDeal`) of a `@multiset_function`, not starred.
-    TupleParam { arg_index: usize, len: usize },
+    TupleParam {
+        arg_index: usize,
+        len: usize,
+        name: Arc<str>,
+    },
     /// `MultisetTupleIndex`: `child[index]` of a multiset tuple expression, a multiset expression.
     TupleIndex(Arc<(MExpr, i64)>),
     /// `MultisetTupleSlice`: `child[start:stop:step]`, a multiset tuple expression.
@@ -63,6 +69,16 @@ pub struct OpNode {
     /// Whether the operator's `_expression_key` holds a list (a `MultisetKeep` given a list index): its
     /// `hash_key` cannot be hashed, so it cannot be an inner of a mixture.
     pub list_index: bool,
+    /// A `MultisetKeep`'s index as it was given, which only `str()` shows.
+    pub keep_index: Option<KeepIndexArg>,
+}
+
+/// The index of a `MultisetKeep` as Python keeps it (`self._index`): a slice's `start, stop, step`, or the sequence
+/// (or invalid index) itself.
+#[derive(Clone)]
+pub enum KeepIndexArg {
+    Slice(Box<[PValue; 3]>),
+    Given(PValue),
 }
 
 impl fmt::Debug for MExpr {
@@ -88,6 +104,7 @@ impl MExpr {
             operator,
             children,
             list_index: false,
+            keep_index: None,
         }))
     }
 
@@ -144,6 +161,7 @@ impl MExpr {
             MExpr::Param {
                 arg_index,
                 star_index,
+                ..
             } => one(
                 Dungeonlet::Parameter {
                     arg_index: *arg_index,
@@ -749,10 +767,12 @@ pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             MExpr::Param {
                 arg_index: a,
                 star_index: sa,
+                ..
             },
             MExpr::Param {
                 arg_index: b,
                 star_index: sb,
+                ..
             },
         ) => (a, sa) == (b, sb),
         (MExpr::TupleParam { arg_index: a, .. }, MExpr::TupleParam { arg_index: b, .. }) => a == b,
@@ -1005,11 +1025,17 @@ pub fn map_mixture(
 
 /// `MultisetKeep(expr, index=index)` for a slice or a sequence of counts and `...` (`list_index`: given as a
 /// list, which makes the expression unhashable).
-pub fn multiset_keep(e: MExpr, index: MultisetKeepIndex, list_index: bool) -> MExpr {
+pub fn multiset_keep(
+    e: MExpr,
+    index: MultisetKeepIndex,
+    list_index: bool,
+    given: KeepIndexArg,
+) -> MExpr {
     MExpr::Op(Arc::new(OpNode {
         operator: Operator::Keep(index),
         children: vec![e],
         list_index,
+        keep_index: Some(given),
     }))
 }
 
@@ -1174,6 +1200,147 @@ pub fn force_order(e: PValue, order: PValue) -> Result<PValue, PErr> {
     Ok(into_pvalue(MExpr::op(Operator::ForceOrder(order), vec![e])))
 }
 
+/// `str(x)` (node `mx_str`) for a multiset expression, a `MultiDeal` or a die (what an `int` index of a pool
+/// evaluates to). Pools, deals, compound keeps, most operators, mixtures and parameters have a `__str__`; the rest
+/// show `object.__repr__`, a memory address, which the port does not make up.
+pub fn mx_str(x: PValue) -> Result<PValue, PErr> {
+    let text = match &x {
+        PValue::Die(_) | PValue::DieWithTruth(..) => {
+            return super::format::format(x, PValue::Value(Value::None))
+        }
+        PValue::MultiDeal(_) => super::deck::deal_repr_and_str(&x)?.1,
+        _ => match as_expression(&x).or_else(|| as_tuple_expression(&x)) {
+            Some(e) => expression_str(&e)?,
+            None => return type_error("AttributeError: not a multiset expression"),
+        },
+    };
+    Ok(PValue::Value(Value::str(&text)))
+}
+
+fn address(class: &str) -> PErr {
+    PErr::Unimplemented(format!(
+        "str() of a {class}: object.__repr__, a memory address"
+    ))
+}
+
+/// `str(expression)`.
+fn expression_str(e: &MExpr) -> Result<String, PErr> {
+    match e {
+        MExpr::Gen(KeepGen::Pool(p)) => pool_str(p.dice(), p.keep_tuple()),
+        MExpr::Gen(KeepGen::Deal(d)) => super::deck::deal_text(d.deck(), d.hand_size()),
+        MExpr::Gen(KeepGen::Compound(c)) => compound_str(c.inner_sources(), c.keep_tuple()),
+        MExpr::MultiDeal(md) => Ok(super::deck::deal_repr_and_str(&PValue::MultiDeal(md.clone()))?.1),
+        MExpr::Weightless(_) => Err(address("WeightlessGenerator")),
+        MExpr::Op(node) => {
+            let children = node
+                .children
+                .iter()
+                .map(expression_str)
+                .collect::<Result<Vec<_>, _>>()?;
+            let keep_index = match &node.keep_index {
+                Some(KeepIndexArg::Slice(bounds)) => {
+                    let [start, stop, step] = &**bounds;
+                    Some(format!(
+                        "slice({}, {}, {})",
+                        pvalue_repr(start)?,
+                        pvalue_repr(stop)?,
+                        pvalue_repr(step)?
+                    ))
+                }
+                Some(KeepIndexArg::Given(index)) => Some(pvalue_str(index)?),
+                None => None,
+            };
+            node.operator
+                .py_str(&children, keep_index.as_deref())
+                .ok_or_else(|| address("MultisetOperator without __str__"))
+        }
+        // `MultisetParameterBase.__str__`: `self._name`.
+        MExpr::Param { name, .. } | MExpr::TupleParam { name, .. } => Ok(name.to_string()),
+        MExpr::TupleIndex(_) => Err(address("MultisetTupleIndex")),
+        MExpr::TupleSlice(_) => Err(address("MultisetTupleSlice")),
+        // `'MultisetMixture({\n' + ',\n'.join(f'{k}: {v}' for k, v in self._inner_expressions.items()) + '})'`
+        MExpr::Mixture(inners) => {
+            let items = inners
+                .iter()
+                .map(|(inner, weight)| Ok(format!("{}: {weight}", expression_str(inner)?)))
+                .collect::<Result<Vec<_>, PErr>>()?;
+            Ok(format!("MultisetMixture({{\n{}}})", items.join(",\n")))
+        }
+    }
+}
+
+/// `Pool.__str__`: a header, then `  {repr(die)} : {count},` per die (in `hash_key` order).
+fn pool_str(dice: &[(crate::Die<Value>, usize)], keep_tuple: &[i64]) -> Result<String, PErr> {
+    let raw_size: usize = dice.iter().map(|(_, count)| count).sum();
+    let mut text = format!(
+        "Pool of {raw_size} dice with keep_tuple={}\n",
+        keep_tuple_repr(keep_tuple)?
+    );
+    for (die, count) in dice {
+        let PValue::Value(Value::Str(die)) = super::die_methods::repr(PValue::Die(die.clone()))? else {
+            unreachable!("repr() is a str")
+        };
+        text += &format!("  {die} : {count},\n");
+    }
+    Ok(text)
+}
+
+/// `CompoundKeepGenerator.__str__`, from its inner generators' sources (which keep their dice or deck and keep
+/// tuple).
+fn compound_str(inners: &[MultisetSource<Value>], keep_tuple: &[i64]) -> Result<String, PErr> {
+    let inners = inners
+        .iter()
+        .map(|inner| match inner {
+            MultisetSource::Pool(p) => pool_str(p.dice(), p.keep_tuple()),
+            MultisetSource::Deal(d) => super::deck::deal_text(d.deck(), d.keep_tuple().len()),
+            MultisetSource::CompoundKeep(c) => compound_str(c.inner_sources(), c.keep_tuple()),
+            _ => Err(address("inner generator")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(format!(
+        "CompoundKeep([{}], keep_tuple={})",
+        inners.join(", "),
+        keep_tuple_repr(keep_tuple)?
+    ))
+}
+
+fn keep_tuple_repr(keep_tuple: &[i64]) -> Result<String, PErr> {
+    let t = Value::tuple(keep_tuple.iter().map(|&k| Value::from(k)).collect());
+    Ok(crate::value::pystr::py_repr(&t)?)
+}
+
+/// `repr()` of a keep index or one of its elements (or of the outcome of a `Break`).
+pub(super) fn pvalue_repr(x: &PValue) -> Result<String, PErr> {
+    let items = |xs: &[PValue]| xs.iter().map(pvalue_repr).collect::<Result<Vec<_>, _>>();
+    Ok(match x {
+        PValue::Value(v) => crate::value::pystr::py_repr(v)?,
+        PValue::Ellipsis => "Ellipsis".into(),
+        PValue::List(xs) => format!("[{}]", items(xs)?.join(", ")),
+        PValue::Tuple(xs) if xs.len() == 1 => format!("({},)", items(xs)?[0]),
+        PValue::Tuple(xs) => format!("({})", items(xs)?.join(", ")),
+        PValue::Die(_) | PValue::DieWithTruth(..) => {
+            let PValue::Value(Value::Str(s)) = super::die_methods::repr(x.clone())? else {
+                unreachable!("repr() is a str")
+            };
+            s.to_string()
+        }
+        _ => return Err(PErr::Unimplemented("repr() of this keep index".into())),
+    })
+}
+
+/// `str()` of a keep index: a value's or a die's own `str`, else its `repr`.
+pub(super) fn pvalue_str(x: &PValue) -> Result<String, PErr> {
+    match x {
+        PValue::Value(_) | PValue::Die(_) | PValue::DieWithTruth(..) => {
+            match super::format::format(x.clone(), PValue::Value(Value::None))? {
+                PValue::Value(Value::Str(s)) => Ok(s.to_string()),
+                _ => unreachable!("str() is a str"),
+            }
+        }
+        x => pvalue_repr(x),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1183,6 +1350,7 @@ mod tests {
         let p = MExpr::Param {
             arg_index: 1,
             star_index: None,
+            name: "p1".into(),
         };
         assert_eq!(format!("{p:?}"), "MultisetParameter(1)");
         let index = MExpr::TupleIndex(Arc::new((p, 0)));

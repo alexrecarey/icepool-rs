@@ -286,3 +286,22 @@ pub fn time_to_sum(
     }
     die_of(states, quantities)
 }
+
+/// `b = icepool.Break(outcome)`; `(repr(b), str(b), hash(b) == hash(b))` (node `break_str`): `Break({outcome!r})`,
+/// `Break({outcome})`, and `__hash__` hashes `(Break, self.outcome)`, which raises for an outcome Python cannot
+/// hash.
+pub fn break_str(outcome: PValue) -> Result<PValue, PErr> {
+    use super::expression::{pvalue_repr, pvalue_str};
+    let repr = format!("Break({})", pvalue_repr(&outcome)?);
+    let text = format!("Break({})", pvalue_str(&outcome)?);
+    match &outcome {
+        PValue::Value(v) => v.check_hashable()?,
+        PValue::Die(_) | PValue::DieWithTruth(..) => {}
+        _ => return Err(PErr::Unimplemented("hash() of this Break outcome".into())),
+    }
+    Ok(PValue::Value(Value::tuple(vec![
+        Value::str(&repr),
+        Value::str(&text),
+        Value::Bool(true),
+    ])))
+}

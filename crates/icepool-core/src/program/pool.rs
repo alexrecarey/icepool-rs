@@ -8,7 +8,7 @@ use dashu_int::IBig;
 use super::evaluate::run;
 use super::expression::{
     as_expression, as_tuple_expression, binary_op, counts, into_pvalue, keepable_mixture,
-    map_mixture, multiset_keep, multiset_keep_seq, the_expression, tuple_slice, MExpr,
+    map_mixture, multiset_keep, multiset_keep_seq, KeepIndexArg, the_expression, tuple_slice, MExpr,
 };
 use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
 use super::{raise, PErr, PValue};
@@ -136,15 +136,20 @@ fn keep_slice(e: MExpr, slice: Slice) -> Result<PValue, PErr> {
         MExpr::Gen(g) if !g.has_negative_keeps() => {
             MExpr::Gen(g.keep(&KeepIndex::Slice { slice, step: false })?)
         }
-        _ => multiset_keep(
-            e,
-            MultisetKeepIndex::Slice {
-                start: slice.start,
-                stop: slice.stop,
-                step: false,
-            },
-            false,
-        ),
+        _ => {
+            let bound = |x: Option<i64>| PValue::Value(x.map_or(Value::None, Value::from));
+            let given = [bound(slice.start), bound(slice.stop), PValue::Value(Value::None)];
+            multiset_keep(
+                e,
+                MultisetKeepIndex::Slice {
+                    start: slice.start,
+                    stop: slice.stop,
+                    step: false,
+                },
+                false,
+                KeepIndexArg::Slice(Box::new(given)),
+            )
+        }
     };
     Ok(into_pvalue(result))
 }
@@ -401,7 +406,8 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         }
         (_, None) => {
             let list = matches!(index, PValue::List(_));
-            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list)))
+            let given = KeepIndexArg::Given(index.clone());
+            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list, given)))
         }
     }
 }
@@ -418,6 +424,7 @@ pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Re
             pool_slice(inner, start.clone(), stop.clone(), step.clone())
         });
     }
+    let step_arg = step.clone();
     let step = !matches!(step, PValue::Value(Value::None));
     let pool = match &e {
         MExpr::Gen(g) if !g.has_negative_keeps() => g,
@@ -434,7 +441,8 @@ pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Re
                 stop: bound(&stop)?,
                 step,
             };
-            return Ok(into_pvalue(multiset_keep(e, index, false)));
+            let given = KeepIndexArg::Slice(Box::new([start, stop, step_arg]));
+            return Ok(into_pvalue(multiset_keep(e, index, false, given)));
         }
     };
     // A bound that is neither an int nor None is only looked at when the list is sliced, after the checks for

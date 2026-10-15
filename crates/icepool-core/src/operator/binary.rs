@@ -22,6 +22,17 @@ pub enum BinaryOperator {
 }
 
 impl BinaryOperator {
+    /// `symbol()`: how `__str__` joins the children.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            BinaryOperator::Intersection => "&",
+            BinaryOperator::DifferenceDropNegative | BinaryOperator::DifferenceKeepNegative => "-",
+            BinaryOperator::Union => "|",
+            BinaryOperator::AdditiveUnion => "+",
+            BinaryOperator::SymmetricDifference => "^",
+        }
+    }
+
     /// `merge_counts`: merge counts produced by the left and right expression.
     fn merge_counts(self, left: i64, right: i64) -> Result<i64> {
         Ok(match self {

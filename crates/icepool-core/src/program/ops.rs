@@ -329,6 +329,14 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [g] = args.exactly(["generator"])?;
             expression::weightless(g)
         }
+        "break_str" => {
+            let [outcome] = args.exactly(["outcome"])?;
+            map_tools::break_str(outcome)
+        }
+        "mx_str" => {
+            let [e] = args.exactly(["expr"])?;
+            expression::mx_str(e)
+        }
         "mx_mixture" => {
             let [inners] = args.exactly(["inners"])?;
             expression::mixture(inners)

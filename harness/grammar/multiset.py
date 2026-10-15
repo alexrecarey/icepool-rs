@@ -286,3 +286,76 @@ def mx_evaluate(expr, method):
     the multiset expression evaluated, one outcome at a time."""
     fresh_caches()
     return getattr(expr, method)()
+
+
+# --- str() of expressions (T1c) ---------------------------------------------------------------------------------
+
+def gen_str_expression(g, depth, budget=None, leaf=None):
+    """A small multiset expression whose str() holds no address: only the classes with a `__str__` (pools, deals,
+    compound keeps, binary operators, count adjustments, filters, MultisetKeep, mixtures, parameters). Not
+    weightless(), map_counts, the pairing or versus operators, force_order, or a hand of a tuple expression."""
+    from harness.catalogue.functions import fn_node
+    r = g.rng
+    if budget is None:
+        budget = r.choice([0, 1, 1, 2, 2, 3])
+    if leaf is None:
+        from harness.grammar.pool import gen_pool
+        leaf = lambda g, depth: gen_pool(g, depth, negative=r.random() < 0.3, deals=True, expressions=False)  # noqa: E731
+    if budget <= 0 or r.random() < 0.1:
+        return leaf(g, depth)
+    budget -= 1
+    sub = lambda: gen_str_expression(g, depth, budget // 2, leaf)  # noqa: E731
+    k = r.random()
+    if k < 0.08:
+        # Equal inners are counted together: the weight shows.
+        inners = [sub() for _ in range(r.choice([1, 2, 2, 3]))]
+        if r.random() < 0.5:
+            inners.insert(r.randint(0, len(inners)), r.choice(inners))
+        return {"op": "mx_mixture", "inners": inners}
+    if k < 0.3:
+        a, b = sub(), sub() if r.random() < 0.8 else _outcomes(g)
+        if r.random() < 0.1:
+            a, b = _outcomes(g), sub()
+        return _binary(a, r.choice(list(_BINARY)), b)
+    if k < 0.4:
+        name = r.choice(["additive_union", "difference", "intersection", "union"])
+        args = [sub() if r.random() < 0.85 else _outcomes(g) for _ in range(r.choice([0, 1, 2, 2, 3]))]
+        return {"op": "mx_method", "name": {"str": name}, "args": args,
+                "keep_negative_counts": {"bool": r.random() < 0.4}}
+    if k < 0.6:
+        op = r.choice(["mul", "rmul", "neg", "pos", "floordiv", "mod", "unique", "unique", "keep_counts",
+                       "keep_counts", "multiply_counts", "divide_counts", "modulo_counts"])
+        n = r.choice([0, 1, 1, 2, 3, -1, -2])
+        if op in ("floordiv", "divide_counts", "mod", "modulo_counts") and n == 0:
+            n = 2
+        comparison = _comparison(g, ["==", "!=", "<=", "<", ">=", ">"])
+        return {"op": "mx_counts", "expr": sub(), "o": {"str": op}, "comparison": comparison, "n": n}
+    if k < 0.72:
+        t = r.random()
+        target = _outcomes(g) if t < 0.3 else fn_node(g, pred=True)[0] if t < 0.5 else sub()
+        return {"op": "mx_filter", "expr": sub(), "invert": {"bool": r.random() < 0.5}, "target": target}
+    if k < 0.92:
+        # Mostly over an operator (a MultisetKeep, whose str shows the index as given; a keep generator stays one).
+        inner = gen_str_expression(g, depth, max(budget // 2, 1), leaf) if r.random() < 0.7 else sub()
+        return _keep(g, inner)
+    if k < 0.97:
+        # max_pair_keep / max_pair_drop with '==' are `+self & +other` / `self - other`.
+        return {"op": "mx_max_pair", "expr": sub(), "keep": {"bool": r.random() < 0.5},
+                "comparison": {"str": "=="}, "other": sub(), "priority": None}
+    # force_order(Order.Any) is the expression itself.
+    return {"op": "mx_force_order", "expr": sub(), "order": 0}
+
+
+def _gen_mx_str(g, depth):
+    if g.rng.random() < 0.1:
+        from harness.grammar.deck import gen_multi_deal
+        return {"op": "mx_str", "expr": gen_multi_deal(g, depth)}
+    return {"op": "mx_str", "expr": gen_str_expression(g, depth)}
+
+
+@node("mx_str", "value", gen=_gen_mx_str, weight=0.5)
+def mx_str(expr):
+    """str(expr) of a multiset expression (or a MultiDeal, or the die a pool's int index evaluates to). Their repr
+    is object.__repr__ (an address) except a deal's (deal_str), and so is the str of the classes without a
+    `__str__` (weightless(), map_counts, sort_pair, ...): the generator leaves those out."""
+    return str(expr)
