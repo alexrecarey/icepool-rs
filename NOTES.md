@@ -822,6 +822,23 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Gotchas
 
+- **Surviving mutants (task M202610142332).** Fixtures only check *that* both sides raised (any type, any
+  message) and never match `Unsupported`. So mutants that only change an error's type or message, or a resource
+  limit, need **unit tests**: `program/mod.rs` `tests::raised(program)` returns `run`'s `(error, message)` for
+  that. To reproduce one mutant locally: `cargo mutants -p icepool-core --file <path> --re '<escaped
+  description>' --output /tmp/x` (~45 s per mutant: the fixtures run in debug). A task's line numbers may have
+  moved; `--list` shows the current ones. Kill fixtures: fixtures/m202610142332/. Left alive on purpose,
+  because they are equivalent (no input tells them apart): `function.rs` `pointwise` `q < b` -> `<=` and `q > b`
+  -> `>=` (which of two equal ints is kept); `consecutive` `stop > start` -> `>=` (when they are equal the
+  difference is 0); `one_hot` `sides > 4096` -> `>=` (only `one_hot(4096)`, a 16M-bool die, tells them apart);
+  `outcome.rs` default `py_eq` -> `Ok(false)` (only the `i64` / array / khepri outcomes use it, and their
+  equal keys are identical, so the merge is the same); `PartialEq for Value` deleting the `(Vector | Symbols,
+  _)` arm (the fallthrough arms already say unequal); `MultisetFunction::next_state` / `next_state_counts` ->
+  `Ok(None)` (the driver calls `next_state_tree`; flat counts cannot address a call tree).
+- **Tuple comparison uses Python's `==` to find the first difference** (`Value::first_difference`, shared by
+  `py_lt`, `ops::compare`, `Value::binary`): `Symbols('ab') == ('a', 'b')`, so `(Symbols('ab'),)` and
+  `(('a', 'b'),)` compare by length, as Python does (they used to raise). Elements equal as dict keys skip
+  `py_eq`, which also stands in for Python's identity shortcut. Fixtures: fixtures/m202610142332/tuple-compare-by-eq.
 - **Oracle coverage report (T1).** `uv run --with coverage python -m harness.tools.oracle_coverage` (~2 min) runs
   every fixture plus the gate's fixed-seed fuzz programs (seed 1 x 2000, seed 11 x 10000 at depth 4, khepri seed 7 x
   150; same generation as `tool fuzz`) through the oracle under coverage.py with branches, and rewrites
