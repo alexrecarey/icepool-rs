@@ -18,6 +18,8 @@ pub mod pow;
 pub mod pystr;
 mod repr;
 mod symbols;
+pub mod trig;
+mod trig_tables;
 mod vector;
 
 use std::cmp::Ordering;

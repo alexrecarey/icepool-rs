@@ -201,6 +201,22 @@ fn exp_inline(x: f64, xtail: f64, sign_bias: u64) -> f64 {
     scale.mul_add(tmp, scale) // contracted
 }
 
+/// Arm's `exp(x)` (glibc's `__exp_fma`, whose contractions are `exp_inline`'s): `exp_inline` without a tail,
+/// after `exp`'s own special cases. (`exp_inline` adds the zero tail to r, which cannot change the result: r is
+/// only -0.0 when x is, and tiny x returns before.)
+pub(super) fn arm_exp(x: f64) -> f64 {
+    let abstop = top12(x) & 0x7ff;
+    if abstop >= top12(1024.0) {
+        if x == f64::NEG_INFINITY {
+            return 0.0;
+        }
+        if abstop >= top12(f64::INFINITY) {
+            return 1.0 + x;
+        }
+    }
+    exp_inline(x, 0.0, 0)
+}
+
 /// Returns 0 if not int, 1 if odd int, 2 if even int. The argument is the bit representation of a non-zero finite
 /// floating-point value.
 fn checkint(iy: u64) -> u32 {

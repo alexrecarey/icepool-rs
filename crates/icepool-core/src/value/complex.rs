@@ -8,10 +8,11 @@
 //!   form). No infinity recovery in any of them (that too came in 3.14).
 //! - `//`, `%`, the bitwise operators and `<` etc. raise `TypeError`, as do `~`, `math.trunc/floor/ceil`, `round`.
 //!
-//! CPython's x86_64 build has no FMA contractions, and neither does Rust, so the plain expressions agree.
+//! CPython's x86_64 build has no FMA contractions, and neither does Rust, so the plain expressions agree. The C
+//! library functions are glibc's, natively and (ported, `libm.rs`, `pow.rs`, `trig.rs`) on wasm32.
 
 use super::ops::{BinOp, N};
-use super::{pow, Value};
+use super::{pow, trig, Value};
 use crate::error::{Error, Result};
 
 /// CPython's `Py_complex`.
@@ -148,12 +149,12 @@ fn c_pow(a: C, b: C) -> (C, Errno) {
     }
     let vabs = super::libm::hypot(a.re, a.im);
     let mut len = pow::pow(vabs, b.re);
-    let at = a.im.atan2(a.re);
+    let at = trig::atan2(a.im, a.re);
     let mut phase = at * b.re;
     if b.im != 0.0 {
         // `len *= exp(-at * b.imag)`, as the oracle's CPython 3.13 binary computes it (read off the disassembly of
         // `_Py_c_pow`): not `len /= exp(at * b.imag)`, which rounds differently.
-        len *= (-at * b.im).exp();
+        len *= trig::exp(-at * b.im);
         phase += b.im * super::libm::log(vabs);
     }
     let errno = if phase.is_infinite() {
@@ -163,8 +164,8 @@ fn c_pow(a: C, b: C) -> (C, Errno) {
     };
     (
         C {
-            re: len * phase.cos(),
-            im: len * phase.sin(),
+            re: len * trig::cos(phase),
+            im: len * trig::sin(phase),
         },
         errno,
     )

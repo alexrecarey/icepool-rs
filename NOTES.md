@@ -226,6 +226,23 @@ turns out wrong. Newest decisions at the top of each section.
   `die_repr` (`DieWithTruth(...)` for `==` results). `is_in` / `count` / `if_else` stay compositions of `map` in
   the facade (the container and `bool` are Python's), as upstream writes them. `map.rs` `contains` is the
   program layer's `x in collection`; reuse it.
+- **Complex numbers (V1).** `value/complex.rs` is CPython 3.13's complexobject.c bit for bit: `+ - * /` are the
+  plain formulas (`_Py_c_quot` is Smith's algorithm; 3.13 has *no* infinity recovery and no mixed real/complex
+  arithmetic: `1j * inf` is `(nan+infj)`, both came in 3.14), a real operand is `complex(float(x), 0.0)` first
+  (OverflowError for a huge int/Fraction), `**` is `c_powi` (repeated squaring) for integral exponents with
+  |n| <= 100, else `_Py_c_pow`. The oracle's binary computes `len *= exp(-at*b.imag)`, not the `len /= exp(...)`
+  one remembers from the source: trust the disassembly (`objdump -d` the uv python, symbol `_Py_c_pow`), which is
+  also how `math.hypot` was ruled out (it is not libm's hypot; `_Py_c_pow`/`abs` call libm's). errno: `cos`/`sin` of
+  an infinite phase set EDOM, so `(-1+1j) ** 1e308` raises ZeroDivisionError ("0.0 to a negative or complex
+  power"); an infinite part is OverflowError. `//`, `%`, bitwise, `<` and `~`/`trunc`/`floor`/`ceil`/`round` raise
+  TypeError without converting. Nodes (harness/grammar/complex_num.py): `complex(re, im)`, `cx_binary`, `cx_unary`
+  (operator.<name> on values, Rust side = collection.rs `binary`/`unary`); operators.py `scalar` is sometimes a
+  complex. JS: a `Complex` class (`{"complex": [re repr, im repr]}` both ways, `String(z)` is Python's repr).
+  **WASM**: the libm calls are ports of glibc 2.43's FMA builds (trig.rs: IBM `__sin_fma`/`__cos_fma`/
+  `__atan2_fma`, `__branred` without FMA; tables generated from glibc's sources and checked against libm.so.6).
+  GCC fuses a product into *every* use when all its uses are +/- in the same basic block (e.g. atan2's `zz` across
+  `EADD`'s branch is not fused). The long gate's seed-21 fuzz through WASM hit polar complex powers before these
+  ports; it is clean now.
 - **function.py helpers, reduce/accumulate, from_rv, Wallenius (S5b).** Core `function.rs`: `z`, `pointwise(dice,
   max)` (= pointwise_max/min *after* `harmonize_denominators`), `weighted_lcm(denominators, weights: &[Value])`
   (math.py's, with Python's `w > 0`, `math.gcd` TypeError for non-ints, `lcm * w // d` as Value ops, `zip`
@@ -797,8 +814,9 @@ turns out wrong. Newest decisions at the top of each section.
   GCC fuses each `a*b + c` whose product has no other use; specialcase's k<0 branch is not fused). The native test
   `matches_platform_pow` checks it bit for bit against glibc (1.2M inputs; 3M passed once). This ties the WASM
   results to the oracle running on an FMA x86_64 machine with glibc; a non-FMA oracle would differ in rare cases.
-  Complex powers (`cos`/`sin`/`atan2`, also a different libm in WASM) never surface: every die holding a complex
-  raises when it sorts, in Python too. Any new transcendental (`exp`, `log`, ...) needs the same treatment.
+  Complex values do surface since V1 (scalar arithmetic, `standardized_moment` with a fractional k), so `hypot`
+  (libm.rs), `exp` (pow.rs `arm_exp`), `sin`/`cos`/`atan2` (trig.rs) are ported the same way. Any new
+  transcendental needs the same treatment: call it through these wrappers, never `f64::sin` & co directly.
 - **Measurements (K8)**, on this machine, inputs in `crates/icepool-wasm/bench-cases.json` (heavy = 6+2 vs 6+2,
   both EXP + Continuous: 536-bit denominator, heavier than ANALYSIS.md's 258-bit case):
 
@@ -968,10 +986,10 @@ turns out wrong. Newest decisions at the top of each section.
 - **`pysort.rs` is a faithful port of CPython 3.13 `list.sort`** (count_run, binary insertion, powersort merges,
   galloping). `counts::py_sorted` re-exports it. Needed because NaN outcomes (`inf * 0`, `inf - inf`, `inf // x`)
   are unordered and land wherever the exact comparison sequence puts them. Keep it exact; do not "optimise" it.
-- `Value::Complex(re, im)`: only from `negative ** fractional` (CPython `_Py_c_pow`). Never survives in a die
-  (unorderable: `Counts` raises), unless its quantity is 0 and it drops out first, which is why it is a value and
-  not an immediate error. Arithmetic on it returns `Error::Unsupported`.
-- `Error::Unsupported(what)`: Python would answer but the port does not cover it yet (complex arithmetic, `str %`
+- `Value::Complex(re, im)`: from `negative ** fractional` (CPython `_Py_c_pow`) and arithmetic on it (V1,
+  `value/complex.rs`). Never survives in a die (unorderable: `Counts` raises, even for a single outcome), unless its
+  quantity is 0 and it drops out first, so it only reaches results as a scalar.
+- `Error::Unsupported(what)`: Python would answer but the port does not cover it yet (`str %`
   with `%` conversion specifiers). The runner reports it as `unimplemented`, never as a raise.
 - Size limits where Python would compute for minutes or hit MemoryError: `**` and `<<` results above 2**32 bits
   and sequence repetition above 2**28 elements raise `OverflowError` (`MAX_INT_BITS`, `MAX_REPEAT` in ops.rs).
