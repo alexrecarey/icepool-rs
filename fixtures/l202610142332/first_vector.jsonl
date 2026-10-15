@@ -1,0 +1,6 @@
+{"program":{"op":"eq","a":{"op":"again","outcomes":[-1],"depth":3,"end":null},"b":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[-2,1]},{"vector":[-3,2]},{"vector":[3,3]}]}],"star":null}},"expected":{"ok":true,"die":[[{"bool":false},3]]}}
+{"program":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[-2,1]},{"vector":[-3,2]},{"vector":[3,3]}]}],"star":null},"expected":{"ok":true,"die":[[-3,1],[-2,1],[3,1]]}}
+{"program":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[]}]}],"star":null},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"op":"die_vectors","outcomes":[{"vector":[{"str":"a"},2]},{"vector":[{"bool":true}]}]}],"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"symbols":"ab"}],"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"map","f":{"op":"fn","name":"first","params":[]},"args":[{"op":"d","sides":3}],"star":null},"expected":{"ok":false,"error":"TypeError"}}

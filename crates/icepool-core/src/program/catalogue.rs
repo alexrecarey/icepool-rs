@@ -9,6 +9,7 @@ use rustc_hash::FxHashMap;
 use super::ops::{binary, d, dict_items, type_error, Key};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
+use crate::value::builtins::{getitem, Index};
 use crate::value::BinOp;
 use crate::Value;
 
@@ -438,19 +439,10 @@ fn py_min(a: PValue, b: PValue) -> Result<PValue, PErr> {
     })
 }
 
-/// `t[0]`.
+/// `t[0]`: Python's subscript, so a `Vector` gives its first element and a `Symbols` raises as it does.
 fn first(t: PValue) -> Result<PValue, PErr> {
-    let index_error = || raise(Error::Index("index out of range".into()));
     match t {
-        PValue::Value(Value::Tuple(items)) => match items.first() {
-            Some(v) => Ok(PValue::Value(v.clone())),
-            None => index_error(),
-        },
-        PValue::Value(Value::Str(s)) => match s.chars().next() {
-            Some(c) => Ok(PValue::Value(Value::str(c.encode_utf8(&mut [0; 4])))),
-            None => index_error(),
-        },
-        PValue::Value(v) => type_error(format!("'{}' object is not subscriptable", v.type_name())),
+        PValue::Value(v) => Ok(PValue::Value(getitem(&v, &Index::Item(Value::from(0)))?)),
         _ => Err(PErr::Unimplemented("indexing this object".into())),
     }
 }
