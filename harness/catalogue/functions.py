@@ -138,6 +138,22 @@ def max2():
     return lambda a, b: max(a, b)
 
 
+def _max_args(g, depth):
+    r = g.rng.random()
+    if r < 0.5:
+        return [tuple_die(g, depth, width=g.rng.choice([1, 2, 2, 3]))]
+    if r < 0.8:
+        return _two(g, depth)
+    return [g.die(depth)]
+
+
+@entry("builtin_max", args=_max_args)
+def builtin_max():
+    """The builtin itself: inspect cannot count its parameters, so infer_star raises InferStarError unless star is
+    given (then max(*outcome), or max(outcome) iterating a tuple)."""
+    return max
+
+
 @entry("mul2", args=_two)
 def mul2():
     """operator.mul: all_straights_reduce_counts' default reducer."""

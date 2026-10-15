@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 
-use super::ops::{binary, d, dict_items, type_error, Key};
+use super::ops::{binary, d, dict_items, py_iter, type_error, Key};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::value::builtins::{getitem, Index};
@@ -39,6 +39,9 @@ pub enum Func {
     Max2,
     /// `lambda a, b: a * b`
     Mul2,
+    /// The builtin `max` itself: `inspect.signature` cannot read a builtin's parameters, so `infer_star` raises
+    /// `InferStarError` and `star` must be given.
+    BuiltinMax,
     /// `lambda t: t[0]`
     First,
     /// `lambda x: (x, k)`
@@ -111,7 +114,7 @@ impl Func {
         let want = match &*name {
             "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "mul2"
             | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" | "count_max"
-            | "pair_list" => 0,
+            | "pair_list" | "builtin_max" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
             | "pair_walk" | "count_if_gt_k" | "n_of" | "pool_d" | "reroll_or_pair" => 1,
@@ -139,6 +142,7 @@ impl Func {
             "sum3" => Sum3,
             "max2" => Max2,
             "mul2" => Mul2,
+            "builtin_max" => BuiltinMax,
             "first" => First,
             "pair_k" => PairK(next()),
             "die_if_k" => DieIfK(next(), next()),
@@ -178,6 +182,8 @@ impl Func {
             Mapping(_) => return None,
             Host(f) => return Some(f.positional()),
             Const(_) => return Some((0, None)),
+            // At least one argument (`max()` raises TypeError).
+            BuiltinMax => return Some((1, None)),
             CountDiff | CountIfGtK(_) | CountMax => return Some((1, None)),
             ReadRoll | Swap | Add2 | Max2 | Mul2 | BreakEq | PairList | CapSum(_) | BreakAt(..)
             | RestartOn(..) | Walk(..) => 2,
@@ -187,10 +193,20 @@ impl Func {
         Some((n, Some(n)))
     }
 
-    /// `infer_star`: whether the first argument should be unpacked, given `arg_count` arguments.
-    pub fn infer_star(&self, arg_count: usize) -> bool {
-        self.positional()
-            .is_some_and(|(required, _)| required > arg_count)
+    /// `infer_star`: whether the first argument should be unpacked, given `arg_count` arguments (more required
+    /// positional parameters than arguments). `InferStarError` (a `ValueError`) when the parameters cannot be
+    /// counted.
+    pub fn infer_star(&self, arg_count: usize) -> Result<bool, PErr> {
+        if let Func::BuiltinMax = self {
+            return raise(Error::Value(
+                "Could not determine the number of arguments taken by the function. You will need to specify \
+                 star explicitly."
+                    .into(),
+            ));
+        }
+        Ok(self
+            .positional()
+            .is_some_and(|(required, _)| required > arg_count))
     }
 
     /// Calls the function. A mapping is `mapping.get(o, o)` (`transition_and_star`).
@@ -262,6 +278,19 @@ impl Func {
                     return raise(Error::Value("max() iterable argument is empty".into()));
                 };
                 return counts.try_fold(first, py_max);
+            }
+            // `max(iterable)` with one argument, else `max(*args)`: the first of the largest.
+            BuiltinMax => {
+                let mut items = if args.len() == 1 {
+                    py_iter(args.into_iter().next().expect("one argument"))?
+                } else {
+                    args
+                };
+                if items.is_empty() {
+                    return raise(Error::Value("max() iterable argument is empty".into()));
+                }
+                let first = items.remove(0);
+                return items.into_iter().try_fold(first, py_max);
             }
             CountIfGtK(k) => {
                 return if truthy(&binary(BinOp::Gt, args[0].clone(), k.clone())?)? {
@@ -435,7 +464,7 @@ impl Func {
                     PValue::tuple(vec![b, next])
                 }
             }
-            Mapping(_) | CountDiff | CountIfGtK(_) | CountMax | Host(_) => {
+            Mapping(_) | CountDiff | CountIfGtK(_) | CountMax | BuiltinMax | Host(_) => {
                 unreachable!("handled above")
             }
         })

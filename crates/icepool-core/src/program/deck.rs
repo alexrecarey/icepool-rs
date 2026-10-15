@@ -230,7 +230,10 @@ pub fn deck_map(deck: PValue, repl: PValue, star: PValue) -> Result<PValue, PErr
     };
     // A mapping ignores `star`.
     let star = match f.positional() {
-        Some(_) => star_arg(&star)?.unwrap_or_else(|| f.infer_star(1)),
+        Some(_) => match star_arg(&star)? {
+            Some(star) => star,
+            None => f.infer_star(1)?,
+        },
         None => false,
     };
     let results = deck

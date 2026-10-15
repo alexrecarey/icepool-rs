@@ -60,7 +60,10 @@ fn transition_cache<'a>(
     let (f, star) = match f {
         PValue::Func(f) if f.positional().is_some() => (
             &**f,
-            star.unwrap_or_else(|| f.infer_star(extra_args.len() + 1)),
+            match star {
+                Some(star) => star,
+                None => f.infer_star(extra_args.len() + 1)?,
+            },
         ),
         PValue::Func(_) if !extra_args.is_empty() => {
             return raise(Error::Value(

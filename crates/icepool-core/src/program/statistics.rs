@@ -255,7 +255,10 @@ pub fn group_by(die: PValue, key_map: PValue, star: PValue) -> Result<PValue, PE
         return type_error("AttributeError: key_map has no attribute 'get'");
     };
     let star = match f.positional() {
-        Some(_) => star_arg(&star)?.unwrap_or_else(|| f.infer_star(1)),
+        Some(_) => match star_arg(&star)? {
+            Some(star) => star,
+            None => f.infer_star(1)?,
+        },
         None => false,
     };
     let keys = die

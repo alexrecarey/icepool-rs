@@ -161,7 +161,13 @@ pub fn map(
         .collect::<Result<Vec<_>, _>>()?;
     // transition_and_star.
     let (f, star) = match repl {
-        Repl::Callable(f) => (f, star.unwrap_or_else(|| f.infer_star(args.len()))),
+        Repl::Callable(f) => {
+            let star = match star {
+                Some(star) => star,
+                None => f.infer_star(args.len())?,
+            };
+            (f, star)
+        }
         Repl::Mapping(_) if args.len() != 1 => {
             return raise(Error::Value(
                 "If a mapping is provided for repl, len(args) must be 1.".into(),
@@ -300,7 +306,10 @@ pub(super) fn select(die: &Die<Value>, which: &PValue, star: &PValue) -> Result<
     let star = star_arg(star)?;
     match which {
         PValue::Func(f) if f.positional().is_some() => {
-            let star = star.unwrap_or_else(|| f.infer_star(1));
+            let star = match star {
+                Some(star) => star,
+                None => f.infer_star(1)?,
+            };
             die.outcomes()
                 .map(|o| truthy(&call(f, star, vec![PValue::Value(o.clone())], &[])?))
                 .collect()

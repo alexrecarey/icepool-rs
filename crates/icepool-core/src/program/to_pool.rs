@@ -34,7 +34,11 @@ pub fn map_to_pool(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr
     // transition_and_star: a mapping becomes `lambda o: mapping.get(o, o)`, never starred.
     let (f, star) = match &f {
         PValue::Func(func) if func.positional().is_some() => {
-            (func, star.unwrap_or_else(|| func.infer_star(args.len())))
+            let star = match star {
+                Some(star) => star,
+                None => func.infer_star(args.len())?,
+            };
+            (func, star)
         }
         PValue::Func(_) if args.len() != 1 => {
             return raise(Error::Value(
@@ -257,9 +261,8 @@ pub fn reroll_to_pool(
         _ => return Err(PErr::Unimplemented("this reroll_to_pool mode".into())),
     };
     let sub = |a: &Value, b: &Value| a.binary(crate::value::BinOp::Sub, b);
-    let die_pool_of = |die: &Die<Value>, n: &Value| {
-        die_pool(PValue::Die(die.clone()), PValue::Value(n.clone()))
-    };
+    let die_pool_of =
+        |die: &Die<Value>, n: &Value| die_pool(PValue::Die(die.clone()), PValue::Value(n.clone()));
     // `pool_composition.map_to_pool(make_pool, star=True)`.
     let mut data = Vec::new();
     for (composition, quantity) in pool_composition.items() {
