@@ -1328,7 +1328,10 @@ turns out wrong. Newest decisions at the top of each section.
   layer (`exact_int`, `int_arg` -> `Int`) and the facade (`convert.rs count_to_py / counts_to_py /
   count_from_py`; no `IntoPyObject` for `Int`, orphan rule). Indices and slice bounds stay `i64` (they saturate:
   slicing clamps, an index past 64 bits is out of range anyway); `Int::clamp_usize` is for `xs[:n]`-style slicing.
-  Fixture runtime and fuzz timings did not move (the i64 path is the common one).
+  Timings against the i64 build (icepool-run, best of 5): all 9.5k fixture programs 3.6s either way; heavy pool
+  evaluations (d20 x 80 keep 40, largest_count of 80 d12, ...) 0-10% slower: `Int` is 16 bytes and its clone a
+  branch, not a memcpy. `Hash` hashes a small value as its bare `i64`. If the long gate's timings suffer, the
+  next lever is a keep tuple of plain `i64`s with an `Int` fallback per tuple, not per element.
 - Where Python *builds* something `n` long from a count (`[0] * keep_size` in `make_keep_tuple`, `(x,) * n` in
   expand / argsort_grouped / all_straights / MultisetKeep, `(1,) * sum(keep_size)` for a compound keep, a tuple
   count `t * n`) use `keep_tuple::list_len` / `Int::to_len`: `OverflowError` for any `n` beyond 64 bits *whatever

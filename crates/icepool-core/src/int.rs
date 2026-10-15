@@ -9,6 +9,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::sync::Arc;
 
@@ -16,10 +17,10 @@ use dashu_int::IBig;
 
 use crate::error::{Error, Result};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Int(Repr);
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 enum Repr {
     Small(i64),
     /// Never a value that fits `i64`.
@@ -122,6 +123,17 @@ impl Int {
         }
         let (q, r) = crate::value::ops::floor_divmod(&self.to_ibig(), &other.to_ibig());
         Ok((q.into(), r.into()))
+    }
+}
+
+/// A small value hashes as its bare `i64` (no enum tag): keep tuples and counts are part of the evaluator's memo
+/// keys. A big value never equals a small one, so sharing hashes with them is harmless.
+impl Hash for Int {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.0 {
+            Repr::Small(i) => i.hash(state),
+            Repr::Big(b) => b.hash(state),
+        }
     }
 }
 
