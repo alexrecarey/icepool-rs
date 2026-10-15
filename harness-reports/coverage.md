@@ -8,12 +8,12 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 
 | programs | count | over the time budget |
 |---|---:|---:|
-| fixtures | 8540 | 0 |
-| fuzz 1:2000:3 | 1780 | 0 |
-| fuzz 11:10000:4 | 9192 | 0 |
+| fixtures | 8551 | 0 |
+| fuzz 1:2000:3 | 1795 | 0 |
+| fuzz 11:10000:4 | 9143 | 0 |
 | fuzz khepri:7:150:3 | 150 | 0 |
 
-**Total: 5697/5921 statements (96%), 1729/1864 branches (93%).**
+**Total: 5702/5921 statements (96%), 1731/1864 branches (93%).**
 
 ## Modules, by unexecuted statements
 
@@ -22,32 +22,32 @@ Oracle commit: `70168f56d807e454e6a86855b0fd4b9c25f51ee9`. Coverage.py 7.16.2, b
 | `collection/vector.py` | 170 | 30 | 82% | 36 | 20 | 6 |
 | `expression/multiset_expression.py` | 326 | 24 | 93% | 66 | 5 | 0 |
 | `order.py` | 104 | 22 | 79% | 64 | 18 | 2 |
-| `population/die.py` | 538 | 18 | 97% | 202 | 18 | 1 |
+| `population/die.py` | 538 | 17 | 97% | 202 | 17 | 1 |
 | `collection/counts.py` | 110 | 12 | 89% | 16 | 5 | 7 |
 | `evaluator/multiset_function.py` | 187 | 11 | 94% | 44 | 4 | 1 |
-| `collection/symbols.py` | 231 | 10 | 96% | 96 | 10 | 0 |
+| `collection/symbols.py` | 231 | 9 | 96% | 96 | 10 | 0 |
 | `operator/adjust_counts.py` | 74 | 7 | 91% | 8 | 2 | 5 |
 | `operator/binary.py` | 65 | 7 | 89% | 2 | 0 | 7 |
 | `population/base.py` | 367 | 7 | 98% | 140 | 6 | 2 |
 | `generator/pool.py` | 229 | 6 | 97% | 62 | 0 | 5 |
 | `operator/filter_outcomes.py` | 46 | 6 | 87% | 10 | 4 | 2 |
-| `operator/keep.py` | 103 | 6 | 94% | 44 | 3 | 1 |
 | `expression/multiset_tuple_expression.py` | 80 | 4 | 95% | 16 | 2 | 2 |
 | `function.py` | 133 | 4 | 97% | 54 | 3 | 0 |
 | `generator/keep.py` | 143 | 4 | 97% | 58 | 1 | 1 |
 | `generator/multi_deal.py` | 118 | 4 | 97% | 22 | 0 | 1 |
+| `operator/keep.py` | 103 | 4 | 96% | 44 | 2 | 1 |
 | `population/keep.py` | 116 | 4 | 97% | 66 | 4 | 0 |
 | `typing.py` | 62 | 4 | 94% | 14 | 3 | 0 |
 | `creation_args.py` | 65 | 3 | 95% | 34 | 3 | 0 |
 | `map_tools/common.py` | 29 | 3 | 90% | 8 | 0 | 3 |
 | `map_tools/markov_chain.py` | 131 | 3 | 98% | 54 | 1 | 2 |
 | `operator/pair.py` | 199 | 3 | 98% | 64 | 5 | 0 |
-| `population/again.py` | 191 | 3 | 98% | 58 | 2 | 1 |
 | `evaluator/argsort.py` | 93 | 2 | 98% | 40 | 2 | 0 |
 | `expression/multiset_expression_base.py` | 99 | 2 | 98% | 16 | 0 | 2 |
 | `expression/multiset_mixture.py` | 48 | 2 | 96% | 16 | 1 | 1 |
 | `expression/multiset_parameter.py` | 61 | 2 | 97% | 4 | 0 | 2 |
 | `map_tools/core_impl.py` | 92 | 2 | 98% | 44 | 2 | 0 |
+| `population/again.py` | 191 | 2 | 99% | 58 | 2 | 0 |
 | `population/die_with_truth.py` | 32 | 2 | 94% | 4 | 2 | 0 |
 | `collection/vector_with_truth_only.py` | 14 | 1 | 93% | 0 | 0 | 1 |
 | `evaluator/keep.py` | 36 | 1 | 97% | 16 | 1 | 0 |
@@ -87,7 +87,6 @@ Grouped by module, biggest first (statement count in brackets). `<locals>` are n
 - **`generator/keep.py`** (1 statements): `KeepGenerator.has_zero_keeps` [1, l.58]
 - **`generator/multiset_tuple_generator.py`** (1 statements): `MultisetTupleGenerator._static_keepable` [1, l.31]
 - **`generator/weightless.py`** (1 statements): `WeightlessGenerator._static_keepable` [1, l.24]
-- **`population/again.py`** (1 statements): `AgainExpression.__hash__` [1, l.238]
 - **`population/die.py`** (1 statements): `Die.mean_time_to_absorb` [1, l.535]
 
 ## Reached functions with the most unexecuted code (top 60)
@@ -98,12 +97,12 @@ Missed statements, then missed branch arcs (`from->to`; a negative target is a f
 |---|---:|---:|---|
 | `collection/vector.py` `Vector.reverse_binary_operator` | 4 / 7 | 4 (263->264, 264->265, 264->268, 271->272) | 264-265, 268, 272 |
 | `function.py` `from_cumulative` | 4 / 19 | 3 (167->168, 169->170, 169->181) | 168-171 |
-| `operator/keep.py` `MultisetKeep._initial_state` | 4 / 73 | 3 (97->101, 104->124, 119->120) | 101-102, 120, 124 |
+| `collection/symbols.py` `Symbols.__gt__` | 3 / 9 | 4 (321->326, 322->324, 324->321, 324->325) | 324-326 |
 | `collection/counts.py` `Counts.__init__` | 3 / 19 | 3 (45->46, 47->48, 52->55) | 46, 48, 55 |
 | `evaluator/multiset_function.py` `prepare_multiset_function` | 4 / 14 | 1 (280->284) | 284-287 |
 | `evaluator/multiset_function.py` `prepare_multiset_joint_function` | 4 / 18 | 1 (368->372) | 372-375 |
-| `collection/symbols.py` `Symbols.__gt__` | 2 / 9 | 2 (321->326, 324->325) | 325-326 |
 | `creation_args.py` `merge_duplicates` | 2 / 11 | 2 (114->115, 122->123) | 115, 123 |
+| `operator/keep.py` `MultisetKeep._initial_state` | 2 / 73 | 2 (104->124, 119->120) | 120, 124 |
 | `operator/pair.py` `MultisetMaxPairEarly._initial_state` | 2 / 8 | 2 (309->310, 318->319) | 310, 319 |
 | `order.py` `merge_order_preferences` | 2 / 18 | 2 (103->104, 107->111) | 104, 111 |
 | `typing.py` `MaybeHashKeyed.equals` | 2 / 7 | 2 (64->65, 66->67) | 65, 67 |
@@ -120,12 +119,10 @@ Missed statements, then missed branch arcs (`from->to`; a negative target is a f
 | `population/base.py` `Population._GroupBy.__call__` | 1 / 14 | 2 (879->881, 881->882) | 882 |
 | `population/format.py` `gather_cols` | 0 / 36 | 4 (108->110, 111->89, 119->122, 126->89) | - |
 | `typing.py` `infer_star` | 2 / 5 | 0 (-) | 120-121 |
-| `collection/symbols.py` `Symbols.__sub__` | 1 / 6 | 1 (165->166) | 166 |
 | `collection/symbols.py` `Symbols.__rsub__` | 1 / 6 | 1 (173->174) | 174 |
 | `collection/symbols.py` `Symbols.__and__` | 1 / 6 | 1 (186->187) | 187 |
 | `collection/symbols.py` `Symbols.__or__` | 1 / 6 | 1 (200->201) | 201 |
 | `collection/symbols.py` `Symbols.__xor__` | 1 / 6 | 1 (215->216) | 216 |
-| `collection/symbols.py` `Symbols.__le__` | 1 / 4 | 1 (339->340) | 340 |
 | `collection/symbols.py` `Symbols.__eq__` | 1 / 7 | 1 (373->374) | 374 |
 | `collection/symbols.py` `Symbols.__ne__` | 1 / 7 | 1 (383->384) | 384 |
 | `creation_args.py` `merge_weights_lcm` | 1 / 11 | 1 (92->93) | 93 |
@@ -153,16 +150,18 @@ Missed statements, then missed branch arcs (`from->to`; a negative target is a f
 | `order.py` `lo_hi_skip` | 1 / 8 | 1 (190->195) | 195 |
 | `population/again.py` `AgainExpression.__radd__` | 1 / 4 | 1 (105->106) | 106 |
 | `population/again.py` `AgainExpression.__rmatmul__` | 1 / 6 | 1 (185->186) | 186 |
-| `population/die.py` `implicit_convert_to_die` | 1 / 5 | 1 (37->38) | 38 |
 | `population/die.py` `Die.__rmatmul__` | 1 / 4 | 1 (762->763) | 763 |
 | `population/die.py` `Die._lowest_single` | 1 / 3 | 1 (928->929) | 929 |
+| `population/die.py` `Die._highest_single` | 1 / 3 | 1 (965->966) | 966 |
+| `population/die.py` `Die.__radd__` | 1 / 4 | 1 (1271->1272) | 1272 |
+| `population/die.py` `Die.__rsub__` | 1 / 4 | 1 (1283->1284) | 1284 |
 
 ## Every unexecuted line, per module
 
 For looking up a specific area. Line numbers are in the pinned oracle checkout.
 
 - `collection/counts.py`: 46, 48, 55, 60, 64, 100, 103, 106-107, 109, 113, 116
-- `collection/symbols.py`: 166, 174, 187, 201, 216, 325-326, 340, 374, 384
+- `collection/symbols.py`: 174, 187, 201, 216, 324-326, 374, 384
 - `collection/vector.py`: 26-29, 31, 33-36, 55-58, 60-63, 67-68, 70-73, 97, 121, 264-265, 268, 272, 322
 - `collection/vector_with_truth_only.py`: 26
 - `creation_args.py`: 93, 115, 123
@@ -189,12 +188,12 @@ For looking up a specific area. Line numbers are in the pinned oracle checkout.
 - `operator/adjust_counts.py`: 68, 86, 96, 106-107, 109, 145
 - `operator/binary.py`: 49, 61, 72, 83, 94, 105, 123
 - `operator/filter_outcomes.py`: 59-60, 62, 105-106, 108
-- `operator/keep.py`: 101-102, 120, 124, 163-164
+- `operator/keep.py`: 120, 124, 163-164
 - `operator/pair.py`: 262, 310, 319
 - `order.py`: 47-50, 54-56, 104, 111, 119-123, 125-129, 131, 152, 195
-- `population/again.py`: 106, 186, 238
+- `population/again.py`: 106, 186
 - `population/base.py`: 736-738, 882, 905-907
-- `population/die.py`: 38, 535, 763, 929, 966, 1272, 1284, 1296, 1308, 1320, 1332, 1344, 1356, 1368, 1380, 1392, 1404, 1546
+- `population/die.py`: 535, 763, 929, 966, 1272, 1284, 1296, 1308, 1320, 1332, 1344, 1356, 1368, 1380, 1392, 1404, 1546
 - `population/die_with_truth.py`: 44, 54
 - `population/keep.py`: 127, 183, 236, 263
 - `typing.py`: 65, 67, 120-121

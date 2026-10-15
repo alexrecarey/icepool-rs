@@ -1192,3 +1192,26 @@ turns out wrong. Newest decisions at the top of each section.
   CPython). Each fixture now runs in ~0.2 s (was 0.6 s, and 47 s originally), against ~1 s for the oracle. What's
   left is `py_sorted` of 41k floats (~30 ms) and the dict merge. Profiling tip: `perf` isn't allowed on this
   machine; time the pieces from a throwaway crate in /tmp that depends on `crates/icepool-core` by path.
+
+- **T1a: Again over every operator.** `again.py _again_expr` now builds every binary operator (add ... xor, the four
+  comparisons, `==` / `!=`), on either side of a small int or die, `**` / `<<` / `>>` (small right operand from
+  operators.py `_small`; with the expression as the exponent / shift count it is wrapped in `% k` first, since an
+  again die's outcomes can be huge), the four unary ones, `@` both ways. Node `again_truth` = `bool(expr)`.
+  `weights` and `pool_dict` generators sometimes use an Again expression as a dict key.
+- Port: `AgainOp::Eq { ne, truth }` (program/again.rs) holds `truth_value`, the only expression with one;
+  `again::eq` builds it (`x == expr` reflects to `expr.__eq__(x)`), truth = `hash_key_eq` between two expressions
+  (functions by identity, args as tuple `==`: lengths, then element by element, an expression vs anything else
+  unequal), else `False` for `==`. NaN in a compared argument is unimplemented (tuple `==` short-circuits on object
+  identity). `truthy(Again)` = `again::truth_value` (ValueError unless from `==`/`!=`). A DieWithTruth (what an
+  evaluated `==` expression gives) is a plain die as an operand of `binary` / `unary` / `matmul` (`plain_die`).
+  Dict keys: Python hashes an expression by `hash_key`, so it only merges with an expression of equal hash_key:
+  pool.rs `dict` (now `pub(super)`) compares one by one with `hash_key_eq`; `weights` takes that dict when a key
+  is an expression and `weights_die` then rolls again (depth 1, default end) as `Die.__new__` does after itemize.
+- Dead in the oracle (confirmed: Python only calls a reflected method when the forward one returns
+  NotImplemented, and AgainExpression's forward operators never do): again.py l.106 (`__radd__` with an
+  expression `other`: `expr + expr` is `__add__`), l.186 (`__rmatmul__` likewise), die.py l.763
+  (`Die.__rmatmul__` with an expression: `expr @ die` is `AgainExpression.__matmul__`) and l.1272-1404 (every
+  reflected `Die.__rop__`'s Again check). `implicit_convert_to_die` l.38 is reached by `Pool([expr])` /
+  `Pool({expr: n})` (fixtures/t1a/again-dict-keys.jsonl).
+- JS suite: `again_truth` has an idiomatic route (fixtures.mjs, `ip.truth(x)`); node-args.json regenerated.
+  fixtures/t1a pass through JS.
