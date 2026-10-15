@@ -1,0 +1,399 @@
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":1},"expected":{"ok":true,"die":[[1,1],[2,2],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":5,"quantity":2},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[5,2]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":-1},"expected":{"ok":true,"die":[[1,1],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":-5},"expected":{"ok":true,"die":[[1,1],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":1,"quantity":0},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":{"str":"a"},"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":{"bool":true},"quantity":1},"expected":{"ok":true,"die":[[1,2],[2,1],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"float":"1.5"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"float":"0.0"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"frac":[1,2]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"frac":[4,2]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"bool":true}},"expected":{"ok":true,"die":[[1,1],[2,2],[3,1]]}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":2,"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":[1],"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"d","sides":3},"outcome":{"tuple":[1,2]},"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":null},"expected":{"ok":true,"die":[[1,1],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":5,"quantity":null},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":1},"expected":{"ok":true,"die":[[1,1],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":7},"expected":{"ok":true,"die":[[1,1],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":-2},"expected":{"ok":true,"die":[[1,1],[2,3],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":{"float":"0.5"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":{"str":"x"},"quantity":null},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":[1],"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"d","sides":3},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 3})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":5,"quantity":2},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 2, 5: 2})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":-1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":-5},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":1,"quantity":0},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 2})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":{"str":"a"},"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":{"bool":true},"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 2, 2: 2})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"float":"1.5"}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"float":"0.0"}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"frac":[1,2]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"frac":[4,2]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 3})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":[1],"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":{"tuple":[1,2]},"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":5,"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 2})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 1})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":7},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":-2},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 4})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"float":"0.5"}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":{"str":"x"},"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 2})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":[1],"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[1,2,2],"times":1},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":1},"expected":{"ok":true,"die":[[2,1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":5,"quantity":2},"expected":{"ok":true,"die":[[5,2]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":-1},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":-5},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":1,"quantity":0},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":{"str":"a"},"quantity":1},"expected":{"ok":true,"die":[[{"str":"a"},1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":{"bool":true},"quantity":1},"expected":{"ok":true,"die":[[{"bool":true},1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"float":"1.5"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"float":"0.0"}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"frac":[1,2]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"frac":[4,2]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"bool":true}},"expected":{"ok":true,"die":[[2,1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":[1],"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[]},"outcome":{"tuple":[1,2]},"quantity":1},"expected":{"ok":true,"die":[[{"tuple":[1,2]},1]]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":5,"quantity":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":1},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":7},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":-2},"expected":{"ok":true,"die":[[2,2]]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"float":"0.5"}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":{"str":"x"},"quantity":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":[1],"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[]},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":5,"quantity":2},"expected":{"ok":true,"value":{"repr":"Deck: Deck({5: 2})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":-1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":-5},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":1,"quantity":0},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":{"str":"a"},"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({'a': 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":{"bool":true},"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({True: 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"float":"1.5"}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"float":"0.0"}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"frac":[1,2]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"frac":[4,2]}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 1})"}}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":[1],"quantity":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"deck","outcomes":[],"times":1},"outcome":{"tuple":[1,2]},"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 2): 1})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":5,"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":7},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":-2},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 2})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":{"str":"x"},"quantity":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":[1],"quantity":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_remove","population":{"op":"deck","outcomes":[],"times":1},"outcome":2,"quantity":{"str":"a"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[{"bool":true},2]},"outcome":1,"quantity":1},"expected":{"ok":true,"die":[[{"bool":true},2],[2,1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[1,2]},"outcome":{"bool":true},"quantity":1},"expected":{"ok":true,"die":[[1,2],[2,1]]}}
+{"program":{"op":"pop_append","population":{"op":"die","outcomes":[{"float":"1.0"},2]},"outcome":1,"quantity":2},"expected":{"ok":true,"die":[[{"float":"1.0"},3],[2,1]]}}
+{"program":{"op":"pop_remove","population":{"op":"die","outcomes":[{"tuple":[1,2]}]},"outcome":{"tuple":[1,2]},"quantity":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":null},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false},{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":false},{"bool":false},{"bool":true},{"bool":false}]},1],[{"vector":[{"bool":false},{"bool":true},{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":true},{"bool":false},{"bool":false},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":[1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},2],[{"vector":[{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":[3,1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false},{"bool":false}]},2],[{"vector":[{"bool":false},{"bool":true},{"bool":false}]},1],[{"vector":[{"bool":true},{"bool":false},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false}]},3],[{"vector":[{"bool":true}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":[]},"expected":{"ok":true,"die":[[{"vector":[]},4]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":{"str":"ab"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":{"str":""}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":{"op":"d","sides":2}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":5},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},3],[{"vector":[{"bool":false},{"bool":true}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"d","sides":4},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},2],[{"vector":[{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False, False, True)): 1, Vector((False, True, False)): 2, Vector((True, False, False)): 1})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":[1,3]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False, False)): 2, Vector((False, True)): 1, Vector((True, False)): 1})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":[3,1,3]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False, False, False)): 2, Vector((False, True, False)): 1, Vector((True, False, False)): 1})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False,)): 2, Vector((True,)): 2})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":[]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector(()): 4})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":{"str":"ab"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":{"str":""}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":{"op":"d","sides":2}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":5},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False, False)): 3, Vector((False, True)): 1})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[1,2,2,3],"times":1},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((False, False)): 1, Vector((False, True)): 1, Vector((True, False)): 2})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":[1,3]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":[3,1,3]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":[]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":{"str":"ab"}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":{"str":""}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":{"op":"d","sides":2}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":5},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[]},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":[1,3]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":[3,1,3]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":[]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":{"str":"ab"}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":{"str":""}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":{"op":"d","sides":2}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":5},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"deck","outcomes":[],"times":1},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":null},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":false},{"bool":true},{"bool":false}]},1],[{"vector":[{"bool":true},{"bool":false},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":[1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":[3,1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false},{"bool":false}]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false}]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":[]},"expected":{"ok":true,"die":[[{"vector":[]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":{"str":"ab"}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":true},{"bool":false}]},2]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":{"str":""}},"expected":{"ok":true,"die":[[{"vector":[]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":{"op":"d","sides":2}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":5},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},2],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"str":"a"},{"str":"b"},{"str":"ab"}]},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},3]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":null},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":true}]},1],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":[1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":[3,1,3]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":false},{"bool":true},{"bool":false}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":{"tuple":[2]}},"expected":{"ok":true,"die":[[{"vector":[{"bool":false}]},2]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":[]},"expected":{"ok":true,"die":[[{"vector":[]},2]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":{"str":"ab"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":{"str":""}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":{"op":"d","sides":2}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":5},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":[{"str":"a"},1]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":false},{"bool":true}]},1]]}}
+{"program":{"op":"to_one_hot","population":{"op":"die","outcomes":[{"bool":true},0]},"outcomes":[{"float":"2.0"},{"bool":true}]},"expected":{"ok":true,"die":[[{"vector":[{"bool":false},{"bool":false}]},1],[{"vector":[{"bool":false},{"bool":true}]},1]]}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[1,2,2],"times":1}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({0: 3})"}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({1: 1, 2: 2})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({1: 1, 2: 2})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({2: 2})"},{"repr":"Deck: Deck({1: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({2: 2})"},{"repr":"Deck: Deck({1: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[],"times":1}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({'': 2})"}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({'a': 1, 'b': 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({'a': 1, 'b': 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({'a': 1, 'b': 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"str":"a"},{"str":"b"}],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({'a': 1, 'b': 1})"},{"repr":"Deck: Deck({})"}]}}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},"which":[1,2],"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},"which":[],"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(): 2})"}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({(1, 2): 1, (3,): 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({(1, 2): 1, (3,): 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({(1, 2): 1, (3,): 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[3]}],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({0.0: 2})"}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({2: 1})"},{"repr":"Deck: Deck({1.5: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({1.5: 1, 2: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({2: 1})"},{"repr":"Deck: Deck({1.5: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({2: 1})"},{"repr":"Deck: Deck({1.5: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"float":"1.5"},2],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"deck_zero","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({0: 2})"}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1},"which":[1,2],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({True: 1})"},{"repr":"Deck: Deck({3: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1},"which":[],"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({True: 1, 3: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1},"which":{"tuple":[2]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({True: 1, 3: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1},"which":{"op":"fn","name":"is_even","params":[]},"star":null},"expected":{"ok":true,"value":{"tuple":[{"repr":"Deck: Deck({})"},{"repr":"Deck: Deck({True: 1, 3: 1})"}]}}}
+{"program":{"op":"deck_split","deck":{"op":"deck","outcomes":[{"bool":true},3],"times":1},"which":{"str":"ab"},"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[10,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[3,1]},{"frac":[1,1]},{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[20,1]},{"frac":[0,1]},{"frac":[5,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":1},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[33495175,10077696]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[49,36]},{"frac":[1,1]},{"frac":[7,6]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[3772055737069207,609359740010496]},{"frac":[0,1]},{"frac":[2401,1296]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"d","sides":6},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[20,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[6,1]},{"frac":[2,1]},{"frac":[4,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[40,1]},{"frac":[0,1]},{"frac":[10,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,1]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[69,8]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[3,1]},{"frac":[2,1]},{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1065,64]},{"frac":[0,1]},{"frac":[9,2]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,0,2,3]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2747,512]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[7,4]},{"frac":[1,1]},{"frac":[3,2]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[5439395,524288]},{"frac":[0,1]},{"frac":[47,16]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[1,3]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[1]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[10]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[3,1,2]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[20,0,5]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[{"bool":true}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[-1,2]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[1]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[10]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[3,1,2]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[20,0,5]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[{"bool":true}]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[1]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[10]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[3,1,2]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[20,0,5]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[{"bool":true}]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"IndexError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[10]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[3,1,2]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[20,0,5]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"float":"1.5"},2]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[1]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[10]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[3,1,2]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[20,0,5]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[{"bool":true}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"frac":[1,2]},1]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[20,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[6,1]},{"frac":[2,1]},{"frac":[4,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[40,1]},{"frac":[0,1]},{"frac":[10,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[{"bool":true},{"bool":false}]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[4,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]},{"frac":[2,1]},{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[8,1]},{"frac":[0,1]},{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[2,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[0,5]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[0]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[1]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[10]},"expected":{"ok":true,"value":{"tuple":[{"frac":[274,81]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[-3]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[3,1,2]},"expected":{"ok":true,"value":{"tuple":[{"frac":[5,3]},{"frac":[1,1]},{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[20,0,5]},"expected":{"ok":true,"value":{"tuple":[{"frac":[117947,19683]},{"frac":[0,1]},{"frac":[19,9]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[{"float":"2.5"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[{"bool":true}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[1,1]}]}}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[{"frac":[3,1]}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[{"str":"a"}]},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mean_time_to_sum","die":{"op":"die","outcomes":[2,2,7]},"targets":[{"float":"-1.0"}]},"expected":{"ok":true,"value":{"tuple":[{"frac":[0,1]}]}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"deck","outcomes":[3],"times":1}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 3): 1, (2, 3): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"deck","outcomes":[3],"times":1}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((1, 3)): 1, Vector((2, 3)): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},5],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 5): 1, (2, 5): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},5],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((1, 5)): 1, Vector((2, 5)): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"d","sides":2}],"vector":{"bool":false}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"d","sides":2}],"vector":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"deck","outcomes":[1],"times":1}],"vector":{"bool":false}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"deck","outcomes":[1],"times":1}],"vector":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"Reroll"}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"RerollType: <RerollType.Reroll: 'Reroll'>"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"Reroll"}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"RerollType: <RerollType.Reroll: 'Reroll'>"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"pool","dice":[{"op":"d","sides":2},{"op":"d","sides":2}],"times":1}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, (1, 1)): 1, (1, (1, 2)): 2, (1, (2, 2)): 1, (2, (1, 1)): 1, (2, (1, 2)): 2, (2, (2, 2)): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"pool","dice":[{"op":"d","sides":2},{"op":"d","sides":2}],"times":1}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((1, (1, 1))): 1, Vector((1, (1, 2))): 2, Vector((1, (2, 2))): 1, Vector((2, (1, 1))): 1, Vector((2, (1, 2))): 2, Vector((2, (2, 2))): 1})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"pool","dice":[{"op":"d","sides":2},{"op":"d","sides":2}],"times":1}],"vector":{"bool":false}},"expected":{"ok":true,"die":[[{"tuple":[1,{"tuple":[1,1]}]},1],[{"tuple":[1,{"tuple":[1,2]}]},2],[{"tuple":[1,{"tuple":[2,2]}]},1],[{"tuple":[2,{"tuple":[1,1]}]},1],[{"tuple":[2,{"tuple":[1,2]}]},2],[{"tuple":[2,{"tuple":[2,2]}]},1]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"pool","dice":[{"op":"d","sides":2},{"op":"d","sides":2}],"times":1}],"vector":{"bool":true}},"expected":{"ok":true,"die":[[{"vector":[1,{"tuple":[1,1]}]},1],[{"vector":[1,{"tuple":[1,2]}]},2],[{"vector":[1,{"tuple":[2,2]}]},1],[{"vector":[2,{"tuple":[1,1]}]},1],[{"vector":[2,{"tuple":[1,2]}]},2],[{"vector":[2,{"tuple":[2,2]}]},1]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"deck","outcomes":[1],"times":1},{"op":"Reroll"}],"vector":{"bool":false}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"deck","outcomes":[1],"times":1},{"op":"Reroll"}],"vector":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[],"times":1},{"op":"d","sides":2}],"vector":{"bool":false}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[],"times":1},{"op":"d","sides":2}],"vector":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[],"times":1},1],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[],"times":1},1],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[{"bool":true},1],"times":1},{"op":"deck","outcomes":[1],"times":1}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(True, 1): 2})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[{"bool":true},1],"times":1},{"op":"deck","outcomes":[1],"times":1}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((True, 1)): 2})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"die","outcomes":[{"bool":true}]}],"vector":{"bool":false}},"expected":{"ok":true,"die":[[{"tuple":[1,{"bool":true}]},1],[{"tuple":[2,{"bool":true}]},1]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"d","sides":2},{"op":"die","outcomes":[{"bool":true}]}],"vector":{"bool":true}},"expected":{"ok":true,"die":[[{"vector":[1,{"bool":true}]},1],[{"vector":[2,{"bool":true}]},1]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},2],"vector":{"bool":false}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,{"str":"a"}],"times":1},2],"vector":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cartesian_product","args":[{"op":"die","outcomes":[0,1,1]},2],"vector":{"bool":false}},"expected":{"ok":true,"die":[[{"tuple":[0,2]},1],[{"tuple":[1,2]},2]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"die","outcomes":[0,1,1]},2],"vector":{"bool":true}},"expected":{"ok":true,"die":[[{"vector":[0,2]},1],[{"vector":[1,2]},2]]}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,1,2],"times":1},{"op":"deck","outcomes":[2,2],"times":1}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 2): 4, (2, 2): 2})"}}}
+{"program":{"op":"cartesian_product","args":[{"op":"deck","outcomes":[1,1,2],"times":1},{"op":"deck","outcomes":[2,2],"times":1}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({Vector((1, 2)): 4, Vector((2, 2)): 2})"}}}
+{"program":{"op":"cartesian_product","args":[1,2],"vector":{"bool":false}},"expected":{"ok":true,"value":{"tuple":[1,2]}}}
+{"program":{"op":"cartesian_product","args":[1,2],"vector":{"bool":true}},"expected":{"ok":true,"value":{"vector":[1,2]}}}
+{"program":{"op":"cartesian_product","args":[{"str":"a"}],"vector":{"bool":false}},"expected":{"ok":true,"value":{"tuple":[{"str":"a"}]}}}
+{"program":{"op":"cartesian_product","args":[{"str":"a"}],"vector":{"bool":true}},"expected":{"ok":true,"value":{"vector":[{"str":"a"}]}}}
+{"program":{"op":"iter_cartesian_product","args":[]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[5]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[5]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"d","sides":2}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[1]},1]},{"tuple":[{"tuple":[2]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"deck","outcomes":[1,2],"times":1},{"op":"d","sides":2}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[1,1]},1]},{"tuple":[{"tuple":[1,2]},1]},{"tuple":[{"tuple":[2,1]},1]},{"tuple":[{"tuple":[2,2]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"d","sides":2},{"op":"deck","outcomes":[1,1],"times":1},{"str":"x"}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[1,1,{"str":"x"}]},2]},{"tuple":[{"tuple":[2,1,{"str":"x"}]},2]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"pool","dice":[{"op":"d","sides":2},{"op":"d","sides":2}],"times":1}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[{"tuple":[1,1]}]},1]},{"tuple":[{"tuple":[{"tuple":[1,2]}]},2]},{"tuple":[{"tuple":[{"tuple":[2,2]}]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"pool","dice":[{"op":"d","sides":2}],"times":1},{"op":"deck","outcomes":[3],"times":1}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[{"tuple":[1]},3]},1]},{"tuple":[{"tuple":[{"tuple":[2]},3]},1]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"die","outcomes":[]},{"op":"d","sides":2}]},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"die","outcomes":[0,1,1]}]},"expected":{"ok":true,"value":{"tuple":[{"tuple":[{"tuple":[0]},1]},{"tuple":[{"tuple":[1]},2]}]}}}
+{"program":{"op":"iter_cartesian_product","args":[{"op":"deck","outcomes":[],"times":1},1]},"expected":{"ok":true,"value":{"tuple":[]}}}

@@ -672,6 +672,12 @@ class Die(Population[T_co], MaybeHashKeyed):
             ValueError: If `self` has negative outcomes.
             ZeroDivisionError: If `self.mean() == 0`.
         """
+        # icepool-rs: the recursion runs in the Rust core, which extends this
+        # die's cache as the loop below does.
+        if icepool.backend.RUST:
+            return icepool.backend.RUST.mean_time_to_sum(
+                self._rust_die(), self._mean_time_to_sum_cache, target)
+
         target = max(target, 0)
 
         if target < len(self._mean_time_to_sum_cache):

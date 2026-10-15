@@ -17,6 +17,7 @@ mod map_tools;
 mod multi_deal;
 mod ops;
 mod pool;
+mod population;
 mod stats;
 mod to_pool;
 mod weightless;
@@ -606,6 +607,15 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(collection::symbols_unary, m)?,
         wrap_pyfunction!(collection::symbols_count_subset, m)?,
         wrap_pyfunction!(collection::symbols_getitem, m)?,
+        wrap_pyfunction!(population::population_append, m)?,
+        wrap_pyfunction!(population::population_remove, m)?,
+        wrap_pyfunction!(population::to_one_hot, m)?,
+        wrap_pyfunction!(population::deck_zero, m)?,
+        wrap_pyfunction!(population::deck_split, m)?,
+        wrap_pyfunction!(population::call_per_outcome, m)?,
+        wrap_pyfunction!(population::mean_time_to_sum, m)?,
+        wrap_pyfunction!(population::iter_cartesian_product, m)?,
+        wrap_pyfunction!(population::cartesian_product_data, m)?,
     ] {
         m.add_function(f)?;
     }

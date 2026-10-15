@@ -361,6 +361,13 @@ class Deck(Population[T_co], MaybeHashKeyed):
                 else:
                     return outcome
 
+        # icepool-rs: the calls are made from the Rust core (host callbacks);
+        # `Deck(...)` of the results is the core's too.
+        if icepool.backend.RUST:
+            return Deck(icepool.backend.RUST.call_per_outcome(
+                self._rust_die(), transition_function),
+                        times=self.quantities())
+
         return Deck(
             [transition_function(outcome) for outcome in self.outcomes()],
             times=self.quantities())

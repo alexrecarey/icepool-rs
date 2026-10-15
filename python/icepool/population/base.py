@@ -182,10 +182,14 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         Raises:
             ValueError: If the zeros did not resolve to a single outcome.
         """
-        # icepool-rs: a die's zero runs in the Rust core (`x * 0` per outcome).
+        # icepool-rs: zero runs in the Rust core (`x * 0` per outcome), for a
+        # die or a deck.
         if icepool.backend.RUST and isinstance(self, icepool.Die):
             return icepool.Die._new_rust(
                 icepool.backend.RUST.zero(self._rust_die()))
+        if icepool.backend.RUST and isinstance(self, icepool.Deck):
+            return icepool.Deck._new_rust(
+                icepool.backend.RUST.deck_zero(self._rust_deck()))
         result = self._unary_operator(Population._zero)
         if len(result) != 1:
             raise ValueError('zero() did not resolve to a single outcome.')
@@ -464,6 +468,11 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
             quantity: The quantity of the outcome to append. Can be negative,
                 which removes quantity (but not below zero).
         """
+        # icepool-rs: the Counter arithmetic runs in the Rust core.
+        if icepool.backend.RUST and _rust_population(self):
+            return self._from_rust_data(
+                icepool.backend.RUST.population_append(self._rust_die(),
+                                                       outcome, quantity))
         data = Counter(self)
         data[outcome] = max(data[outcome] + quantity, 0)
         return self._new_type(data)
@@ -477,6 +486,11 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
                 quantity of that outcome is removed. Can be negative, which adds
                 quantity instead.
         """
+        # icepool-rs: the Counter arithmetic runs in the Rust core.
+        if icepool.backend.RUST and _rust_population(self):
+            return self._from_rust_data(
+                icepool.backend.RUST.population_remove(self._rust_die(),
+                                                       outcome, quantity))
         if quantity is None:
             data = Counter(self)
             data[outcome] = 0
@@ -941,6 +955,14 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
                 in `outcomes`.
                 If not provided, `self.outcomes()` is used.
         """
+        # icepool-rs: the vectors are made and counted in the Rust core;
+        # `outcomes`' `len`, `in` and `index` are Python's, called from there.
+        if icepool.backend.RUST and _rust_population(self):
+            return self._new_type._new_rust(
+                icepool.backend.RUST.to_one_hot(
+                    self._rust_die(), self.outcomes(), outcomes,
+                    isinstance(self, icepool.Deck)))
+
         if outcomes is None:
             outcomes = self.outcomes()
 
@@ -980,12 +1002,16 @@ class Population(ABC, Expandable[T_co], Mapping[Any, int]):
         """
         outcome_set = self._select_outcomes(outcomes, star)
 
-        # icepool-rs: for a die, the split runs in the Rust core, given one
-        # flag per outcome.
+        # icepool-rs: the split runs in the Rust core, given one flag per
+        # outcome, for a die or a deck.
         if icepool.backend.RUST and isinstance(self, icepool.Die):
             mask = [outcome in outcome_set for outcome in self.outcomes()]
             a, b = icepool.backend.RUST.split(self._rust_die(), mask)
             return icepool.Die._new_rust(a), icepool.Die._new_rust(b)
+        if icepool.backend.RUST and isinstance(self, icepool.Deck):
+            mask = [outcome in outcome_set for outcome in self.outcomes()]
+            a, b = icepool.backend.RUST.deck_split(self._rust_deck(), mask)
+            return icepool.Deck._new_rust(a), icepool.Deck._new_rust(b)
 
         selected = {}
         not_selected = {}

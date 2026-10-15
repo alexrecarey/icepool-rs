@@ -46,6 +46,13 @@ def iter_cartesian_product(
         yield (), 1
         return
 
+    # icepool-rs: the product runs in the Rust core, over each argument's
+    # items (the facade's own outcome objects).
+    if icepool.backend.RUST:
+        yield from icepool.backend.RUST.iter_cartesian_product(
+            [arg_items(arg) for arg in args])
+        return
+
     for t in itertools.product(*(arg_items(arg) for arg in args)):
         outcomes, quantities = zip(*t)
         final_quantity = math.prod(quantities)
@@ -100,6 +107,13 @@ def cartesian_product(
         return icepool.Die._new_rust(
             build([(1, arg._rust_die()) if isinstance(arg, icepool.Die) else
                    (0, arg) for arg in args]))
+    elif icepool.backend.RUST:
+        # icepool-rs: any other population (a deck), argument (a multiset
+        # expression's `expand()` items) or outcome type: the product and the
+        # `data` dict are built in the Rust core, `outcome_type` called back.
+        return population_type(
+            icepool.backend.RUST.cartesian_product_data(
+                outcome_type, [arg_items(arg) for arg in args]))
     else:
         data = {}
         for outcomes, final_quantity in iter_cartesian_product(

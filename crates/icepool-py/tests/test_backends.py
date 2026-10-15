@@ -24,6 +24,7 @@ import enum, collections, math, operator
 from fractions import Fraction
 from icepool import *
 from icepool import AgainExpression, MultisetMixture
+import icepool as ip
 
 class E(enum.IntEnum):
     A = 1
@@ -1004,6 +1005,61 @@ CASES = [
     'MultisetMixture([d(3).pool(2).map_counts(function=lambda o, c: c), d(3).pool(2).map_counts(function=lambda o, c: c)]).sum()',
     'mf_kw(HANDS[1], target=3)',
     'mf_kw(d(3).pool(2), target=3, star=False)',
+    # S5c: append / remove / to_one_hot, deck zero / split / map, mean_time_to_sum and the Cartesian products of
+    # expand.py on the core, with host outcomes, host callables and Python sequences.
+    'Die([E.A, E.B]).append(E.A)',
+    'Die([E.A, E.B]).append(1, 2)',
+    'Die([Card(1), Card(2)]).append(Card(2), -1)',
+    'Deck([Card(1), Card(2)]).append(Card(3), 2)',
+    'd(3).append(d(2))',
+    'Deck([1, 2]).append(Deck([5]), 2)',
+    'd(3).append(2, E.A)',
+    'd(3).append(2, Fraction(1, 2))',
+    'd(3).append([1])',
+    'd(3).remove(2)',
+    'Deck([1, 2, 2]).remove(2, 1)',
+    'Die([E.A, E.B]).remove(E.B, -2)',
+    'd(3).remove(5)',
+    'd(3).remove(2, "a")',
+    'd(4).to_one_hot()',
+    'd(4).to_one_hot((1, 1, 3))',
+    'd(3).to_one_hot(range(2, 5))',
+    'Die(["a", "b", "ab"]).to_one_hot("ab")',
+    'Deck([Card(1), Card(2), Card(2)]).to_one_hot([Card(2)])',
+    'Die([E.A, E.B]).to_one_hot([1])',
+    'd(3).to_one_hot(5)',
+    'Die([]).to_one_hot(5)',
+    'd(3).to_one_hot(d(2))',
+    'Deck([P(1, 2), P(0, 5), P(1, 2)]).zero()',
+    'Deck([Card(1), Card(2)]).zero()',
+    'Deck([1, "a"]).zero()',
+    'Deck([Card(1), Card(2), Card(2)]).split(lambda c: c.rank > 1)',
+    'Deck([E.A, E.B, 3]).split([1])',
+    'Deck([1, 2]).map({1: E.A})',
+    'Deck([Card(1), Card(2)]).map(lambda c: c.rank)',
+    'Deck([1, 2]).map(lambda x: d(2) if x > 1 else x)',
+    'Deck([1, 2]).map(lambda x: 1 / (x - 1))',
+    'd(6).mean_time_to_sum(10)',
+    'Die([E.A, E.B]).mean_time_to_sum(5)',
+    'Die([0, 0, 2, 3]).mean_time_to_sum(Fraction(4))',
+    'Die([0, 1.5]).mean_time_to_sum(3)',
+    'Die([-1, 2]).mean_time_to_sum(0)',
+    'Die([-1, 2]).mean_time_to_sum(3)',
+    'Die([0]).mean_time_to_sum(2)',
+    '(lambda x: (x.mean_time_to_sum(8), x.mean_time_to_sum(3), len(x._mean_time_to_sum_cache)))(Die([1, 3]))',
+    '(lambda x: (x.mean_time_to_sum(8), x.mean_time_to_sum(True), x.mean_time_to_sum(-3)))(Die([1, 3]))',
+    '(lambda x: (x.mean_time_to_sum(3), x._mean_time_to_sum_cache))(Die([1, 1, 4]))',
+    'list(ip.iter_cartesian_product(d(2), P(1, 2), Deck([Card(1)])))',
+    'list(ip.iter_cartesian_product(Pool([d(2), d(2)]), "x"))',
+    'list(ip.iter_cartesian_product())',
+    'list(ip.iter_cartesian_product(5))',
+    'ip.cartesian_product(d(2), 3, outcome_type=P._make)',
+    'ip.cartesian_product(Deck([1, 2]), Deck([E.A]), outcome_type=Vector)',
+    'tupleize(Deck([Card(1)]), d(2).pool(1))',
+    'tupleize(Deck([1, 2]), d(2))',
+    'vectorize(d(2), Pool([d(2), d(2)]))',
+    'tupleize(Deck([1, 2]), Reroll)',
+    'ip.cartesian_product(d(2), outcome_type=lambda t: t[0] % 2)',
 ]
 
 SCRIPT = PRELUDE + '''

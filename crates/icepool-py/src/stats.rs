@@ -57,7 +57,7 @@ pub fn index_to_py<'py>(py: Python<'py>, key: &Index) -> PyResult<Bound<'py, PyA
 }
 
 /// `dict` items for `Die(...)`, or `None` for the population itself.
-fn data<'py>(
+pub(crate) fn data<'py>(
     py: Python<'py>,
     d: icepool_core::Result<Option<Data>>,
 ) -> PyResult<Option<Bound<'py, PyList>>> {
