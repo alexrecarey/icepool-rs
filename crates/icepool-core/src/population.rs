@@ -19,7 +19,9 @@ use rustc_hash::FxHashMap;
 use crate::error::{value_error, Error, Result};
 use crate::function::sorted_union;
 use crate::outcome::Outcome;
-use crate::value::builtins::{getitem, math_log, math_sqrt, py_len, py_sum, try_fraction, Index};
+use crate::value::builtins::{
+    getattr, getitem, math_log, math_sqrt, py_len, py_sum, try_fraction, Index,
+};
 use crate::value::{BinOp, UnOp};
 use crate::{Die, Quantity, Value};
 
@@ -429,6 +431,13 @@ impl Die<Value> {
         self.unary_operator(|o| getitem(o, index))
     }
 
+    /// `marginals.<name>` (`_Marginals.__getattr__`): `getattr(outcome, name)` applied to each outcome. Private
+    /// names are refused before any outcome is looked at (`check_public_attr`).
+    pub fn marginal_attr(&self, name: &str) -> Result<Die<Value>> {
+        check_public_attr(name)?;
+        self.unary_operator(|o| getattr(o, name))
+    }
+
     /// `len(marginals)`: the minimum `len()` of all outcomes (`ValueError` for an empty die).
     pub fn marginals_len(&self) -> Result<usize> {
         let mut min: Option<usize> = None;
@@ -649,6 +658,16 @@ impl Die<Value> {
     }
 }
 
+/// The guard of `_Marginals.__getattr__` and `_GroupBy.__getattr__`: `if key[0] == '_': raise AttributeError(key)`
+/// (and `key[0]` of an empty name raises IndexError).
+pub fn check_public_attr(name: &str) -> Result<()> {
+    match name.chars().next() {
+        None => Err(Error::Index("string index out of range".into())),
+        Some('_') => Err(Error::Type(format!("AttributeError: {name}"))),
+        Some(_) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -683,7 +702,10 @@ mod tests {
                 (hot(None), Quantity::ONE),
             ]
         );
-        assert_eq!(one_hot(&[Some(-3)]).unwrap(), vec![(hot(Some(0)), Quantity::ONE)]);
+        assert_eq!(
+            one_hot(&[Some(-3)]).unwrap(),
+            vec![(hot(Some(0)), Quantity::ONE)]
+        );
         for out_of_range in [3, -4] {
             assert!(matches!(
                 one_hot(&[Some(out_of_range)]),

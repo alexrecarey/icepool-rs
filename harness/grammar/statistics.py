@@ -246,6 +246,47 @@ def group_by_index(die, index):
     return tuple(die.group_by[index].items())
 
 
+def _attr_die(g, depth):
+    """A die of numbers (ints, floats, Fractions, bools; their numeric attributes differ), sometimes strs, tuples
+    or Symbols (whose `__getattr__` is `s[name]`)."""
+    r = g.rng.random()
+    if r < 0.4:
+        return g.die(depth)
+    if r < 0.8:
+        return {"op": "die_typed", "outcomes": [_typed_outcome(g, "num") for _ in range(g.rng.randint(1, 4))]}
+    if r < 0.9:
+        return _tuple_die(g, depth)
+    return {"op": "die", "outcomes": [{"symbols": "".join(g.rng.choice("aimr") for _ in range(g.rng.randint(0, 3)))}
+                                      for _ in range(g.rng.randint(1, 3))]}
+
+
+def _attr_name(g):
+    """The numeric tower's data attributes; rarely a private name (AttributeError before any outcome is looked
+    at), an empty one (IndexError) or a non-str (TypeError)."""
+    r = g.rng.random()
+    if r < 0.85:
+        return {"str": g.rng.choice(["real", "imag", "numerator", "denominator"])}
+    if r < 0.95:
+        return {"str": g.rng.choice(["_x", "__x__", "_real"])}
+    return g.rng.choice([{"str": ""}, 1, None])
+
+
+@node("marginal_attr", "die", weight=0.3,
+      gen=lambda g, depth: {"op": "marginal_attr", "die": _attr_die(g, depth), "name": _attr_name(g)})
+def marginal_attr(die, name):
+    """getattr(die.marginals, name): getattr(outcome, name) applied to each outcome (a name starting with '_'
+    raises AttributeError)."""
+    return getattr(die.marginals, name)
+
+
+@node("group_by_attr", "value", weight=0.3,
+      gen=lambda g, depth: {"op": "group_by_attr", "die": _attr_die(g, depth), "name": _attr_name(g)})
+def group_by_attr(die, name):
+    """tuple(getattr(die.group_by, name).items()): grouped by getattr(outcome, name) (a name starting with '_'
+    raises AttributeError)."""
+    return tuple(getattr(die.group_by, name).items())
+
+
 def _ij(g):
     return g.rng.choice([0, 0, 1, 1, -1, 2])
 

@@ -329,6 +329,41 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
     Ok((0..count).map(|i| (start + i * step) as usize).collect())
 }
 
+/// `getattr(x, name)` for the data attributes of Python's numeric tower (`real`, `imag`, `numerator`,
+/// `denominator`), which a type either has or lacks (AttributeError), and `Symbols.__getattr__` (`s[name]`, for
+/// any name that is not one of its own attributes, unless it starts with `_`). Any other name may be a method
+/// (`conjugate`, `count`, ...), a bound method that is no outcome: the port does not model those.
+pub fn getattr(x: &Value, name: &str) -> Result<Value> {
+    let missing = || {
+        Err(Error::Type(format!(
+            "AttributeError: '{}' object has no attribute '{name}'",
+            x.type_name()
+        )))
+    };
+    if !matches!(name, "real" | "imag" | "numerator" | "denominator") {
+        return Err(Error::Unsupported(format!("getattr(x, {name:?})")));
+    }
+    Ok(match (x, name) {
+        // `bool` is an `int`: its attributes are ints (`True.real` is `1`).
+        (Value::Bool(b), "real" | "numerator") => Value::from(*b as i64),
+        (Value::Int(i), "real" | "numerator") => Value::Int(i.clone()),
+        (Value::Bool(_) | Value::Int(_), "imag") => Value::from(0),
+        (Value::Bool(_) | Value::Int(_), "denominator") => Value::from(1),
+        (Value::Float(f), "real") => Value::Float(*f),
+        (Value::Float(_), "imag") => Value::Float(0.0),
+        // `Fraction.real` is the fraction itself, its `imag` the int 0.
+        (Value::Fraction(r), "real") => Value::Fraction(r.clone()),
+        (Value::Fraction(_), "imag") => Value::from(0),
+        (Value::Fraction(r), "numerator") => Value::Int(r.numerator().clone()),
+        (Value::Fraction(r), "denominator") => Value::Int(IBig::from(r.denominator().clone())),
+        (Value::Complex(re, _), "real") => Value::Float(*re),
+        (Value::Complex(_, im), "imag") => Value::Float(*im),
+        (Value::Symbols(s), _) => s.getitem(name),
+        (Value::Host(_), _) => return Err(Error::Unsupported("getattr of a host object".into())),
+        _ => return missing(),
+    })
+}
+
 /// `x[key]` for the sequences the core models (`tuple`, `str`) and host objects; other values are not
 /// subscriptable.
 pub fn getitem(x: &Value, key: &Index) -> Result<Value> {

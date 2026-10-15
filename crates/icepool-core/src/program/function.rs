@@ -173,7 +173,7 @@ pub fn one_hot(sides: PValue) -> Result<PValue, PErr> {
 /// `harmonize_denominators(dice, weights)`: the dice (single outcomes become dice) with their quantities scaled
 /// so that the denominators are proportional to the weights (all equal when `weights` is `None`: `[1] *
 /// len(dice)`). `zip` stops at the shorter of the dice and the weights.
-fn harmonize(dice: PValue, weights: PValue) -> Result<Vec<Die<Value>>, PErr> {
+pub(super) fn harmonize(dice: PValue, weights: PValue) -> Result<Vec<Die<Value>>, PErr> {
     let dice = py_iter(dice)?
         .into_iter()
         .map(to_die)

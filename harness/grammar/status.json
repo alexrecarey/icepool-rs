@@ -236,5 +236,7 @@
   "wallenius_deal_expr": "ported",
   "straight_and_outcome_evaluate": "ported",
   "mx_str": "ported",
-  "break_str": "ported"
+  "break_str": "ported",
+  "marginal_attr": "ported",
+  "group_by_attr": "ported"
 }

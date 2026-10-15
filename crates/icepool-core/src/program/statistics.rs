@@ -8,8 +8,8 @@ use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die};
 use super::ops::{py_iter, type_error, weights_die, Key};
 use super::{PErr, PValue};
-use crate::population::{Comparison, Data};
-use crate::value::builtins::{getitem, Index};
+use crate::population::{check_public_attr, Comparison, Data};
+use crate::value::builtins::{getattr, getitem, Index};
 use crate::{Die, Value};
 
 /// An argument that must be a plain value (an outcome, a number): the generators never pass dice here.
@@ -182,6 +182,20 @@ pub fn marginal_slice(
     Ok(PValue::Die(the_die(die)?.marginal(&index)?))
 }
 
+/// `getattr(die.marginals, name)`: `getattr(outcome, name)` applied to each outcome.
+pub fn marginal_attr(die: PValue, name: PValue) -> Result<PValue, PErr> {
+    let die = the_die(die)?;
+    Ok(PValue::Die(die.marginal_attr(&attr_name(name)?)?))
+}
+
+/// The name passed to `getattr(obj, name)`, which must be a `str`.
+fn attr_name(name: PValue) -> Result<String, PErr> {
+    match value(name)? {
+        Value::Str(s) => Ok(s.to_string()),
+        _ => type_error("attribute name must be string"),
+    }
+}
+
 /// `tuple(die.marginals)`: `marginals[i]` for `i` in `range(len(marginals))`.
 pub fn marginals(die: PValue) -> Result<PValue, PErr> {
     let die = the_die(die)?;
@@ -264,6 +278,19 @@ pub fn group_by_index(die: PValue, index: PValue) -> Result<PValue, PErr> {
     let keys = die
         .outcomes()
         .map(|o| Ok(GroupKey::Key(Key::Value(getitem(o, &index)?))))
+        .collect::<Result<_, PErr>>()?;
+    groups(&die, keys)
+}
+
+/// `tuple(getattr(die.group_by, name).items())`: `_GroupBy.__getattr__`, i.e. `die.group_by(lambda x:
+/// getattr(x, name))` (one parameter: `star` is inferred false), private names refused first.
+pub fn group_by_attr(die: PValue, name: PValue) -> Result<PValue, PErr> {
+    let die = the_die(die)?;
+    let name = attr_name(name)?;
+    check_public_attr(&name)?;
+    let keys = die
+        .outcomes()
+        .map(|o| Ok(GroupKey::Key(Key::Value(getattr(o, &name)?))))
         .collect::<Result<_, PErr>>()?;
     groups(&die, keys)
 }

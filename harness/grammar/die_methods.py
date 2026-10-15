@@ -59,6 +59,25 @@ def _cumulative(g, n):
     return out
 
 
+def _cumulative_dice(g, n):
+    """Dice representing the cumulative distribution at each point: mostly `d(k) >= j` / `coin`-like truth dice,
+    sometimes a plain die (its outcomes != False count), an int or bool after the first (made into a die), or no
+    die first (then the ints path)."""
+    out = []
+    for _ in range(n):
+        r = g.rng.random()
+        if r < 0.6:
+            out.append({"op": "ge", "a": {"op": "d", "sides": g.rng.randint(1, 4)}, "b": g.rng.randint(0, 4)})
+        elif r < 0.8:
+            out.append({"op": "d", "sides": g.rng.randint(1, 3)})
+        elif r < 0.9:
+            out.append({"op": "die", "outcomes": [g.rng.choice([0, 1, {"bool": False}, {"bool": True}, {"str": "a"}])
+                                                  for _ in range(g.rng.randint(1, 3))]})
+        else:
+            out.append(g.rng.choice([0, 1, 2, {"bool": True}]))
+    return out
+
+
 def _gen_from_cumulative(g, depth):
     n = g.rng.randint(0, 5)
     if g.rng.random() < 0.8:
@@ -67,13 +86,15 @@ def _gen_from_cumulative(g, depth):
         # Unsorted, repeated (a dict keeps the last difference), typed, or a die (mixed in by Die()).
         outcomes = [g.outcome() if g.rng.random() < 0.7 else
                     (g.die(0) if g.rng.random() < 0.3 else _typed_outcome(g, "num")) for _ in range(n)]
-    return {"op": "from_cumulative", "outcomes": outcomes, "cumulative": _cumulative(g, n),
+    cumulative = _cumulative_dice(g, n) if g.rng.random() < 0.25 else _cumulative(g, n)
+    return {"op": "from_cumulative", "outcomes": outcomes, "cumulative": cumulative,
             "reverse": {"bool": g.rng.random() < 0.4}}
 
 
 @node("from_cumulative", "die", gen=_gen_from_cumulative, weight=0.5)
 def from_cumulative(outcomes, cumulative, reverse):
-    """icepool.from_cumulative(outcomes, cumulative, reverse=reverse) with int cumulative quantities."""
+    """icepool.from_cumulative(outcomes, cumulative, reverse=reverse) with int cumulative quantities or dice (the
+    quantity of each harmonized die != False)."""
     return icepool.from_cumulative(outcomes, cumulative, reverse=reverse)
 
 

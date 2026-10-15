@@ -2,10 +2,12 @@
 //! `_pop_min` / `_pop_max`, `sign`, `cmp`, `is_in`, `count`, `if_else`, `__repr__`, and `icepool.from_cumulative`
 //! (function.py).
 
+use super::function::harmonize;
 use super::map::{contains, the_die};
 use super::ops::{die_with_agains, matmul, py_iter, to_die, type_error};
 use super::{PErr, PValue};
 use crate::counts::OrderedMerge;
+use crate::population::Comparison;
 use crate::value::BinOp;
 use crate::{Die, Value};
 
@@ -44,10 +46,11 @@ fn same_key(a: &PValue, b: &PValue) -> bool {
     }
 }
 
-/// `icepool.from_cumulative(outcomes, cumulative, reverse=reverse)` for `int` cumulative quantities: each
-/// outcome's quantity is its cumulative quantity minus the previous one, collected in a `dict` (a repeated outcome
-/// keeps its first position and its last difference) and passed to `Die`, which raises for a negative difference.
-/// The other form, cumulative dice, is not ported yet.
+/// `icepool.from_cumulative(outcomes, cumulative, reverse=reverse)`: each outcome's quantity is its cumulative
+/// quantity minus the previous one, collected in a `dict` (a repeated outcome keeps its first position and its
+/// last difference) and passed to `Die`, which raises for a negative difference. The cumulative values are `int`
+/// quantities, or dice representing the cumulative distribution at that point (if the first one is a die): those
+/// are harmonized to a common denominator and each counts its quantity `!= False`.
 pub fn from_cumulative(
     outcomes: PValue,
     cumulative: PValue,
@@ -62,24 +65,41 @@ pub fn from_cumulative(
         outcomes.reverse();
         cumulative.reverse();
     }
-    match cumulative.first() {
+    let cumulative: Vec<PValue> = match cumulative.first() {
         None => {
             return Err(PErr::Raise(crate::Error::Index(
                 "list index out of range".into(),
             )))
         }
-        Some(PValue::Value(Value::Int(_) | Value::Bool(_))) => {}
-        Some(PValue::Die(_)) => {
-            return Err(PErr::Unimplemented("from_cumulative with dice".into()))
+        Some(PValue::Value(Value::Int(_) | Value::Bool(_))) => cumulative,
+        // `harmonize_denominators(cumulative)` (later elements may be outcomes, made into dice), then
+        // `die.quantity('!=', False)`.
+        Some(PValue::Die(_) | PValue::DieWithTruth(..)) => {
+            harmonize(PValue::List(cumulative), PValue::Value(Value::None))?
+                .iter()
+                .map(|die| {
+                    let q = die.quantity(Comparison::Ne, &Value::Bool(false))?;
+                    Ok(PValue::Value(Value::Int(q.into())))
+                })
+                .collect::<Result<_, crate::Error>>()?
         }
         Some(_) => return type_error("Unsupported type <class 'list'> for cumulative values."),
-    }
+    };
     let mut keys: Vec<PValue> = Vec::new();
     let mut values: Vec<PValue> = Vec::new();
     let mut prev = Value::from(0);
     for (outcome, quantity) in outcomes.into_iter().zip(cumulative) {
-        let PValue::Value(quantity) = quantity else {
-            return Err(PErr::Unimplemented("non-number cumulative quantity".into()));
+        let quantity = match quantity {
+            PValue::Value(q) => q,
+            // An `int` first and a die later: its difference is a die, which `Die(d)` then compares with
+            // `times < 0` (after any earlier negative difference, which raises ValueError), and a die has no truth
+            // value. Either way it raises.
+            PValue::Die(_) | PValue::DieWithTruth(..) => {
+                return type_error(
+                    "A `Die` only has a truth value if it is the result of == or !=.",
+                )
+            }
+            _ => return Err(PErr::Unimplemented("non-number cumulative quantity".into())),
         };
         let diff = PValue::Value(quantity.binary(BinOp::Sub, &prev)?);
         match keys.iter().position(|k| same_key(k, &outcome)) {

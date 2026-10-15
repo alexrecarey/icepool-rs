@@ -608,6 +608,14 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [die, index] = args.exactly(["die", "index"])?;
             statistics::group_by_index(die, index)
         }
+        "marginal_attr" => {
+            let [die, name] = args.exactly(["die", "name"])?;
+            statistics::marginal_attr(die, name)
+        }
+        "group_by_attr" => {
+            let [die, name] = args.exactly(["die", "name"])?;
+            statistics::group_by_attr(die, name)
+        }
         "joint_stat" => {
             let [die, stat, i, j] = args.exactly(["die", "stat", "i", "j"])?;
             statistics::joint_stat(die, stat, i, j)
