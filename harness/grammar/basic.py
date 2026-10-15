@@ -42,12 +42,18 @@ def die(outcomes):
 
 def _gen_weights(g, depth):
     outs = g.rng.sample(range(-4, 13), g.rng.randint(1, 5))
+    if g.rng.random() < 0.04:
+        # An `Again` expression as a key (hashed by its hash_key; an equal one merges), rolled again by `Die()`.
+        from harness.grammar.again import _again_expr
+        outs[0] = _again_expr(g, 1, False)
+        if g.rng.random() < 0.3:
+            outs.append(outs[0])
     return {"op": "weights", "items": [[o, g.rng.choice([0, 1, 1, 2, 3, 5, 10**20])] for o in outs]}
 
 
 @node("weights", "die", gen=_gen_weights, leaf=True)
 def weights(items):
-    """icepool.Die({outcome: quantity}): zero quantities are kept, huge ones are exact."""
+    """icepool.Die({outcome: quantity}): zero quantities are kept, huge ones are exact; an Again key rolls again."""
     return icepool.Die({o: q for o, q in items})
 
 

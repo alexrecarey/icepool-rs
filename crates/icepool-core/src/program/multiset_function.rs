@@ -386,7 +386,11 @@ fn prepare_function(
         None => f.params > inputs.len(),
     };
     // `self._wrapped(*multiset_variables, **kwargs)` without `star`.
-    let kwargs: Vec<(String, PValue)> = kwargs.iter().filter(|(k, _)| k != "star").cloned().collect();
+    let kwargs: Vec<(String, PValue)> = kwargs
+        .iter()
+        .filter(|(k, _)| k != "star")
+        .cloned()
+        .collect();
     let mut vars = Vec::new();
     let rest = if star {
         let Some(first) = inputs.first() else {
@@ -421,7 +425,11 @@ fn prepare_function(
             "wrapped() got an unexpected keyword argument '{k}'"
         ));
     }
-    if let Some(k) = f.kwonly.iter().find(|k| kwargs.iter().all(|(n, _)| n != *k)) {
+    if let Some(k) = f
+        .kwonly
+        .iter()
+        .find(|k| kwargs.iter().all(|(n, _)| n != *k))
+    {
         return type_error(format!(
             "wrapped() missing 1 required keyword-only argument: '{k}'"
         ));

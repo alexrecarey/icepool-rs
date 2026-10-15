@@ -1,0 +1,11 @@
+{"program":{"op":"weights","items":[[{"op":"Again"},1],[2,3]]},"expected":{"ok":true,"die":[[0,1],[2,15]]}}
+{"program":{"op":"weights","items":[[{"op":"add","a":{"op":"Again"},"b":1},1],[2,3],[{"op":"add","a":{"op":"Again"},"b":1},5]]},"expected":{"ok":true,"die":[[2,49],[3,15]]}}
+{"program":{"op":"weights","items":[[{"op":"add","a":{"op":"Again"},"b":1},1],[2,3],[{"op":"add","a":{"op":"Again"},"b":2},5]]},"expected":{"ok":true,"die":[[2,28],[3,13],[4,40]]}}
+{"program":{"op":"weights","items":[[{"op":"add","a":{"op":"Again"},"b":{"op":"d","sides":2}},1],[1,1],[{"op":"add","a":{"op":"Again"},"b":{"op":"d","sides":2}},2]]},"expected":{"ok":true,"die":[[1,3],[2,2],[3,3],[4,1]]}}
+{"program":{"op":"weights","items":[[{"op":"Again"},-1],[2,3]]},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"weights","items":[[{"op":"Again"},0],[2,3]]},"expected":{"ok":true,"die":[[2,3]]}}
+{"program":{"op":"weights","items":[[{"op":"mul","a":{"op":"Again"},"b":2},100000000000000000000],[1,3]]},"expected":{"ok":true,"die":[[0,10000000000000000000000000000000000000000],[1,300000000000000000009],[2,300000000000000000000]]}}
+{"program":{"op":"pool_sum","pool":{"op":"pool_dict","items":[[{"op":"d","sides":2},1],[{"op":"Again"},1]],"times":1}},"expected":{"ok":false,"error":"ImplicitConversionError"}}
+{"program":{"op":"pool_sum","pool":{"op":"pool_dict","items":[[{"op":"Again"},1],[{"op":"Again"},2]],"times":1}},"expected":{"ok":false,"error":"ImplicitConversionError"}}
+{"program":{"op":"pool_sum","pool":{"op":"pool","dice":[{"op":"d","sides":3},{"op":"add","a":{"op":"Again"},"b":1}],"times":1}},"expected":{"ok":false,"error":"ImplicitConversionError"}}
+{"program":{"op":"pool_sum","pool":{"op":"pool","dice":[{"op":"Again"}],"times":[2]}},"expected":{"ok":false,"error":"ImplicitConversionError"}}

@@ -665,9 +665,7 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
             PValue::Func(f) if f.positional().is_some() => {
                 OutcomeFilter::Function(Arc::new(CataloguePredicate(f)))
             }
-            PValue::Func(_) => {
-                return Err(PErr::Unimplemented("this keep_outcomes target".into()))
-            }
+            PValue::Func(_) => return Err(PErr::Unimplemented("this keep_outcomes target".into())),
             // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
             // `MultisetTupleIndex`es, whose hashes (of `(type, index)`) no outcome's matches, so nothing is in it.
             target if as_tuple_expression(&target).is_some() => {

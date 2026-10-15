@@ -25,7 +25,10 @@ pub enum AgainOp {
     MatMul,
     /// `operator.eq` (`ne`: `operator.ne`), as `__eq__` / `__ne__` build it: with the expression's `truth_value`,
     /// the only kind of expression that has one. The truth value is not part of the `hash_key`.
-    Eq { ne: bool, truth: bool },
+    Eq {
+        ne: bool,
+        truth: bool,
+    },
 }
 
 impl AgainOp {
@@ -113,7 +116,10 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
 /// `bool(expr)`: only an expression from `==` or `!=` has a truth value.
 pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
     match x {
-        Again::Apply { function: AgainOp::Eq { truth, .. }, .. } => Ok(*truth),
+        Again::Apply {
+            function: AgainOp::Eq { truth, .. },
+            ..
+        } => Ok(*truth),
         _ => raise(Error::Value(
             "An `Again` only has a truth value if it is the result of == or !=.".into(),
         )),
@@ -125,13 +131,21 @@ pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
 /// each with `==` and `bool`). Two expressions in there compare by their own `__eq__`, so by `hash_key` again;
 /// an expression and anything else are unequal (the other side returns `NotImplemented`, and the expression's
 /// truth value is `False`).
-fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
+pub(super) fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
     match (x, y) {
         // `_func` is `None` and `_args` is `()` for both.
         (Again::Again { .. }, Again::Again { .. }) => Ok(true),
         (
-            Again::Apply { function: f, args: a, .. },
-            Again::Apply { function: g, args: b, .. },
+            Again::Apply {
+                function: f,
+                args: a,
+                ..
+            },
+            Again::Apply {
+                function: g,
+                args: b,
+                ..
+            },
         ) => {
             if !f.same_function(g) || a.len() != b.len() {
                 return Ok(false);

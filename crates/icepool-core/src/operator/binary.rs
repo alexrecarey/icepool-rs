@@ -57,7 +57,9 @@ impl BinaryOperator {
             BinaryOperator::Intersection if r < l => right.clone(),
             BinaryOperator::Union if r > l => right.clone(),
             BinaryOperator::Intersection | BinaryOperator::Union => left,
-            BinaryOperator::AdditiveUnion => Count::Tuple(l.iter().chain(r.iter()).copied().collect()),
+            BinaryOperator::AdditiveUnion => {
+                Count::Tuple(l.iter().chain(r.iter()).copied().collect())
+            }
             _ => return Err(tuple_error()),
         })
     }

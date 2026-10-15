@@ -50,15 +50,25 @@ fn same(expected: &Value, actual: &Value) -> Result<(), String> {
         }
     }
     if !e_ok || !a_ok {
-        return if e_ok == a_ok { Ok(()) } else { Err(format!("expected {expected}, got {actual}")) };
+        return if e_ok == a_ok {
+            Ok(())
+        } else {
+            Err(format!("expected {expected}, got {actual}"))
+        };
     }
     for key in ["die", "value"] {
         if expected.get(key).is_some() {
             return if expected.get(key) == actual.get(key) {
                 Ok(())
             } else {
-                let short = |v: Option<&Value>| v.map(|v| v.to_string().chars().take(300).collect::<String>());
-                Err(format!("{key}: expected {:?}, got {:?}", short(expected.get(key)), short(actual.get(key))))
+                let short = |v: Option<&Value>| {
+                    v.map(|v| v.to_string().chars().take(300).collect::<String>())
+                };
+                Err(format!(
+                    "{key}: expected {:?}, got {:?}",
+                    short(expected.get(key)),
+                    short(actual.get(key))
+                ))
             };
         }
     }
@@ -86,7 +96,11 @@ fn fixtures_match_oracle() {
     let (mut checked, mut skipped, mut failures) = (0, 0, Vec::new());
     for path in &paths {
         let text = fs::read_to_string(path).unwrap();
-        for (i, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        for (i, line) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+        {
             let fx: Value = serde_json::from_str(line).unwrap();
             let mut used = HashSet::new();
             ops(&fx["program"], &mut used);
@@ -101,6 +115,14 @@ fn fixtures_match_oracle() {
             }
         }
     }
-    eprintln!("fixtures: {checked} checked, {skipped} skipped (ops not ported), {} failures", failures.len());
-    assert!(failures.is_empty(), "{} fixture failures, first ones:\n{}", failures.len(), failures[..failures.len().min(10)].join("\n"));
+    eprintln!(
+        "fixtures: {checked} checked, {skipped} skipped (ops not ported), {} failures",
+        failures.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{} fixture failures, first ones:\n{}",
+        failures.len(),
+        failures[..failures.len().min(10)].join("\n")
+    );
 }

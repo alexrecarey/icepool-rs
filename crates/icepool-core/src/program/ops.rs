@@ -1477,6 +1477,17 @@ pub(super) fn dict_items(items: PValue) -> Result<Vec<(Key, PValue)>, PErr> {
 
 /// `icepool.Die({outcome: quantity for outcome, quantity in items})`.
 fn weights(items: PValue) -> Result<PValue, PErr> {
+    // An `Again` key hashes by its `hash_key`: those dicts take the dict that compares keys one by one.
+    let again_key = |item: &PValue| match item {
+        PValue::List(kv) | PValue::Tuple(kv) => matches!(kv.first(), Some(PValue::Again(_))),
+        _ => false,
+    };
+    if let PValue::List(xs) | PValue::Tuple(xs) = &items {
+        if xs.iter().any(again_key) {
+            let (args, values) = super::pool::dict(items)?.into_iter().unzip();
+            return weights_die(args, values);
+        }
+    }
     let (keys, values): (Vec<Key>, Vec<PValue>) = dict_items(items)?.into_iter().unzip();
     let args: Vec<PValue> = keys
         .into_iter()
@@ -1498,6 +1509,15 @@ pub(super) fn weights_die(args: Vec<PValue>, values: Vec<PValue>) -> Result<PVal
             PValue::Value(t) if t.as_num().is_some() => times.push(t),
             _ => return type_error("'<' not supported between a quantity and 'int'"),
         }
+    }
+    if args.iter().any(|x| matches!(x, PValue::Again(_))) {
+        // `Die.__new__` after `itemize`: depth mode, depth 1, the default end.
+        return again::evaluate_agains_using_depth(
+            args,
+            times,
+            PValue::Value(Value::from(1)),
+            PValue::Value(Value::None),
+        );
     }
     new_die(args, &times)
 }

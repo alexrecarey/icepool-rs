@@ -683,7 +683,10 @@ mod tests {
                 (hot(None), Quantity::ONE),
             ]
         );
-        assert_eq!(one_hot(&[Some(-3)]).unwrap(), vec![(hot(Some(0)), Quantity::ONE)]);
+        assert_eq!(
+            one_hot(&[Some(-3)]).unwrap(),
+            vec![(hot(Some(0)), Quantity::ONE)]
+        );
         for out_of_range in [3, -4] {
             assert!(matches!(
                 one_hot(&[Some(out_of_range)]),

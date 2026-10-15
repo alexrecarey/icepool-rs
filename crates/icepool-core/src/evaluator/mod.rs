@@ -521,8 +521,12 @@ pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
             Algorithm::Forward => pop_order,
         };
         // `initial_room`: the statelets (and so the sizes of the inputs), then the main state.
-        let (initial_statelets, arg_sizes) =
-            expression::initial_state(tree, eval_order, &all_outcomes, sources.iter().map(MultisetSource::size))?;
+        let (initial_statelets, arg_sizes) = expression::initial_state(
+            tree,
+            eval_order,
+            &all_outcomes,
+            sources.iter().map(MultisetSource::size),
+        )?;
         let initial_state = evaluator.initial_state_tree(eval_order, &all_outcomes, &arg_sizes)?;
         let mut dungeon = Dungeon::new(
             evaluator,

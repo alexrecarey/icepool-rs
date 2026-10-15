@@ -227,6 +227,8 @@ def _other_pool(g, depth):
     if r < 0.6:
         n = g.rng.choice([0, 1, 2, 2, 3])
         keys = [_die(g, depth) if g.rng.random() < 0.7 else g.outcome() for _ in range(n)]
+        if n and g.rng.random() < 0.05:
+            keys[-1] = {"op": "Again"}  # hashed by its hash_key, then not convertible to a die: raises
         if n and g.rng.random() < 0.2:
             keys.append(keys[0])  # an equal key: the dict merges it
         items = [[k, g.rng.choice([0, 1, 1, 2, 3, -1 if g.rng.random() < 0.1 else 1])] for k in keys]

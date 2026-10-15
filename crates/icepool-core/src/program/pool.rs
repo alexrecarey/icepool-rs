@@ -213,8 +213,9 @@ pub fn pool_dict(items: PValue, times: PValue) -> Result<PValue, PErr> {
 }
 
 /// Python's `dict(items)` over `[key, value]` pairs: equal keys merge, keeping the first key and the last value, in
-/// insertion order. Keys are dice or outcomes (a die never equals an outcome as a dict key).
-fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
+/// insertion order. Keys are dice, outcomes or `Again` expressions (a die never equals an outcome as a dict key;
+/// an expression hashes by its `hash_key`, so it only ever meets another expression with an equal one).
+pub(super) fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
     let mut result: Vec<(PValue, PValue)> = Vec::new();
     for item in py_iter(items)? {
         let pair = py_iter(item)?;
@@ -225,7 +226,7 @@ fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
             )))
         })?;
         let key = match key {
-            key @ (PValue::Die(_) | PValue::Value(_)) => key,
+            key @ (PValue::Die(_) | PValue::Value(_) | PValue::Again(_)) => key,
             // A `DieWithTruth` hashes and compares as its die (`hash_key`), which needs its data; the pool only
             // ever uses the die's data.
             PValue::DieWithTruth(d, _) => PValue::Die(d),
@@ -234,12 +235,20 @@ fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
             _ => return Err(PErr::Unimplemented("this dict key".into())),
         };
         let same = |k: &PValue| match (k, &key) {
-            (PValue::Die(a), PValue::Die(b)) => a == b,
-            (PValue::Value(a), PValue::Value(b)) => a == b,
-            _ => false,
+            (PValue::Die(a), PValue::Die(b)) => Ok(a == b),
+            (PValue::Value(a), PValue::Value(b)) => Ok(a == b),
+            (PValue::Again(a), PValue::Again(b)) => super::again::hash_key_eq(a, b),
+            _ => Ok(false),
         };
-        match result.iter_mut().find(|(k, _)| same(k)) {
-            Some((_, v)) => *v = value,
+        let mut found = None;
+        for (i, (k, _)) in result.iter().enumerate() {
+            if same(k)? {
+                found = Some(i);
+                break;
+            }
+        }
+        match found {
+            Some(i) => result[i].1 = value,
             None => result.push((key, value)),
         }
     }
@@ -392,7 +401,11 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         }
         (_, None) => {
             let list = matches!(index, PValue::List(_));
-            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list)))
+            Ok(into_pvalue(multiset_keep(
+                e,
+                multiset_keep_seq(index)?,
+                list,
+            )))
         }
     }
 }

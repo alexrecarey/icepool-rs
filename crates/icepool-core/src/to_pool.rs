@@ -41,14 +41,17 @@ pub fn explode_counts<E: From<Error>>(
     let top = match depth.checked_add(1).map(u32::try_from) {
         Some(Ok(top)) => top,
         Some(Err(_)) if depth < -1 => {
-            return Err(Error::Type("'float' object cannot be interpreted as an integer".into()).into())
+            return Err(
+                Error::Type("'float' object cannot be interpreted as an integer".into()).into(),
+            )
         }
         _ => return Err(Error::Unsupported("a huge explode_to_pool depth".into()).into()),
     };
     let vector = |i: u32, n: i64| Value::Vector(Vector::new(vec![int(i), int(n)]));
     let mut single_data = Vec::with_capacity(top as usize + 1);
     for i in 0..top {
-        let weight = explode_den.pow(i as usize) * die_den.pow((top - 1 - i) as usize) * not_explode_den;
+        let weight =
+            explode_den.pow(i as usize) * die_den.pow((top - 1 - i) as usize) * not_explode_den;
         single_data.push((vector(i, 1), weight));
     }
     single_data.push((vector(top, 0), explode_den.pow(top as usize)));
@@ -88,7 +91,10 @@ pub fn reroll_composition<E: From<Error>>(
     let step = |state: &Value, _: usize| -> Result<Next, E> {
         let [rerollable, rerolls_left] = pair(state);
         if rerollable.eq_op(&int(0), false)?.truthy()? {
-            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![int(0), int(0)]))));
+            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
+                int(0),
+                int(0),
+            ]))));
         }
         if rerolls_left.binary(BinOp::Lt, rerollable)?.truthy()? {
             return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
@@ -185,9 +191,14 @@ mod tests {
     fn explode_counts_depth_limits() {
         let q = Quantity::from(2u8);
         let count = |depth: i64| {
-            explode_counts(&q, &Quantity::ONE, &Quantity::ONE, &Value::from(1), depth, |_, d| {
-                Ok::<_, Error>(d.clone())
-            })
+            explode_counts(
+                &q,
+                &Quantity::ONE,
+                &Quantity::ONE,
+                &Value::from(1),
+                depth,
+                |_, d| Ok::<_, Error>(d.clone()),
+            )
         };
         // Below -1 Python's own TypeError; a depth past `u32` is one the port does not cover (Python would
         // build that many outcomes).
