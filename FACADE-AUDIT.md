@@ -82,7 +82,7 @@ ran on the core or composed core calls). Status:
 2. ~~Evaluations over `weightless()` generators~~: on the core since S4e.
 3. Evaluators called back from the core driver: `SumEvaluator(map)`, `LargestCountWithWild`,
    `AllStraightsReduceCounts`, argsort, `LexiComparisonEvaluator`, keep with an index beyond i64: **K6c**.
-4. Evaluators over a `MultiDeal` (tuple counts): operators **S4f**, built-ins **S5c**.
+4. Evaluators over a `MultiDeal` (tuple counts): ~~operators~~ on the core since S4f; built-ins **S5c**.
 5. Sources the core does not recognise (user generator subclasses, operator subclasses without a spec) use
    upstream's driver silently: **S5c**.
 6. `iter_cartesian_product` and `cartesian_product` over decks / expressions / other types: **S5c**.

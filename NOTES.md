@@ -5,6 +5,50 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Operators over tuple counts, operator equality, @multiset_function kwargs (S4f).** Core `operator/`: counts
+  and sizes stay `Count` (`Int` | `Tuple`) through the operators. Python has no special case for a tuple count; its
+  arithmetic just runs on it, so the port copies case by case: `operator::int` is the TypeError wherever Python
+  computes with a count (`max(c, 0)`, `c - x`, `min(c, n)`...), `next_state_tuple` the cases where a tuple gets
+  through: `reduce` of one child passes it on, `min` / `max` of two tuples (lexicographic, `[i64]` order) and `+`
+  (concatenation; a tuple with an int is TypeError), `tuple * n` repeats (`times` / `repeat`, also the size of
+  `MultiplyCounts`), `keep_counts('==')` is 0 and `'!='` the tuple, filters pass the source count on,
+  `versus` multiplies a tuple left count by 0 / 1, `sort_pair_*_while` ignores a tuple right count once the
+  "while" ended. A pairing operator that stores a tuple size in its state (`countdown = right_size`; versus in
+  reverse order, max_pair early) gets `Statelet::TupleSize`, whose next state is the TypeError Python's first
+  comparison raises; `UnsupportedOrder` / `OrderError` for a `None` size still come first. `CountFunction` (map_counts)
+  takes and returns `Count`s (catalogue: `expression::count_value` / `value_count`; facade: `count_py`, a result
+  that is an int or a flat tuple of ints, else a facade gap: a nested tuple, a bool). Only operators: built-in
+  evaluators still say `Unsupported` for tuple counts in icepool-run (S5c); the generators evaluate tuple-count
+  expressions with catalogue evaluators (written over `Value`s) only.
+- Program layer: a multiset tuple expression is an operand of an expression's operators (reflected: `md + pool` is
+  `pool.__radd__`), has no operators of its own (`md + md`, `md * 2`, `-md`, `+md` in `max_pair('==')` are
+  TypeError) and no methods (`the_expression` now raises AttributeError for it); `pool_slice` on one is its
+  `MultisetTupleSlice`; `keep_outcomes(md)` iterates it into a frozenset of `MultisetTupleIndex`es, which no outcome
+  equals (an empty set). `MExpr::Op` is an `OpNode { operator, children, list_index }`: `list_index` marks a
+  `MultisetKeep` given a list, whose `hash_key` is unhashable, so `add_inner` (any mixture) raises TypeError for an
+  expression holding one (this was wrong before S4f for mixtures of leaves). `same_expression` compares operators by
+  `_expression_key` (`same_operator`; a function by identity, `Arc` address; a `keep_outcomes` collection becomes a
+  fresh closure per operator, so never equal) and the same node by identity (Python's `is` in the dict).
+- `@multiset_function` keyword-only parameters: `mf_def` takes an optional `kwonly` list of names (old programs
+  without it still run), `mf_kwarg(name)` reads one in the innermost traced body (VARS holds (args, kwargs)),
+  `mf_call_kw(f, args, kwargs)` = `f(*args, **dict(kwargs))` (`star` among them is taken out by `_prepare` and never
+  reaches the body: a kw-only parameter named `star` is always missing). Binding errors are Python's TypeErrors
+  (unexpected / missing keyword). A nested call records its kwargs in the `RawResult`.
+- Nodes (harness/grammar/multiset_function.py): `mf_kwarg`, `mf_call_kw` (bodies use the kwargs as `keep_outcomes`
+  targets and count constants, sometimes as the result), `tuple_op_evaluate` (= `evaluate` over
+  `tuple_count_expression`s: operators whose operands are whole MultiDeals or slices, then more operators on top;
+  catalogue evaluators record / hand_sums / count_eq / seen / final_die). Function bodies now give tuple variables
+  whole to operators for the any-count evaluators. multiset.py `gen_expression` makes mixtures of operator
+  sub-expressions (6%, an inner repeated 60% of the time), so every expression node fuzzes operator equality.
+  Catalogue: `count_max` (`max(counts)`). Fuzz by calling the generators directly (as for mf_call): at S4f, through
+  icepool-run 16k tuple_op_evaluate, 30k mf_call_kw, 9k mixtures of operator expressions, 11k mx_evaluate, 8k
+  mf_call; through the facade 6k tuple_op_evaluate, 5k mf_call_kw, 2k mixtures, 3k mx_evaluate, 1.5k mf_call:
+  clean. (Facade fuzz after editing Rust: run-facade.sh rebuilds the extension on start, so the first program of
+  each process can hit the 20 s timeout; run it once by hand first.) fixtures/s4f/edge-cases (142), facade cases in
+  crates/icepool-py/tests (S4f block).
+- Left: tupleize of a joint result holding a list (e.g. a kwarg that is a list returned as a constant) is
+  `Unsupported` ("tuple outcomes holding lists or dice"); the generators avoid it.
+
 - **Weightless generators (S4e).** Core `weightless.rs` = generator/weightless.py: `WeightlessSource<O>` wraps any
   `MultisetSource` (`Arc`), new `MultisetSource::Weightless`; `pop` returns the wrapped possibilities with weight 1
   and `Error::UnsupportedOrder` if two have the same `Count` (the driver's usual retry: other order / forward
@@ -241,8 +285,7 @@ turns out wrong. Newest decisions at the top of each section.
   `itertools.product` over children, and **child flats are concatenated with their absolute child positions
   shifted** (`shifted`): forgetting that silently broke operators over operator children). `evaluate::mix` is the
   `final_data[die] += weight; Die(final_data)` end of `evaluate`. `MExpr::Mixture` (node `mx_mixture`, list form
-  only): inners merged by `same_expression` (= hash_key equality as far as the port models it; other operator pairs
-  are unimplemented, task S4f). A `_static_keepable` mixture (all inners keep generators or such mixtures) maps
+  only): inners merged by `same_expression` (= hash_key equality; every operator since S4f). A `_static_keepable` mixture (all inners keep generators or such mixtures) maps
   `keep` / `[]` / `lowest` / `highest` / `multiply_counts` / `*` / `-` over its inners (`map_mixture`); `keep(int)`
   then raises AttributeError (the inner results are dice); a MultisetKeep result with a *list* index is unhashable
   (TypeError) when put in the new mixture's dict.
@@ -271,8 +314,8 @@ turns out wrong. Newest decisions at the top of each section.
   per icepool file (binary, adjust_counts, filter_outcomes, keep, pair, versus, debug): `Operator<O>` is both the
   `BodyDungeonlet` (`next_state`) and the `BodyQuestlet` (`initial_state`) of an operator node; its local state is
   a `Statelet` (hashable enum: `None`, `Keep{keep_tuple, keep_more}`, `Versus`, `SortPair`, `SortPairWhile`,
-  `MaxPairLate/Early`). Counts are `i64` (`Count::Int`); a tuple count, overflow, a non-int `map_counts` result or
-  constant are `Unsupported`. `map_counts` functions and `keep_outcomes` callables are trait objects
+  `MaxPairLate/Early`). Counts are `i64` (`Count::Int`), or tuples since S4f (above); overflow, a non-int `map_counts`
+  result or constant are `Unsupported`. `map_counts` functions and `keep_outcomes` callables are trait objects
   (`CountFunction`, `OutcomePredicate`, `Send + Sync` or `PValue` stops being `Send`); a collection target is
   `OutcomeFilter::Set` (`==` membership). `lexi.rs`: `compute_lexi_tuple*` (comparison / extra are strings, an
   invalid one raises ValueError where Python's `match` does: at evaluation for sort_pair, at construction for

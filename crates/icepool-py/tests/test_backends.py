@@ -183,6 +183,12 @@ def mf_const(a):
 def mf_joint(x):
     return x.sum(), x.size()
 
+def same_counts(outcome, count):
+    return count
+
+HANDS = Deck([1, 2, 3, 3]).deal((1, 2))
+HANDS2 = Deck([1, 2, 2, 3]).deal((2, 1))
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -983,6 +989,21 @@ CASES = [
     '[(c, w) for s, c, w in Pool([d(4), d(6)]).weightless()._make_source().pop(Order.Ascending, 1)]',
     '[(c, w) for s, c, w in d(6).pool(3)[-1:].weightless()._make_source().pop(Order.Descending, 6)]',
     '[(c, w) for s, c, w in d(6).pool(3)[-1:].weightless()._make_source().pop(Order.Ascending, 1)]',
+    # S4f: operators over tuple counts (a MultiDeal as an operand), host functions given and returning tuples.
+    'MultisetExpression.map_counts(HANDS, function=lambda o, c: sum(c)).expand()',
+    'MultisetExpression.map_counts(HANDS, function=lambda o, c: c[::-1]).sum()',
+    'MultisetExpression.map_counts(HANDS, HANDS2, function=lambda o, a, b: a + b).sum()',
+    'MultisetExpression.map_counts(HANDS, function=lambda o, c: c + c).sum()',
+    'MultisetExpression.union(HANDS, HANDS2).keep_outcomes(lambda o: o > 1).sum()',
+    'MultisetExpression.intersection(HANDS, HANDS2).multiply_counts(2).sum()',
+    '(HANDS + d(3).pool(1)).sum()',
+    'd(3).pool(2).sort_pair(\'<\', HANDS).sum()',
+    'HostState().evaluate(MultisetExpression.union(HANDS).keep_counts(\'==\', 1))',
+    # A mixture's inners are equal when their functions are the same object.
+    'MultisetMixture([d(3).pool(2).map_counts(function=same_counts)] * 2 + [d(3).pool(2).map_counts(function=same_counts)]).sum()',
+    'MultisetMixture([d(3).pool(2).map_counts(function=lambda o, c: c), d(3).pool(2).map_counts(function=lambda o, c: c)]).sum()',
+    'mf_kw(HANDS[1], target=3)',
+    'mf_kw(d(3).pool(2), target=3, star=False)',
 ]
 
 SCRIPT = PRELUDE + '''
