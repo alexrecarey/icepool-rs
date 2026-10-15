@@ -6,6 +6,7 @@ Every node starts with pool.fresh_caches(): icepool's shared evaluators (sum_eva
 ==-keyed caches between calls, which in a long-lived oracle would leak spellings (1 for True) across programs.
 """
 from harness.core.grammar_api import node
+from harness.grammar import peek
 from harness.grammar.pool import STRAIGHT_METHODS, fresh_caches, gen_pool as _gen_pool, huge_range
 
 
@@ -73,12 +74,22 @@ def pool_all_counts(pool, filter):
 
 def _gen_expand(g, depth):
     # The result has an outcome per possible multiset: from a pool of at most three leaf dice, so that dice made
-    # from it stay well below Python's recursion limit (~1000 outcomes) when pooled and evaluated again.
-    n = g.rng.randint(0, 3)
-    p = {"op": "pool", "dice": [g.die(0) for _ in range(n)], "times": g.rng.choice([1, 1, 2]) if n < 3 else 1}
-    if g.rng.random() < 0.3:
-        p = {"op": "pool_highest", "pool": p, "keep": g.rng.randint(0, 2), "drop": None}
-    return {"op": "pool_expand", "pool": p, "order": g.rng.choice([1, -1, 0])}
+    # from it stay well below Python's recursion limit (~1000 outcomes) when pooled and evaluated again. Leaf dice
+    # go up to d99 (dz_attr), so ask the oracle and retry a result with too many outcomes.
+    for _ in range(10):
+        n = g.rng.randint(0, 3)
+        p = {"op": "pool", "dice": [g.die(0) for _ in range(n)], "times": g.rng.choice([1, 1, 2]) if n < 3 else 1}
+        if g.rng.random() < 0.3:
+            p = {"op": "pool_highest", "pool": p, "keep": g.rng.randint(0, 2), "drop": None}
+        program = {"op": "pool_expand", "pool": p, "order": g.rng.choice([1, -1, 0])}
+        try:
+            if len(peek(program)) > 500:
+                continue
+        except Exception:  # noqa: BLE001 - a program that raises is a fine program too
+            pass
+        return program
+    return {"op": "pool_expand", "pool": {"op": "d_pool", "die_sizes": [6, 6], "mapping": {"bool": False}},
+            "order": 1}
 
 
 @node("pool_expand", "die", gen=_gen_expand, weight=0.3)
