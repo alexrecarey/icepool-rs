@@ -22,7 +22,7 @@ class CompoundKeepGenerator(KeepGenerator[T]):
         # sources; keeping, multiplying counts and popping run there.
         if icepool.backend.RUST:
             self._rs = icepool.backend.RUST.compound_keep_new(
-                [inner._make_source()._rs for inner in self._inner_generators],
+                [_rust_source(inner._make_source()) for inner in self._inner_generators],
                 list(keep_tuple))
             self._keep_tuple = self._rs.keep_tuple()
             return
@@ -76,8 +76,15 @@ class CompoundKeepGenerator(KeepGenerator[T]):
                 '], keep_tuple=' + str(self.keep_tuple()) + ')')
 
 
+def _rust_source(source):
+    """icepool-rs: what the Rust core takes for a facade source: its `_rs`, or else the source itself, which the
+    core calls back as a host source (a user's `MultisetSource` subclass; see crates/icepool-py/src/host_source.rs).
+    """
+    return getattr(source, '__dict__', {}).get('_rs', source)
+
+
 def _wrap_rust_source(rs):
-    """icepool-rs: a facade source around a source of the Rust core."""
+    """icepool-rs: a facade source around a source of the Rust core (a host source is its own Python object)."""
     rust = icepool.backend.RUST
     if isinstance(rs, rust.PoolSource):
         return icepool.generator.pool.PoolSource._new_rust(rs)
@@ -87,7 +94,9 @@ def _wrap_rust_source(rs):
         return icepool.generator.multi_deal.MultiDealSource._new_rust(rs)
     if isinstance(rs, rust.WeightlessSource):
         return icepool.generator.weightless.WeightlessSource._new_rust(rs)
-    return CompoundKeepSource._new_rust(rs)
+    if isinstance(rs, rust.CompoundKeepSource):
+        return CompoundKeepSource._new_rust(rs)
+    return rs
 
 
 class CompoundKeepSource(KeepSource[T]):

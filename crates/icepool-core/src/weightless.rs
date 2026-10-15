@@ -66,11 +66,11 @@ impl<O: Outcome> WeightlessSource<O> {
         self.wrapped.size()
     }
 
-    pub fn order_preference(&self) -> (Order, OrderReason) {
+    pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
         self.wrapped.order_preference()
     }
 
-    pub fn is_resolvable(&self) -> bool {
+    pub fn is_resolvable(&self) -> Result<bool> {
         self.wrapped.is_resolvable()
     }
 }

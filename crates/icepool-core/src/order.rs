@@ -75,6 +75,18 @@ pub enum OrderReason {
 }
 
 impl OrderReason {
+    /// `OrderReason(value)`: `None` for a value it does not have.
+    pub fn from_int(value: i64) -> Option<OrderReason> {
+        Some(match value {
+            0 => OrderReason::NoPreference,
+            1 => OrderReason::Default,
+            2 => OrderReason::KeepSkip,
+            3 => OrderReason::PoolComposition,
+            4 => OrderReason::Mandatory,
+            _ => return None,
+        })
+    }
+
     /// `OrderReason(reason + 1)`; only called below `Mandatory`.
     fn next(self) -> OrderReason {
         match self {

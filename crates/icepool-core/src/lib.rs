@@ -20,6 +20,7 @@ pub mod expand;
 pub mod expression;
 pub mod format;
 pub mod function;
+pub mod host_source;
 pub mod keep;
 pub mod keep_tuple;
 pub mod khepri;

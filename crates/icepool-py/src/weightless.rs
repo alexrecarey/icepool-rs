@@ -55,14 +55,15 @@ impl RsWeightlessSource {
             .transpose()
     }
 
-    fn is_resolvable(&self) -> bool {
-        self.source.is_resolvable()
+    fn is_resolvable(&self) -> PyResult<bool> {
+        self.source.is_resolvable().map_err(to_py_err)
     }
 
     /// `(order, reason)` as the values of the facade's `Order` and `OrderReason`.
-    fn order_preference(&self) -> (i64, i64) {
-        let (order, reason): (Order, OrderReason) = self.source.order_preference();
-        (order.value(), reason as i64)
+    fn order_preference(&self) -> PyResult<(i64, i64)> {
+        let (order, reason): (Order, OrderReason) =
+            self.source.order_preference().map_err(to_py_err)?;
+        Ok((order.value(), reason as i64))
     }
 
     /// `WeightlessSource.pop(order, outcome)`: `(popped source, count, 1)` for each possibility of the wrapped

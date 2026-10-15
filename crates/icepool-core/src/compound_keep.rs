@@ -139,19 +139,25 @@ impl<O: Outcome> CompoundKeepSource<O> {
         sum_counts(&self.keep_tuple).map(Some)
     }
 
-    pub fn is_resolvable(&self) -> bool {
-        self.inner_sources.iter().all(MultisetSource::is_resolvable)
+    pub fn is_resolvable(&self) -> Result<bool> {
+        for source in self.inner_sources.iter() {
+            if !source.is_resolvable()? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
-    pub fn order_preference(&self) -> (Order, OrderReason) {
-        // Python can raise ConflictingOrderError here only for two opposite `Mandatory` preferences, and no source
-        // has one: a merge reaches `Mandatory` only together with `Order.Any`, which later merges skip.
-        merge_order_preferences(
-            self.inner_sources
-                .iter()
-                .map(MultisetSource::order_preference),
-        )
-        .expect("no source prefers an order with Mandatory reason")
+    /// The merged preferences of the inner sources. Python raises ConflictingOrderError here for two opposite
+    /// `Mandatory` preferences; no built-in source has one (a merge reaches `Mandatory` only together with
+    /// `Order.Any`, which later merges skip), but a host source may.
+    pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
+        let preferences = self
+            .inner_sources
+            .iter()
+            .map(MultisetSource::order_preference)
+            .collect::<Result<Vec<_>>>()?;
+        merge_order_preferences(preferences)
     }
 
     /// Pops `outcome` off every inner source (`itertools.product` of their possibilities, the last varying

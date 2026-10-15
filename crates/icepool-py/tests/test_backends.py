@@ -190,6 +190,95 @@ def same_counts(outcome, count):
 HANDS = Deck([1, 2, 3, 3]).deal((1, 2))
 HANDS2 = Deck([1, 2, 2, 3]).deal((2, 1))
 
+import math
+from icepool.generator.multiset_generator import MultisetSource
+from icepool.operator.multiset_operator import MultisetOperator
+from icepool.order import OrderReason
+
+class UniformSource(MultisetSource):
+    def __init__(self, n, outcomes, preference=(Order.Any, OrderReason.NoPreference)):
+        self.n = n
+        self._outcomes = tuple(outcomes)
+        self.preference = preference
+    def outcomes(self):
+        return self._outcomes
+    def size(self):
+        return self.n
+    def pop(self, order, outcome):
+        if order > 0:
+            target, rest = self._outcomes[0], self._outcomes[1:]
+        else:
+            target, rest = self._outcomes[-1], self._outcomes[:-1]
+        if outcome != target:
+            yield self, 0, 1
+            return
+        m = len(rest)
+        for k in range(self.n + 1):
+            if m == 0 and k < self.n:
+                continue
+            yield UniformSource(self.n - k, rest, self.preference), k, math.comb(self.n, k)
+    def order_preference(self):
+        return self.preference
+    def is_resolvable(self):
+        return True
+    @property
+    def hash_key(self):
+        return type(self), self.n, self._outcomes, self.preference
+
+class Uniform(MultisetGenerator):
+    def __init__(self, n, outcomes, preference=(Order.Any, OrderReason.NoPreference)):
+        self.n = n
+        self.outcomes_ = tuple(outcomes)
+        self.preference = preference
+    def _make_source(self):
+        return UniformSource(self.n, self.outcomes_, self.preference)
+    @property
+    def hash_key(self):
+        return type(self), self.n, self.outcomes_, self.preference
+    @property
+    def _static_keepable(self):
+        return False
+
+class DoubleCounts(MultisetOperator):
+    def __init__(self, child):
+        self._children = (child,)
+    def _next_state(self, state, order, outcome, child_counts, source_counts, arg_counts):
+        return state + 1, child_counts[0] * 2
+    def _initial_state(self, order, outcomes, child_sizes, source_sizes, arg_sizes):
+        return 0, None if child_sizes[0] is None else child_sizes[0] * 2
+    @property
+    def _expression_key(self):
+        return DoubleCounts
+
+class MyUnion(ip.operator.MultisetUnion):
+    pass
+
+class BoomSource(UniformSource):
+    """Raises from pop (inside the driver's try) and from outcomes (outside)."""
+    def pop(self, order, outcome):
+        raise Boom()
+
+class BoomGen(Uniform):
+    def _make_source(self):
+        return BoomSource(self.n, self.outcomes_)
+
+class UnsupportedSource(UniformSource):
+    """Ascending pops only: the driver retries in the other order."""
+    def pop(self, order, outcome):
+        if order < 0:
+            raise MyUnsupported('ascending only')
+        return UniformSource.pop(self, order, outcome)
+
+class AscGen(Uniform):
+    def _make_source(self):
+        return UnsupportedSource(self.n, self.outcomes_)
+
+class AscOperator(DoubleCounts):
+    def _initial_state(self, order, outcomes, child_sizes, source_sizes, arg_sizes):
+        if order < 0:
+            raise MyUnsupported('ascending only')
+        return 0, None
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -1060,6 +1149,36 @@ CASES = [
     'vectorize(d(2), Pool([d(2), d(2)]))',
     'tupleize(Deck([1, 2]), Reroll)',
     'ip.cartesian_product(d(2), outcome_type=lambda t: t[0] % 2)',
+    # S5c: user generators (host sources), user operators and subclasses of built-in ones (host operators) on the
+    # core driver.
+    'Uniform(2, [1, 2, 3]).sum()',
+    'Uniform(2, [1, 2, 3]).expand()',
+    'Uniform(3, [1, 2, 3]).highest(2).sum()',
+    'Uniform(2, [1, 2]).size()',
+    '(Uniform(2, [1, 2]) + d(2).pool(1)).sum()',
+    'Uniform(2, [E.A, E.B]).expand()',
+    'Uniform(2, [Card(1), Card(2)]).expand()',
+    'HostState().evaluate(Uniform(2, [1, 2, 3]))',
+    'OrderSeen().evaluate(Uniform(2, [1, 2]), d(3).pool(1))',
+    'Uniform(2, [1, 2, 3]).weightless().expand()',
+    'Uniform(2, [1, 2, 3], (Order.Ascending, OrderReason.Mandatory)).sum()',
+    'AscOnly().evaluate(Uniform(2, [1, 2, 3], (Order.Descending, OrderReason.Mandatory)))',
+    'AscOnly().evaluate(Uniform(2, [1, 2, 3]))',
+    'AscGen(2, [1, 2, 3]).sum()',
+    'BoomGen(2, [1, 2]).sum()',
+    'Uniform(0, []).sum()',
+    'mf_user(Uniform(2, [1, 2]), d(2).pool(1))',
+    'MultisetMixture([Uniform(1, [1, 2]), Uniform(1, [1, 2]), d(2).pool(1)]).sum()',
+    'DoubleCounts(d(3).pool(2)).sum()',
+    'DoubleCounts(d(3).pool(2)).size()',
+    'DoubleCounts(Uniform(1, [1, 2])).expand()',
+    'DoubleCounts(d(3).pool(2)).keep_counts(\'>=\', 4).sum()',
+    'HostState().evaluate(DoubleCounts(d(3).pool(2)))',
+    'MyUnion(d(3).pool(1), d(3).pool(2)).sum()',
+    'MyUnion(d(3).pool(1), Uniform(1, [2, 4])).expand()',
+    'AscOperator(d(3).pool(2)).sum()',
+    'mf_user(DoubleCounts(d(2).pool(1)), d(2).pool(1))',
+    'DoubleCounts(MultisetExpression.union(HANDS)).sum()',
 ]
 
 SCRIPT = PRELUDE + '''

@@ -224,6 +224,8 @@ pub enum MultisetSource<O> {
     MultiDeal(MultiDealSource<O>),
     CompoundKeep(CompoundKeepSource<O>),
     Weightless(WeightlessSource<O>),
+    /// A source the host implements (`crate::host_source`): the facade's user-defined sources.
+    Host(crate::host_source::HostSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
@@ -260,6 +262,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::MultiDeal(s) => s.outcomes(),
             MultisetSource::CompoundKeep(s) => s.outcomes()?,
             MultisetSource::Weightless(s) => s.outcomes()?,
+            MultisetSource::Host(s) => s.outcomes()?,
         })
     }
 
@@ -272,29 +275,32 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::MultiDeal(s) => Some(Count::Tuple(s.size())),
             MultisetSource::CompoundKeep(s) => s.size()?.map(Count::Int),
             MultisetSource::Weightless(s) => s.size()?,
+            MultisetSource::Host(s) => s.size()?,
         })
     }
 
-    /// Whether this source contains any probability.
-    pub fn is_resolvable(&self) -> bool {
-        match self {
+    /// Whether this source contains any probability (a host source's answer may raise).
+    pub fn is_resolvable(&self) -> Result<bool> {
+        Ok(match self {
             MultisetSource::Pool(s) => s.is_resolvable(),
             MultisetSource::Deal(s) => s.is_resolvable(),
             MultisetSource::MultiDeal(s) => s.is_resolvable(),
-            MultisetSource::CompoundKeep(s) => s.is_resolvable(),
-            MultisetSource::Weightless(s) => s.is_resolvable(),
-        }
+            MultisetSource::CompoundKeep(s) => s.is_resolvable()?,
+            MultisetSource::Weightless(s) => s.is_resolvable()?,
+            MultisetSource::Host(s) => s.is_resolvable()?,
+        })
     }
 
     /// The preferred pop order of this source and a reason why the order is preferred.
-    pub fn order_preference(&self) -> (Order, OrderReason) {
-        match self {
+    pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
+        Ok(match self {
             MultisetSource::Pool(s) => s.order_preference(),
             MultisetSource::Deal(s) => s.order_preference(),
             MultisetSource::MultiDeal(s) => s.order_preference(),
-            MultisetSource::CompoundKeep(s) => s.order_preference(),
-            MultisetSource::Weightless(s) => s.order_preference(),
-        }
+            MultisetSource::CompoundKeep(s) => s.order_preference()?,
+            MultisetSource::Weightless(s) => s.order_preference()?,
+            MultisetSource::Host(s) => s.order_preference()?,
+        })
     }
 
     /// Yields `(this source with the outcome popped, count of that outcome, weight)` for each possibility. If
@@ -313,6 +319,7 @@ impl<O: Outcome> MultisetSource<O> {
                 int_popped(s.pop(order, outcome)?, MultisetSource::CompoundKeep)
             }
             MultisetSource::Weightless(s) => s.pop(order, outcome)?,
+            MultisetSource::Host(s) => s.pop(order, outcome)?,
         })
     }
 }

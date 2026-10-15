@@ -95,6 +95,31 @@ pub enum Operator<O> {
     },
     /// `MultisetForceOrder` (operator/debug.py).
     ForceOrder(i64),
+    /// An operator the host implements: in the Python facade, a `MultisetOperator` the core has no variant for
+    /// (a user's subclass, or a subclass of a built-in one, which may override anything). Its `_initial_state`
+    /// and `_next_state` are called back; its local state is a host value.
+    Host(Arc<dyn HostOperator<O> + Send + Sync>),
+}
+
+/// The methods of an [`Operator::Host`]: `_initial_state(order, outcomes, child_sizes, source_sizes, arg_sizes)`
+/// and `_next_state(state, order, outcome, child_counts, source_counts, arg_counts)`, each returning the local
+/// state and this node's size or count. Only an operator's children are its business: the source and argument
+/// counts are for free variables and parameters, so the host gets none.
+pub trait HostOperator<O> {
+    fn initial_state(
+        &self,
+        order: Order,
+        outcomes: &[O],
+        child_sizes: &[Option<Count>],
+    ) -> Result<(crate::Value, Option<Count>)>;
+
+    fn next_state(
+        &self,
+        state: &crate::Value,
+        order: Order,
+        outcome: &O,
+        child_counts: &[Count],
+    ) -> Result<(crate::Value, Count)>;
 }
 
 /// The local state of an operator node (`None` for the stateless ones), part of the evaluation's room key.
@@ -132,6 +157,8 @@ pub enum Statelet {
     /// The state of a pairing operator that stored a tuple size (`countdown = right_size`): every `_next_state`
     /// computes with it first, which is Python's `TypeError`.
     TupleSize(Arc<[i64]>),
+    /// The state of an [`Operator::Host`].
+    Host(crate::Value),
 }
 
 /// A count (or size) an operator computes with: a tuple is Python's `TypeError` from its arithmetic or
@@ -200,8 +227,13 @@ impl<O: PartialEq> Operator<O> {
     pub fn initial_state(
         &self,
         order: Order,
+        outcomes: &[O],
         child_sizes: &[Option<Count>],
     ) -> Result<(Statelet, Option<Count>)> {
+        if let Operator::Host(op) = self {
+            let (state, size) = op.initial_state(order, outcomes, child_sizes)?;
+            return Ok((Statelet::Host(state), size));
+        }
         let order = order.value();
         if !matches!(self, Operator::Binary(_) | Operator::MapCounts(_))
             && child_sizes.len() < self.arity()
@@ -253,6 +285,7 @@ impl<O: PartialEq> Operator<O> {
             | Operator::KeepCounts(..)
             | Operator::FilterOutcomes { .. }
             | Operator::FilterOutcomesBinary { .. } => Ok((Statelet::None, None)),
+            Operator::Host(_) => unreachable!("handled above"),
         }
     }
 
@@ -261,10 +294,18 @@ impl<O: PartialEq> Operator<O> {
     pub fn next_state(
         &self,
         state: &Statelet,
-        _order: Order,
+        order: Order,
         outcome: &O,
         child_counts: &[Count],
     ) -> Result<(Statelet, Count)> {
+        if let Operator::Host(op) = self {
+            // A host operator's state is always a host one: `initial_state` made it.
+            let Statelet::Host(state) = state else {
+                return Err(Error::Value("a host operator without its state".into()));
+            };
+            let (next, count) = op.next_state(state, order, outcome, child_counts)?;
+            return Ok((Statelet::Host(next), count));
+        }
         // Every operator but the binary ones has a fixed number of children (an expression with none fails to
         // prepare in Python, IndexError).
         if !matches!(self, Operator::Binary(_) | Operator::MapCounts(_))
@@ -317,6 +358,7 @@ impl<O: PartialEq> Operator<O> {
             } => pair::max_pair_early_next_state(*pair_equal, *keep, state, counts[0], counts[1]),
             Operator::Versus { .. } => versus::next_state(state, counts[0], counts[1]),
             Operator::ForceOrder(_) => Ok((Statelet::None, Count::Int(counts[0]))),
+            Operator::Host(_) => unreachable!("next_state calls the host first"),
         }
     }
 
@@ -384,6 +426,7 @@ impl<O: PartialEq> Operator<O> {
             | Operator::SortPair { .. }
             | Operator::MaxPairLate { .. }
             | Operator::MaxPairEarly { .. } => Err(tuple_error()),
+            Operator::Host(_) => unreachable!("next_state calls the host first"),
         }
     }
 }

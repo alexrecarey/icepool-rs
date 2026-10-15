@@ -174,6 +174,7 @@ fn parameter<C: Clone>(
 fn initial_tree<O: PartialEq>(
     tree: &CallTree<O>,
     order: Order,
+    outcomes: &[O],
     source_sizes: &mut impl Iterator<Item = Result<Option<Count>>>,
     arg_sizes: &[Option<Count>],
     statelets: &mut Vec<Statelet>,
@@ -186,7 +187,7 @@ fn initial_tree<O: PartialEq>(
                 Dungeonlet::FreeVariable => source_sizes.next().ok_or_else(no_source)??,
                 Dungeonlet::Operator { operator, children } => {
                     let (statelet, size) =
-                        operator.initial_state(order, &child_values(&sizes, children))?;
+                        operator.initial_state(order, outcomes, &child_values(&sizes, children))?;
                     statelets.push(statelet);
                     size
                 }
@@ -215,19 +216,21 @@ fn initial_tree<O: PartialEq>(
     let calls = tree
         .calls
         .iter()
-        .map(|call| initial_tree(call, order, source_sizes, &output_sizes, statelets))
+        .map(|call| initial_tree(call, order, outcomes, source_sizes, &output_sizes, statelets))
         .collect::<Result<_>>()?;
     Ok(CountTree::Calls(calls))
 }
 
-/// The initial statelets and size tree of a call tree (see [`initial_tree`]).
+/// The initial statelets and size tree of a call tree (see [`initial_tree`]). `outcomes` are all the outcomes
+/// the evaluation will see, ascending (a host operator's `_initial_state` gets them).
 pub fn initial_state<O: PartialEq>(
     tree: &CallTree<O>,
     order: Order,
+    outcomes: &[O],
     mut source_sizes: impl Iterator<Item = Result<Option<Count>>>,
 ) -> Result<(Statelets, CountTree<Option<Count>>)> {
     let mut statelets = Vec::new();
-    let sizes = initial_tree(tree, order, &mut source_sizes, &[], &mut statelets)?;
+    let sizes = initial_tree(tree, order, outcomes, &mut source_sizes, &[], &mut statelets)?;
     Ok((Arc::from(statelets), sizes))
 }
 

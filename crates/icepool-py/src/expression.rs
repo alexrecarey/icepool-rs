@@ -43,7 +43,8 @@ pub struct RsCompoundKeepSource {
     pub(crate) source: CompoundKeepSource<Value>,
 }
 
-/// The core source of a facade source's `_rs`: a pool's, deal's, multi-deal's, compound keep's or weightless one's.
+/// The core source of a facade source's `_rs` (a pool's, deal's, multi-deal's, compound keep's or weightless
+/// one's), or a host source for a Python source object without one (`host_source.rs`).
 pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value>> {
     if let Ok(s) = s.cast::<RsPoolSource>() {
         return Ok(MultisetSource::Pool(s.get().source.clone()));
@@ -57,9 +58,11 @@ pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value
     if let Ok(s) = s.cast::<RsWeightlessSource>() {
         return Ok(MultisetSource::Weightless(s.get().source.clone()));
     }
-    Ok(MultisetSource::CompoundKeep(
-        s.cast::<RsCompoundKeepSource>()?.get().source.clone(),
-    ))
+    if let Ok(s) = s.cast::<RsCompoundKeepSource>() {
+        return Ok(MultisetSource::CompoundKeep(s.get().source.clone()));
+    }
+    // Anything else is a facade source the core has no variant for (a user's): its methods are called back.
+    crate::host_source::host_source(s)
 }
 
 /// A core source as the `icepool_rs` object the facade wraps (`PoolSource._new_rust(...)` and so on).
@@ -76,6 +79,9 @@ pub(crate) fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> 
         MultisetSource::Weightless(s) => {
             Bound::new(py, RsWeightlessSource { source: s.clone() })?.into_any()
         }
+        MultisetSource::Host(s) => crate::host_source::host_object(py, s).ok_or_else(|| {
+            PyValueError::new_err("icepool_rs: a host source that is not a Python object")
+        })?,
     })
 }
 
@@ -173,14 +179,15 @@ impl RsCompoundKeepSource {
         self.source.size().map_err(to_py_err)
     }
 
-    fn is_resolvable(&self) -> bool {
-        self.source.is_resolvable()
+    fn is_resolvable(&self) -> PyResult<bool> {
+        self.source.is_resolvable().map_err(to_py_err)
     }
 
     /// `(order, reason)` as the values of the facade's `Order` and `OrderReason`.
-    fn order_preference(&self) -> (i64, i64) {
-        let (order, reason): (Order, OrderReason) = self.source.order_preference();
-        (order.value(), reason as i64)
+    fn order_preference(&self) -> PyResult<(i64, i64)> {
+        let (order, reason): (Order, OrderReason) =
+            self.source.order_preference().map_err(to_py_err)?;
+        Ok((order.value(), reason as i64))
     }
 
     /// `CompoundKeepSource.pop(order, outcome)`: `(popped source, count, weight)` for each possibility.
@@ -225,7 +232,7 @@ impl RsCompoundKeepSource {
 
 /// A Python exception from a callback inside the evaluation: `UnsupportedOrder` (raised anywhere under
 /// `Dungeon.evaluate`'s try) is the core's retry signal; anything else is re-raised as it was.
-fn callback_error(py: Python<'_>, e: PyErr) -> Error {
+pub(crate) fn callback_error(py: Python<'_>, e: PyErr) -> Error {
     let unsupported = py
         .import("icepool")
         .and_then(|m| m.getattr("UnsupportedOrder"))
@@ -291,6 +298,103 @@ impl OutcomePredicate<Value> for HostPredicate {
                 .call1((o,))
                 .map_err(|e| callback_error(py, e))?;
             r.is_truthy().map_err(|e| callback_error(py, e))
+        })
+    }
+}
+
+/// A `MultisetOperator` the core has no spec for (a user's subclass), as an `Operator::Host`: its dungeonlet's
+/// `next_state` and questlet's `initial_state` (the operator's bound `_next_state` / `_initial_state`), called as
+/// `BodyDungeonlet` / `BodyQuestlet` are, with the child counts as a list, an `Order`, and no source or argument
+/// counts (an operator only reads its children's). Its state is any hashable Python object; its counts and sizes
+/// must be what the core models (`int`s or tuples of them, sizes also `None`), else `NotImplementedError`.
+struct HostOperatorPy {
+    next_state: Py<PyAny>,
+    initial_state: Py<PyAny>,
+}
+
+static ORDER: pyo3::sync::PyOnceLock<Py<PyType>> = pyo3::sync::PyOnceLock::new();
+
+fn order_py(py: Python<'_>, order: Order) -> icepool_core::Result<Bound<'_, PyAny>> {
+    ORDER
+        .import(py, "icepool", "Order")
+        .and_then(|o| o.call1((order.value(),)))
+        .map_err(host_error)
+}
+
+/// `(state, count)` returned by an operator's callback: the state as a value, the count as the core's.
+fn state_and<'py, C>(
+    py: Python<'py>,
+    result: PyResult<Bound<'py, PyAny>>,
+    count: impl Fn(&Bound<'py, PyAny>) -> icepool_core::Result<C>,
+) -> icepool_core::Result<(Value, C)> {
+    let (state, c): (Bound<'py, PyAny>, Bound<'py, PyAny>) = result
+        .and_then(|r| r.extract())
+        .map_err(|e| callback_error(py, e))?;
+    Ok((from_py(&state).map_err(host_error)?, count(&c)?))
+}
+
+fn host_count(c: &Bound<'_, PyAny>) -> icepool_core::Result<Count> {
+    icepool_core::expression::value_count(&from_py(c).map_err(host_error)?)
+}
+
+impl icepool_core::operator::HostOperator<Value> for HostOperatorPy {
+    fn initial_state(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        child_sizes: &[Option<Count>],
+    ) -> icepool_core::Result<(Value, Option<Count>)> {
+        Python::attach(|py| {
+            let outcomes = outcome_tuple(py, outcomes).map_err(host_error)?;
+            let sizes = child_sizes
+                .iter()
+                .map(|s| match s {
+                    None => Ok(py.None().into_bound(py)),
+                    Some(c) => count_py(py, c),
+                })
+                .collect::<icepool_core::Result<Vec<_>>>()?;
+            let sizes = PyList::new(py, sizes).map_err(host_error)?;
+            let no_sources = PyTuple::empty(py).try_iter().map_err(host_error)?;
+            let result = self.initial_state.bind(py).call1((
+                order_py(py, order)?,
+                outcomes,
+                sizes,
+                no_sources,
+                PyTuple::empty(py),
+            ));
+            state_and(py, result, |c| {
+                if c.is_none() {
+                    Ok(None)
+                } else {
+                    host_count(c).map(Some)
+                }
+            })
+        })
+    }
+
+    fn next_state(
+        &self,
+        state: &Value,
+        order: Order,
+        outcome: &Value,
+        child_counts: &[Count],
+    ) -> icepool_core::Result<(Value, Count)> {
+        Python::attach(|py| {
+            let counts = child_counts
+                .iter()
+                .map(|c| count_py(py, c))
+                .collect::<icepool_core::Result<Vec<_>>>()?;
+            let counts = PyList::new(py, counts).map_err(host_error)?;
+            let no_sources = PyTuple::empty(py).try_iter().map_err(host_error)?;
+            let result = self.next_state.bind(py).call1((
+                to_py(py, state).map_err(host_error)?,
+                order_py(py, order)?,
+                to_py(py, outcome).map_err(host_error)?,
+                counts,
+                no_sources,
+                PyTuple::empty(py),
+            ));
+            state_and(py, result, host_count)
         })
     }
 }
@@ -473,6 +577,10 @@ fn operator(spec: &Bound<'_, PyTuple>) -> PyResult<Operator<Value>> {
             }
         }
         "force_order" => Operator::ForceOrder(int_attr(&a(1)?, "an order")?),
+        "host" => Operator::Host(Arc::new(HostOperatorPy {
+            next_state: a(1)?.unbind(),
+            initial_state: a(2)?.unbind(),
+        })),
         other => {
             return Err(PyValueError::new_err(format!(
                 "icepool_rs: no operator {other}"

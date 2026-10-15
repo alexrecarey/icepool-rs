@@ -491,13 +491,19 @@ pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
     sources: &[MultisetSource<O>],
     check_depth: impl Fn(usize) -> Result<()>,
 ) -> Result<Vec<(E::Final, Quantity)>> {
-    if !sources.iter().all(MultisetSource::is_resolvable) {
-        return Ok(Vec::new());
+    // `all(...)` stops at the first source without probability, as Python's does.
+    for source in sources {
+        if !source.is_resolvable()? {
+            return Ok(Vec::new());
+        }
     }
 
+    let preferences = sources
+        .iter()
+        .map(MultisetSource::order_preference)
+        .collect::<Result<Vec<_>>>()?;
     let (pop_order, pop_order_reason) = merge_order_preferences(
-        std::iter::once((Order::Descending, OrderReason::Default))
-            .chain(sources.iter().map(MultisetSource::order_preference)),
+        std::iter::once((Order::Descending, OrderReason::Default)).chain(preferences),
     )?;
 
     let source_outcomes = sources
@@ -516,7 +522,7 @@ pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
         };
         // `initial_room`: the statelets (and so the sizes of the inputs), then the main state.
         let (initial_statelets, arg_sizes) =
-            expression::initial_state(tree, eval_order, sources.iter().map(MultisetSource::size))?;
+            expression::initial_state(tree, eval_order, &all_outcomes, sources.iter().map(MultisetSource::size))?;
         let initial_state = evaluator.initial_state_tree(eval_order, &all_outcomes, &arg_sizes)?;
         let mut dungeon = Dungeon::new(
             evaluator,

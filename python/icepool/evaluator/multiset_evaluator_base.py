@@ -110,12 +110,20 @@ class MultisetEvaluatorBase(ABC, Generic[T, U_co]):
             if flats is not None:
                 # icepool-rs: generators and the multiset operators over them
                 # evaluate on the core driver (evaluator_rust.py), and so do
-                # @multiset_function call trees; weightless() sources are not
-                # ported yet.
+                # @multiset_function call trees. Sources and operators the core
+                # has no variant for are called back as host ones.
                 result = evaluator_rust.evaluate(self, dungeon, quest,
                                                  sources, kwargs, flats)
             elif tree is not None:
                 result = evaluator_rust.evaluate_tree(tree, sources)
+            elif icepool.backend.RUST:
+                # icepool-rs: dungeons, quests or dungeonlets of classes the
+                # core does not know (a user's own `_prepare`): no silent
+                # fallback to upstream's driver.
+                raise NotImplementedError(
+                    'icepool_rs: an evaluation prepared into '
+                    f'{type(dungeon).__name__} / {type(quest).__name__}, '
+                    'or with dungeonlets the Rust core does not know')
             else:
                 result = dungeon.evaluate(quest, sources, kwargs)
             final_data[result] += weight

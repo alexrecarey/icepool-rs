@@ -12,6 +12,7 @@ mod evaluate;
 mod expression;
 mod format;
 mod function;
+mod host_source;
 mod map;
 mod map_tools;
 mod multi_deal;

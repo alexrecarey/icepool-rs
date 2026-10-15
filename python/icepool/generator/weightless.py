@@ -35,11 +35,12 @@ class WeightlessSource(MultisetSource[T]):
     def __init__(self, wrapped: MultisetSource[T], /):
         self._wrapped = wrapped
         # icepool-rs: the source pops outcomes in the Rust core, over the
-        # wrapped source's (every built-in generator's source has one; a
-        # source without is not the core's, and evaluations over it stay on
-        # upstream's driver, see evaluator_rust._core_source).
-        if icepool.backend.RUST and '_rs' in wrapped.__dict__:
-            self._rs = icepool.backend.RUST.weightless_source(wrapped._rs)
+        # wrapped source's (a user's source, without one, is called back by
+        # the core as a host source).
+        if icepool.backend.RUST:
+            from icepool.generator.compound_keep import _rust_source
+            self._rs = icepool.backend.RUST.weightless_source(
+                _rust_source(wrapped))
 
     @classmethod
     def _new_rust(cls, rs) -> 'WeightlessSource[T]':
