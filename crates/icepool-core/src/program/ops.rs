@@ -20,6 +20,7 @@ use super::map_tools;
 use super::multi_deal;
 use super::pool;
 use super::statistics;
+use super::to_pool;
 use super::{raise, Args, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
@@ -129,6 +130,31 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "reroll" | "filter" => {
             let [die, which, star, depth] = args.exactly(["die", "which", "star", "depth"])?;
             map::reroll(op == "filter", die, which, star, depth)
+        }
+        "map_to_pool" => {
+            let [f, args, star] = args.exactly(["f", "args", "star"])?;
+            to_pool::map_to_pool(f, args, star)
+        }
+        "die_map_to_pool" => {
+            let [die, f, args, star] = args.exactly(["die", "f", "args", "star"])?;
+            to_pool::die_map_to_pool(die, f, args, star)
+        }
+        "explode_to_pool" => {
+            let [die, rolls, outcomes, star, depth] =
+                args.exactly(["die", "rolls", "outcomes", "star", "depth"])?;
+            to_pool::explode_to_pool(die, rolls, outcomes, star, depth)
+        }
+        "reroll_to_pool" => {
+            let [die, rolls, outcomes, max_rerolls, star, depth, mode] = args.exactly([
+                "die",
+                "rolls",
+                "outcomes",
+                "max_rerolls",
+                "star",
+                "depth",
+                "mode",
+            ])?;
+            to_pool::reroll_to_pool(die, rolls, outcomes, max_rerolls, star, depth, mode)
         }
         "split" => {
             let [die, which, star] = args.exactly(["die", "which", "star"])?;
@@ -318,7 +344,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [f, a, star] = args.exactly(["f", "args", "star"])?;
             super::multiset_function::mf_call(f, a, star)
         }
-        "mx_evaluate" | "mx_tuple_evaluate" => {
+        "mx_evaluate" | "mx_tuple_evaluate" | "to_pool_evaluate" => {
             let [e, method] = args.exactly(["expr", "method"])?;
             evaluate::method_evaluation(&str_arg(&method)?, e)
         }

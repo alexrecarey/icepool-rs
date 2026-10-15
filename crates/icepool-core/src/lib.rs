@@ -35,6 +35,7 @@ pub mod population;
 pub mod program;
 pub mod pysort;
 pub mod random;
+pub mod to_pool;
 pub mod value;
 
 pub use creation_args::DieArg;

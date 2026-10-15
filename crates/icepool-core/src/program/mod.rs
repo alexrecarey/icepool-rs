@@ -22,6 +22,7 @@ mod multiset_function;
 mod ops;
 mod pool;
 mod statistics;
+mod to_pool;
 pub mod wire;
 
 pub use ops::matmul_dice;

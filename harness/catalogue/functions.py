@@ -24,16 +24,17 @@ class Entry:
     args: Callable                      # args(g, depth) -> list of map arguments
     pred: bool = False
     kw: bool = False                    # takes keyword-only arguments: only for the map_kw node
+    pool: bool = False                  # returns a pool's contents: only for map_to_pool (by name)
 
 
 FUNCTIONS: dict[str, Callable] = {}
 ENTRIES: dict[str, Entry] = {}
 
 
-def entry(name, params=lambda g: [], args=None, pred=False, kw=False):
+def entry(name, params=lambda g: [], args=None, pred=False, kw=False, pool=False):
     def deco(factory):
         FUNCTIONS[name] = factory
-        ENTRIES[name] = Entry(factory, params, args or (lambda g, depth: [g.die(depth)]), pred, kw)
+        ENTRIES[name] = Entry(factory, params, args or (lambda g, depth: [g.die(depth)]), pred, kw, pool)
         return factory
     return deco
 
@@ -359,6 +360,29 @@ def _mapping_params(g):
     return [pairs]
 
 
+# --- map_to_pool: functions returning what Pool(...) takes, or an expression ---------------------------------------
+
+@entry("n_of", params=lambda g: [g.rng.choice([0, 1, 1, 2, 2, 3, -1]) if g.rng.random() < 0.9 else _k(g)],
+       pool=True)
+def n_of(n):
+    return lambda x: [x] * n
+
+
+@entry("pool_d", params=lambda g: [_sides(g)], pool=True)
+def pool_d(n):
+    return lambda x: icepool.d(n).pool(x)
+
+
+@entry("pair_list", pool=True)
+def pair_list():
+    return lambda a, b: [a, b]
+
+
+@entry("reroll_or_pair", params=lambda g: [g.rng.randint(0, 6)], pool=True)
+def reroll_or_pair(k):
+    return lambda x: icepool.Reroll if x == k else [x, k]
+
+
 @entry("mapping", params=_mapping_params)
 def mapping(pairs):
     return {k: v for k, v in pairs}
@@ -367,7 +391,7 @@ def mapping(pairs):
 def fn_node(g, name=None, pred=False, kw=False):
     """A random `fn` node (a predicate if `pred`; keyword-only entries only if `kw`), and its catalogue entry."""
     if name is None:
-        names = [n for n, e in ENTRIES.items() if (e.pred or not pred) and (kw or not e.kw)]
+        names = [n for n, e in ENTRIES.items() if (e.pred or not pred) and (kw or not e.kw) and not e.pool]
         name = g.rng.choice(names)
     e = ENTRIES[name]
     return {"op": "fn", "name": name, "params": e.params(g)}, e
