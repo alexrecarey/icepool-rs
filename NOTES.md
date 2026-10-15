@@ -5,6 +5,30 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Weightless generators (S4e).** Core `weightless.rs` = generator/weightless.py: `WeightlessSource<O>` wraps any
+  `MultisetSource` (`Arc`), new `MultisetSource::Weightless`; `pop` returns the wrapped possibilities with weight 1
+  and `Error::UnsupportedOrder` if two have the same `Count` (the driver's usual retry: other order / forward
+  algorithm, then ConflictingOrderError). Python's pop is a generator that raises at the duplicate; the core pops
+  the wrapped source fully first, so an error *from the wrapped pop itself* after a duplicate would win in the port
+  (no built-in source raises mid-pop). There is no core generator type: the program layer has
+  `MExpr::Weightless(KeepGen)` (only multiset generators have `weightless()`; on a `WeightlessGenerator` it returns
+  itself, on anything else AttributeError; it is *not* a keep generator, so `+`, keeps, `*` build operators, and
+  `_static_keepable` is False), `same_expression` compares the wrapped generators (`hash_key`
+  `(WeightlessGenerator, wrapped.hash_key)`). Nodes (harness/grammar/weightless.py): `weightless` (kind mexpr) and
+  the root `weightless_evaluate` (= mx_evaluate; leaves are small pools / deals, compound keeps, now and then a keep,
+  so ConflictingOrderError comes up too). multiset.py `_leaf` wraps 5% of leaves in `weightless`, so every evaluation
+  node (evaluate, mf_call, mx_evaluate...) meets weightless sources. Fuzz self-contained with `--ops
+  weightless_evaluate,weightless,d,die,deck` (only ~10% of those programs are weightless: generate the node directly
+  for volume, as for mf_call). At S4e: 30k direct weightless_evaluate programs clean through icepool-run, 16k
+  through the facade, plus 11k mf_call / mx_evaluate / evaluate; fixtures/s4e (56).
+- Facade: `WeightlessSource.__init__` builds `icepool_rs.weightless_source(wrapped._rs)` when the wrapped source has
+  `_rs` (every built-in one does under rust; a user generator's source does not, and then evaluations stay on
+  upstream's driver by input kind, FACADE-AUDIT item 5); `_new_rust` + lazy `_wrapped` (`_wrap_rust_source`, which
+  knows `WeightlessSource` now), `pop` / `size` / `outcomes` / `order_preference` / `is_resolvable` / `hash_key` on
+  the core. `evaluator_rust._core_source` accepts `WeightlessSource`; icepool-py `core_source` / `source_object`
+  know `RsWeightlessSource` (crates/icepool-py/src/weightless.rs). In the upstream suite every evaluation now runs
+  on the core driver. JS: `MultisetExpression.weightless()` (node `weightless`), node-args.json regenerated.
+
 - **map_to_pool, explode_to_pool, reroll_to_pool (S3c).** Core `to_pool.rs`: `explode_counts` (explode_to_pool's
   `rolls @ Die(single_data)`, Vectors `(i, 1)` / `(depth + 1, 0)`) and `reroll_composition` (reroll_to_pool's
   `map(step, initial_state, star=True, repeat=depth - 1)` on the core `TransitionCache` + `map_repeat`, `final_step`,
@@ -230,7 +254,7 @@ turns out wrong. Newest decisions at the top of each section.
   host, as before; joint finals go through `icepool.tupleize`). A builtin leaf is recognised from the quest's
   `initial_state_main.__self__` (the dungeon may come from the evaluator's `_cache`). Mixtures need nothing in the
   facade: Python's `_prepare` yields ordinary evaluations. In the upstream suite every evaluation but two
-  (`weightless()`, task S4e) now runs on the core (1797 plain, 49 call trees).
+  (`weightless()`, on the core since S4e) now runs on the core (1797 plain, 49 call trees).
 - `CompoundKeepSource.outcomes()` is now lazy and fallible (`MultisetSource::outcomes() -> Result<&[O]>`): Python
   sorts the inner outcomes only when asked, so an evaluation with an unresolvable source returns `Die([])` before
   a mixed int/str union raises (was a TypeError in the port, found by S4d's fuzz, fixture in fixtures/s4d).
@@ -304,7 +328,7 @@ turns out wrong. Newest decisions at the top of each section.
   inners' `_make_source()._rs`; `keep` (keep.py), `multiply_counts`, `_set_keep_tuple`, `hash_key`, `_make_source` on
   the core); `CompoundKeepSource._new_rust` pops / sizes / prefers order on the core, `inner_sources` and
   `keep_tuple` lazily via `__getattr__`. In the upstream suite 1796 evaluations ran on the core at S4c; since S4d all
-  but `weightless()` (task S4e).
+  but `weightless()` (on the core since S4e).
 - Facade gaps (NotImplementedError where Python answers): a `map_counts` function returning a non-int (a bool too:
   Python keeps bool counts, which can leak into results such as `all_counts`), operator constants that are not ints
   (`unique(1.5)`, `unique(True)`, `keep_counts('>', 0.5)`), `MultisetKeep` indices that are not a slice / list /
@@ -538,7 +562,8 @@ turns out wrong. Newest decisions at the top of each section.
   subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it
   propagates as is, outside Python's try too), final outcomes returned untouched for `icepool.Die(...)`. Rooms are
   cached per call (decision 5): a dungeon's `ascending_cache`/`descending_cache` stay empty on this path.
-- Still upstream's Python driver (by input kind, not a fallback): since S4d only weightless sources (task S4e).
+- Still upstream's Python driver (by input kind, not a fallback): since S4e only sources the core does not know
+  (user generator subclasses, and weightless wrappers of them).
 - Python's recursion limit on this path: `_depth_budget` = recursion limit - Python stack depth - `_DRIVER_FRAMES`
   (8, calibrated: a fresh-evaluator, cold-die `pool(1)` evaluation raises from the same outcome count as the oracle
   at top level and 20 frames deep). The oracle's real limit also depends on warm `_popped_max` and on the shared

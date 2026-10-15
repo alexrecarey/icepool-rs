@@ -28,7 +28,7 @@ ran on the core or composed core calls). Status:
 | `evaluator/keep.py` | core | native for an index within i64 |
 | `evaluator/lexi.py` | partly | `LexiComparisonEvaluator` called back (K6c) |
 | `evaluator/multiset_evaluator.py` | via | base class; user methods are host callbacks of the core driver |
-| `evaluator/multiset_evaluator_base.py` | core | `evaluate` on the core; upstream's driver for `weightless()` (S4e) and unrecognised sources (S5c) |
+| `evaluator/multiset_evaluator_base.py` | core | `evaluate` on the core (`weightless()` too since S4e); upstream's driver for unrecognised sources (S5c) |
 | `evaluator/multiset_function.py` | core | tracing in Python by design; the call tree runs in `evaluate_tree` |
 | `evaluator/poker.py` | core | native except `LargestCountWithWild`, `AllStraightsReduceCounts` (K6c) |
 | `expand.py` | partly | `tupleize` / `vectorize` / `cartesian_product` of dice on the core; public `iter_cartesian_product` and other argument kinds are Python loops (S5c) |
@@ -47,7 +47,7 @@ ran on the core or composed core calls). Status:
 | `generator/multiset_generator.py` | via | abstract base |
 | `generator/multiset_tuple_generator.py` | via | abstract base |
 | `generator/pool.py` | core | |
-| `generator/weightless.py` | partly | refused by the core: evaluations use upstream's Python driver (S4e) |
+| `generator/weightless.py` | core | `WeightlessSource` holds an `icepool_rs.WeightlessSource` as `_rs` (pops, sizes, order on the core); the generator only wraps (S4e). A wrapped source without `_rs` (a user generator) stays Python: item 5 |
 | `lexi.py` | via | computes the parameters of versus / pair specs |
 | `map_tools/__init__.py` | via | empty |
 | `map_tools/common.py` | via | `Break`, `TransitionType`, `transition_and_star` |
@@ -79,7 +79,7 @@ ran on the core or composed core calls). Status:
 ## Real work still in Python under rust
 
 1. ~~`map_to_pool`~~: on the core since S3c (the result's `Pool(...)` and `MultisetMixture` are facade classes).
-2. Evaluations over `weightless()` generators: **S4e**.
+2. ~~Evaluations over `weightless()` generators~~: on the core since S4e.
 3. Evaluators called back from the core driver: `SumEvaluator(map)`, `LargestCountWithWild`,
    `AllStraightsReduceCounts`, argsort, `LexiComparisonEvaluator`, keep with an index beyond i64: **K6c**.
 4. Evaluators over a `MultiDeal` (tuple counts): operators **S4f**, built-ins **S5c**.
