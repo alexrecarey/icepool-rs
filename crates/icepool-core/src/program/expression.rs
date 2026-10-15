@@ -17,13 +17,13 @@ use super::pool::KeepGen;
 use super::{raise, PErr, PValue};
 use crate::compound_keep::CompoundKeep;
 use crate::error::Error;
-use crate::expression::{Dungeonlet, Flat};
+use crate::expression::{count_value, value_count, Dungeonlet, Flat};
 use crate::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
 use crate::operator::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
     OutcomeFilter, OutcomePredicate,
 };
-use crate::pool::{MultisetSource, Pool};
+use crate::pool::{Count, MultisetSource, Pool};
 use crate::value::builtins::{getitem, Index};
 use crate::weightless::WeightlessSource;
 use crate::{MultiDeal, Quantity, Value};
@@ -39,7 +39,7 @@ pub enum MExpr {
     /// generator itself, so keep-like operations and `+` on it build operators.
     Weightless(KeepGen),
     /// A `MultisetOperator` and its children.
-    Op(Arc<(Operator<Value>, Vec<MExpr>)>),
+    Op(Arc<OpNode>),
     /// `MultisetParameter`: argument `arg_index` of a `@multiset_function` (its `star_index` element if starred).
     Param {
         arg_index: usize,
@@ -55,13 +55,22 @@ pub enum MExpr {
     Mixture(Arc<Vec<(MExpr, Quantity)>>),
 }
 
+/// A `MultisetOperator` node of an expression.
+pub struct OpNode {
+    pub operator: Operator<Value>,
+    pub children: Vec<MExpr>,
+    /// Whether the operator's `_expression_key` holds a list (a `MultisetKeep` given a list index): its
+    /// `hash_key` cannot be hashed, so it cannot be an inner of a mixture.
+    pub list_index: bool,
+}
+
 impl fmt::Debug for MExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MExpr::Gen(g) => write!(f, "{g:?}"),
             MExpr::MultiDeal(_) => write!(f, "MultiDeal"),
             MExpr::Weightless(g) => write!(f, "WeightlessGenerator({g:?})"),
-            MExpr::Op(node) => write!(f, "MultisetOperator({:?})", node.1),
+            MExpr::Op(node) => write!(f, "MultisetOperator({:?})", node.children),
             MExpr::Param { arg_index, .. } | MExpr::TupleParam { arg_index, .. } => {
                 write!(f, "MultisetParameter({arg_index})")
             }
@@ -74,7 +83,11 @@ impl fmt::Debug for MExpr {
 
 impl MExpr {
     fn op(operator: Operator<Value>, children: Vec<MExpr>) -> MExpr {
-        MExpr::Op(Arc::new((operator, children)))
+        MExpr::Op(Arc::new(OpNode {
+            operator,
+            children,
+            list_index: false,
+        }))
     }
 
     /// `_prepare`: each way to prepare this expression (one, unless a mixture is inside): its dungeonlets (postfix
@@ -95,7 +108,9 @@ impl MExpr {
                 vec![MultisetSource::MultiDeal(md.source())],
             ),
             MExpr::Op(node) => {
-                let (operator, children) = &**node;
+                let OpNode {
+                    operator, children, ..
+                } = &**node;
                 let children = children
                     .iter()
                     .map(MExpr::prepare)
@@ -166,7 +181,7 @@ impl MExpr {
         match self {
             MExpr::Gen(_) | MExpr::MultiDeal(_) | MExpr::Weightless(_) => false,
             MExpr::Param { .. } | MExpr::TupleParam { .. } => true,
-            MExpr::Op(node) => node.1.iter().any(MExpr::has_parameter),
+            MExpr::Op(node) => node.children.iter().any(MExpr::has_parameter),
             MExpr::TupleIndex(node) => node.0.has_parameter(),
             MExpr::TupleSlice(node) => node.0.has_parameter(),
             MExpr::Mixture(inners) => inners.iter().any(|(inner, _)| inner.has_parameter()),
@@ -345,9 +360,10 @@ pub fn the_expression(x: PValue) -> Result<MExpr, PErr> {
     match as_expression(&x) {
         Some(e) => Ok(e),
         None => match x {
-            PValue::MultiDeal(_) | PValue::Expr(_) => Err(PErr::Unimplemented(
-                "expression methods of a multiset tuple expression".into(),
-            )),
+            // `MultisetTupleExpression` has none of them (and no `*`, `//`, `-x`...).
+            PValue::MultiDeal(_) | PValue::Expr(_) => type_error(
+                "AttributeError: a multiset tuple expression has no multiset expression methods",
+            ),
             _ => type_error("AttributeError: not a multiset expression"),
         },
     }
@@ -433,11 +449,13 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
             }
         }
         (None, Some(b)) => {
-            // The reflected operators: the left operand is a sequence without the numeric slot.
+            // The reflected operators: the left operand is a sequence without the numeric slot, or a multiset
+            // tuple expression, which has no operators (it stays as it is: an operator over it gets tuple counts).
             if !matches!(
                 a,
                 PValue::List(_) | PValue::Value(Value::Tuple(_) | Value::Str(_))
-            ) {
+            ) && as_tuple_expression(&a).is_none()
+            {
                 return Err(PErr::Unimplemented(
                     "a reflected multiset operator with this left operand".into(),
                 ));
@@ -457,6 +475,10 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
                 "^" => binary(BinaryOperator::SymmetricDifference, vec![b, a]),
                 _ => return Err(PErr::Unimplemented(format!("multiset operator {op}"))),
             }
+        }
+        // A multiset tuple expression has no operators, and the other operand none for it.
+        (None, None) if as_tuple_expression(&a).is_some() || as_tuple_expression(&b).is_some() => {
+            return type_error(format!("unsupported operand type(s) for {op}"))
         }
         (None, None) => return Err(PErr::Unimplemented("no multiset operand".into())),
     };
@@ -570,7 +592,8 @@ pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PVal
     Ok(into_pvalue(result))
 }
 
-/// A catalogue function as `map_counts`' function: `function(outcome, *counts)`, which must return an `int`.
+/// A catalogue function as `map_counts`' function: `function(outcome, *counts)`, which must return an `int` (or a
+/// tuple of them: counts over a multiset tuple expression are tuples).
 struct CatalogueCount(Arc<Func>);
 
 /// A `PErr` inside the core: an unimplemented case is `Unsupported` there.
@@ -582,12 +605,11 @@ fn core_error(e: PErr) -> Error {
 }
 
 impl CountFunction<Value> for CatalogueCount {
-    fn call(&self, outcome: &Value, counts: &[i64]) -> crate::Result<i64> {
+    fn call(&self, outcome: &Value, counts: &[Count]) -> crate::Result<Count> {
         let mut args = vec![PValue::Value(outcome.clone())];
-        args.extend(counts.iter().map(|&c| PValue::Value(Value::from(c))));
+        args.extend(counts.iter().map(|c| PValue::Value(count_value(c))));
         match self.0.call(args).map_err(core_error)? {
-            PValue::Value(Value::Int(i)) => i64::try_from(&i)
-                .map_err(|_| Error::Unsupported("a map_counts result beyond 64 bits".into())),
+            PValue::Value(v) => value_count(&v),
             _ => Err(Error::Unsupported(
                 "a map_counts result that is not an int".into(),
             )),
@@ -702,25 +724,19 @@ pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             }
             true
         }
-        // `(_expression_key, tuple(child.hash_key ...))`: only operators over equal children can be equal.
+        // `a is b`: the dict finds the very same object before comparing.
+        (MExpr::Op(a), MExpr::Op(b)) if Arc::ptr_eq(a, b) => true,
+        // `(_expression_key, tuple(child.hash_key ...))`.
         (MExpr::Op(a), MExpr::Op(b)) => {
-            if a.1.len() != b.1.len() {
+            if !same_operator(&a.operator, &b.operator) || a.children.len() != b.children.len() {
                 return Ok(false);
             }
-            for (a, b) in a.1.iter().zip(&b.1) {
+            for (a, b) in a.children.iter().zip(&b.children) {
                 if !same_expression(a, b)? {
                     return Ok(false);
                 }
             }
-            match (&a.0, &b.0) {
-                // `(MultisetKeep, index)`.
-                (Operator::Keep(a), Operator::Keep(b)) => a == b,
-                _ => {
-                    return Err(PErr::Unimplemented(
-                        "comparing multiset operators over equal children".into(),
-                    ))
-                }
-            }
+            true
         }
         (a, b) if std::mem::discriminant(a) != std::mem::discriminant(b) => false,
         _ => {
@@ -729,6 +745,127 @@ pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             ))
         }
     })
+}
+
+/// Whether a function is the same object as another (a function equals only itself).
+fn same_object<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
+    std::ptr::addr_eq(Arc::as_ptr(a), Arc::as_ptr(b))
+}
+
+/// Whether two operators have equal `_expression_key`s: the class and its parameters. Functions (a `map_counts`
+/// function, a `keep_outcomes` callable) are compared by identity; a `keep_outcomes` collection becomes a new
+/// function per operator, so such operators never compare equal.
+fn same_operator(a: &Operator<Value>, b: &Operator<Value>) -> bool {
+    use Operator as O;
+    match (a, b) {
+        // `type(self)`
+        (O::Binary(a), O::Binary(b)) => a == b,
+        // `(type(self), self._function)`
+        (O::MapCounts(a), O::MapCounts(b)) => same_object(a, b),
+        // `(type(self), self._constant)`
+        (O::MultiplyCounts(a), O::MultiplyCounts(b))
+        | (O::FloordivCounts(a), O::FloordivCounts(b))
+        | (O::ModuloCounts(a), O::ModuloCounts(b))
+        | (O::Unique(a), O::Unique(b))
+        | (O::ForceOrder(a), O::ForceOrder(b)) => a == b,
+        // `(type(self), self._comparison, self._constant)`
+        (O::KeepCounts(ca, a), O::KeepCounts(cb, b)) => (ca, a) == (cb, b),
+        // `(type(self), self._func, self._invert)`
+        (
+            O::FilterOutcomes {
+                filter: fa,
+                invert: ia,
+            },
+            O::FilterOutcomes {
+                filter: fb,
+                invert: ib,
+            },
+        ) => {
+            ia == ib
+                && match (fa, fb) {
+                    (OutcomeFilter::Function(a), OutcomeFilter::Function(b)) => same_object(a, b),
+                    _ => false,
+                }
+        }
+        // `(type(self), self._invert)`
+        (O::FilterOutcomesBinary { invert: a }, O::FilterOutcomesBinary { invert: b }) => a == b,
+        // `(MultisetKeep, index)`.
+        (O::Keep(a), O::Keep(b)) => a == b,
+        // `(MultisetSortPair, comparison, sort_order, extra)`
+        (
+            O::SortPair {
+                comparison: ca,
+                sort_order: oa,
+                extra: ea,
+            },
+            O::SortPair {
+                comparison: cb,
+                sort_order: ob,
+                extra: eb,
+            },
+        ) => (ca, oa, ea) == (cb, ob, eb),
+        // `(MultisetSortPairWhile, keep, comparison, sort_order, extra)`
+        (
+            O::SortPairWhile {
+                keep: ka,
+                comparison: ca,
+                sort_order: oa,
+                extra: ea,
+            },
+            O::SortPairWhile {
+                keep: kb,
+                comparison: cb,
+                sort_order: ob,
+                extra: eb,
+            },
+        ) => (ka, ca, oa, ea) == (kb, cb, ob, eb),
+        // `(class, order, pair_equal, keep)`
+        (
+            O::MaxPairLate {
+                order: oa,
+                pair_equal: pa,
+                keep: ka,
+            },
+            O::MaxPairLate {
+                order: ob,
+                pair_equal: pb,
+                keep: kb,
+            },
+        )
+        | (
+            O::MaxPairEarly {
+                order: oa,
+                pair_equal: pa,
+                keep: ka,
+            },
+            O::MaxPairEarly {
+                order: ob,
+                pair_equal: pb,
+                keep: kb,
+            },
+        ) => (oa, pa, ka) == (ob, pb, kb),
+        // `(MultisetVersus, lexi_tuple, order)`
+        (
+            O::Versus {
+                lexi_tuple: la,
+                order: oa,
+            },
+            O::Versus {
+                lexi_tuple: lb,
+                order: ob,
+            },
+        ) => (la, oa) == (lb, ob),
+        _ => false,
+    }
+}
+
+/// Whether `hash(expression)` works: its `hash_key` holds nothing unhashable. `MultisetTupleIndex` and
+/// `MultisetTupleSlice` leave their child out of their `hash_key`; a mixture's inners were hashed when it was made.
+fn hashable(e: &MExpr) -> bool {
+    match e {
+        MExpr::Op(node) => !node.list_index && node.children.iter().all(hashable),
+        _ => true,
+    }
 }
 
 /// Whether two keep generators have the same `hash_key`.
@@ -759,6 +896,9 @@ pub(super) fn add_inner(
     inner: MExpr,
     weight: Quantity,
 ) -> Result<(), PErr> {
+    if !hashable(&inner) {
+        return type_error("unhashable type: 'list'");
+    }
     for (key, w) in data.iter_mut() {
         if same_expression(key, &inner)? {
             *w += weight;
@@ -819,9 +959,14 @@ pub fn map_mixture(
     Ok(PValue::Expr(MExpr::Mixture(Arc::new(data))))
 }
 
-/// `MultisetKeep(expr, index=index)` for a slice or a sequence of counts and `...`.
-pub fn multiset_keep(e: MExpr, index: MultisetKeepIndex) -> MExpr {
-    MExpr::op(Operator::Keep(index), vec![e])
+/// `MultisetKeep(expr, index=index)` for a slice or a sequence of counts and `...` (`list_index`: given as a
+/// list, which makes the expression unhashable).
+pub fn multiset_keep(e: MExpr, index: MultisetKeepIndex, list_index: bool) -> MExpr {
+    MExpr::Op(Arc::new(OpNode {
+        operator: Operator::Keep(index),
+        children: vec![e],
+        list_index,
+    }))
 }
 
 /// A sequence index for `MultisetKeep`: its elements are only looked at when evaluated; `int`s and `...` here.

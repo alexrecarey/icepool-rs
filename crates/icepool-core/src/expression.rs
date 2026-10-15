@@ -113,19 +113,19 @@ fn no_source() -> Error {
     Error::Unsupported("an expression with more free variables than sources".into())
 }
 
-fn count_value(c: &Count) -> Value {
+/// A count as the Python value it is: an `int` or a tuple of them.
+pub fn count_value(c: &Count) -> Value {
     match c {
         Count::Int(c) => Value::from(*c),
         Count::Tuple(cs) => Value::tuple(cs.iter().map(|&c| Value::from(c)).collect()),
     }
 }
 
-/// `count[index]` with Python's subscript semantics: a tuple count is indexed or sliced, anything else raises
-/// `TypeError` ('int' / 'NoneType' object is not subscriptable).
-fn subscript(c: Option<&Count>, index: &Index) -> Result<Count> {
-    let v = c.map_or(Value::None, count_value);
-    match getitem(&v, index)? {
-        Value::Int(i) => i64::try_from(&i)
+/// A Python value as a count, if it is one the port models: an `int` or a tuple of `int`s (not bools), within 64
+/// bits.
+pub fn value_count(v: &Value) -> Result<Count> {
+    match v {
+        Value::Int(i) => i64::try_from(i)
             .map(Count::Int)
             .map_err(|_| Error::Unsupported("multiset counts beyond 64 bits".into())),
         Value::Tuple(t) => t
@@ -139,6 +139,13 @@ fn subscript(c: Option<&Count>, index: &Index) -> Result<Count> {
             .ok_or_else(|| Error::Unsupported("a tuple count that is not ints".into())),
         _ => Err(Error::Unsupported("a count that is not an int".into())),
     }
+}
+
+/// `count[index]` with Python's subscript semantics: a tuple count is indexed or sliced, anything else raises
+/// `TypeError` ('int' / 'NoneType' object is not subscriptable).
+fn subscript(c: Option<&Count>, index: &Index) -> Result<Count> {
+    let v = c.map_or(Value::None, count_value);
+    value_count(&getitem(&v, index)?)
 }
 
 /// `arg_sizes[arg_index]` / `arg_counts[arg_index][star_index]`.

@@ -17,16 +17,16 @@ use icepool_core::operator::{
     OutcomeFilter, OutcomePredicate,
 };
 use icepool_core::order::{Order, OrderReason};
-use icepool_core::pool::MultisetSource;
+use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::value::builtins::Index;
 use icepool_core::{Error, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyEllipsis, PyInt, PyList, PySlice, PyTuple, PyType};
-use pyo3::IntoPyObjectExt;
 
 use crate::convert::{from_py, host_error, int_from_py, quantity_to_py, to_py, to_py_err};
 use crate::deck::RsDealSource;
+use crate::evaluate::count_py;
 use crate::multi_deal::RsMultiDealSource;
 use crate::pool::{exact_count, hash_of, keep_index, outcome_tuple, RsPoolSource};
 use crate::weightless::RsWeightlessSource;
@@ -240,15 +240,16 @@ fn callback_error(py: Python<'_>, e: PyErr) -> Error {
 }
 
 /// `MultisetMapCounts._function`, called as `function(outcome, *counts)`. Python's counts can be anything it
-/// returns; the core's are `int`s, so another result (a bool too) is a facade gap.
+/// returns; the core's are `int`s or tuples of them (over a multiset tuple expression), so another result (a bool
+/// too) is a facade gap.
 struct HostCountFunction(Py<PyAny>);
 
 impl CountFunction<Value> for HostCountFunction {
-    fn call(&self, outcome: &Value, counts: &[i64]) -> icepool_core::Result<i64> {
+    fn call(&self, outcome: &Value, counts: &[Count]) -> icepool_core::Result<Count> {
         Python::attach(|py| {
             let mut args = vec![to_py(py, outcome).map_err(host_error)?];
-            for &c in counts {
-                args.push(c.into_bound_py_any(py).map_err(host_error)?);
+            for c in counts {
+                args.push(count_py(py, c)?);
             }
             let args = PyTuple::new(py, args).map_err(host_error)?;
             let count = self
@@ -256,14 +257,23 @@ impl CountFunction<Value> for HostCountFunction {
                 .bind(py)
                 .call1(args)
                 .map_err(|e| callback_error(py, e))?;
-            if count.is_instance_of::<PyBool>() || !count.is_instance_of::<PyInt>() {
-                return Err(Error::Unsupported(
-                    "a map_counts function returning something other than an int".into(),
-                ));
+            let int = |x: &Bound<'_, PyAny>| -> icepool_core::Result<i64> {
+                if x.is_instance_of::<PyBool>() || !x.is_instance_of::<PyInt>() {
+                    return Err(Error::Unsupported(
+                        "a map_counts function returning something other than an int".into(),
+                    ));
+                }
+                let x = int_from_py(x).map_err(host_error)?;
+                i64::try_from(&x)
+                    .map_err(|_| Error::Unsupported("a map_counts count beyond 64 bits".into()))
+            };
+            if let Ok(t) = count.cast::<PyTuple>() {
+                if t.is_exact_instance_of::<PyTuple>() {
+                    let items = t.iter().map(|x| int(&x)).collect::<icepool_core::Result<Vec<_>>>()?;
+                    return Ok(Count::Tuple(items.into()));
+                }
             }
-            let count = int_from_py(&count).map_err(host_error)?;
-            i64::try_from(&count)
-                .map_err(|_| Error::Unsupported("a map_counts count beyond 64 bits".into()))
+            int(&count).map(Count::Int)
         })
     }
 }

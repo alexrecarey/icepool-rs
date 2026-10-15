@@ -1,14 +1,15 @@
 //! Port of icepool `operator/adjust_counts.py`: operators that adjust the counts of one expression (multiply,
 //! floor divide, modulo, unique, keep_counts) and `map_counts`.
 
-use super::{mul, Statelet};
+use super::{times, Statelet};
 use crate::error::{Error, Result};
 use crate::pool::Count;
 
 /// The function of `MultisetMapCounts`: takes `outcome, *counts` and produces a combined count. Python's is any
-/// callable (a host callback for the facade); a result that is not an `int` is `Unsupported`.
+/// callable (a host callback for the facade), given `int` or tuple counts; a result that is neither an `int` nor
+/// a tuple of them is `Unsupported`.
 pub trait CountFunction<O> {
-    fn call(&self, outcome: &O, counts: &[i64]) -> Result<i64>;
+    fn call(&self, outcome: &O, counts: &[Count]) -> Result<Count>;
 }
 
 /// The comparison of `MultisetKeepCounts` (the constructor raises `ValueError` for any other string).
@@ -47,13 +48,14 @@ impl KeepCountsComparison {
     }
 }
 
-/// `MultisetMultiplyCounts._initial_state`: the child's size times the constant, if known.
+/// `MultisetMultiplyCounts._initial_state`: the child's size times the constant, if known (`tuple * n` repeats
+/// a tuple size).
 pub(super) fn multiply_initial_state(
-    child_size: Option<i64>,
+    child_size: Option<&Count>,
     constant: i64,
 ) -> Result<(Statelet, Option<Count>)> {
-    let size = child_size.map(|s| mul(s, constant)).transpose()?;
-    Ok((Statelet::None, size.map(Count::Int)))
+    let size = child_size.map(|s| times(s, constant)).transpose()?;
+    Ok((Statelet::None, size))
 }
 
 /// Python's `count // constant` (rounds towards negative infinity).

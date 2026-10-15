@@ -19,18 +19,17 @@ pub enum OutcomeFilter<O> {
     Set(Arc<[O]>),
 }
 
-/// `MultisetFilterOutcomes._next_state`: the count if `bool(func(outcome)) != invert`, else 0.
-pub(super) fn next_state<O: PartialEq>(
+/// `MultisetFilterOutcomes._next_state` keeps the count if `bool(func(outcome)) != invert`, else it is 0.
+pub(super) fn keeps<O: PartialEq>(
     filter: &OutcomeFilter<O>,
     invert: bool,
     outcome: &O,
-    count: i64,
-) -> Result<i64> {
+) -> Result<bool> {
     let keep = match filter {
         OutcomeFilter::Function(f) => f.test(outcome)?,
         OutcomeFilter::Set(set) => set.contains(outcome),
     };
-    Ok(if keep != invert { count } else { 0 })
+    Ok(keep != invert)
 }
 
 /// `MultisetFilterOutcomesBinary._next_state`: the source count if the target count is positive (`!= invert`).

@@ -143,6 +143,7 @@ fn keep_slice(e: MExpr, slice: Slice) -> Result<PValue, PErr> {
                 stop: slice.stop,
                 step: false,
             },
+            false,
         ),
     };
     Ok(into_pvalue(result))
@@ -360,15 +361,9 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
     let e = the_expression(pool)?;
     if let Some(inners) = keepable_mixture(&e) {
         if int_value(&index).is_none() {
-            return map_mixture(inners, |inner| {
-                let kept = pool_keep(inner, index.clone())?;
-                // An inner with negative keeps makes a `MultisetKeep` whose hash key holds the index itself: a
-                // list cannot be hashed into the mixture's dict.
-                if matches!(index, PValue::List(_)) && matches!(kept, PValue::Expr(MExpr::Op(_))) {
-                    return type_error("unhashable type: 'list'");
-                }
-                Ok(kept)
-            });
+            // An inner with negative keeps makes a `MultisetKeep` whose hash key holds the index itself: a list
+            // cannot be hashed into the mixture's dict (`add_inner`).
+            return map_mixture(inners, |inner| pool_keep(inner, index.clone()));
         }
         // Each inner's `keep(int)` is a die; `keep_evaluator.evaluate(MultisetMixture({die: weight}), index=None)`
         // then asks the first die for `_has_parameter` (an empty mixture evaluates to an empty die).
@@ -395,7 +390,10 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
                 .map_err(|_| PErr::Unimplemented("a keep index beyond 64 bits".into()))?;
             run(KeepEvaluator { index: Some(index) }, &[e])
         }
-        (_, None) => Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?))),
+        (_, None) => {
+            let list = matches!(index, PValue::List(_));
+            Ok(into_pvalue(multiset_keep(e, multiset_keep_seq(index)?, list)))
+        }
     }
 }
 
@@ -423,7 +421,7 @@ pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Re
                 stop: bound(&stop)?,
                 step,
             };
-            return Ok(into_pvalue(multiset_keep(e, index)));
+            return Ok(into_pvalue(multiset_keep(e, index, false)));
         }
     };
     // A bound that is neither an int nor None is only looked at when the list is sliced, after the checks for

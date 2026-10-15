@@ -1,13 +1,21 @@
 //! Port of icepool `operator/pair.py`: `MultisetSortPair`, `MultisetSortPairWhile`, `MultisetMaxPairLate` and
 //! `MultisetMaxPairEarly`, which pair the elements of the left multiset with those of the right.
 
-use super::{add, mul, sub, Statelet};
+use super::{add, int, mul, sub, Statelet};
 use crate::error::{Error, Result};
 use crate::lexi::compute_lexi_tuple_with_extra;
 use crate::pool::Count;
 
-fn two(child_sizes: &[Option<i64>]) -> (Option<i64>, Option<i64>) {
-    (child_sizes[0], child_sizes[1])
+fn two(child_sizes: &[Option<Count>]) -> (Option<&Count>, Option<&Count>) {
+    (child_sizes[0].as_ref(), child_sizes[1].as_ref())
+}
+
+/// `countdown = right_size` stores the size as it is: a tuple one makes the next state raise (`TupleSize`).
+fn stored(size: &Count, statelet: impl FnOnce(i64) -> Statelet) -> Statelet {
+    match size {
+        Count::Int(n) => statelet(*n),
+        Count::Tuple(t) => Statelet::TupleSize(t.clone()),
+    }
 }
 
 fn order_error(comparison: &str, extra: &str) -> Error {
@@ -23,7 +31,7 @@ pub(super) fn sort_pair_initial_state(
     sort_order: i64,
     extra: &str,
     order: i64,
-    child_sizes: &[Option<i64>],
+    child_sizes: &[Option<Count>],
 ) -> Result<(Statelet, Option<Count>)> {
     let (left_first, left_extra, tie, right_extra, right_first) =
         compute_lexi_tuple_with_extra(comparison, sort_order, extra)?;
@@ -41,7 +49,13 @@ pub(super) fn sort_pair_initial_state(
                 return Err(order_error(comparison, extra));
             };
             // After `countdown` elements, the rest are considered to be extra.
-            countdown = Some(right_size);
+            let statelet = stored(right_size, |right_size| Statelet::SortPair {
+                lexi_tuple,
+                forward_order,
+                left_lead,
+                countdown: Some(right_size),
+            });
+            return Ok((statelet, None));
         }
     } else {
         forward_order = false;
@@ -52,6 +66,7 @@ pub(super) fn sort_pair_initial_state(
                 "Reverse order not supported unless sizes of both operands are inferrable.".into(),
             ));
         };
+        let (left_size, right_size) = (int(left_size)?, int(right_size)?);
         if left_first == left_extra {
             left_lead = sub(right_size, left_size)?;
             countdown = None;
@@ -151,7 +166,7 @@ pub(super) fn sort_pair_while_initial_state(
     sort_order: i64,
     extra: &str,
     order: i64,
-    child_sizes: &[Option<i64>],
+    child_sizes: &[Option<Count>],
 ) -> Result<(Statelet, Option<Count>)> {
     if order != sort_order {
         return Err(Error::UnsupportedOrder(
@@ -162,24 +177,20 @@ pub(super) fn sort_pair_while_initial_state(
         compute_lexi_tuple_with_extra(comparison, sort_order, extra)?;
     // drop right_extra
     let lexi_tuple = [left_first, left_extra, tie, right_first];
-    let countdown = if left_first == left_extra {
-        None
-    } else {
-        let (_, right_size) = two(child_sizes);
-        let Some(right_size) = right_size else {
-            return Err(order_error(comparison, extra));
-        };
-        // After `countdown` elements, the rest are considered to be extra.
-        Some(right_size)
+    let statelet = |countdown| Statelet::SortPairWhile {
+        lexi_tuple: Some(lexi_tuple),
+        left_lead: Some(0),
+        countdown,
     };
-    Ok((
-        Statelet::SortPairWhile {
-            lexi_tuple: Some(lexi_tuple),
-            left_lead: Some(0),
-            countdown,
-        },
-        None,
-    ))
+    if left_first == left_extra {
+        return Ok((statelet(None), None));
+    }
+    let (_, right_size) = two(child_sizes);
+    let Some(right_size) = right_size else {
+        return Err(order_error(comparison, extra));
+    };
+    // After `countdown` elements, the rest are considered to be extra.
+    Ok((stored(right_size, |n| statelet(Some(n))), None))
 }
 
 /// `MultisetSortPairWhile._next_state`. `keep`: elements are kept as long as the comparison holds, then the
@@ -313,7 +324,7 @@ pub(super) fn max_pair_late_next_state(
 pub(super) fn max_pair_early_initial_state(
     self_order: i64,
     order: i64,
-    child_sizes: &[Option<i64>],
+    child_sizes: &[Option<Count>],
 ) -> Result<(Statelet, Option<Count>)> {
     let (_, right_size) = two(child_sizes);
     if order == self_order {
@@ -322,7 +333,8 @@ pub(super) fn max_pair_early_initial_state(
                 "The size of the right operand must be inferrable.".into(),
             ));
         };
-        Ok((Statelet::MaxPairEarly(right_size, right_size), None))
+        let statelet = stored(right_size, |n| Statelet::MaxPairEarly(n, n));
+        Ok((statelet, None))
     } else {
         Err(max_pair_wrong_order(self_order))
     }

@@ -11,16 +11,21 @@ pub(super) fn initial_state(
     lexi_tuple: (i64, i64, i64),
     self_order: i64,
     order: i64,
-    child_sizes: &[Option<i64>],
+    child_sizes: &[Option<Count>],
 ) -> Result<(Statelet, Option<Count>)> {
     let (lexi_tuple, countdown) = if order == self_order {
         (lexi_tuple, 1)
     } else {
-        let Some(right_size) = child_sizes[1] else {
-            return Err(Error::UnsupportedOrder(
-                "Reverse order not supported unless the size of the right operand is inferrable."
-                    .into(),
-            ));
+        let right_size = match &child_sizes[1] {
+            None => {
+                return Err(Error::UnsupportedOrder(
+                    "Reverse order not supported unless the size of the right operand is inferrable."
+                        .into(),
+                ))
+            }
+            Some(Count::Int(n)) => *n,
+            // `countdown = right_size`, compared with a count by every next state.
+            Some(Count::Tuple(t)) => return Ok((Statelet::TupleSize(t.clone()), None)),
         };
         ((lexi_tuple.2, lexi_tuple.1, lexi_tuple.0), right_size)
     };

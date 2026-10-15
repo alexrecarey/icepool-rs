@@ -323,7 +323,7 @@ impl<'py> HostEvaluator<'py> {
 }
 
 /// A count or size as Python gets it: an `int`, or a tuple of `int`s for a `MultiDeal` input.
-fn count_py<'py>(py: Python<'py>, c: &Count) -> icepool_core::Result<Bound<'py, PyAny>> {
+pub(crate) fn count_py<'py>(py: Python<'py>, c: &Count) -> icepool_core::Result<Bound<'py, PyAny>> {
     match c {
         Count::Int(c) => c.into_bound_py_any(py),
         Count::Tuple(cs) => PyTuple::new(py, cs.iter()).map(Bound::into_any),
