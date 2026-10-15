@@ -12,7 +12,7 @@ import operator
 import icepool
 
 from harness.core.grammar_api import node
-from harness.grammar.pool import fresh_caches
+from harness.grammar.pool import fresh_caches, straight_safe_method
 
 _BINARY = {"+": operator.add, "-": operator.sub, "&": operator.and_, "|": operator.or_, "^": operator.xor}
 
@@ -230,7 +230,8 @@ def _keep(g, e):
 
 
 def _gen_mx_evaluate(g, depth):
-    return {"op": "mx_evaluate", "expr": gen_expression(g, depth), "method": {"str": g.rng.choice(_METHODS)}}
+    expr = gen_expression(g, depth)
+    return {"op": "mx_evaluate", "expr": expr, "method": {"str": straight_safe_method(g, expr, _METHODS)}}
 
 
 @node("mx_evaluate", "die", gen=_gen_mx_evaluate, weight=1.0)

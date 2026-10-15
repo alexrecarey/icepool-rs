@@ -11,7 +11,7 @@ Variables always belong to the innermost function being traced. `mf_call` calls 
 import icepool
 
 from harness.core.grammar_api import evaluate, node
-from harness.grammar.pool import fresh_caches
+from harness.grammar.pool import fresh_caches, straight_safe_method
 
 # The arguments of the bodies being traced, innermost last.
 _VARS: list = []
@@ -125,7 +125,8 @@ def _evaluation(g, depth, kinds, nested):
     from harness.catalogue.evaluators import ENTRIES
     r = g.rng.random()
     if r < 0.5:
-        return {"op": "mx_evaluate", "expr": _body_expr(g, depth, kinds), "method": {"str": g.rng.choice(_METHODS)}}
+        expr = _body_expr(g, depth, kinds)
+        return {"op": "mx_evaluate", "expr": expr, "method": {"str": straight_safe_method(g, expr, _METHODS)}}
     if r < 0.72:
         name = g.rng.choice(["record", "record", "count_eq", "count_diff", "final_die", "seen", "reroll_at_least"])
         e = ENTRIES[name]
@@ -217,7 +218,7 @@ def _gen_tuple_evaluate(g, depth):
     if g.rng.random() < 0.4:
         from harness.grammar.multiset import gen_expression
         e = gen_expression(g, depth, 1, lambda g, depth: e)
-    return {"op": "mx_tuple_evaluate", "expr": e, "method": {"str": g.rng.choice(_METHODS)}}
+    return {"op": "mx_tuple_evaluate", "expr": e, "method": {"str": straight_safe_method(g, e, _METHODS)}}
 
 
 @node("mx_tuple_evaluate", "die", gen=_gen_tuple_evaluate, weight=0.5)

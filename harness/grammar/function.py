@@ -39,6 +39,13 @@ def _gen_dz_attr(g, depth):
     else:
         # What int() accepts or refuses: signs, underscores, spaces; and the empty name (IndexError).
         name = r.choice("dzx") + "".join(r.choice("0123456789_+- ") for _ in range(r.randint(0, 3)))
+        try:
+            if abs(int(name[1:])) > 99:
+                # Three digits: a die of up to 999 outcomes, which pooled lands in the band where Python's
+                # recursion limit is not knowable from the program (NOTES.md, "Python's recursion limit").
+                name = name[:-1]
+        except ValueError:
+            pass
         if r.random() < 0.05:
             name = ""
     if name in vars(icepool.function) or name in vars(icepool):

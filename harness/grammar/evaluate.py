@@ -6,7 +6,7 @@ Every node starts with pool.fresh_caches(): icepool's shared evaluators (sum_eva
 ==-keyed caches between calls, which in a long-lived oracle would leak spellings (1 for True) across programs.
 """
 from harness.core.grammar_api import node
-from harness.grammar.pool import fresh_caches, gen_pool as _gen_pool
+from harness.grammar.pool import STRAIGHT_METHODS, fresh_caches, gen_pool as _gen_pool, huge_range
 
 
 def gen_pool(g, depth, negative=True):
@@ -15,9 +15,18 @@ def gen_pool(g, depth, negative=True):
 
 
 def _gen1(op, **params):
-    """A generator for a one-pool evaluation; `params` maps argument names to generators g -> JSON value."""
+    """A generator for a one-pool evaluation; `params` maps argument names to generators g -> JSON value. A
+    straight is not asked of a pool whose outcomes span a huge range (pool.py `huge_range`)."""
     def gen(g, depth):
-        program = {"op": op, "pool": gen_pool(g, depth)}
+        pool = gen_pool(g, depth)
+        if any(op.endswith(m) for m in STRAIGHT_METHODS):
+            for _ in range(10):
+                if not huge_range(pool):
+                    break
+                pool = gen_pool(g, depth)
+            else:
+                pool = {"op": "d_pool", "die_sizes": [6, 6], "mapping": {"bool": False}}
+        program = {"op": op, "pool": pool}
         for k, f in params.items():
             program[k] = f(g)
         return program

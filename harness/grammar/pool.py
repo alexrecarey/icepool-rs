@@ -9,6 +9,9 @@ sorted `(die, count)` pairs), `pool_pop` (one pop of its source, what the evalua
 A pool's keep tuple only goes negative in its last operation (keeping on a negative keep tuple builds a
 `MultisetKeep` expression, not a pool: task S4), and never before `pool[int]`.
 """
+import math
+from fractions import Fraction
+
 import icepool
 
 from harness.core.encode import enc
@@ -145,6 +148,58 @@ def _die_without_nan(g, depth):
             pass
         return p
     return {"op": "d", "sides": g.rng.randint(1, 6)}
+
+
+# A straight evaluation builds `consecutive(outcomes)`, a range over every int between the lowest and the highest
+# outcome: over a pool holding 10**16 (stochastic_round of a big float, ...) Python tries to build it and the oracle
+# is OOM-killed before its timeout fires. The port refuses past a limit (function.rs `MAX_RANGE`).
+STRAIGHT_SPAN = 10**4
+STRAIGHT_METHODS = ("largest_straight", "all_straights", "largest_straight_and_outcome")
+
+
+def huge_range(program):
+    """Whether the multiset `program` may hold numeric outcomes more than STRAIGHT_SPAN apart. Asks the oracle for
+    the outcomes of each die or deck in it (not looking inside those) and reads the plain outcome literals; a
+    subprogram that raises adds nothing."""
+    from harness.core.grammar_api import NODES
+    nums = []
+
+    def num(x):
+        if isinstance(x, (int, float, Fraction)) and math.isfinite(x):
+            nums.append(x)
+
+    def walk(p):
+        if isinstance(p, list):
+            for x in p:
+                walk(x)
+        elif isinstance(p, dict):
+            if "float" in p and len(p) == 1:
+                num(float(p["float"]))
+            elif "frac" in p and len(p) == 1:
+                num(Fraction(*p["frac"]))
+            elif "op" in p and p["op"] in NODES and NODES[p["op"]].returns in ("die", "deck"):
+                try:
+                    x = peek(p)
+                    for o in (x.outcomes() if isinstance(x, (icepool.Die, icepool.Deck)) else [x]):
+                        num(o)
+                except Exception:  # noqa: BLE001 - a raise is a fine program too
+                    pass
+            else:
+                for x in p.values():
+                    walk(x)
+        else:
+            num(p)
+
+    walk(program)
+    return bool(nums) and max(nums) - min(nums) > STRAIGHT_SPAN
+
+
+def straight_safe_method(g, expr, methods):
+    """One of `methods` to evaluate `expr` by: not a straight if its outcomes may span a huge range."""
+    method = g.rng.choice(methods)
+    if method in STRAIGHT_METHODS and huge_range(expr):
+        method = g.rng.choice([m for m in methods if m not in STRAIGHT_METHODS])
+    return method
 
 
 def _times(g, n):
