@@ -8,8 +8,9 @@
 //! `mul_add` marked "contracted"). The tables are glibc's `__log_data`, read out of its libm.so.
 //! `tests::matches_platform_log` checks the port against glibc natively.
 //!
-//! Also `hypot` (for `abs(complex)` and complex powers): glibc's own since 2.35, ported below the same way and
-//! checked by `tests::matches_platform_hypot`.
+//! Also `hypot` (for `abs(complex)` and complex powers): glibc's own since 2.35 (sysdeps/ieee754/dbl-64/e_hypot.c,
+//! Copyright (C) 2021-2026 Free Software Foundation, Inc., LGPL-2.1-or-later: see QUESTIONS.md), ported below the
+//! same way and checked by `tests::matches_platform_hypot`.
 
 /// The natural logarithm with the platform's rounding: glibc's `log` (natively) or its port below (wasm32).
 pub fn log(x: f64) -> f64 {

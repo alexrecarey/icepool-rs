@@ -3,13 +3,14 @@
 //!
 //! Natively the port calls glibc through `f64::sin` etc. On wasm32 these ports stand in: `sin`/`cos`/`atan2` are
 //! IBM's Accurate Mathematical Library as glibc 2.43 has it (sysdeps/ieee754/dbl-64/s_sin.c, e_atan2.c,
-//! branred.c, dla.h; Copyright (C) 2001-2026 Free Software Foundation, Inc., LGPL-2.1-or-later), its x86_64 FMA
-//! builds `__sin_fma`, `__cos_fma`, `__atan2_fma` (what glibc picks on an FMA machine, the oracle's). Those are
-//! compiled with `-mfma`, and GCC fuses every product whose uses are all additions or subtractions into each of
-//! them (a product feeding two subtractions is fused into both) when they are in the same basic block; where both
-//! operands of a sum are products, the one computed first is fused. Each fused operation is a `mul_add` here, as read off glibc 2.43's disassembly.
-//! `__branred` is shared by all builds and has no FMA. `exp` is Arm's (pow.rs's `exp_inline`, whose contractions
-//! are `__exp_fma`'s too). `tests::matches_platform_*` check every function against glibc natively.
+//! branred.c, dla.h; Copyright (C) 2001-2026 Free Software Foundation, Inc., LGPL-2.1-or-later, see QUESTIONS.md),
+//! its x86_64 FMA builds `__sin_fma`, `__cos_fma`, `__atan2_fma` (what glibc picks on an FMA machine, the
+//! oracle's). Those are compiled with `-mfma`, and GCC fuses every product whose uses are all additions or
+//! subtractions into each of them (a product feeding two subtractions is fused into both) when they are in the same
+//! basic block; where both operands of a sum are products, the one computed first is fused. Each fused operation
+//! is a `mul_add` here, as read off glibc 2.43's disassembly. `__branred` is shared by all builds and has no FMA.
+//! `exp` is Arm's (pow.rs's `exp_inline`, whose contractions are `__exp_fma`'s too). `tests::matches_platform_*`
+//! check every function against glibc natively.
 
 use super::pow;
 use super::trig_tables::{CIJ, SINCOSTAB};
