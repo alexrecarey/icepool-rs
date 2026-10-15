@@ -126,6 +126,22 @@ impl Value {
         }
     }
 
+    /// Python's sequence comparison: the first position where the elements of two tuples differ by `==`
+    /// (`PyObject_RichCompare(v, w, Py_EQ)`, which for a `Vector` or `Symbols` is its own `__eq__`: `Symbols('ab')
+    /// == ('a', 'b')`, so those tuple elements do not decide). Elements equal as dict keys are equal for Python too
+    /// (which also stands in for its identity shortcut), so only the others ask `py_eq`, which may raise.
+    pub fn first_difference<'a>(
+        a: &'a [Value],
+        b: &'a [Value],
+    ) -> Result<Option<(&'a Value, &'a Value)>> {
+        for (x, y) in a.iter().zip(b) {
+            if x != y && !x.py_eq(y)? {
+                return Ok(Some((x, y)));
+            }
+        }
+        Ok(None)
+    }
+
     /// Whether this is a `Vector` or `Symbols`, whose operators follow their own classes (`ops::collection_binary`).
     pub fn is_collection(&self) -> bool {
         matches!(self, Value::Vector(_) | Value::Symbols(_))
@@ -289,12 +305,10 @@ impl Outcome for Value {
             (Value::Str(a), Value::Str(b)) => Ok(a < b),
             // Python's sequence comparison: the first position where the elements differ (by `==`) decides with
             // `<`, which may itself raise; if one is a prefix of the other, the shorter is smaller.
-            (Value::Tuple(a), Value::Tuple(b)) => {
-                match a.iter().zip(b.iter()).find(|(x, y)| x != y) {
-                    Some((x, y)) => x.py_lt(y),
-                    None => Ok(a.len() < b.len()),
-                }
-            }
+            (Value::Tuple(a), Value::Tuple(b)) => match Value::first_difference(a, b)? {
+                Some((x, y)) => x.py_lt(y),
+                None => Ok(a.len() < b.len()),
+            },
             _ => match (self.as_num(), other.as_num()) {
                 (Some(a), Some(b)) => Ok(a.partial_cmp(&b) == Some(Ordering::Less)),
                 _ => type_error(format!(
@@ -418,5 +432,36 @@ mod tests {
         assert_eq!(h(&s("ab")), h(&s("ba")));
         assert_ne!(h(&s("ab")), h(&s("abb")));
         assert_ne!(h(&s("")), h(&Value::from(0)));
+    }
+
+    #[test]
+    fn dict_keys_reject_none_and_unhashable_vectors() {
+        // `Counts` raises these itself; sorting usually raises the same error type first (`None < None`, the
+        // truth value of a `VectorWithTruthOnly`), so fixtures cannot see this check.
+        assert!(Value::None.check_key().is_err());
+        let truth_only = Value::Vector(Vector::truth_only(Value::Bool(true)));
+        assert!(truth_only.check_key().is_err());
+        assert!(Value::tuple(vec![Value::from(1), truth_only])
+            .check_key()
+            .is_err());
+        assert!(Value::tuple(vec![Value::from(1)]).check_key().is_ok());
+    }
+
+    #[test]
+    fn a_vector_compared_with_a_scalar_raises_the_vectors_error() {
+        // `Vector([1]) < 2` is a vector without a truth value: its own TypeError, not "'<' not supported".
+        let e = Value::Vector(Vector::new(vec![Value::from(1)]))
+            .py_lt(&Value::from(2))
+            .unwrap_err();
+        assert!(e.to_string().contains("truth value"), "{e}");
+    }
+
+    #[test]
+    fn zero_numbers_are_falsy() {
+        assert!(!Value::Float(0.0).truthy().unwrap() && Value::Float(-0.5).truthy().unwrap());
+        assert!(
+            !Value::Fraction(RBig::ZERO).truthy().unwrap()
+                && Value::Fraction(RBig::ONE).truthy().unwrap()
+        );
     }
 }

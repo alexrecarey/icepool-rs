@@ -169,7 +169,7 @@ impl Value {
             // Python's tuple comparison returns the comparison of the first elements that differ (by `==`) as is,
             // which for vectors is not a bool; equal prefixes compare the lengths.
             if let (Value::Tuple(x), Value::Tuple(y)) = (self, other) {
-                return match x.iter().zip(y.iter()).find(|(p, q)| p != q) {
+                return match Value::first_difference(x, y)? {
                     Some((p, q)) => p.binary(op, q),
                     None => compare(
                         op,
@@ -739,7 +739,7 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
         (Value::Str(x), Value::Str(y)) => Ok(by_ord(x.cmp(y))),
         // Sequence comparison: the first position where the elements differ (by `==`) decides with the same
         // operator; if one is a prefix of the other, the lengths decide.
-        (Value::Tuple(x), Value::Tuple(y)) => match x.iter().zip(y.iter()).find(|(p, q)| p != q) {
+        (Value::Tuple(x), Value::Tuple(y)) => match Value::first_difference(x, y)? {
             Some((p, q)) => compare(op, p, q),
             None => Ok(by_ord(x.len().cmp(&y.len()))),
         },
