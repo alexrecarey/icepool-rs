@@ -679,6 +679,15 @@ turns out wrong. Newest decisions at the top of each section.
 - `value/ops.rs` `MAX_INT_BITS` is a `u64` now: `1 << 32` did not compile for wasm32. `cargo check --target
   wasm32-unknown-unknown -p icepool-core --lib` builds.
 
+- **Die.keep (K6b).** Nodes `die_keep` (`die.keep(rolls, index)`, index an int, a sequence of counts or None) and
+  `die_keep_slice` (`die.keep(rolls, slice(start, stop, step))`; the program language has no slice value).
+  `program/pool.rs die_keep` composes `die_pool` + `pool_keep` / `pool_slice` + `evaluation("pool_sum")`, as
+  `Die.keep` does; the facade's `Die.keep` is upstream's code over the Rust-backed pool, so it needed nothing.
+  Die.middle / icepool.middle were already done (nodes `die_middle`, `middle`). Keep counts beyond i64 are task
+  K6d: the port refuses them cleanly (never wraps), and fixing it means a wider count type through the whole
+  multiset stack. To fuzz a node, `--ops` must also list the nodes its generator uses (`d`, `Ellipsis`, ...):
+  `fuzz --ops die_keep` alone tests 0 programs.
+
 - **Multiset evaluation (K6).** Core `evaluator/mod.rs` = multiset_evaluator_base.py: trait `MultisetEvaluator<O>`
   (`State: Clone+Eq+Hash`, `Final`; `initial_state`/`next_state`/`extra_outcomes`/`final_outcome`; `Ok(None)` from
   `next_state` is Reroll; `Final::{Outcome, Reroll, None}`; `Err(Error::UnsupportedOrder)` triggers the retry) and
