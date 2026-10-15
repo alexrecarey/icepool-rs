@@ -443,8 +443,8 @@ turns out wrong. Newest decisions at the top of each section.
   per icepool file (binary, adjust_counts, filter_outcomes, keep, pair, versus, debug): `Operator<O>` is both the
   `BodyDungeonlet` (`next_state`) and the `BodyQuestlet` (`initial_state`) of an operator node; its local state is
   a `Statelet` (hashable enum: `None`, `Keep{keep_tuple, keep_more}`, `Versus`, `SortPair`, `SortPairWhile`,
-  `MaxPairLate/Early`). Counts are `i64` (`Count::Int`), or tuples since S4f (above); overflow, a non-int `map_counts`
-  result or constant are `Unsupported`. `map_counts` functions and `keep_outcomes` callables are trait objects
+  `MaxPairLate/Early`). Counts are `Int` (`Count::Int`; `i64` before K6d), or tuples since S4f (above); a non-int
+  `map_counts` result or constant are `Unsupported`. `map_counts` functions and `keep_outcomes` callables are trait objects
   (`CountFunction`, `OutcomePredicate`, `Send + Sync` or `PValue` stops being `Send`); a collection target is
   `OutcomeFilter::Set` (`==` membership). `lexi.rs`: `compute_lexi_tuple*` (comparison / extra are strings, an
   invalid one raises ValueError where Python's `match` does: at evaluation for sort_pair, at construction for
@@ -770,8 +770,8 @@ turns out wrong. Newest decisions at the top of each section.
   Under rust, `Pool._set_keep_tuple`, `_new_raw`, `_new_from_mapping` and `PoolSource._new_raw`'s `@cache` are
   unused (`clear_cache` is harmless). `make_keep_tuple` / `compose_keep_tuples` stay Python for compound generators.
 - Facade gaps (NotImplementedError where Python answers): keep-index sequence elements that are not ints (Python
-  keeps floats etc. and sums them in `compose_keep_tuples`), `multiply_counts` by a non-int, keep counts beyond
-  i64 (as in icepool-run). `d(6).pool(2**70)` is OverflowError on both sides.
+  keeps floats etc. and sums them in `compose_keep_tuples`), `multiply_counts` by a non-int. Keep counts of any
+  size work since K6d. `d(6).pool(2**70)` is OverflowError on both sides.
 - Program layer: the `pool` node now does `Pool(pool, times)` (`times == 1` returns the pool, else the mapping
   `{die: count}` of `_dice` through `itemize_mapping`: keep tuple and zero-count dice forgotten). New nodes
   `pool_dict` (`Pool(dict(items), times)`; `program/pool.rs dict` = Python dict merging: first key, last value,
@@ -940,9 +940,8 @@ turns out wrong. Newest decisions at the top of each section.
   `die_keep_slice` (`die.keep(rolls, slice(start, stop, step))`; the program language has no slice value).
   `program/pool.rs die_keep` composes `die_pool` + `pool_keep` / `pool_slice` + `evaluation("pool_sum")`, as
   `Die.keep` does; the facade's `Die.keep` is upstream's code over the Rust-backed pool, so it needed nothing.
-  Die.middle / icepool.middle were already done (nodes `die_middle`, `middle`). Keep counts beyond i64 are task
-  K6d: the port refuses them cleanly (never wraps), and fixing it means a wider count type through the whole
-  multiset stack. To fuzz a node, `--ops` must also list the nodes its generator uses (`d`, `Ellipsis`, ...):
+  Die.middle / icepool.middle were already done (nodes `die_middle`, `middle`). Keep counts beyond i64: done in
+  K6d (below). To fuzz a node, `--ops` must also list the nodes its generator uses (`d`, `Ellipsis`, ...):
   `fuzz --ops die_keep` alone tests 0 programs.
 
 - **Multiset evaluation (K6).** Core `evaluator/mod.rs` = multiset_evaluator_base.py: trait `MultisetEvaluator<O>`
@@ -990,7 +989,7 @@ turns out wrong. Newest decisions at the top of each section.
   `make_keep_tuple` (all Ellipsis forms, incl. the center-`...` TypeError), `compose_keep_tuples`, pops, and
   `lowest_slice`/`highest_slice`/`middle_slice`/`Slice::canonical`. `keep.rs`: `lowest_single`/`highest_single`
   (free functions); `Die::{lowest_single, highest_single, pop_min, pop_max, quantities_le/ge, quantity_le/ge}`,
-  `die::from_cumulative`, `function::sorted_union`. Keep counts are `i64` (Unsupported past that).
+  `die::from_cumulative`, `function::sorted_union`. Keep counts are unbounded `Int`s since K6d (see there).
 - A pool's repr has an address, so a pool is never a program result: the pool-building nodes (`pool`, `die_pool`,
   `pool_keep`, `pool_slice`, `pool_highest/lowest/middle`, `pool_mul/neg/add`, `Ellipsis`) have **no gen**; they
   are generated inside `pool_info` (public accessors + `_dice`) and `pool_pop` (one pop of `_make_source()`) by
@@ -1318,3 +1317,28 @@ turns out wrong. Newest decisions at the top of each section.
   standardized_moment, entropy, die_quantile. Methods that return a population (pad_to_denominator, group_by,
   marginals, ...) keep `the_die`: on a deck Python returns a Deck, not yet modelled there. The generators still never
   give these ops a deck (only the minimiser does); fixtures: t1e/population-stats-of-decks.
+
+- **Counts beyond 64 bits (K6d).** Every multiset count is an `icepool_core::Int` (`int.rs`): an `i64` until
+  checked arithmetic overflows, then an `Arc<IBig>`; canonical (fits `i64` => `Small`), so derived `Eq`/`Hash` are
+  right. Not `Copy`: clone (cheap) or borrow; `+ - *` work on any mix of `Int`/`&Int`/`i64`, `floor_divmod` is
+  Python's `divmod`, `Int == i64` / `Int < i64` compare directly. It runs through keep tuples (`Arc<[Int]>`),
+  `pool::Count::{Int(Int), Tuple(Arc<[Int]>)}`, `Popped` counts, sizes, operator constants (`MultiplyCounts(Int)`
+  ...) and statelets, the evaluator trait (`sizes: &[Option<Int>]`, `counts: &[Int]`) and every evaluator,
+  `KeepIndex::Seq(Vec<Option<Int>>)`, `MultisetKeepIndex::Seq`, `KeepEvaluator.index: Option<Int>`, the program
+  layer (`exact_int`, `int_arg` -> `Int`) and the facade (`convert.rs count_to_py / counts_to_py /
+  count_from_py`; no `IntoPyObject` for `Int`, orphan rule). Indices and slice bounds stay `i64` (they saturate:
+  slicing clamps, an index past 64 bits is out of range anyway); `Int::clamp_usize` is for `xs[:n]`-style slicing.
+  Fixture runtime and fuzz timings did not move (the i64 path is the common one).
+- Where Python *builds* something `n` long from a count (`[0] * keep_size` in `make_keep_tuple`, `(x,) * n` in
+  expand / argsort_grouped / all_straights / MultisetKeep, `(1,) * sum(keep_size)` for a compound keep, a tuple
+  count `t * n`) use `keep_tuple::list_len` / `Int::to_len`: `OverflowError` for any `n` beyond 64 bits *whatever
+  its sign* (CPython converts first: `(x,) * -2**70` raises; fuzz found it), 0 for other negatives, built up to
+  2**24, `OverflowError` from 2**36 (Python: MemoryError, instantly), `Unsupported` in between (Python would
+  allocate for seconds). `keep_size_as_len` checks a sequence index's length first (IndexError without building).
+  `middle_slice` takes `&Int`s and saturates its bounds.
+- Generators: `grammar/pool.py huge_count(g, negative)` picks from `HUGE_COUNTS` (2**62, 2**63-1, 2**63,
+  2**64+1, 2**70): sums of these and small counts are small or past 2**61, never in the Unsupported band. Used by
+  `_count` (pool_keep / die_keep sequences), die_pool sequences, pool_mul / pool_middle keep, pool_index /
+  die_keep indices, and multiset.py's mx_counts constants, MultisetKeep counts and pool_mul. About 7% of the
+  pool/multiset programs hold one. A filter-to-huge fuzz (generate, keep programs with |int| >= 2**61, compare)
+  ran ~20k such programs clean natively and through run-facade.sh; fixtures/k6d has 95 hand-picked cases.

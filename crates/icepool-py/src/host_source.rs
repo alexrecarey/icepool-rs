@@ -4,8 +4,8 @@
 //! `order_preference()` and `outcomes()` before evaluating (outside its `try`, so an `UnsupportedOrder` there is
 //! not the retry signal), `size()` and `pop(order, outcome)` while evaluating (inside it).
 //!
-//! What a user source yields must be what the core models: counts and sizes that are `int`s or tuples of `int`s
-//! within 64 bits (else `NotImplementedError`, a facade gap: Python would compute with anything), weights that
+//! What a user source yields must be what the core models: counts and sizes that are `int`s (of any size) or
+//! tuples of `int`s (else `NotImplementedError`, a facade gap: Python would compute with anything), weights that
 //! are non-negative `int`s. A popped source is a core one when the facade object holds one (`_rs`), else another
 //! host source.
 
