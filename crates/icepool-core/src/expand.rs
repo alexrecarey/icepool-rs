@@ -66,6 +66,16 @@ fn cartesian_product_dice(
     args: &[Vec<(Value, Quantity)>],
     outcome_type: impl Fn(Vec<Value>) -> Value,
 ) -> Result<Die<Value>> {
+    Die::from_dict(cartesian_product_items(args, outcome_type)?)
+}
+
+/// The `data` dict of `cartesian_product`: `data[outcome_type(outcomes)] = final_quantity` for each joint
+/// outcome of `args`, in `itertools.product` order. Assignment, not `+=`: equal keys such as `(1,)` and `(True,)`
+/// overwrite each other's quantity and keep the first key. The caller makes `Die(data)` or `Deck(data)` of it.
+pub fn cartesian_product_items(
+    args: &[Vec<(Value, Quantity)>],
+    outcome_type: impl Fn(Vec<Value>) -> Value,
+) -> Result<Vec<(Value, Quantity)>> {
     let mut data: Vec<(Value, Quantity)> = Vec::new();
     let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
     for (outcomes, quantity) in iter_cartesian_product(args) {
@@ -79,7 +89,7 @@ fn cartesian_product_dice(
             }
         }
     }
-    Die::from_dict(data)
+    Ok(data)
 }
 
 #[cfg(test)]

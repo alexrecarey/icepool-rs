@@ -76,6 +76,15 @@ fn int(q: &Quantity) -> Value {
     Value::Int(q.clone().into())
 }
 
+/// `data[outcome] = quantity` in a `dict`'s items: an existing key keeps its place (and its spelling), a new one
+/// goes last.
+fn set_item(data: &mut Data, position: Option<usize>, outcome: &Value, quantity: Value) {
+    match position {
+        Some(i) => data[i].1 = quantity,
+        None => data.push((outcome.clone(), quantity)),
+    }
+}
+
 impl<O: Outcome> Die<O> {
     /// The quantities fitting the comparison for each outcome in sorted order: `'<='` gives the CDF.
     ///
@@ -519,6 +528,73 @@ impl Die<Value> {
                 "Padding to denominator of {denominator} would require a negative quantity of \
                  {new_quantity} for {outcome}"
             ));
+        }
+        Ok(data)
+    }
+
+    /// `Population.append(outcome, quantity)` up to `self._new_type(data)`: the items of `data = Counter(self)`
+    /// after `data[outcome] = max(data[outcome] + quantity, 0)`, an outcome not there yet added last (as the
+    /// `dict` does). `quantity` may be negative, which removes quantity (but not below zero); it is any Python
+    /// number, and `Die(data)` / `Deck(data)` (the caller's) drops the zero quantities.
+    pub fn append(&self, outcome: &Value, quantity: &Value) -> Result<Data> {
+        let mut data = self.map_quantities(Ok)?;
+        // `data[outcome]`: a `Counter` gives 0 for a missing key.
+        let position = data.iter().position(|(o, _)| o == outcome);
+        let current = position.map_or(Value::from(0), |i| data[i].1.clone());
+        let mut new_quantity = current.binary(BinOp::Add, quantity)?;
+        // `max(x, 0)` keeps `x` unless `0 > x`.
+        if Value::from(0).binary(BinOp::Gt, &new_quantity)?.truthy()? {
+            new_quantity = Value::from(0);
+        }
+        set_item(&mut data, position, outcome, new_quantity);
+        Ok(data)
+    }
+
+    /// `Population.remove(outcome, quantity)` up to `self._new_type(data)`. Without a quantity all of that
+    /// outcome is removed (`data[outcome] = 0`); with one, it is `self.append(outcome, -quantity)`, so a negative
+    /// quantity adds instead.
+    pub fn remove(&self, outcome: &Value, quantity: Option<&Value>) -> Result<Data> {
+        match quantity {
+            Some(q) => self.append(outcome, &q.unary(UnOp::Neg)?),
+            None => {
+                let mut data = self.map_quantities(Ok)?;
+                let position = data.iter().position(|(o, _)| o == outcome);
+                set_item(&mut data, position, outcome, Value::from(0));
+                Ok(data)
+            }
+        }
+    }
+
+    /// `Population.to_one_hot(outcomes)` given, for each outcome of this population, `outcomes.index(outcome)` if
+    /// `outcome in outcomes` (else `None`; the caller asks its sequence, whose `in` and `index` are its own) and
+    /// `len(outcomes)`: each outcome becomes a `Vector` of `len` bools, `True` at that index, and equal vectors
+    /// add up their quantities (`data[Vector(value)] += quantity`). The index is a Python list index: a negative
+    /// one counts from the end, and one out of range is `IndexError`. The caller builds `Die(data)` /
+    /// `Deck(data)` of the result (its keys are distinct; zero quantities drop out there).
+    pub fn one_hot_items(
+        &self,
+        len: usize,
+        positions: &[Option<i64>],
+    ) -> Result<Vec<(Value, Quantity)>> {
+        let mut data: Vec<(Value, Quantity)> = Vec::new();
+        let mut index: FxHashMap<Value, usize> = FxHashMap::default();
+        for ((_, quantity), position) in self.items().iter().zip(positions) {
+            let mut value = vec![Value::Bool(false); len];
+            if let Some(i) = *position {
+                let i = if i < 0 { i + len as i64 } else { i };
+                match usize::try_from(i).ok().filter(|&i| i < len) {
+                    Some(i) => value[i] = Value::Bool(true),
+                    None => return Err(Error::Index("list assignment index out of range".into())),
+                }
+            }
+            let key = Value::Vector(crate::value::Vector::new(value));
+            match index.get(&key) {
+                Some(&i) => data[i].1 += quantity,
+                None => {
+                    index.insert(key.clone(), data.len());
+                    data.push((key, quantity.clone()));
+                }
+            }
         }
         Ok(data)
     }

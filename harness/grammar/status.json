@@ -218,5 +218,13 @@
   "weightless_evaluate": "ported",
   "mf_kwarg": "ported",
   "mf_call_kw": "ported",
-  "tuple_op_evaluate": "ported"
+  "tuple_op_evaluate": "ported",
+  "pop_append": "ported",
+  "pop_remove": "ported",
+  "to_one_hot": "ported",
+  "deck_zero": "ported",
+  "deck_split": "ported",
+  "mean_time_to_sum": "ported",
+  "cartesian_product": "ported",
+  "iter_cartesian_product": "ported"
 }

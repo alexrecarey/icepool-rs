@@ -19,6 +19,7 @@ use super::map;
 use super::map_tools;
 use super::multi_deal;
 use super::pool;
+use super::population;
 use super::statistics;
 use super::to_pool;
 use super::{raise, Args, PErr, PValue};
@@ -712,6 +713,41 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [data, mapping, hand_size, method] =
                 args.exactly(["data", "mapping", "hand_size", "method"])?;
             function::wallenius_deal(data, mapping, hand_size, method)
+        }
+        "cartesian_product" => {
+            let [a, vector] = args.exactly(["args", "vector"])?;
+            match vector {
+                PValue::Value(Value::Bool(vector)) => collection::cartesian_product(a, !vector),
+                _ => Err(PErr::Unimplemented("cartesian_product outcome type".into())),
+            }
+        }
+        "iter_cartesian_product" => {
+            let [a] = args.exactly(["args"])?;
+            collection::iter_cartesian_product(a)
+        }
+        "pop_append" => {
+            let [p, outcome, quantity] = args.exactly(["population", "outcome", "quantity"])?;
+            population::append(p, outcome, quantity)
+        }
+        "pop_remove" => {
+            let [p, outcome, quantity] = args.exactly(["population", "outcome", "quantity"])?;
+            population::remove(p, outcome, quantity)
+        }
+        "to_one_hot" => {
+            let [p, outcomes] = args.exactly(["population", "outcomes"])?;
+            population::to_one_hot(p, outcomes)
+        }
+        "deck_zero" => {
+            let [d] = args.exactly(["deck"])?;
+            population::deck_zero(d)
+        }
+        "deck_split" => {
+            let [d, which, star] = args.exactly(["deck", "which", "star"])?;
+            population::deck_split(d, which, star)
+        }
+        "mean_time_to_sum" => {
+            let [die, targets] = args.exactly(["die", "targets"])?;
+            population::mean_time_to_sum(die, targets)
         }
         "vectorize" | "tupleize" => {
             let [a] = args.exactly(["args"])?;

@@ -42,41 +42,82 @@ pub(super) fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PEr
 }
 
 /// `icepool.vectorize(*args)` (or `tupleize` when `tuple`), i.e. `cartesian_product(*args, outcome_type=...)`:
-/// `Reroll` among the arguments is the result; with no die, a `Vector` (or tuple) of the arguments; otherwise the
-/// Cartesian product as a die of vectors (or tuples).
+/// argument by argument, `Reroll` is the result and populations must all be dice or all decks (`TypeError`);
+/// with no population, a `Vector` (or tuple) of the arguments; otherwise the Cartesian product (`Die(data)` or
+/// `Deck(data)`), where a multiset expression contributes the sorted tuples of its `expand()`.
 pub fn cartesian_product(args: PValue, tuple: bool) -> Result<PValue, PErr> {
     let args = py_iter(args)?;
-    // `if arg in icepool.REROLL_TYPES: return arg`, checked argument by argument.
-    if let Some(r) = args
-        .iter()
-        .find(|x| matches!(x, PValue::Reroll | PValue::Restart))
-    {
-        return Ok(r.clone());
+    // `None`: no population; `Some(true)`: decks.
+    let mut population_type: Option<bool> = None;
+    for arg in &args {
+        // `if arg in icepool.REROLL_TYPES: return arg`.
+        if matches!(arg, PValue::Reroll | PValue::Restart) {
+            return Ok(arg.clone());
+        }
+        // `_new_type` with `_items_for_cartesian_product`: a die or a deck.
+        let new_type = match arg {
+            PValue::Die(_) | PValue::DieWithTruth(..) => false,
+            PValue::Deck(_) => true,
+            _ => continue,
+        };
+        match population_type {
+            None => population_type = Some(new_type),
+            Some(t) if t != new_type => {
+                return type_error(
+                    "Arguments to vector() of type Population must all be Die or all be Deck, not a mixture of \
+                     the two.",
+                )
+            }
+            Some(_) => {}
+        }
     }
-    if !args
-        .iter()
-        .any(|x| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..)))
-    {
-        // `outcome_type(args)`.
-        let items = values(args)?;
-        return Ok(PValue::Value(if tuple {
+    let outcome_type = |items: Vec<Value>| {
+        if tuple {
             Value::tuple(items)
         } else {
             Value::Vector(Vector::new(items))
-        }));
-    }
-    let parts = args
-        .into_iter()
-        .map(|x| match x {
-            PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d.items().to_vec()),
-            x => Ok(vec![(value(x)?, Quantity::ONE)]),
-        })
-        .collect::<Result<Vec<_>, PErr>>()?;
-    Ok(PValue::Die(if tuple {
-        crate::expand::tupleize_dice(&parts)?
+        }
+    };
+    let Some(is_deck) = population_type else {
+        // `outcome_type(args)`.
+        return Ok(PValue::Value(outcome_type(values(args)?)));
+    };
+    let parts = cartesian_parts(args)?;
+    let data = crate::expand::cartesian_product_items(&parts, outcome_type)?;
+    Ok(if is_deck {
+        PValue::Deck(crate::Deck::from_dict(data)?)
     } else {
-        crate::expand::vectorize_dice(&parts)?
-    }))
+        PValue::Die(crate::Die::from_dict(data)?)
+    })
+}
+
+/// Each argument's `(outcome, quantity)` items as `iter_cartesian_product` sees them: a population's items, a
+/// multiset expression's `expand().items()`, anything else as itself with quantity 1.
+fn cartesian_parts(args: Vec<PValue>) -> Result<Vec<Vec<(Value, Quantity)>>, PErr> {
+    args.into_iter()
+        .map(|x| {
+            Ok(match super::map::expand_arg(x)? {
+                PValue::Die(d) | PValue::DieWithTruth(d, _) => d.items().to_vec(),
+                PValue::Deck(d) => d.items().to_vec(),
+                x => vec![(value(x)?, Quantity::ONE)],
+            })
+        })
+        .collect()
+}
+
+/// `tuple(icepool.iter_cartesian_product(*args))`: `(outcomes, quantity)` pairs, one per joint outcome.
+pub fn iter_cartesian_product(args: PValue) -> Result<PValue, PErr> {
+    let parts = cartesian_parts(py_iter(args)?)?;
+    Ok(PValue::tuple(
+        crate::expand::iter_cartesian_product(&parts)
+            .map(|(outcomes, quantity)| {
+                PValue::Value(Value::tuple(vec![
+                    Value::tuple(outcomes),
+                    Value::Int(quantity.into()),
+                ]))
+            })
+            .collect(),
+    ))
 }
 
 /// `icepool.Vector(items)`.

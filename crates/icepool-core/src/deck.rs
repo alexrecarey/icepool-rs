@@ -47,6 +47,19 @@ impl<O: Outcome> Deck<O> {
         Ok(Self::from_counts(Counts::new(items)?))
     }
 
+    /// `Population.split` of a deck given the selection (one flag per outcome, the caller's `_select_outcomes`):
+    /// the selected cards and the rest, each as `Deck(dict)` (zero quantities drop out).
+    pub fn split(&self, selected: &[bool]) -> Result<(Self, Self)> {
+        let (sel, rest): (Vec<_>, Vec<_>) =
+            self.items().iter().zip(selected).partition(|(_, &s)| s);
+        let unflag =
+            |v: Vec<(&(O, Quantity), &bool)>| v.into_iter().map(|(i, _)| i.clone()).collect();
+        Ok((
+            Self::from_dict(unflag(sel))?,
+            Self::from_dict(unflag(rest))?,
+        ))
+    }
+
     /// The cards as a population: a die with the same `Counts`, for the `Population` methods both share.
     pub fn population(&self) -> &Die<O> {
         &self.cards
@@ -157,6 +170,19 @@ impl<O: Outcome> Deck<O> {
             }
         };
         data.positive()
+    }
+}
+
+impl<O: crate::outcome::SumOutcome> Deck<O> {
+    /// `Population.zero` of a deck: every outcome times 0 (`_unary_operator`, merging equal results), then
+    /// `Deck(data)`; `ValueError` unless they resolve to a single outcome.
+    pub fn zero(&self) -> Result<Self> {
+        let zeros = self.cards.unary_operator(O::times_zero)?;
+        let result = Self::from_dict(zeros.items().to_vec())?;
+        if result.len() != 1 {
+            return crate::error::value_error("zero() did not resolve to a single outcome.");
+        }
+        Ok(result)
     }
 }
 

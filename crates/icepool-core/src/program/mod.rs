@@ -21,6 +21,7 @@ mod multi_deal;
 mod multiset_function;
 mod ops;
 mod pool;
+mod population;
 mod statistics;
 mod to_pool;
 pub mod wire;
