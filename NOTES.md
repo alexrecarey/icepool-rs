@@ -918,6 +918,8 @@ turns out wrong. Newest decisions at the top of each section.
     `/usr/bin/time -f %M`, or the oracle with `resource.setrlimit(RLIMIT_AS)` to catch a MemoryError.
   - `dz_attr`'s free-form names are capped at two digits: a pooled `z961` lands in the recursion-limit band where
     the port says unimplemented (evaluate.rs `check_recursion`).
+    `pool_expand`'s generator also peeks its result and retries over 500 outcomes (two d11s + a 5-outcome die,
+    each twice, made 990).
   - `sample` of a plain value: AttributeError (a `Symbols` answers `.sample` with a sub-`Symbols`, so it's
     "not callable"), but `()` when `n <= 0` because the generator never runs. Catalogue `first` now uses
     `builtins::getitem` (Vectors index like tuples).
