@@ -36,10 +36,14 @@ pub fn explode_counts<E: From<Error>>(
     depth: i64,
     matmul: impl Fn(&Value, &Die<Value>) -> Result<Die<Value>, E>,
 ) -> Result<Die<Value>, E> {
-    // Below -1, `explode.denominator()**(depth + 1)` is a float (or ZeroDivisionError) and `Die` then raises on it:
-    // not modelled.
-    let Ok(top) = u32::try_from(depth + 1) else {
-        return Err(Error::Unsupported("explode_to_pool with depth below -1".into()).into());
+    // Below -1, `range(depth + 1)` is empty and `explode.denominator()**(depth + 1)` a float, never zero (the caller
+    // only gets here if some outcome explodes), which `Die(single_data)` refuses.
+    let top = match depth.checked_add(1).map(u32::try_from) {
+        Some(Ok(top)) => top,
+        Some(Err(_)) if depth < -1 => {
+            return Err(Error::Type("'float' object cannot be interpreted as an integer".into()).into())
+        }
+        _ => return Err(Error::Unsupported("a huge explode_to_pool depth".into()).into()),
     };
     let vector = |i: u32, n: i64| Value::Vector(Vector::new(vec![int(i), int(n)]));
     let mut single_data = Vec::with_capacity(top as usize + 1);
@@ -113,13 +117,14 @@ pub fn reroll_composition<E: From<Error>>(
         // `Die([first_arg])` of a die is the die.
         initial_state
     } else {
-        let Value::Int(repeat) = repeat else {
-            return Err(Error::Unsupported("a reroll_to_pool depth that is not an int".into()).into());
+        // `range(repeat)` raises TypeError for a non-int (after the initial self-loop die, in `map_repeat`). A
+        // repeat beyond u64 saturates: the loop stops once nothing is left to step anyway.
+        let repeat = match repeat {
+            Value::Int(r) => Some(u64::try_from(r).unwrap_or(u64::MAX)),
+            _ => None,
         };
-        let repeat = u64::try_from(repeat)
-            .map_err(|_| Error::Unsupported("a huge reroll_to_pool depth".into()))?;
         let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
-        map_repeat(&mut cache, &initial_state, Some(repeat))?
+        map_repeat(&mut cache, &initial_state, repeat)?
     };
 
     // Performs the final reroll, which might not have enough rerolls to cover all rerollable dice. Returns the
@@ -145,12 +150,16 @@ pub fn reroll_composition<E: From<Error>>(
     let Some(data) = pool_composition.multiply_to_denominator(&denominator)? else {
         return Ok(pool_composition);
     };
-    // `self._new_type(data)`: the quantities are the old ones times a positive int factor.
+    // `self._new_type(data)`: the quantities are the old ones times a positive factor, which is a float if the
+    // denominator is (a non-int `rolls + max_rerolls`): `Die` refuses those.
     let items = data
         .into_iter()
         .map(|(o, q)| match q {
             Value::Int(q) => Ok((o, Quantity::try_from(q).map_err(|_| negative())?)),
-            _ => unreachable!("an int denominator divided by an int one gives an int factor"),
+            q => Err(Error::Type(format!(
+                "'{}' object cannot be interpreted as an integer",
+                q.type_name()
+            ))),
         })
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(Die::from_dict(items)?)

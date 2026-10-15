@@ -18,6 +18,7 @@ mod multi_deal;
 mod ops;
 mod pool;
 mod stats;
+mod to_pool;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::program::PErr;
@@ -367,7 +368,7 @@ fn matmul(py: Python<'_>, n: &Bound<'_, RsDie>, die: &Bound<'_, RsDie>) -> PyRes
 }
 
 /// `matmul` on core dice (also count mode's `n @ die`).
-fn matmul_core(
+pub(crate) fn matmul_core(
     py: Python<'_>,
     mut n: CoreDie<Value>,
     die: &CoreDie<Value>,
@@ -535,6 +536,9 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(sign, m)?,
         wrap_pyfunction!(simplify, m)?,
         wrap_pyfunction!(map::map_simple, m)?,
+        wrap_pyfunction!(to_pool::map_to_pool, m)?,
+        wrap_pyfunction!(to_pool::explode_counts, m)?,
+        wrap_pyfunction!(to_pool::reroll_composition, m)?,
         wrap_pyfunction!(again::evaluate_agains_using_depth, m)?,
         wrap_pyfunction!(again::evaluate_agains_using_count, m)?,
         wrap_pyfunction!(map::tupleize, m)?,

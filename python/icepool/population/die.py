@@ -1150,6 +1150,17 @@ class Die(Population[T_co], MaybeHashKeyed):
         not_explode: 'Die[T_co]'
         explode, not_explode = self.split(explode_set)
 
+        # icepool-rs: the count die (`single_data`, then `rolls @` it) is the
+        # core's; the pools are made by `map_to_pool` below, as upstream.
+        if icepool.backend.RUST:
+            count_die = Die._new_rust(
+                icepool.backend.RUST.explode_counts(self.denominator(),
+                                                    explode.denominator(),
+                                                    not_explode.denominator(),
+                                                    rolls, depth))
+            return count_die.map_to_pool(
+                lambda x, nx: [explode] * x + [not_explode] * nx)
+
         single_data: 'MutableMapping[icepool.Vector[int], int]' = defaultdict(
             int)
         for i in range(depth + 1):
@@ -1233,47 +1244,57 @@ class Die(Population[T_co], MaybeHashKeyed):
         if depth == 'inf':
             depth = max_rerolls
 
-        def step(rerollable, rerolls_left):
-            """Advances one step of rerolling if there are enough rerolls left to cover all rerollable dice.
+        # icepool-rs: `pool_composition` (the `map(step, repeat=depth - 1)`
+        # chain, `final_step` and `multiply_to_denominator`) is the core's;
+        # `make_pool` below stays Python (a host callback of `map_to_pool`).
+        if icepool.backend.RUST:
+            pool_composition = Die._new_rust(
+                icepool.backend.RUST.reroll_composition(
+                    self.denominator(), rerollable_die.denominator(), rolls,
+                    max_rerolls, depth))
+        else:
+
+            def step(rerollable, rerolls_left):
+                """Advances one step of rerolling if there are enough rerolls left to cover all rerollable dice.
             
-            Returns:
-                The number of dice showing rerollable outcomes and the number of remaining rerolls.
-            """
-            if rerollable == 0:
-                return 0, 0
-            if rerolls_left < rerollable:
-                return rerollable, rerolls_left
+                Returns:
+                    The number of dice showing rerollable outcomes and the number of remaining rerolls.
+                """
+                if rerollable == 0:
+                    return 0, 0
+                if rerolls_left < rerollable:
+                    return rerollable, rerolls_left
 
-            return icepool.tupleize(rerollable @ single_is_rerollable,
-                                    rerolls_left - rerollable)
+                return icepool.tupleize(rerollable @ single_is_rerollable,
+                                        rerolls_left - rerollable)
 
-        initial_state = icepool.tupleize(rolls @ single_is_rerollable,
-                                         max_rerolls)
-        mid_pool_composition: Die[tuple[int, int]]
-        mid_pool_composition = icepool.map(step,
-                                           initial_state,
-                                           star=True,
-                                           repeat=depth - 1)
+            initial_state = icepool.tupleize(rolls @ single_is_rerollable,
+                                             max_rerolls)
+            mid_pool_composition: Die[tuple[int, int]]
+            mid_pool_composition = icepool.map(step,
+                                               initial_state,
+                                               star=True,
+                                               repeat=depth - 1)
 
-        def final_step(rerollable, rerolls_left):
-            """Performs the final reroll, which might not have enough rerolls to cover all rerollable dice.
+            def final_step(rerollable, rerolls_left):
+                """Performs the final reroll, which might not have enough rerolls to cover all rerollable dice.
             
-            Returns: The number of dice that had a rerollable outcome,
-                the number of dice that were rerolled due to max_rerolls,
-                the number of rerolled dice that landed on a rerollable outcome
-                again.
-            """
-            rerolled = min(rerollable, rerolls_left)
+                Returns: The number of dice that had a rerollable outcome,
+                    the number of dice that were rerolled due to max_rerolls,
+                    the number of rerolled dice that landed on a rerollable outcome
+                    again.
+                """
+                rerolled = min(rerollable, rerolls_left)
 
-            return icepool.tupleize(rerollable, rerolled,
-                                    rerolled @ single_is_rerollable)
+                return icepool.tupleize(rerollable, rerolled,
+                                        rerolled @ single_is_rerollable)
 
-        pool_composition: Die[tuple[int, int, int]] = mid_pool_composition.map(
-            final_step, star=True)
+            pool_composition: Die[tuple[int, int, int]] = mid_pool_composition.map(
+                final_step, star=True)
 
-        denominator = self.denominator()**(rolls + max_rerolls)
-        pool_composition = pool_composition.multiply_to_denominator(
-            denominator)
+            denominator = self.denominator()**(rolls + max_rerolls)
+            pool_composition = pool_composition.multiply_to_denominator(
+                denominator)
 
         def make_pool(rerollable, rerolled, rerolled_to_rerollable):
             rerolls_ran_out = rerollable - rerolled

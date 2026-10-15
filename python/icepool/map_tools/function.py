@@ -455,6 +455,18 @@ def map_to_pool(
 
     data: 'MutableMapping[icepool.MultisetExpression[T], int]' = defaultdict(
         int)
+    # icepool-rs: the Cartesian product, the calls to `transition_function`
+    # (host callbacks) and the `REROLL_TYPES` check run in the Rust core; the
+    # results are made pools and counted here, as below.
+    if icepool.backend.RUST:
+        for pool, quantity in icepool.backend.RUST.map_to_pool(
+                transition_function, bool(star),
+            [icepool.expand.arg_items(arg) for arg in args], kwargs):
+            if isinstance(pool, icepool.MultisetExpression):
+                data[pool] += quantity
+            else:
+                data[icepool.Pool(pool)] += quantity
+        return icepool.MultisetMixture(data)  # type: ignore
     for outcomes, quantity in icepool.iter_cartesian_product(*args):
         if star:
             pool = transition_function(*outcomes[0], *outcomes[1:], **kwargs)

@@ -105,11 +105,12 @@ fn as_pool(result: PValue) -> Result<Option<MExpr>, PErr> {
     }
 }
 
-/// An argument Python uses as an int (`range`, `==`, `@`): ints and bools; others are not modelled.
-fn int_arg(x: &PValue, what: &str) -> Result<Value, PErr> {
+/// A count argument (`rolls`, `max_rerolls`, `depth`): any value, used with Python's arithmetic (`@`, `==`,
+/// `-`, `**`), which raises where Python does.
+fn value_arg(x: &PValue, what: &str) -> Result<Value, PErr> {
     match x {
-        PValue::Value(v @ (Value::Int(_) | Value::Bool(_))) => Ok(v.clone()),
-        _ => Err(PErr::Unimplemented(format!("a non-int {what}"))),
+        PValue::Value(v) => Ok(v.clone()),
+        _ => Err(PErr::Unimplemented(format!("a {what} that is not a value"))),
     }
 }
 
@@ -163,8 +164,8 @@ pub fn explode_to_pool(
     depth: PValue,
 ) -> Result<PValue, PErr> {
     let d = the_die(die.clone())?;
-    let depth = int_arg(&depth, "explode_to_pool depth")?;
-    if depth == Value::from(0) {
+    let depth = value_arg(&depth, "explode_to_pool depth")?;
+    if depth.eq_op(&Value::from(0), false)?.truthy()? {
         return die_pool(die, rolls);
     }
     let mask = selection(&d, &outcomes, &star, true)?;
@@ -172,12 +173,18 @@ pub fn explode_to_pool(
         return die_pool(die, rolls);
     }
     let (explode, not_explode) = d.split(&mask)?;
-    let rolls = int_arg(&rolls, "explode_to_pool rolls")?;
+    let rolls = value_arg(&rolls, "explode_to_pool rolls")?;
+    // `range(depth + 1)`.
     let depth = match &depth {
         Value::Bool(b) => *b as i64,
         Value::Int(i) => i64::try_from(i)
             .map_err(|_| PErr::Unimplemented("a huge explode_to_pool depth".into()))?,
-        _ => unreachable!("int_arg"),
+        v => {
+            return type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                v.type_name()
+            ))
+        }
     };
     let count_die = crate::to_pool::explode_counts(
         &d.denominator(),
@@ -226,12 +233,12 @@ pub fn reroll_to_pool(
         return die_pool(die, rolls);
     }
     let (rerollable_die, not_rerollable_die) = d.split(&mask)?;
-    let rolls = int_arg(&rolls, "reroll_to_pool rolls")?;
-    let max_rerolls = int_arg(&max_rerolls, "max_rerolls")?;
+    let rolls = value_arg(&rolls, "reroll_to_pool rolls")?;
+    let max_rerolls = value_arg(&max_rerolls, "max_rerolls")?;
     let depth = if inf(&depth) {
         max_rerolls.clone()
     } else {
-        int_arg(&depth, "reroll_to_pool depth")?
+        value_arg(&depth, "reroll_to_pool depth")?
     };
     let pool_composition = crate::to_pool::reroll_composition(
         &d.denominator(),
@@ -241,9 +248,13 @@ pub fn reroll_to_pool(
         &depth,
         rmatmul,
     )?;
+    // `match mode: case 'random': ...`: a value that is not a str matches none of the cases (the collections
+    // whose `==` could say otherwise are not modelled), and the error message shows its `str` (which is never
+    // one of the names: only a str prints without quotes or brackets).
     let mode = match &mode {
         PValue::Value(Value::Str(m)) => m.to_string(),
-        _ => return Err(PErr::Unimplemented("a reroll_to_pool mode that is not a str".into())),
+        PValue::Value(v) if !v.is_collection() => crate::value::pystr::py_str(v)?,
+        _ => return Err(PErr::Unimplemented("this reroll_to_pool mode".into())),
     };
     let sub = |a: &Value, b: &Value| a.binary(crate::value::BinOp::Sub, b);
     let die_pool_of = |die: &Die<Value>, n: &Value| {

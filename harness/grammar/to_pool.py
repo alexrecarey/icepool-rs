@@ -110,10 +110,19 @@ def _gen_map_to_pool(g):
     return {"op": "map_to_pool", "f": f, "args": args, "star": _star(g)}
 
 
+def _odd(g, x, strs=True):
+    """x, or now and then a count of another type (bool, float, str), for which Python's arithmetic raises or not.
+    No strs for `rolls`: `die.pool('x')` is a keep index, which the port does not model for strs."""
+    if g.rng.random() < 0.95:
+        return x
+    return g.rng.choice([{"bool": True}, {"bool": False}, {"float": "2.0"}, {"float": "1.5"}, -2, 7]
+                        + ([{"str": "inf"}, {"str": "x"}] if strs else []))
+
+
 def _gen_explode_to_pool(g):
     r = g.rng
-    return {"op": "explode_to_pool", "die": _small_die(g), "rolls": r.choice([0, 1, 1, 2, 2, 3, -1]),
-            "outcomes": _which(g), "star": _star(g), "depth": r.choice([0, 1, 1, 2, 2, 3, -1])}
+    return {"op": "explode_to_pool", "die": _small_die(g), "rolls": _odd(g, r.choice([0, 1, 1, 2, 2, 3, -1]), strs=False),
+            "outcomes": _which(g), "star": _star(g), "depth": _odd(g, r.choice([0, 1, 1, 2, 2, 3, -1]))}
 
 
 def _gen_reroll_to_pool(g):
@@ -121,8 +130,10 @@ def _gen_reroll_to_pool(g):
     max_rerolls = r.choice([0, 1, 1, 2, 2, 3, {"str": "inf"}, -1 if r.random() < 0.2 else 1])
     depth = r.choice([1, 1, 1, 2, 3, {"str": "inf"}, 0 if r.random() < 0.3 else 1])
     mode = r.choice(["random", "random", "low", "high", "drop", "drop", "other" if r.random() < 0.1 else "low"])
-    return {"op": "reroll_to_pool", "die": _small_die(g), "rolls": r.choice([0, 1, 1, 2, 2, 3, 4, -1]),
-            "outcomes": _which(g), "max_rerolls": max_rerolls, "star": _star(g), "depth": depth,
+    return {"op": "reroll_to_pool", "die": _small_die(g), "rolls": _odd(g, r.choice([0, 1, 1, 2, 2, 3, 4, -1]), strs=False),
+            "outcomes": _which(g), "max_rerolls": _odd(g, max_rerolls), "star": _star(g),
+            # (With max_rerolls 'inf' the depth goes to die.reroll, which the port only models for ints.)
+            "depth": depth if max_rerolls == {"str": "inf"} else _odd(g, depth),
             "mode": {"str": mode}}
 
 
