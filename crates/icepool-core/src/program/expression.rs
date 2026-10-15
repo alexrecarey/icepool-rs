@@ -25,6 +25,7 @@ use crate::operator::{
 };
 use crate::pool::{Count, MultisetSource, Pool};
 use crate::value::builtins::{getitem, Index};
+use crate::value::BinOp;
 use crate::weightless::WeightlessSource;
 use crate::{MultiDeal, Quantity, Value};
 
@@ -434,6 +435,20 @@ fn method_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
 /// `a op b` for `op` in `+ - & | ^` with a multiset expression on at least one side. A non-expression operand
 /// is implicitly converted to a pool (a list, tuple, str or mapping; anything else raises TypeError).
 pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
+    // An `Again` expression on either side: the expression's `__op__` (or its reflected `__rop__`, after the
+    // multiset expression's own returned `NotImplemented`: `Again` cannot be implicitly converted to a pool)
+    // builds a bigger `AgainExpression`, as with any other operand.
+    if matches!(a, PValue::Again(_)) || matches!(b, PValue::Again(_)) {
+        let op = match op {
+            "+" => BinOp::Add,
+            "-" => BinOp::Sub,
+            "&" => BinOp::And,
+            "|" => BinOp::Or,
+            "^" => BinOp::Xor,
+            _ => return Err(PErr::Unimplemented(format!("multiset operator {op}"))),
+        };
+        return super::ops::binary(op, a, b);
+    }
     let (left, right) = (as_expression(&a), as_expression(&b));
     let result = match (left, right) {
         (Some(a), _) => {
@@ -451,14 +466,29 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
         (None, Some(b)) => {
             // The reflected operators: the left operand is a sequence without the numeric slot, or a multiset
             // tuple expression, which has no operators (it stays as it is: an operator over it gets tuple counts).
-            if !matches!(
-                a,
-                PValue::List(_) | PValue::Value(Value::Tuple(_) | Value::Str(_))
-            ) && as_tuple_expression(&a).is_none()
-            {
-                return Err(PErr::Unimplemented(
-                    "a reflected multiset operator with this left operand".into(),
-                ));
+            match &a {
+                PValue::List(_) | PValue::Value(Value::Tuple(_) | Value::Str(_)) => {}
+                _ if as_tuple_expression(&a).is_some() => {}
+                // `Die.__op__` converts the other operand first: `Die([expr])`, whose outcome cannot be sorted
+                // (an expression's `<` makes a die without a truth value).
+                PValue::Die(_) | PValue::DieWithTruth(..) => {
+                    return type_error("Items do not appear to be sortable.")
+                }
+                // A number's own `__op__` returns `NotImplemented`, and so does the expression's `__rop__`
+                // (`ImplicitConversionError` from `implicit_convert_to_expression`): TypeError.
+                PValue::Value(
+                    Value::Int(_)
+                    | Value::Bool(_)
+                    | Value::Float(_)
+                    | Value::Fraction(_)
+                    | Value::Complex(..)
+                    | Value::None,
+                ) => return type_error(format!("unsupported operand type(s) for {op}")),
+                _ => {
+                    return Err(PErr::Unimplemented(
+                        "a reflected multiset operator with this left operand".into(),
+                    ))
+                }
             }
             let a = implicit_convert(a)?;
             match op {
@@ -546,24 +576,36 @@ fn multiply_counts(e: MExpr, n: i64) -> Result<MExpr, PErr> {
     })
 }
 
-/// The count-adjusting operations, by `op`: `mul` (`expr * n`), `neg` (`-expr`), `pos` (`+expr`), `floordiv`
-/// (`expr // n`: with a non-int, `count_subset`), `mod` (`expr % n`), `unique` (`expr.unique(n)`), `keep_counts`
-/// (`expr.keep_counts(comparison, n)`), and the methods `multiply_counts`, `divide_counts`, `modulo_counts`.
+/// `expr <op> n` (`reflected`: `n <op> expr`) for `*` and `%` with a non-int `n`: `KeepGenerator.__mul__` /
+/// `__rmul__` and `MultisetExpression.__mul__` / `__rmul__` / `__mod__` all return NotImplemented for it, so
+/// Python asks the other operand.
+fn not_int(e: MExpr, op: BinOp, n: PValue, reflected: bool) -> Result<PValue, PErr> {
+    match n {
+        // `AgainExpression` defines them all: a bigger expression.
+        PValue::Again(_) if reflected => super::ops::binary(op, n, into_pvalue(e)),
+        PValue::Again(_) => super::ops::binary(op, into_pvalue(e), n),
+        // `Die.__op__` / `__rop__` convert the expression first: `Die([expr])` cannot sort its outcome (an
+        // expression's `<` makes a die without a truth value).
+        PValue::Die(_) | PValue::DieWithTruth(..) => {
+            type_error("Items do not appear to be sortable.")
+        }
+        // Numbers return NotImplemented too; a sequence's repeat needs an int.
+        _ => type_error(format!("unsupported operand type(s) for {}", op.symbol())),
+    }
+}
+
+/// The count-adjusting operations, by `op`: `mul` (`expr * n`), `rmul` (`n * expr`), `neg` (`-expr`), `pos`
+/// (`+expr`), `floordiv` (`expr // n`: with a non-int, `count_subset`), `mod` (`expr % n`), `unique`
+/// (`expr.unique(n)`), `keep_counts` (`expr.keep_counts(comparison, n)`), and the methods `multiply_counts`,
+/// `divide_counts`, `modulo_counts`.
 pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PValue, PErr> {
     let e = the_expression(e)?;
-    let not_int = |op: &str| -> Result<PValue, PErr> {
-        match n {
-            PValue::Die(_) => Err(PErr::Unimplemented(format!(
-                "a die as the right operand of {op}"
-            ))),
-            _ => type_error(format!("unsupported operand type(s) for {op}")),
-        }
-    };
     let result = match op {
-        // `KeepGenerator.__mul__` and `MultisetExpression.__mul__` both return NotImplemented for a non-int.
-        "mul" => match int_arg(&n) {
+        "mul" | "rmul" => match int_arg(&n) {
+            // `int.__mul__` returns NotImplemented for an expression: `n * expr` is `expr.__rmul__(n)`, which is
+            // `multiply_counts(n)` like `__mul__` ("commutable in this case").
             Some(n) => multiply_counts(e, n?)?,
-            None => return not_int("*"),
+            None => return not_int(e, BinOp::Mul, n, op == "rmul"),
         },
         "neg" => multiply_counts(e, -1)?,
         "pos" => MExpr::op(Operator::KeepCounts(KeepCountsComparison::Ge, 0), vec![e]),
@@ -577,7 +619,7 @@ pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PVal
         "divide_counts" => MExpr::op(Operator::FloordivCounts(int_constant(&n)?), vec![e]),
         "mod" | "modulo_counts" => match int_arg(&n) {
             Some(n) => MExpr::op(Operator::ModuloCounts(n?), vec![e]),
-            None => return not_int("%"),
+            None => return not_int(e, BinOp::Mod, n, false),
         },
         "unique" => MExpr::op(Operator::Unique(int_constant(&n)?), vec![e]),
         "keep_counts" => {
@@ -973,6 +1015,18 @@ pub fn multiset_keep(e: MExpr, index: MultisetKeepIndex, list_index: bool) -> ME
 
 /// A sequence index for `MultisetKeep`: its elements are only looked at when evaluated; `int`s and `...` here.
 pub fn multiset_keep_seq(index: PValue) -> Result<MultisetKeepIndex, PErr> {
+    // `_initial_state` only takes a `Sequence` (a list or tuple here; the port leaves out a str, whose characters
+    // are never `...`, and a `Vector`); anything else is a TypeError there, when evaluated.
+    match &index {
+        PValue::List(_) | PValue::Tuple(_) | PValue::Value(Value::Tuple(_)) => {}
+        PValue::Value(Value::Str(_) | Value::Vector(_) | Value::Host(_)) => {
+            return Err(PErr::Unimplemented("this MultisetKeep index".into()))
+        }
+        PValue::Value(v) => return Ok(MultisetKeepIndex::Invalid(v.type_name().into())),
+        PValue::Die(_) => return Ok(MultisetKeepIndex::Invalid("Die".into())),
+        PValue::DieWithTruth(..) => return Ok(MultisetKeepIndex::Invalid("DieWithTruth".into())),
+        _ => return Err(PErr::Unimplemented("this MultisetKeep index".into())),
+    }
     let items = py_iter(index)?
         .into_iter()
         .map(|x| match x {

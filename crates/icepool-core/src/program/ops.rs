@@ -474,6 +474,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [p, priority] = args.exactly(["pool", "priority"])?;
             evaluate::largest_straight_and_outcome(p, priority)
         }
+        "straight_and_outcome_evaluate" => {
+            let [priority, arg] = args.exactly(["priority", "arg"])?;
+            evaluate::straight_and_outcome_evaluate(priority, arg)
+        }
         "pool_count_subset" => {
             let [p, divisor, empty_divisor] = args.exactly(["pool", "divisor", "empty_divisor"])?;
             evaluate::count_subset(p, divisor, empty_divisor)

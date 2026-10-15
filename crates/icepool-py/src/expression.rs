@@ -435,7 +435,8 @@ fn bool_attr(x: &Bound<'_, PyAny>, what: &str) -> PyResult<bool> {
     x.extract()
 }
 
-/// `MultisetKeep._index`: a slice with `int` (or `None`) bounds, or a list / tuple of `int`s and `...`.
+/// `MultisetKeep._index`: a slice with `int` (or `None`) bounds, a list / tuple of `int`s and `...`, or anything
+/// that is not a `Sequence` (raising when evaluated).
 fn keep_index_attr(index: &Bound<'_, PyAny>) -> PyResult<MultisetKeepIndex> {
     if let Ok(slice) = index.cast::<PySlice>() {
         let bound = |name| -> PyResult<Option<i64>> {
@@ -473,6 +474,15 @@ fn keep_index_attr(index: &Bound<'_, PyAny>) -> PyResult<MultisetKeepIndex> {
             })
             .collect::<PyResult<_>>()?;
         return Ok(MultisetKeepIndex::Seq(items));
+    }
+    // Neither a slice nor a `Sequence`: `_initial_state` raises TypeError, naming its type.
+    let sequence = index
+        .py()
+        .import("collections.abc")?
+        .getattr("Sequence")?;
+    if !index.is_instance(&sequence)? {
+        let name: String = index.get_type().getattr("__name__")?.extract()?;
+        return Ok(MultisetKeepIndex::Invalid(name.into()));
     }
     Err(unsupported(
         "a MultisetKeep index that is not a slice, list or tuple",

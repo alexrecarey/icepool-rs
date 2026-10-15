@@ -37,12 +37,14 @@ def mx_method(name, args, keep_negative_counts):
 
 @node("mx_counts", "mexpr")
 def mx_counts(expr, o, comparison, n):
-    """Count adjustments by o: mul (expr * n), neg (-expr), pos (+expr), floordiv (expr // n), mod (expr % n),
-    unique (expr.unique(n)), keep_counts (expr.keep_counts(comparison, n)), multiply_counts, divide_counts,
-    modulo_counts (the methods). On a keep generator, * and - change its keep tuple."""
+    """Count adjustments by o: mul (expr * n), rmul (n * expr), neg (-expr), pos (+expr), floordiv (expr // n), mod
+    (expr % n), unique (expr.unique(n)), keep_counts (expr.keep_counts(comparison, n)), multiply_counts,
+    divide_counts, modulo_counts (the methods). On a keep generator, * and - change its keep tuple."""
     match o:
         case "mul":
             return expr * n
+        case "rmul":
+            return n * expr
         case "neg":
             return -expr
         case "pos":
@@ -132,6 +134,16 @@ def _other(g, depth, budget, leaf=None):
     return gen_expression(g, depth, budget, leaf)
 
 
+def _non_multiset(g):
+    """An operand that is not a multiset and cannot be implicitly converted to one (ImplicitConversionError, so the
+    expression's operator returns NotImplemented): a number, None, or a die (Die's operator converts the expression
+    instead: TypeError). Not Again: the AgainExpression it makes over the expression would be the result of nodes
+    that pass a reflected comparison through (mx_compare), and its repr holds an address; fixtures/t1b has those."""
+    return g.rng.choice([
+        lambda: g.rng.randint(-1, 3), lambda: {"bool": True}, lambda: {"float": "1.5"}, lambda: None,
+        lambda: g.die(0)])()
+
+
 def _comparison(g, choices):
     return {"str": g.rng.choice(choices) if g.rng.random() < 0.95 else "<>"}
 
@@ -165,8 +177,15 @@ def gen_expression(g, depth, budget=None, leaf=None):
     if k < 0.2:
         op = r.choice(list(_BINARY))
         a, b = sub(), _other(g, depth, budget // 2, leaf)
-        if r.random() < 0.1:
-            a, b = _outcomes(g), sub()  # the reflected operator
+        x = r.random()
+        if x < 0.1:
+            # The reflected operator: a list (or now and then a tuple: also a Sequence) on the left.
+            a, b = _outcomes(g), sub()
+            if r.random() < 0.3:
+                a = {"tuple": a}
+        elif x < 0.16:
+            # An operand that fails implicit conversion, on either side.
+            a, b = (sub(), _non_multiset(g)) if r.random() < 0.5 else (_non_multiset(g), sub())
         return _binary(a, op, b)
     if k < 0.3:
         name = r.choice(["additive_union", "difference", "intersection", "union"])
@@ -177,9 +196,15 @@ def gen_expression(g, depth, budget=None, leaf=None):
     if k < 0.5:
         op = r.choice(["mul", "neg", "pos", "floordiv", "mod", "unique", "unique", "keep_counts", "keep_counts",
                        "multiply_counts", "divide_counts", "modulo_counts"])
+        if op == "mul" and r.random() < 0.3:
+            op = "rmul"
         n = r.choice([0, 1, 1, 2, 2, 3, -1])
         if op in ("floordiv", "divide_counts", "mod", "modulo_counts") and n == 0 and r.random() < 0.7:
             n = 2
+        if op in ("mul", "rmul", "mod") and r.random() < 0.15:
+            # Not an int: NotImplemented, and the other operand's reflected operator decides.
+            # (Not Again: see _non_multiset.)
+            n = r.choice([{"float": "2.0"}, {"str": "ab"}, [1], None, g.die(0)])
         comparison = _comparison(g, ["==", "!=", "<=", "<", ">=", ">"])
         return {"op": "mx_counts", "expr": sub(), "o": {"str": op}, "comparison": comparison, "n": n}
     if k < 0.6:
@@ -231,8 +256,18 @@ def _keep(g, e):
                 "step": 1 if r.random() < 0.03 else None}
     if k < 0.55:
         counts = [r.choice([0, 1, 1, 2, -1]) for _ in range(r.randint(0, 3))]
-        if r.random() < 0.9:
+        x = r.random()
+        if x < 0.8:
             counts.insert(0 if r.random() < 0.5 else len(counts), {"op": "Ellipsis"})
+        elif x < 0.9:
+            # Two Ellipses (at both ends, or one inside).
+            counts.insert(0, {"op": "Ellipsis"})
+            counts.insert(r.randint(1, len(counts)), {"op": "Ellipsis"})
+        elif x < 0.95:
+            # Neither a slice nor a sequence (TypeError when a MultisetKeep is evaluated; a keep generator
+            # iterates it: a small die's outcomes are a keep tuple).
+            die = {"op": "d", "sides": r.randint(1, 3)}
+            return {"op": "pool_keep", "pool": e, "index": r.choice([None, {"float": "1.5"}, die])}
         return {"op": "pool_keep", "pool": e, "index": counts}
     if k < 0.85:
         return {"op": r.choice(["pool_highest", "pool_lowest"]), "pool": e,

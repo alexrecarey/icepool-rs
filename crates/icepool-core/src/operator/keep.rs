@@ -21,6 +21,8 @@ pub enum MultisetKeepIndex {
         step: bool,
     },
     Seq(Vec<Option<i64>>),
+    /// Anything else (neither a slice nor a sequence), by its Python type name: only rejected when evaluated.
+    Invalid(Arc<str>),
 }
 
 /// Python builds these tuples in memory; the port refuses sizes Python would struggle with.
@@ -148,6 +150,11 @@ pub(super) fn initial_state(
                 false,
                 required_order,
             )
+        }
+        MultisetKeepIndex::Invalid(type_name) => {
+            return Err(Error::Type(format!(
+                "Invalid type <class '{type_name}'> for index."
+            )))
         }
     };
 

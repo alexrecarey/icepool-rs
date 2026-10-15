@@ -56,6 +56,10 @@ pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
             "Argument of type {} cannot be implicitly converted to a Pool.",
             v.type_name()
         )),
+        // An `AgainExpression` is neither a mapping nor a sequence.
+        PValue::Again(_) => {
+            type_error("Argument of type AgainExpression cannot be implicitly converted to a Pool.")
+        }
         _ => Err(PErr::Unimplemented("this evaluator argument".into())),
     }
 }
@@ -191,15 +195,27 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
 /// `pool.largest_straight_and_outcome(priority)`.
 pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
+    let evaluator = straight_and_outcome_evaluator(priority)?;
+    die(evaluator, &pools)
+}
+
+/// `LargestStraightAndOutcomeEvaluator(priority)`: its constructor checks the priority, as the method does.
+fn straight_and_outcome_evaluator(
+    priority: PValue,
+) -> Result<LargestStraightAndOutcomeEvaluator, PErr> {
     let prioritize_highest = match value(priority)? {
         v if v == Value::str("high") => true,
         v if v == Value::str("low") => false,
         _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
     };
-    die(
-        LargestStraightAndOutcomeEvaluator { prioritize_highest },
-        &pools,
-    )
+    Ok(LargestStraightAndOutcomeEvaluator { prioritize_highest })
+}
+
+/// `icepool.evaluator.LargestStraightAndOutcomeEvaluator(priority).evaluate(arg)`: the evaluator is built (and
+/// the priority checked) before its argument is converted.
+pub fn straight_and_outcome_evaluate(priority: PValue, arg: PValue) -> Result<PValue, PErr> {
+    let evaluator = straight_and_outcome_evaluator(priority)?;
+    die(evaluator, &[implicit_convert(arg)?])
 }
 
 /// `keep_evaluator.evaluate(pool, index=index)`.

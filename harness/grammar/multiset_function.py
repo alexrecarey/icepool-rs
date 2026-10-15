@@ -255,14 +255,15 @@ def _call(g, depth, args, kinds, nested=True, kw=False, outer_kwonly=()):
 
 
 def _gen_mf_call(g, depth):
-    n = g.rng.choice([1, 1, 1, 2, 2, 3])
+    # Now and then no arguments at all: no multiset parameters, the body's evaluations over its own pools.
+    n = g.rng.choice([0, 1, 1, 1, 2, 2, 3])
     args = [_input(g, depth) for _ in range(n)]
     kinds = [_tuple_len(a) for a in args]
     return _call(g, depth, args, kinds)
 
 
 def _gen_mf_call_kw(g, depth):
-    n = g.rng.choice([1, 1, 1, 2, 2, 3])
+    n = g.rng.choice([0, 1, 1, 1, 2, 2, 3])
     args = [_input(g, depth) for _ in range(n)]
     kinds = [_tuple_len(a) for a in args]
     return _call(g, depth, args, kinds, kw=True)

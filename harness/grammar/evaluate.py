@@ -114,6 +114,20 @@ def pool_largest_straight_and_outcome(pool, priority):
     return pool.largest_straight_and_outcome(priority)
 
 
+def _gen_straight_and_outcome_evaluate(g, depth):
+    arg = _straight_pool(g, depth) if g.rng.random() < 0.85 else [g.outcome() for _ in range(g.rng.randint(0, 3))]
+    priority = g.rng.choice(["high", "low", "mid", "", "HIGH"])
+    return {"op": "straight_and_outcome_evaluate", "priority": {"str": priority}, "arg": arg}
+
+
+@node("straight_and_outcome_evaluate", "die", gen=_gen_straight_and_outcome_evaluate, weight=0.2)
+def straight_and_outcome_evaluate(priority, arg):
+    """icepool.evaluator.LargestStraightAndOutcomeEvaluator(priority).evaluate(arg): the evaluator built directly,
+    whose constructor rejects a priority other than 'low' / 'high' (the method checks it before)."""
+    fresh_caches()
+    return icepool.evaluator.LargestStraightAndOutcomeEvaluator(priority).evaluate(arg)
+
+
 def _gen_count_subset(g, depth):
     empty_divisor = None if g.rng.random() < 0.5 else g.rng.randint(-1, 3)
     return {"op": "pool_count_subset", "pool": gen_pool(g, depth), "divisor": _other(g, depth),
