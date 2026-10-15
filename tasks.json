@@ -445,5 +445,14 @@
     ],
     "milestone": null,
     "details": "K6c ported ArgsortEvaluator/ArgsortGroupedEvaluator (evaluator/argsort.rs) and LexiComparisonEvaluator (evaluator/lexi.rs) to the core with program nodes. The Python facade still runs them through evaluate_host callbacks (correct, slower). Add them to python/icepool/evaluator/evaluator_rust.py builtin_spec (exact types only; order an Order, limit None or exact int, limit_pad None or exact int; lexi with kwargs exactly sort_order (Order) and lexi_tuple (5 exact ints), 2 inputs) and to crates/icepool-py/src/evaluate.rs with_builtin, plus cases in crates/icepool-py/tests/test_backends.py. sum(map=), wild largest_count and all_straights_reduce_counts take Python callables and stay on the host path."
+  },
+  {
+    "id": "S5d",
+    "title": "Built-in evaluators over tuple counts (MultiDeal and user tuple sources) on the core",
+    "deps": [
+      "S5c"
+    ],
+    "milestone": null,
+    "details": "FACADE-AUDIT item 4 (S5c split it off): with a MultisetTupleSource input (a MultiDeal, a user tuple source) or tuple counts from operators, the built-in evaluators (sum without map, size, product_of_counts, empty, expand, keep, the poker ones, all_counts, largest_straight*, count_subset, the seven comparisons) run through evaluate_host callbacks in the facade (correct, slower) and say Unsupported in icepool-run (program layer; the generators avoid them). Python has no special case: its arithmetic just runs on the tuple count, case by case, e.g. SumEvaluator `outcome * count` repeats a tuple (int outcome) and `state + ...` concatenates; `count == 1` is False; ExpandEvaluator `(outcome,) * count` is TypeError; SizeEvaluator `0 + count` TypeError; ProductOfCounts `1 * count` is the tuple, then tuple * tuple TypeError; EmptyEvaluator `count == 0` is False. Port each built-in's next_state / initial_state / final_outcome for Count::Tuple in the core (as S4f did for operators: crates/icepool-core/src/operator/mod.rs next_state_tuple), with states as Values where they stop being ints; let builtin_spec in python/icepool/evaluator/evaluator_rust.py name them for tuple sources too (evaluate / rust_call_tree currently refuse builtins when _tuple_source); add grammar coverage (multi_deal / tuple_op_evaluate generators picking built-ins over tuple counts), fuzz clean through icepool-run and run-facade.sh, fixtures, facade cases."
   }
 ]

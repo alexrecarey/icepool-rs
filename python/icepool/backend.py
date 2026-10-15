@@ -1,16 +1,18 @@
 """The facade's backend switch (not part of upstream icepool).
 
-This package is a copy of upstream icepool (pinned in oracle.lock) whose modules are switched one at a time to the
-Rust core (the `icepool_rs` extension, crates/icepool-py). `ICEPOOL_BACKEND` selects the backend when icepool is
+This package is a copy of upstream icepool (pinned in oracle.lock) whose modules call the Rust core (the
+`icepool_rs` extension, crates/icepool-py) for their work. `ICEPOOL_BACKEND` selects the backend when icepool is
 imported:
 
 * `python` (the default): upstream's pure-Python code everywhere, exactly as upstream ships it.
-* `rust`: every switched module runs on the Rust core. There is no silent fallback: if the extension cannot be
-    imported, importing icepool fails.
+* `rust`: each module keeps its Python API and argument juggling, and its computational work runs in the Rust core;
+    Python callables (map functions, user evaluators, user sources and operators, `outcome_type`...) are called
+    back from the core. There is no silent fallback to upstream's code path: if the extension cannot be imported,
+    importing icepool fails, and what the core cannot take raises `NotImplementedError("icepool_rs: ...")`.
 
-`RUST` is the extension module when the backend is `rust`, else `None`; switched code tests `if RUST:`.
-Which modules are switched, and what work still runs in Python under `rust` (with the task that covers it), is
-listed in FACADE-AUDIT.md at the repository root.
+`RUST` is the extension module when the backend is `rust`, else `None`; switched code tests `if RUST:` (each such
+place is marked `icepool-rs:`). FACADE-AUDIT.md at the repository root lists every module, what of it still runs in
+Python under `rust` and why (by design, or the task that covers it).
 """
 
 import os
