@@ -94,14 +94,14 @@ pub enum UnOp {
 }
 
 /// A number operand, with `bool` already turned into `int`.
-enum N {
+pub(super) enum N {
     Int(IBig),
     Float(f64),
     Frac(RBig),
 }
 
 impl N {
-    fn of(v: &Value) -> Option<N> {
+    pub(super) fn of(v: &Value) -> Option<N> {
         Some(match v {
             Value::Bool(b) => N::Int(IBig::from(*b as u8)),
             Value::Int(i) => N::Int(i.clone()),
@@ -111,7 +111,7 @@ impl N {
         })
     }
 
-    fn to_f64(&self) -> Result<f64> {
+    pub(super) fn to_f64(&self) -> Result<f64> {
         match self {
             N::Int(i) => int_to_f64(i),
             N::Float(f) => Ok(*f),
@@ -182,7 +182,9 @@ impl Value {
             return compare(op, self, other).map(Value::Bool);
         }
         if matches!(self, Value::Complex(..)) || matches!(other, Value::Complex(..)) {
-            return Err(Error::Unsupported("arithmetic on complex numbers".into()));
+            // With a str or tuple (or for `//`, `%`, bitwise operators), the TypeError of any other type.
+            return super::complex::binary(op, self, other)
+                .unwrap_or_else(|| sequence_op(op, self, other));
         }
         // bool's own `&`, `|`, `^` keep the bool type; everything else treats it as an int.
         if let (Value::Bool(a), Value::Bool(b)) = (self, other) {
@@ -220,8 +222,13 @@ impl Value {
         };
         match self {
             Value::Host(h) => return h.unary(op),
-            Value::Complex(..) => {
-                return Err(Error::Unsupported("operators on complex numbers".into()))
+            Value::Complex(re, im) => {
+                return match op {
+                    Neg => Ok(Value::Complex(-re, -im)),
+                    Pos => Ok(self.clone()),
+                    Abs => super::complex::abs(*re, *im),
+                    Invert | Trunc | Floor | Ceil => bad(),
+                }
             }
             Value::Vector(v) => return v.unary(op),
             Value::Symbols(s) => return s.unary(op).unwrap_or_else(bad),
@@ -267,9 +274,6 @@ impl Value {
                 ))
             }
         };
-        if let Value::Complex(..) = self {
-            return Err(Error::Unsupported("round of a complex number".into()));
-        }
         // `Vector.round(ndigits)`: `round(x, ndigits)` elementwise.
         if let Value::Vector(v) = self {
             return v.map(|x| x.round(ndigits));
@@ -565,7 +569,7 @@ fn float_pow(iv: f64, iw: f64) -> Result<Value> {
     if iv < 0.0 {
         // Negative numbers raised to fractional powers become complex.
         if iw != iw.floor() {
-            return complex_pow(iv, iw);
+            return super::complex::real_pow(iv, iw);
         }
         // iw is an exact integer, albeit perhaps a very large one. Replace iv by its absolute value and remember
         // to negate the pow result if iw is odd.
@@ -583,20 +587,6 @@ fn float_pow(iv: f64, iw: f64) -> Result<Value> {
         return Err(Error::Overflow("Numerical result out of range".into()));
     }
     float(if negate { -ix } else { ix })
-}
-
-/// `complex(v) ** complex(w)` for a negative real `v` and a non-integral real `w` (CPython `_Py_c_pow`). The
-/// result is not orderable, so a die that keeps it (with a nonzero quantity) raises when it sorts its outcomes.
-fn complex_pow(v: f64, w: f64) -> Result<Value> {
-    let vabs = v.hypot(0.0);
-    let len = pow::pow(vabs, w);
-    let at = 0.0f64.atan2(v);
-    let phase = at * w;
-    let (re, im) = (len * phase.cos(), len * phase.sin());
-    if re.is_infinite() || im.is_infinite() {
-        return Err(Error::Overflow("complex exponentiation".into()));
-    }
-    Ok(Value::Complex(re, im))
 }
 
 /// Fraction arithmetic (`fractions.py`), for an `int` or `Fraction` with a `Fraction`.

@@ -4,7 +4,7 @@ use super::format;
 use super::ops::{binary_op, py_iter, type_error, unary_op};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
-use crate::value::builtins::{getitem, py_len, Index};
+use crate::value::builtins::{getitem, py_len, to_float, Index};
 use crate::value::pystr::{py_repr, py_str};
 use crate::value::{BinOp, Symbols, Vector};
 use crate::{Quantity, Value};
@@ -139,6 +139,13 @@ pub fn symbols(x: PValue) -> Result<PValue, PErr> {
         }
     };
     Ok(PValue::Value(Value::Symbols(s)))
+}
+
+/// `complex(re, im)` from two real numbers: `float(re)`, `float(im)`.
+pub fn complex(re: PValue, im: PValue) -> Result<PValue, PErr> {
+    let re = to_float(&value(re)?)?;
+    let im = to_float(&value(im)?)?;
+    Ok(PValue::Value(Value::Complex(re, im)))
 }
 
 /// `operator.<name>(a, b)`.

@@ -29,15 +29,17 @@ def zero_outcome(die):
 
 
 def _moment_k(g):
-    # No fractional k: a negative deviation ** 0.5 is a complex number, and the port has no complex arithmetic
-    # yet (task V1). A float k with an integral value keeps everything real.
-    return g.rng.choice([0, 1, 2, 3, 4, 5, -1, {"float": "2.0"}, {"float": "3.0"}])
+    # A fractional k makes a negative deviation ** k a complex number, and the sum of p * complex then divided by
+    # sd ** k is a complex result (complex_num.py). A float k with an integral value keeps everything real.
+    return g.rng.choice([0, 1, 2, 3, 4, 5, -1, {"float": "2.0"}, {"float": "3.0"}, {"float": "0.5"},
+                         {"float": "1.5"}, {"float": "-0.5"}, {"float": "2.5"}, {"frac": [1, 2]}, {"frac": [-3, 2]}])
 
 
 @node("standardized_moment", "value", weight=0.4,
       gen=lambda g, depth: {"op": "standardized_moment", "die": _stat_die(g, depth), "k": _moment_k(g)})
 def standardized_moment(die, k):
-    """die.standardized_moment(k): sum(p * (outcome - mean)**k) / sd**k, in floats."""
+    """die.standardized_moment(k): sum(p * (outcome - mean)**k) / sd**k, in floats (complex for a fractional k
+    when an outcome is below the mean)."""
     return die.standardized_moment(k)
 
 

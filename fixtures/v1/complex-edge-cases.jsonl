@@ -1,0 +1,127 @@
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.44802683085907613+0.448026830859076j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"float":"-0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.6236155388561803-0.6236155388561803j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"float":"1.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.4587760838394097-0.4587760838394098j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"frac":[1,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.44802683085907613+0.448026830859076j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":6},"k":{"frac":[-3,2]}},"expected":{"ok":true,"value":{"repr":"complex: (1.3486850799442072+1.3486850799442074j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[1,1,5]},"k":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.39640237166757364+0.5605976101691429j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[1,1,5]},"k":{"float":"-0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.28029880508457156-0.7928047433351473j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[1,1,5]},"k":{"float":"1.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.5605976101691429-0.39640237166757364j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[1,1,5]},"k":{"frac":[1,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.39640237166757364+0.5605976101691429j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[1,1,5]},"k":{"frac":[-3,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.1982011858337866+1.121195220338286j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[-3,0,2]},"k":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.4894630214525407+0.37973256218409823j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[-3,0,2]},"k":{"float":"-0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (1.1404143279677603-0.29260359046386786j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[-3,0,2]},"k":{"float":"1.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.42513477187489584-0.4928060470970405j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[-3,0,2]},"k":{"frac":[1,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.4894630214525407+0.37973256218409823j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"die","outcomes":[-3,0,2]},"k":{"frac":[-3,2]}},"expected":{"ok":true,"value":{"repr":"complex: (5.377184800698685+0.22546620879680832j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":2},"k":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.5+0.5j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":2},"k":{"float":"-0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.5-0.5j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":2},"k":{"float":"1.5"}},"expected":{"ok":true,"value":{"repr":"complex: (0.49999999999999994-0.5j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":2},"k":{"frac":[1,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.5+0.5j)"}}}
+{"program":{"op":"standardized_moment","die":{"op":"d","sides":2},"k":{"frac":[-3,2]}},"expected":{"ok":true,"value":{"repr":"complex: (0.49999999999999994+0.5j)"}}}
+{"program":{"op":"complex","re":{"float":"0.0"},"im":{"float":"0.0"}},"expected":{"ok":true,"value":{"repr":"complex: 0j"}}}
+{"program":{"op":"complex","re":{"float":"-0.0"},"im":{"float":"0.0"}},"expected":{"ok":true,"value":{"repr":"complex: (-0+0j)"}}}
+{"program":{"op":"complex","re":{"float":"0.0"},"im":{"float":"-0.0"}},"expected":{"ok":true,"value":{"repr":"complex: -0j"}}}
+{"program":{"op":"complex","re":{"float":"-0.0"},"im":{"float":"-0.0"}},"expected":{"ok":true,"value":{"repr":"complex: (-0-0j)"}}}
+{"program":{"op":"complex","re":{"float":"nan"},"im":{"float":"inf"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+infj)"}}}
+{"program":{"op":"complex","re":{"float":"inf"},"im":{"float":"nan"}},"expected":{"ok":true,"value":{"repr":"complex: (inf+nanj)"}}}
+{"program":{"op":"complex","re":{"float":"-inf"},"im":{"float":"nan"}},"expected":{"ok":true,"value":{"repr":"complex: (-inf+nanj)"}}}
+{"program":{"op":"complex","re":{"float":"1e+16"},"im":{"float":"1e-05"}},"expected":{"ok":true,"value":{"repr":"complex: (1e+16+1e-05j)"}}}
+{"program":{"op":"complex","re":{"float":"5e-324"},"im":1},"expected":{"ok":true,"value":{"repr":"complex: (5e-324+1j)"}}}
+{"program":{"op":"complex","re":1,"im":2},"expected":{"ok":true,"value":{"repr":"complex: (1+2j)"}}}
+{"program":{"op":"complex","re":{"float":"-1.5"},"im":-2},"expected":{"ok":true,"value":{"repr":"complex: (-1.5-2j)"}}}
+{"program":{"op":"complex","re":{"float":"0.1"},"im":{"float":"-0.0"}},"expected":{"ok":true,"value":{"repr":"complex: (0.1-0j)"}}}
+{"program":{"op":"complex","re":2,"im":0},"expected":{"ok":true,"value":{"repr":"complex: (2+0j)"}}}
+{"program":{"op":"complex","re":{"frac":[1,3]},"im":{"bool":true}},"expected":{"ok":true,"value":{"repr":"complex: (0.3333333333333333+1j)"}}}
+{"program":{"op":"complex","re":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,"im":1},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":0,"b":{"op":"complex","re":1,"im":{"float":"-0.0"}},"name":{"str":"add"}},"expected":{"ok":true,"value":{"repr":"complex: (1+0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"-0.0"},"im":{"float":"-0.0"}},"b":{"op":"complex","re":{"float":"0.0"},"im":{"float":"-0.0"}},"name":{"str":"add"}},"expected":{"ok":true,"value":{"repr":"complex: -0j"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":{"float":"-0.0"}},"b":0,"name":{"str":"sub"}},"expected":{"ok":true,"value":{"repr":"complex: (1-0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":1},"b":{"float":"inf"},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+infj)"}}}
+{"program":{"op":"cx_binary","a":{"float":"inf"},"b":{"op":"complex","re":1,"im":1},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (inf+infj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":1},"b":{"op":"complex","re":{"float":"inf"},"im":0},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+infj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"frac":[1,3]},"name":{"str":"sub"}},"expected":{"ok":true,"value":{"repr":"complex: (0.6666666666666667+1j)"}}}
+{"program":{"op":"cx_binary","a":{"frac":[1,3]},"b":{"op":"complex","re":1,"im":1},"name":{"str":"sub"}},"expected":{"ok":true,"value":{"repr":"complex: (-0.6666666666666667-1j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,"name":{"str":"add"}},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":{"frac":[10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,3]},"b":{"op":"complex","re":1,"im":1},"name":{"str":"sub"}},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e+200"},"im":{"float":"1e+200"}},"b":{"op":"complex","re":{"float":"1e+200"},"im":{"float":"-1e+200"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (inf+nanj)"}}}
+{"program":{"op":"cx_binary","a":{"bool":true},"b":{"op":"complex","re":{"float":"0.5"},"im":{"float":"0.25"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (0.5+0.25j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"0.1"},"im":{"float":"0.7"}},"b":{"op":"complex","re":{"float":"0.3"},"im":{"float":"-0.9"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"repr":"complex: (0.66+0.11999999999999998j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":2},"b":{"op":"complex","re":3,"im":-4},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (-0.2+0.4j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":2},"b":{"op":"complex","re":-4,"im":3},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (0.08-0.44j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"op":"complex","re":{"float":"inf"},"im":{"float":"inf"}},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+nanj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"inf"},"im":1},"b":{"op":"complex","re":1,"im":1},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (inf-infj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"op":"complex","re":0,"im":0},"name":{"str":"truediv"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":0,"name":{"str":"truediv"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":1,"b":{"op":"complex","re":0,"im":{"float":"-0.0"}},"name":{"str":"truediv"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"op":"complex","re":{"float":"nan"},"im":1},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+nanj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"inf"},"im":{"float":"nan"}},"b":{"op":"complex","re":1,"im":0},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+nanj)"}}}
+{"program":{"op":"cx_binary","a":3,"b":{"op":"complex","re":0,"im":2},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: -1.5j"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"0.1"},"im":{"float":"0.2"}},"b":{"frac":[1,3]},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: (0.30000000000000004+0.6000000000000001j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e-320"},"im":1},"b":{"op":"complex","re":{"float":"1e+308"},"im":{"float":"1e-320"}},"name":{"str":"truediv"}},"expected":{"ok":true,"value":{"repr":"complex: 1e-308j"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"inf"},"im":0},"b":2,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+nanj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":100,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-1125899906842624+0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":101,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-1125899906842634.5-1125899906842629.5j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":-100,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-8.881784197001252e-16-0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":1000000000000000000000000000000,"name":{"str":"pow"}},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"float":"1e+30"},"name":{"str":"pow"}},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e+200"},"im":1},"b":2,"name":{"str":"pow"}},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e-200"},"im":0},"b":-2,"name":{"str":"pow"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":0},"b":-1,"name":{"str":"pow"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":0},"b":{"float":"-1.5"},"name":{"str":"pow"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":0},"b":{"op":"complex","re":1,"im":1},"name":{"str":"pow"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":0},"b":{"op":"complex","re":0,"im":0},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (1+0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":0,"im":0},"b":{"float":"0.5"},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: 0j"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":-1,"im":1},"b":{"float":"1e+308"},"name":{"str":"pow"}},"expected":{"ok":false,"error":"ZeroDivisionError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":-1,"im":1},"b":{"op":"complex","re":1,"im":{"float":"1e+308"}},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: -0j"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":2},"b":{"op":"complex","re":3,"im":4},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (0.129009594074467+0.03392409290517014j)"}}}
+{"program":{"op":"cx_binary","a":2,"b":{"op":"complex","re":3,"im":4},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-7.461496614688569+2.885492725513448j)"}}}
+{"program":{"op":"cx_binary","a":{"frac":[1,3]},"b":{"op":"complex","re":3,"im":4},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-0.011578159408817937+0.035180795005042925j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":3,"im":4},"b":{"frac":[1,3]},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (1.6289371459221758+0.5201745023045458j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":3,"im":4},"b":{"frac":[4,1]},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-527-336j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":3,"im":4},"b":{"frac":[-4,1]},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-0.0013491199999999999+0.00086016j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":3,"im":4},"b":{"bool":true},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (3+4j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"0.5"},"im":4},"b":{"op":"complex","re":-1,"im":{"float":"1.5"}},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (0.022647667154324185+0.017025673773493306j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e+300"},"im":{"float":"1e+300"}},"b":{"float":"0.5"},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (1.09868411346781e+150+4.550898605622274e+149j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"1e-300"},"im":0},"b":{"op":"complex","re":{"float":"0.5"},"im":{"float":"1e+300"}},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-5.591599423471061e-151-8.290598041603398e-151j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"nan"},"im":1},"b":2,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (nan+nanj)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":2,"im":-3},"b":0,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (1+0j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":2,"im":-3},"b":{"float":"-0.0"},"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (1+0j)"}}}
+{"program":{"op":"pow","a":-2,"b":{"float":"0.5"}},"expected":{"ok":true,"value":{"repr":"complex: (8.659560562354934e-17+1.4142135623730951j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"pow","a":-2,"b":{"float":"0.5"}},"b":1,"name":{"str":"add"}},"expected":{"ok":true,"value":{"repr":"complex: (1+1.4142135623730951j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"pow","a":{"float":"-8.0"},"b":{"frac":[1,3]}},"b":3,"name":{"str":"pow"}},"expected":{"ok":true,"value":{"repr":"complex: (-8+3.1086244689504383e-15j)"}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":2,"name":{"str":"floordiv"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"frac":[1,2]},"name":{"str":"mod"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,"b":{"op":"complex","re":1,"im":1},"name":{"str":"floordiv"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":1,"name":{"str":"lshift"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"bool":true},"name":{"str":"and"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":1,"name":{"str":"lt"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":1,"b":{"op":"complex","re":1,"im":1},"name":{"str":"ge"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"op":"complex","re":1,"im":1},"name":{"str":"le"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"str":"ab"},"name":{"str":"mul"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"str":"ab"},"b":{"op":"complex","re":1,"im":1},"name":{"str":"add"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"tuple":[1]},"b":{"op":"complex","re":1,"im":1},"name":{"str":"add"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"str":"ab"},"b":{"op":"complex","re":1,"im":1},"name":{"str":"mod"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":2,"im":0},"b":{"frac":[2,1]},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":2,"im":{"float":"-0.0"}},"b":2,"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":2,"im":1},"b":2,"name":{"str":"ne"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":{"float":"nan"},"im":0},"b":{"op":"complex","re":{"float":"nan"},"im":0},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"cx_binary","a":{"op":"complex","re":1,"im":1},"b":{"str":"a"},"name":{"str":"eq"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":3,"im":4},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"5.0"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"1e+308"},"im":{"float":"1e+308"}},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"1.4142135623730951e+308"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"1.5e+308"},"im":{"float":"1.5e+308"}},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":false,"error":"OverflowError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"nan"},"im":{"float":"inf"}},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"inf"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"nan"},"im":1},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"nan"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"-inf"},"im":{"float":"nan"}},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"inf"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"1e-320"},"im":{"float":"1e-320"}},"name":{"str":"abs"},"ndigits":null},"expected":{"ok":true,"value":{"float":"1.414e-320"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":0,"im":0},"name":{"str":"neg"},"ndigits":null},"expected":{"ok":true,"value":{"repr":"complex: (-0-0j)"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":{"float":"-0.0"},"im":1},"name":{"str":"pos"},"ndigits":null},"expected":{"ok":true,"value":{"repr":"complex: (-0+1j)"}}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"invert"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"trunc"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"floor"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"ceil"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"round"},"ndigits":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"cx_unary","a":{"op":"complex","re":1,"im":1},"name":{"str":"round"},"ndigits":1},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"add","a":{"op":"d","sides":3},"b":{"op":"complex","re":1,"im":1}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"add","a":{"op":"die","outcomes":[]},"b":{"op":"complex","re":1,"im":1}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"pow","a":{"op":"die","outcomes":[-2]},"b":{"float":"0.5"}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"mul","a":{"op":"complex","re":0,"im":1},"b":{"op":"die","outcomes":[0]}},"expected":{"ok":false,"error":"TypeError"}}

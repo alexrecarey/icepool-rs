@@ -226,5 +226,8 @@
   "deck_split": "ported",
   "mean_time_to_sum": "ported",
   "cartesian_product": "ported",
-  "iter_cartesian_product": "ported"
+  "iter_cartesian_product": "ported",
+  "complex": "ported",
+  "cx_binary": "ported",
+  "cx_unary": "ported"
 }

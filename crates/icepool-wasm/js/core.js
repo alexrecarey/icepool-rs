@@ -82,7 +82,18 @@ export class Break {
   }
 }
 
-/** A Python object JS has no type for (e.g. a complex number): it can be read, not passed back. */
+/** Python's `complex`: `re` and `im` are numbers; `String(z)` is Python's repr, e.g. `(1+2j)`, `-0j`. */
+export class Complex {
+  constructor(re, im = 0) {
+    this.re = re;
+    this.im = im;
+  }
+  toString() {
+    return pyComplexRepr(this.re, this.im);
+  }
+}
+
+/** A Python object JS has no type for: it can be read, not passed back. */
 export class Opaque {
   constructor(repr) {
     this.repr = repr;
@@ -128,6 +139,14 @@ export function pyFloatRepr(x) {
   return `${sign}${int}.${frac || "0"}`;
 }
 
+/** Python's `repr(complex)`: `(re+imj)`, or just `imj` when the real part is +0.0; no trailing `.0`. */
+export function pyComplexRepr(re, im) {
+  const short = (x) => pyFloatRepr(x).replace(/\.0$/, "");
+  if (re === 0 && !Object.is(re, -0)) return `${short(im)}j`;
+  const i = short(im);
+  return `(${short(re)}${i.startsWith("-") ? "" : "+"}${i}j)`;
+}
+
 // --- JS -> JS-JSON ------------------------------------------------------------------------------------------------
 
 /** Raw JSON text, passed through as it is (the lazy arguments of `khepri` / `mf_def`, in the fixture tests). */
@@ -158,6 +177,7 @@ function enc(x) {
   if (Array.isArray(x)) return `[${x.map(enc).join(",")}]`;
   if (x instanceof Float) return `{"float":"${pyFloatRepr(x.value)}"}`;
   if (x instanceof Fraction) return `{"frac":["${x.numerator}","${x.denominator}"]}`;
+  if (x instanceof Complex) return `{"complex":["${pyFloatRepr(x.re)}","${pyFloatRepr(x.im)}"]}`;
   if (x instanceof Vector) {
     const data = x.items === null ? "null" : `[${x.items.map(enc).join(",")}]`;
     return x.hasTruth ? `{"vector":${data},"truth":${enc(x.truthValue)}}` : `{"vector":${data}}`;
@@ -203,6 +223,9 @@ function stateValue(x) {
 
 const KINDS = {}; // handle kind -> class, filled in below
 
+/** A float from its Python repr. */
+const floatOf = (s) => Number(s === "inf" ? Infinity : s === "-inf" ? -Infinity : s);
+
 function dec(j) {
   if (j === null || typeof j !== "object") return j;
   if (Array.isArray(j)) return j.map(dec);
@@ -212,7 +235,7 @@ function dec(j) {
   }
   if ("$int" in j) return BigInt(j.$int);
   if ("float" in j) {
-    const x = Number(j.float === "inf" ? Infinity : j.float === "-inf" ? -Infinity : j.float);
+    const x = floatOf(j.float);
     return Number.isInteger(x) ? new Float(x) : x;
   }
   if ("frac" in j) return new Fraction(BigInt(j.frac[0]), BigInt(j.frac[1]));
@@ -222,7 +245,7 @@ function dec(j) {
   if ("$json" in j) return JSON.parse(j.$json);
   if ("vector" in j) return Vector._make(j.vector === null ? null : j.vector.map(dec), "truth" in j, dec(j.truth ?? null));
   if ("$symbols" in j) return Symbols._make(j.$symbols.map(([c, n]) => [c, dec(n)]), j.str);
-  if ("complex" in j) return new Opaque(`(${j.complex[0]}+${j.complex[1]}j)`);
+  if ("complex" in j) return new Complex(...j.complex.map(floatOf));
   if ("repr" in j) return new Opaque(j.repr);
   throw new TypeError(`icepool: unexpected value from the core: ${JSON.stringify(j)}`);
 }

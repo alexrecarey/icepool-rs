@@ -378,6 +378,7 @@ function wire(x) {
   if (x instanceof ip.Handle) return parseExact(x.toWire()).value;
   if (SPECIAL_REPRS.has(x)) return { repr: SPECIAL_REPRS.get(x) };
   if (x instanceof ip.Opaque) return { repr: x.repr };
+  if (x instanceof ip.Complex) return { repr: `complex: ${x}` };
   throw new Error(`no wire encoding for ${x}`);
 }
 

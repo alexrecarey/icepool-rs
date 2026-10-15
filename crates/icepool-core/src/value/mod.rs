@@ -9,6 +9,7 @@
 //!   the core has no variant for are `Host` (`host.rs`).
 
 pub mod builtins;
+mod complex;
 mod host;
 pub mod libm;
 mod number;
@@ -48,9 +49,9 @@ pub enum Value {
     Fraction(RBig),
     Str(Arc<str>),
     Tuple(Arc<[Value]>),
-    /// Python's `complex`, which only arises from `**` (a negative number to a fractional power). It is not
-    /// orderable, so a die with a complex outcome raises when it sorts its outcomes (unless its quantity is zero
-    /// and it drops out first). Arithmetic on it is not ported.
+    /// Python's `complex`, which arises from `**` (a negative number to a fractional power) and then from
+    /// arithmetic on it (`complex.rs`). It is not orderable, so a die with a complex outcome raises when it sorts
+    /// its outcomes (unless its quantity is zero and it drops out first).
     Complex(f64, f64),
     /// icepool's `Vector` (or `VectorWithTruthOnly`): operators apply elementwise.
     Vector(Vector),

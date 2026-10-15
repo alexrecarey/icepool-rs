@@ -195,8 +195,8 @@ impl Binary<'_> {
     ) -> icepool_core::Result<Value> {
         match self {
             Binary::Op(op, f) => match a.binary(*op, b) {
-                // The core does not model this case for native values yet (complex arithmetic, printf-style
-                // `str %` with conversion specifiers): the outcome operation is Python's, as for host objects.
+                // The core does not model this case for native values yet (printf-style `str %` with conversion
+                // specifiers): the outcome operation is Python's, as for host objects.
                 Err(Error::Unsupported(_)) => call(f, &[a, b], args, kwargs),
                 r => r,
             },

@@ -761,6 +761,19 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [x] = args.exactly(["x"])?;
             collection::symbols(x)
         }
+        "complex" => {
+            let [re, im] = args.exactly(["re", "im"])?;
+            collection::complex(re, im)
+        }
+        // Operators on complex values: the same generic `operator.<name>` as for collections (complex_num.py).
+        "cx_binary" => {
+            let [a, b, name] = args.exactly(["a", "b", "name"])?;
+            collection::binary(a, b, name)
+        }
+        "cx_unary" => {
+            let [a, name, ndigits] = args.exactly(["a", "name", "ndigits"])?;
+            collection::unary(a, name, ndigits)
+        }
         "coll_binary" => {
             let [a, b, name] = args.exactly(["a", "b", "name"])?;
             collection::binary(a, b, name)

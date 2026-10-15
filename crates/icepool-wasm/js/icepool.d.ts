@@ -73,7 +73,18 @@ export class Break {
   constructor(outcome?: Outcome | Die);
 }
 
-/** A Python object JS has no type for (e.g. a complex number). */
+/** Python's `complex` (from a negative number to a fractional power, and arithmetic on it). `String(z)` is
+ * Python's repr. */
+export class Complex {
+  readonly re: number;
+  readonly im: number;
+  constructor(re: number, im?: number);
+}
+
+/** Python's `repr(complex)`. */
+export function pyComplexRepr(re: number, im: number): string;
+
+/** A Python object JS has no type for. */
 export class Opaque {
   readonly repr: string;
 }

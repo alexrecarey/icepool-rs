@@ -12,12 +12,15 @@ from harness.grammar.construction import _typed_outcome
 
 
 def scalar(g):
-    """A non-die operand: mostly a small int, sometimes a bool, float, Fraction, str, tuple or None."""
+    """A non-die operand: mostly a small int, sometimes a bool, float, Fraction, str, tuple, complex or None."""
+    from harness.grammar.complex_num import complex_lit
     r = g.rng.random()
     if r < 0.5:
         return g.rng.randint(-3, 6)
-    if r < 0.97:
+    if r < 0.96:
         return _typed_outcome(g, g.rng.choice(["num", "num", "num", "str", "tuple"]))
+    if r < 0.98:
+        return complex_lit(g)
     return None
 
 
@@ -92,7 +95,8 @@ def mod(a, b):
 
 @node("pow", "die", gen=_small_right("pow"))
 def pow_(a, b):
-    """a ** b (negative int exponents give floats, negative bases to fractional powers give complex: raises)"""
+    """a ** b (negative int exponents give floats, negative bases to fractional powers give complex, which a die
+    cannot sort: raises)"""
     return a ** b
 
 

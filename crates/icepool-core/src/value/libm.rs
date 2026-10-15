@@ -7,6 +7,9 @@
 //! contractions of glibc 2.43's x86_64 `__log_fma` (read off its disassembly; each fused `a * b + c` is a
 //! `mul_add` marked "contracted"). The tables are glibc's `__log_data`, read out of its libm.so.
 //! `tests::matches_platform_log` checks the port against glibc natively.
+//!
+//! Also `hypot` (for `abs(complex)` and complex powers): glibc's own since 2.35, ported below the same way and
+//! checked by `tests::matches_platform_hypot`.
 
 /// The natural logarithm with the platform's rounding: glibc's `log` (natively) or its port below (wasm32).
 pub fn log(x: f64) -> f64 {
@@ -15,6 +18,73 @@ pub fn log(x: f64) -> f64 {
     } else {
         x.ln()
     }
+}
+
+/// `hypot(x, y)` with the platform's rounding: glibc's (natively) or its port below (wasm32).
+pub fn hypot(x: f64, y: f64) -> f64 {
+    if cfg!(target_arch = "wasm32") {
+        glibc_hypot(x, y)
+    } else {
+        x.hypot(y)
+    }
+}
+
+const HYPOT_SCALE: f64 = f64::from_bits(0x1a70000000000000); // 0x1p-600
+const HYPOT_LARGE_VAL: f64 = f64::from_bits(0x5fe0000000000000); // 0x1p+511
+const HYPOT_TINY_VAL: f64 = f64::from_bits(0x2340000000000000); // 0x1p-459
+const HYPOT_EPS: f64 = f64::from_bits(0x3c90000000000000); // 0x1p-54
+
+/// glibc's hypot kernel (sysdeps/ieee754/dbl-64/e_hypot.c, after Borges, "An Improved Algorithm for
+/// hypot(a,b)"), its build without `__FP_FAST_FMA` (x86_64 has no FMA variant of hypot; the constants and the
+/// operation order were checked against the disassembly of glibc 2.43's `__hypot`). The inputs must be adjusted so that ax >= ay >= 0 and squaring
+/// ax, ay and (ax - ay) does not overflow or underflow.
+fn hypot_kernel(ax: f64, ay: f64) -> f64 {
+    let mut h = (ax * ax + ay * ay).sqrt();
+    let (t1, t2);
+    if h <= 2.0 * ay {
+        let delta = h - ay;
+        t1 = ax * (2.0 * delta - ax);
+        t2 = (delta - 2.0 * (ax - ay)) * delta;
+    } else {
+        let delta = h - ax;
+        t1 = 2.0 * delta * (ax - 2.0 * ay);
+        t2 = (4.0 * delta - ay) * ay + delta * delta;
+    }
+    h -= (t1 + t2) / (2.0 * h);
+    h
+}
+
+/// glibc's `__hypot`.
+fn glibc_hypot(x: f64, y: f64) -> f64 {
+    if !x.is_finite() || !y.is_finite() {
+        // (Signaling NaNs aside: Rust has none to give.)
+        if x.is_infinite() || y.is_infinite() {
+            return f64::INFINITY;
+        }
+        return x + y;
+    }
+    let (x, y) = (x.abs(), y.abs());
+    let ax = if x < y { y } else { x };
+    let ay = if x < y { x } else { y };
+    // If ax is huge, scale both inputs down.
+    if ax > HYPOT_LARGE_VAL {
+        if ay <= ax * HYPOT_EPS {
+            return ax + ay;
+        }
+        return hypot_kernel(ax * HYPOT_SCALE, ay * HYPOT_SCALE) / HYPOT_SCALE;
+    }
+    // If ay is tiny, scale both inputs up to avoid underflow.
+    if ay < HYPOT_TINY_VAL {
+        if ax >= ay / HYPOT_EPS {
+            return ax + ay;
+        }
+        return hypot_kernel(ax / HYPOT_SCALE, ay / HYPOT_SCALE) * HYPOT_SCALE;
+    }
+    // Common case: ax is not huge and ay is not tiny.
+    if ay <= ax * HYPOT_EPS {
+        return ax + ay;
+    }
+    hypot_kernel(ax, ay)
 }
 
 const LOG_TABLE_BITS: u32 = 7;
@@ -320,6 +390,54 @@ mod tests {
             // Near 1, where the second polynomial takes over.
             same(1.0 + (rng.next() as i64 as f64) * 2f64.powi(-67));
             same(f64::from_bits(rng.next() >> 12)); // subnormal
+        }
+    }
+
+    fn same_hypot(x: f64, y: f64) {
+        let (x, y) = (std::hint::black_box(x), std::hint::black_box(y));
+        let (want, got) = (x.hypot(y), glibc_hypot(x, y));
+        assert!(
+            want.to_bits() == got.to_bits() || (want.is_nan() && got.is_nan()),
+            "hypot({x:e}, {y:e}): glibc {want:e}, port {got:e}"
+        );
+    }
+
+    /// The port against the platform hypot: small ints and their halves (what complex outcomes are made of),
+    /// arbitrary bit patterns, nearby magnitudes, huge and tiny scales, specials.
+    #[test]
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    fn matches_platform_hypot() {
+        let specials = [
+            0.0,
+            -0.0,
+            1.0,
+            -3.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            5e-324,
+            f64::MAX,
+        ];
+        for x in specials {
+            for y in specials {
+                same_hypot(x, y);
+            }
+        }
+        for a in -40..40 {
+            for b in -40..40 {
+                same_hypot(a as f64 / 4.0, b as f64 / 3.0);
+            }
+        }
+        let mut rng = Rng(0x9e3779b97f4a7c15);
+        for _ in 0..1_000_000 {
+            same_hypot(f64::from_bits(rng.next()), f64::from_bits(rng.next()));
+            let x = f64::from_bits(rng.next() >> 2);
+            same_hypot(x, x * (1.0 + (rng.next() >> 11) as f64 * 2f64.powi(-53)));
+            same_hypot(x, x * f64::from_bits(rng.next() >> 2) * 2f64.powi(-512));
+            same_hypot(
+                f64::from_bits(rng.next() >> 12),
+                f64::from_bits(rng.next() >> 12),
+            ); // subnormals
         }
     }
 }

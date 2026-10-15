@@ -15,6 +15,7 @@
 //! | `int` | a JSON integer, or `{"$int": "<digits>"}` beyond 2**53 (JS may also send any JSON integer) |
 //! | `float` | `{"float": "<repr>"}` (JS has no int/float distinction of its own) |
 //! | `Fraction` | `{"frac": [n, d]}` |
+//! | `complex` | `{"complex": ["<repr of re>", "<repr of im>"]}` |
 //! | `Vector` | `{"vector": [...] \| null, "truth": x}` (`truth` only if it has one; `null` data: `VectorWithTruthOnly`) |
 //! | `Symbols` | `{"$symbols": [[char, count], ...], "str": "<str>"}` in dict order; JS may send `{"symbols": "<str>"}` |
 //! | `tuple` | a JSON array |
@@ -362,6 +363,17 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                         .collect::<Result<Vec<_>, _>>()?;
                     program::wire::dec(&json!({ "frac": parts }))?
                 }
+                // Python's `complex`, as it went out: the reprs of its two floats.
+                ("complex", Json::Array(parts)) => match parts.as_slice() {
+                    [re, im] => {
+                        let part = |x: &Json| match program::wire::dec(&json!({ "float": x }))? {
+                            PValue::Value(Value::Float(f)) => Ok(f),
+                            _ => Err(bad("complex")),
+                        };
+                        PValue::Value(Value::Complex(part(re)?, part(im)?))
+                    }
+                    _ => return Err(bad("complex")),
+                },
                 // A float's repr; a Symbols from a str (`Symbols("aab")`), an iterable or a mapping.
                 ("float" | "symbols", _) => program::wire::dec(j)?,
                 _ => return Err(bad(k)),
