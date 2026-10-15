@@ -679,6 +679,31 @@ turns out wrong. Newest decisions at the top of each section.
 - `value/ops.rs` `MAX_INT_BITS` is a `u64` now: `1 << 32` did not compile for wasm32. `cargo check --target
   wasm32-unknown-unknown -p icepool-core --lib` builds.
 
+- **The rest of the built-in evaluators (K6c).** Core: `evaluator/basic.rs MappedSumEvaluator<F>`
+  (`SumEvaluator(map)`, `add_to_sum` shared with the plain sum), `poker.rs LargestCountWithWildEvaluator<S>`
+  (selectors return the truth value; `is_wild or wild_low(o)` short-circuits) and
+  `AllStraightsReduceCountsEvaluator<R>` (Value states exactly as Python's tuples), `evaluator/argsort.rs`
+  (`ArgsortEvaluator { tie: Drop/Left/Right, order: Value, limit, limit_pad }`, `ArgsortGroupedEvaluator`; `order`
+  is a Value compared with `!=` as Python does), `evaluator/lexi.rs` (`LexiComparisonEvaluator { sort_order,
+  lexi_tuple }`: the evaluate() kwargs as fields). Callables are generic closure parameters: the program layer
+  (`program/evaluate.rs`) builds them from catalogue `Func`s. A callable returning a die or Reroll inside an
+  evaluation is Unsupported (states are Values), so the generators only pick plain-valued functions (`_plain_fn`).
+  `basic.rs py_sorted_reverse` = `sorted(reverse=True)`.
+- K6c nodes (harness/grammar/evaluate.py): `pool_sum_map`, `pool_largest_count_wild`,
+  `pool_all_straights_reduce_counts` (catalogue `mul2` = operator.mul, added on all three sides incl. the JS test
+  catalogue), `argsort` / `argsort_grouped` (called on the class: `MultisetExpression.argsort(*args, ...)`),
+  `pool_leximin` / `pool_leximax`, `mx_compare` (`a o b` for `< <= > >= == !=`; kind **die_truth** like format.py's
+  `eq`: a DieWithTruth must not flow into the "die" nodes) and `mx_rfloordiv` (`other // pool`). To fuzz them:
+  `--ops pool_sum_map,...,mx_rfloordiv,d,die,truth` (the pool generators write JSON directly).
+- `program/evaluate.rs compare_operator` ports the operator protocol: `<` etc. catch TypeError (from the
+  conversion or the evaluation) -> NotImplemented -> the reflected operator of an expression on the right
+  (attempted once: reflecting again looped forever, a stack overflow the fuzzer found) -> TypeError. `==` / `!=`
+  give `DieWithTruth(data, truth)`, truth = `equals` (`same_expression`, hash keys), an evaluation error kept in
+  `DieWithTruthError` (Python evaluates the data lazily); an unconvertible operand (TypeError) gives the identity
+  fallback `False` / `True`, but a die raises (`Pool(die)` is a ValueError, not caught). A die on the left of any
+  of these (or of `//`) raises TypeError: `Die([pool])` sorts with `bool(pool < pool)`.
+- `die.pool()` and `pool_dict` keys now take a DieWithTruth (as its die).
+
 - **Die.keep (K6b).** Nodes `die_keep` (`die.keep(rolls, index)`, index an int, a sequence of counts or None) and
   `die_keep_slice` (`die.keep(rolls, slice(start, stop, step))`; the program language has no slice value).
   `program/pool.rs die_keep` composes `die_pool` + `pool_keep` / `pool_slice` + `evaluation("pool_sum")`, as
@@ -703,8 +728,7 @@ turns out wrong. Newest decisions at the top of each section.
   quirks come for free (`max(state or count, count)` with a 0 state, `str * count`, tuple comparison). Program
   layer `program/evaluate.rs` (`run`, `implicit_convert` = `Pool(list)`), nodes in `harness/grammar/evaluate.py`
   (`pool_sum`, `pool_size`, ..., `pool_issubset`, and `evaluate` for named evaluators); `pool_index` (`pool[int]`)
-  is in pool.py. Left for K6c: sum(map), wild largest_count, all_straights_reduce_counts, argsort, lexi, the
-  comparison operators, `==`/`!=`.
+  is in pool.py. The rest (sum(map), wild largest_count, argsort, lexi, the comparison operators) came in K6c.
 - Named evaluators: `harness/catalogue/evaluators.py` (Python subclasses) mirrored by
   `program/catalogue_evaluators.rs` (`CatalogueEvaluator` variants, `Final = PValue` so a final outcome may be a
   die; the result goes through `ops::new_die`). To add one: a class with `@evaluator(name, params=, inputs=)` and a

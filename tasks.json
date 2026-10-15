@@ -436,5 +436,14 @@
     ],
     "milestone": null,
     "details": "Left over from K6b. Python keep counts are unbounded ints: d6.pool([2**70, 1]).sum(), pool * 2**63, keep tuples whose keep_size passes 2**63 (two counts of 2**62), Die.keep with such counts. The port refuses them cleanly today (program/pool.rs exact_int 'not a 64-bit int', keep_size / multiply_counts overflow -> Unsupported 'keep counts beyond 64 bits'; facade: NotImplementedError), it never wraps. Doing it means a count type wider than i64 through the whole multiset stack: keep_tuple.rs (make/compose/pop), pool.rs (keep_tuple, Count::Int / Count::Tuple yielded by MultisetSource::pop), deal.rs, compound_keep.rs, operator/* (counts arithmetic, MultisetKeep), evaluator/* (sum multiplies outcome by count, size, product_of_counts, poker, keep ...), program/expression.rs and the facade's conversions (about 300 i64 sites). Suggested shape: a `Count` newtype with an i64 fast path and checked arithmetic falling back to IBig, so ordinary evaluations do not slow down (check with the long gate's timings). Add generators that now and then produce counts near and beyond 2**63 (pool_keep, die_pool sequences, pool_mul, die_keep), fuzz clean through icepool-run and crates/icepool-py/run-facade.sh, with fixtures."
+  },
+  {
+    "id": "K6e",
+    "title": "Facade: native built-ins for argsort, argsort_grouped and lexi",
+    "deps": [
+      "K6c"
+    ],
+    "milestone": null,
+    "details": "K6c ported ArgsortEvaluator/ArgsortGroupedEvaluator (evaluator/argsort.rs) and LexiComparisonEvaluator (evaluator/lexi.rs) to the core with program nodes. The Python facade still runs them through evaluate_host callbacks (correct, slower). Add them to python/icepool/evaluator/evaluator_rust.py builtin_spec (exact types only; order an Order, limit None or exact int, limit_pad None or exact int; lexi with kwargs exactly sort_order (Order) and lexi_tuple (5 exact ints), 2 inputs) and to crates/icepool-py/src/evaluate.rs with_builtin, plus cases in crates/icepool-py/tests/test_backends.py. sum(map=), wild largest_count and all_straights_reduce_counts take Python callables and stay on the host path."
   }
 ]
