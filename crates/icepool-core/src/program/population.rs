@@ -83,7 +83,16 @@ fn index_of(outcomes: &PValue, x: &Value) -> Result<Option<i64>, PErr> {
             }
             found
         }
-        PValue::Value(Value::Tuple(items)) => items.iter().position(|item| item == x),
+        PValue::Value(Value::Tuple(items)) => {
+            let mut found = None;
+            for (i, item) in items.iter().enumerate() {
+                if item.eq_op(x, false)?.truthy()? {
+                    found = Some(i);
+                    break;
+                }
+            }
+            found
+        }
         PValue::Value(Value::Str(s)) => match x {
             Value::Str(sub) => s.find(&**sub).map(|b| s[..b].chars().count()),
             _ => None,

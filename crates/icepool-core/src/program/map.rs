@@ -252,7 +252,15 @@ pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
             }
             Ok(false)
         }
-        PValue::Value(Value::Tuple(items)) => Ok(items.iter().any(|item| item == x)),
+        // `x in tuple`: `==` element by element, as for a list (`Symbols('') == ()` counts).
+        PValue::Value(Value::Tuple(items)) => {
+            for item in items.iter() {
+                if item.eq_op(x, false)?.truthy()? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
         PValue::Value(Value::Str(s)) => match x {
             Value::Str(sub) => Ok(s.contains(&**sub)),
             _ => type_error("'in <string>' requires string as left operand"),
