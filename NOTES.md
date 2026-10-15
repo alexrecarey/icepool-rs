@@ -1269,3 +1269,34 @@ turns out wrong. Newest decisions at the top of each section.
   bounds and `pool[i]` evaluated against their end over an expression of known size: operator/keep.py l.101-102,
   evaluator/keep.py l.25, covered before only by chance). JS: node-args.json regenerated; `rmul` and the new node
   go through `call()`.
+- **T1d: Die and Population branches.** New nodes (all fuzz clean natively, through the facade, and fixtures/t1d
+  through JS): `marginal_attr` = `getattr(die.marginals, name)` and `group_by_attr` = `tuple(getattr(die.group_by,
+  name).items())` (statistics.py; core `Die::marginal_attr`, `population::check_public_attr` = the `key[0] == '_'`
+  guard, IndexError for `''`; `value::builtins::getattr` models only `real` / `imag` / `numerator` / `denominator`,
+  which each type has or lacks, plus `Symbols.__getattr__` = `s[name]`; any other name is `Unsupported`, since it may
+  be a bound method), `equals_self` = `x.equals(x)` (format.py; `True` for every die / deck / expression / generator /
+  Again, which all check `self is other` first: also allowed to take a `DieWithTruthError`, like `truth`, in
+  program/mod.rs). `from_cumulative` now takes cumulative dice (`harmonize`, now `pub(super)`, then `quantity('!=',
+  False)`); an int first and a die later raises (the die difference has no truth value in `Die()`'s `times < 0`
+  check). Catalogue `builtin_max` (`max` itself: `infer_star` raises `InferStarError`, a ValueError, so every
+  `Func::infer_star` caller now propagates a `Result`; called, it is `max(iterable)` / `max(*args)`). Generators:
+  `group_by` sometimes gets a multi-parameter callable over a die of tuples (base.py l.882), `die_highest` /
+  `die_lowest` sometimes 0 rolls (which still never reach die.py l.929 / l.966, see below).
+- **Unreachable through the public API (T1d, confirmed against the oracle):** collection/counts.py l.46 / l.48 /
+  l.55 (`Counts` only gets the items of a dict built by `merge_weights_lcm` / `merge_duplicates`, after `expand_arg`
+  dropped Reroll / Restart; a `None` key never sorts against anything, even alone: `bool(None < None)`; a repeated key
+  would already have merged in the dict; `Counts` is not exported); creation_args.py l.93 / l.115 (negative weights /
+  duplicates: `itemize` raises first) and l.123 (a zero-quantity outcome of a population argument: no public path
+  makes a die or deck with zero quantities, see the Zero quantities note); typing.py l.67 (`hash_key is None`: only
+  internal dungeons); order.py l.111 (`ConflictingOrderError`: no source ever prefers an order with `Mandatory`; a
+  conflict at `PoolComposition` gives `(Any, Mandatory)`, which the next merge skips because the order is Any), l.152
+  (`can_truncate` over `unique_dice()`, a set, so no two of its dice are `equals`), l.195 (`'Should not be
+  reached.'`); die.py l.929 / l.966 (`_lowest_single` / `_highest_single` with 0 rolls: the single-die
+  path needs `canonical_slice(index, rolls)` to be `[0:1]` / `[rolls-1:rolls]`, and it clamps into `[0, rolls]`, so
+  with 0 rolls it is `[0:0]` and the pool path sums an empty pool; brute-forced over 0, 0.0, False, Fraction(0) and
+  negative rolls); die.py `Die.filter` 350->352 (a coverage.py artifact: the starred branch's lines run, the arc into the
+  blank line after `if star:` is never recorded). Reached now: order.py l.104 (equal reasons after a conflict:
+  fixtures/t1d `evaluate record` over a Descending-KeepSkip pool, an Ascending-KeepSkip one and a
+  PoolComposition one). base.py 787->789 and l.412-414 (`remove`), l.81 were already covered when T1d started (later
+  tasks' generators).
+- JS: node-args.json regenerated (it also lacked T1c's `mx_str`, `break_str`); the new nodes go through `call()`.

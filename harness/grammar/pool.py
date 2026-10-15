@@ -383,7 +383,7 @@ def _keep_drop(g):
 
 def _gen_die_keep(op):
     def gen(g, depth):
-        rolls = g.rng.randint(1, 5) if g.rng.random() < 0.9 else 0  # 0 rolls: the zero die (single-die path)
+        rolls = g.rng.randint(1, 5) if g.rng.random() < 0.9 else 0  # 0 rolls: the sum of an empty pool
         keep, drop = _keep_drop(g)
         return {"op": op, "die": _die_without_nan(g, depth), "rolls": rolls, "keep": keep, "drop": drop}
     return gen
