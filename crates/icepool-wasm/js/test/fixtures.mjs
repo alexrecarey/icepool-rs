@@ -285,6 +285,7 @@ const IDIOMATIC = {
   map_repeat: ({ f, args, star, repeat }) => isList(args) && ok(ip.map(f, ...args, { star, repeat })),
   map_and_time: ({ f, initial, args, star, repeat }) => isList(args) && ok(ip.mapAndTime(f, initial, ...args, { star, repeat })),
   mean_time_to_absorb: ({ f, initial, args, star }) => isList(args) && ok(ip.meanTimeToAbsorb(f, initial, ...args, { star })),
+  die_mean_time_to_absorb: ({ die, f, args, star }) => isDie(die) && isList(args) && ok(die.meanTimeToAbsorb(f, ...args, { star })),
   reduce: ({ f, dice, initial }) => ok(ip.reduce(f, dice, { initial })),
   accumulate: ({ f, dice, initial }) => ok(ip.accumulate(f, dice, { initial })),
   highest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.highest(...args, { keep, drop, default: dflt })),

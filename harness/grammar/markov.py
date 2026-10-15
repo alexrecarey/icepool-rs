@@ -125,6 +125,21 @@ def mean_time_to_absorb(f, initial, args, star):
     return icepool.mean_time_to_absorb(f, initial, *args, star=star)
 
 
+def _gen_die_mean_time_to_absorb(g, depth):
+    f, start, extra = _process(g, finite=True)
+    if not isinstance(start, dict) or start.get("op") not in ("d", "die"):
+        # The method needs a die as `self` (pair_walk's tuple start state becomes a die of it).
+        start = {"op": "die", "outcomes": [start]}
+    extra = [_population(g, x) for x in extra]
+    return {"op": "die_mean_time_to_absorb", "die": start, "f": f, "args": extra, "star": _star(g)}
+
+
+@node("die_mean_time_to_absorb", "value", gen=_gen_die_mean_time_to_absorb, weight=0.3)
+def die_mean_time_to_absorb(die, f, args, star):
+    """die.mean_time_to_absorb(f, *args, star=star): as icepool.mean_time_to_absorb(f, die, *args, star=star)."""
+    return die.mean_time_to_absorb(f, *args, star=star)
+
+
 def _gen_time_to_sum(g, depth):
     r = g.rng.random()
     die = step_die(g) if r < 0.8 else {"op": "die", "outcomes": [g.rng.randint(0, 4) for _ in range(3)]}

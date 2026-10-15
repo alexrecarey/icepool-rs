@@ -233,6 +233,7 @@
   "cx_unary": "ported",
   "die_sequence": "ported",
   "die_stochastic_round": "ported",
+  "die_mean_time_to_absorb": "ported",
   "wallenius_deal_expr": "ported",
   "straight_and_outcome_evaluate": "ported",
   "mx_str": "ported",

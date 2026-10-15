@@ -220,6 +220,19 @@ pub fn mean_time_to_absorb(
     }
 }
 
+/// `die.mean_time_to_absorb(repl, *extra_args, star=star)`: the method form, "as `mean_time_to_absorb(repl, self,
+/// ...)`", so the same code with the die as the initial state.
+pub fn die_mean_time_to_absorb(
+    die: PValue,
+    f: PValue,
+    extra_args: PValue,
+    star: PValue,
+) -> Result<PValue, PErr> {
+    // Only dice have the method (a `DieWithTruth` passes on as the plain die, as `self`).
+    let die = PValue::Die(the_die(die)?);
+    mean_time_to_absorb(f, die, extra_args, star)
+}
+
 /// `die.time_to_sum(target, max_time, dnf)`: the number of rolls until the cumulative sum is greater or equal to
 /// the target. If the sum is not reached in `max_time` rolls, the time is `dnf` (default `max_time`;
 /// `Reroll` removes those cases).

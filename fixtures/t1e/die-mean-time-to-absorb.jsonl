@@ -1,0 +1,13 @@
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[0]},"f":{"op":"fn","name":"cap_sum","params":[2]},"args":[{"op":"die","outcomes":[0,1]}],"star":null},"expected":{"ok":true,"value":{"frac":[4,1]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[0]},"f":{"op":"fn","name":"cap_sum","params":[10]},"args":[{"op":"d","sides":6}],"star":null},"expected":{"ok":true,"value":{"frac":[33495175,10077696]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":4},"f":{"op":"fn","name":"walk_die","params":[-3,3]},"args":[],"star":null},"expected":{"ok":true,"value":{"frac":[13,4]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":2},"f":{"op":"fn","name":"break_at","params":[4,null]},"args":[{"op":"d","sides":3}],"star":null},"expected":{"ok":true,"value":{"frac":[14,9]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[0]},"f":{"op":"fn","name":"restart_on","params":[1,3]},"args":[{"op":"d","sides":3}],"star":null},"expected":{"ok":false,"error":"NotImplementedError"}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":6},"f":{"op":"fn","name":"identity","params":[]},"args":[],"star":null},"expected":{"ok":true,"value":{"frac":[0,1]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":20},"f":{"op":"fn","name":"collatz","params":[]},"args":[],"star":null},"expected":{"ok":true,"value":{"frac":[49,5]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":6},"f":{"op":"fn","name":"reroll_below","params":[3]},"args":[],"star":null},"expected":{"ok":true,"value":{"frac":[0,1]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[{"tuple":[0,0]},{"tuple":[1,2]}]},"f":{"op":"fn","name":"pair_walk","params":[4]},"args":[{"op":"d","sides":2}],"star":null},"expected":{"ok":true,"value":{"frac":[31,16]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[{"tuple":[0,0]}]},"f":{"op":"fn","name":"pair_walk","params":[4]},"args":[{"op":"d","sides":2}],"star":{"bool":true}},"expected":{"ok":true,"value":{"frac":[23,8]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"d","sides":3},"f":{"op":"fn","name":"identity","params":[]},"args":[{"op":"d","sides":2}],"star":null},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[0]},"f":{"op":"fn","name":"cap_sum","params":[3]},"args":[{"op":"deck","outcomes":[1,2,3],"times":2}],"star":null},"expected":{"ok":true,"value":{"frac":[16,9]}}}
+{"program":{"op":"die_mean_time_to_absorb","die":{"op":"die","outcomes":[-1,5]},"f":{"op":"fn","name":"clamp","params":[0,3]},"args":[],"star":null},"expected":{"ok":true,"value":{"frac":[1,1]}}}

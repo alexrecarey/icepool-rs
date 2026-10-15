@@ -123,6 +123,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [f, initial, args, star] = args.exactly(["f", "initial", "args", "star"])?;
             map_tools::mean_time_to_absorb(f, initial, args, star)
         }
+        "die_mean_time_to_absorb" => {
+            let [die, f, args, star] = args.exactly(["die", "f", "args", "star"])?;
+            map_tools::die_mean_time_to_absorb(die, f, args, star)
+        }
         "time_to_sum" => {
             let [die, target, max_time, dnf] =
                 args.exactly(["die", "target", "max_time", "dnf"])?;
