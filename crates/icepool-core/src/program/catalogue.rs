@@ -521,6 +521,30 @@ pub fn py_eq(a: &PValue, b: &PValue) -> Result<bool, PErr> {
     }
 }
 
+/// Python's `list * n`: the list repeated `n` times (none for `n <= 0`); a non-int `n` is TypeError.
+fn list_times(items: Vec<PValue>, n: &PValue) -> Result<Vec<PValue>, PErr> {
+    let n = match n {
+        PValue::Value(Value::Int(n)) => n.clone(),
+        PValue::Value(Value::Bool(b)) => dashu_int::IBig::from(*b as u8),
+        PValue::Value(v) => {
+            return type_error(format!(
+                "can't multiply sequence by non-int of type '{}'",
+                v.type_name()
+            ))
+        }
+        _ => return Err(PErr::Unimplemented("list * a non-value".into())),
+    };
+    let n = if n <= dashu_int::IBig::ZERO {
+        0
+    } else {
+        match usize::try_from(n) {
+            Ok(n) if n <= 1 << 16 => n,
+            _ => return Err(PErr::Unimplemented("a huge list".into())),
+        }
+    };
+    Ok(items.iter().cycle().take(items.len() * n).cloned().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,28 +571,4 @@ mod tests {
         let f = Func::Host(std::sync::Arc::new(TwoArgs));
         assert_eq!(f.positional(), Some((1, Some(2))));
     }
-}
-
-/// Python's `list * n`: the list repeated `n` times (none for `n <= 0`); a non-int `n` is TypeError.
-fn list_times(items: Vec<PValue>, n: &PValue) -> Result<Vec<PValue>, PErr> {
-    let n = match n {
-        PValue::Value(Value::Int(n)) => n.clone(),
-        PValue::Value(Value::Bool(b)) => dashu_int::IBig::from(*b as u8),
-        PValue::Value(v) => {
-            return type_error(format!(
-                "can't multiply sequence by non-int of type '{}'",
-                v.type_name()
-            ))
-        }
-        _ => return Err(PErr::Unimplemented("list * a non-value".into())),
-    };
-    let n = if n <= dashu_int::IBig::ZERO {
-        0
-    } else {
-        match usize::try_from(n) {
-            Ok(n) if n <= 1 << 16 => n,
-            _ => return Err(PErr::Unimplemented("a huge list".into())),
-        }
-    };
-    Ok(items.iter().cycle().take(items.len() * n).cloned().collect())
 }
