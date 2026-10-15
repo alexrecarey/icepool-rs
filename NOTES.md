@@ -1018,3 +1018,12 @@ turns out wrong. Newest decisions at the top of each section.
   - Not fixed (not a bug): `die_stat` mean of tuple outcomes multiplies the first tuple by its quantity before
     `0 + tuple` raises, like Python. With quantities ~10**7 that takes ~2.4 GB in the port (Value is wider than a
     PyObject pointer). Under the 20s port timeout and well within memory today.
+
+- **P1 (cdf_distance over `n @ (float die)`).** Most of it was done by L202610141124 (Die caches `position` /
+  cumulative quantities / denominator; fixtures/p1/cdf-distance-large.jsonl). This pass found the rest:
+  `Num::py_hash` of a finite float went through `RBig::try_from(f)` plus a modular inverse, and hashing was ~75% of
+  `3 @ (d12 / d12)` (232k dict inserts of float sums). `value/number.rs` `hash_finite_float` now works from the bits
+  (`mant` rotated by `e mod 61`, same value as CPython's `_Py_HashDouble`; unit-tested against `hash_rational` and
+  CPython). Each fixture now runs in ~0.2 s (was 0.6 s, and 47 s originally), against ~1 s for the oracle. What's
+  left is `py_sorted` of 41k floats (~30 ms) and the dict merge. Profiling tip: `perf` isn't allowed on this
+  machine; time the pieces from a throwaway crate in /tmp that depends on `crates/icepool-core` by path.
