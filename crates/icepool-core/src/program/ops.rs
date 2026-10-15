@@ -234,6 +234,15 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [die, rolls, keep, tie] = args.exactly(["die", "rolls", "keep", "tie"])?;
             pool::die_middle(die, rolls, keep, tie)
         }
+        "die_keep" => {
+            let [die, rolls, index] = args.exactly(["die", "rolls", "index"])?;
+            pool::die_keep(die, rolls, index)
+        }
+        "die_keep_slice" => {
+            let [die, rolls, start, stop, step] =
+                args.exactly(["die", "rolls", "start", "stop", "step"])?;
+            pool::die_keep_slice(die, rolls, start, stop, step)
+        }
         "middle" => {
             let [a, keep, tie, default] = args.exactly(["args", "keep", "tie", "default"])?;
             pool::middle(a, keep, tie, default)

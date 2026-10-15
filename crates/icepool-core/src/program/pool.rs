@@ -481,6 +481,53 @@ pub fn die_middle(die: PValue, rolls: PValue, keep: PValue, tie: PValue) -> Resu
     super::evaluate::evaluation("pool_sum", pool_middle(pool, keep, tie)?)
 }
 
+/// `die.keep(rolls, index)`, with `index` an int, a sequence of counts or `None`. An int `rolls` needs an index: an
+/// int index is `self.pool(rolls).keep(index)` (a Die), anything else `self.pool(rolls).keep(index).sum()`. Without
+/// an index, `rolls` is itself the sequence of counts: `self.pool(len(rolls)).keep(rolls).sum()`.
+pub fn die_keep(die: PValue, rolls: PValue, index: PValue) -> Result<PValue, PErr> {
+    if !matches!(die, PValue::Die(_)) {
+        return type_error("AttributeError: object has no attribute 'keep'");
+    }
+    let no_index = matches!(index, PValue::Value(Value::None));
+    if int_value(&rolls).is_some() {
+        if no_index {
+            return raise(Error::Value(
+                "If the number of rolls is an integer, an index argument must be provided.".into(),
+            ));
+        }
+        let pool = die_pool(die, rolls)?;
+        if int_value(&index).is_some() {
+            return pool_keep(pool, index);
+        }
+        return super::evaluate::evaluation("pool_sum", pool_keep(pool, index)?);
+    }
+    if !no_index {
+        return raise(Error::Value("Only one index sequence can be given.".into()));
+    }
+    let len = py_iter(rolls.clone())?.len();
+    let pool = die_pool(die, PValue::Value(int(len)))?;
+    super::evaluate::evaluation("pool_sum", pool_keep(pool, rolls)?)
+}
+
+/// `die.keep(rolls, slice(start, stop, step))`: `self.pool(rolls)[start:stop:step].sum()`. A non-int `rolls` with
+/// an index raises.
+pub fn die_keep_slice(
+    die: PValue,
+    rolls: PValue,
+    start: PValue,
+    stop: PValue,
+    step: PValue,
+) -> Result<PValue, PErr> {
+    if !matches!(die, PValue::Die(_)) {
+        return type_error("AttributeError: object has no attribute 'keep'");
+    }
+    if int_value(&rolls).is_none() {
+        return raise(Error::Value("Only one index sequence can be given.".into()));
+    }
+    let pool = die_pool(die, rolls)?;
+    super::evaluate::evaluation("pool_sum", pool_slice(pool, start, stop, step)?)
+}
+
 /// `icepool.middle(args, keep=keep, tie=tie, default=default)` with the dice (or outcomes) in one iterable.
 pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Result<PValue, PErr> {
     // `len(args) == 0`, before anything else looks at the arguments.

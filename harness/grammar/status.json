@@ -197,5 +197,7 @@
   "middle": "ported",
   "die_middle": "ported",
   "map_function": "ported",
-  "die_method": "ported"
+  "die_method": "ported",
+  "die_keep": "ported",
+  "die_keep_slice": "ported"
 }

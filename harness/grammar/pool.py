@@ -456,3 +456,45 @@ def middle(args, keep, tie, default):
     dice (or outcomes) in one list."""
     fresh_caches()
     return icepool.middle(args, keep=keep, tie=tie, default=default)
+
+
+# --- Die.keep ---------------------------------------------------------------------------------------------------
+
+def _gen_die_keep_index(g, depth):
+    die = _die_without_nan(g, depth)
+    r = g.rng.random()
+    if r < 0.35:
+        # A sequence of counts as `rolls`, no index (rarely with one too, which raises).
+        rolls = _keep_index(g, True) if g.rng.random() < 0.3 else [_count(g, True) for _ in range(g.rng.randint(0, 4))]
+        index = None if g.rng.random() < 0.95 else g.rng.randint(0, 2)
+    else:
+        rolls = g.rng.randint(0, 5) if g.rng.random() < 0.95 else g.rng.choice([-1, True])
+        if r < 0.65:
+            index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10])
+        elif r < 0.97:
+            index = _keep_index(g, True)
+        else:
+            index = None
+    return {"op": "die_keep", "die": die, "rolls": rolls, "index": index}
+
+
+@node("die_keep", "die", gen=_gen_die_keep_index, weight=0.5)
+def die_keep(die, rolls, index):
+    """die.keep(rolls, index): an int rolls needs an index (an int: the roll at that sorted position; a sequence
+    of counts: those rolls summed); index None takes rolls as the sequence of counts."""
+    fresh_caches()
+    return die.keep(rolls, index)
+
+
+def _gen_die_keep_slice(g, depth):
+    rolls = g.rng.randint(0, 5) if g.rng.random() < 0.95 else g.rng.choice([[1, 1], -1])
+    step = 1 if g.rng.random() < 0.05 else None
+    return {"op": "die_keep_slice", "die": _die_without_nan(g, depth), "rolls": rolls,
+            "start": _opt(g, -5, 5), "stop": _opt(g, -5, 5), "step": step}
+
+
+@node("die_keep_slice", "die", gen=_gen_die_keep_slice, weight=0.3)
+def die_keep_slice(die, rolls, start, stop, step):
+    """die.keep(rolls, slice(start, stop, step)): the selected sorted rolls summed (a step raises IndexError)."""
+    fresh_caches()
+    return die.keep(rolls, slice(start, stop, step))
