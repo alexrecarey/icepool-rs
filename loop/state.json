@@ -138,6 +138,9 @@
     },
     "T1c": {
       "status": "done"
+    },
+    "T1d": {
+      "status": "done"
     }
   },
   "merges": 46,
