@@ -210,3 +210,24 @@ pub fn lo_hi_skip(keep_tuple: &[i64]) -> (usize, usize) {
         .expect("a nonzero count exists");
     (lo_skip, hi_skip)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn order_reason_from_int_is_the_enum_value() {
+        // The facade reads a host source's `order_preference()` reason back through this.
+        for reason in [
+            OrderReason::NoPreference,
+            OrderReason::Default,
+            OrderReason::KeepSkip,
+            OrderReason::PoolComposition,
+            OrderReason::Mandatory,
+        ] {
+            assert_eq!(OrderReason::from_int(reason as i64), Some(reason));
+        }
+        assert_eq!(OrderReason::from_int(5), None);
+        assert_eq!(OrderReason::from_int(-1), None);
+    }
+}

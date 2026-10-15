@@ -430,3 +430,35 @@ impl<O: PartialEq> Operator<O> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeat_allows_tuple_counts_up_to_2_pow_24_elements() {
+        // Python would build any length; past the limit the port says it does not cover it.
+        match repeat(&[0, 1], 1 << 23).unwrap() {
+            Count::Tuple(t) => assert_eq!(t.len(), 1 << 24),
+            Count::Int(_) => panic!("a tuple repeated is a tuple"),
+        }
+        assert!(matches!(
+            repeat(&[0, 1], (1 << 23) + 1),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!(repeat(&[1], -2).unwrap(), Count::Tuple(Arc::from([])));
+    }
+
+    #[test]
+    fn next_state_checks_the_number_of_children() {
+        // The driver calls `initial_state` first, which checks the same; `next_state` stands on its own.
+        let unique = Operator::<i64>::Unique(1);
+        let next = |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
+        assert!(matches!(next(&[]), Err(Error::Index(_))));
+        // Extra children are not read (Python's `child_counts[0]`).
+        assert_eq!(
+            next(&[Count::Int(3), Count::Int(5)]).unwrap(),
+            (Statelet::None, Count::Int(1))
+        );
+    }
+}

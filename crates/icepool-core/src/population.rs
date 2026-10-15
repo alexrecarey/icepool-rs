@@ -648,3 +648,47 @@ impl Die<Value> {
         Ok(Value::Bool(cmp(op, self.len(), other.len())))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn one_hot(positions: &[Option<i64>]) -> Result<Vec<(Value, Quantity)>> {
+        let die = Die::from_dict(
+            (1..=positions.len() as i64)
+                .map(|o| (Value::from(o), Quantity::ONE))
+                .collect(),
+        )
+        .unwrap();
+        die.one_hot_items(3, positions)
+    }
+
+    fn hot(index: Option<usize>) -> Value {
+        let mut v = vec![Value::Bool(false); 3];
+        if let Some(i) = index {
+            v[i] = Value::Bool(true);
+        }
+        Value::Vector(crate::value::Vector::new(v))
+    }
+
+    #[test]
+    fn one_hot_positions_are_list_indices() {
+        // A host sequence's `index` may answer anything: a negative index counts from the end, as Python's
+        // `value[i] = True` does, and equal vectors merge.
+        assert_eq!(
+            one_hot(&[Some(0), Some(-1), Some(2), None]).unwrap(),
+            vec![
+                (hot(Some(0)), Quantity::ONE),
+                (hot(Some(2)), Quantity::from(2u8)),
+                (hot(None), Quantity::ONE),
+            ]
+        );
+        assert_eq!(one_hot(&[Some(-3)]).unwrap(), vec![(hot(Some(0)), Quantity::ONE)]);
+        for out_of_range in [3, -4] {
+            assert!(matches!(
+                one_hot(&[Some(out_of_range)]),
+                Err(Error::Index(_))
+            ));
+        }
+    }
+}

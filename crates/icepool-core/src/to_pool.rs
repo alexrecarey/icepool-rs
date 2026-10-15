@@ -176,3 +176,31 @@ fn pair(state: &Value) -> [&Value; 2] {
         _ => unreachable!("reroll_to_pool states are pairs"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explode_counts_depth_limits() {
+        let q = Quantity::from(2u8);
+        let count = |depth: i64| {
+            explode_counts(&q, &Quantity::ONE, &Quantity::ONE, &Value::from(1), depth, |_, d| {
+                Ok::<_, Error>(d.clone())
+            })
+        };
+        // Below -1 Python's own TypeError; a depth past `u32` is one the port does not cover (Python would
+        // build that many outcomes).
+        assert!(matches!(count(-2), Err(Error::Type(_))));
+        assert!(matches!(count(1 << 32), Err(Error::Unsupported(_))));
+        assert!(matches!(count(i64::MAX), Err(Error::Unsupported(_))));
+        assert_eq!(count(1).unwrap().len(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "reroll_to_pool states are pairs")]
+    fn pair_requires_a_pair() {
+        let three = Value::tuple(vec![Value::from(1), Value::from(2), Value::from(3)]);
+        pair(&three);
+    }
+}

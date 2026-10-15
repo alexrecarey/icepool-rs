@@ -97,3 +97,95 @@ impl<O> fmt::Debug for HostSource<O> {
         write!(f, "HostSource({:#x})", self.object.host_hash())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pool::MultisetSource;
+    use crate::Quantity;
+    use std::hash::BuildHasher;
+
+    /// A host source answering with fixed values; equal to another one with the same `key` (as a host's
+    /// `hash_key` would make it).
+    struct Fixed {
+        key: u64,
+        outcomes: Vec<i64>,
+        size: Option<i64>,
+        resolvable: bool,
+    }
+
+    impl HostSourceObject<i64> for Fixed {
+        fn outcomes(&self) -> Result<Vec<i64>> {
+            Ok(self.outcomes.clone())
+        }
+        fn size(&self) -> Result<Option<Count>> {
+            Ok(self.size.map(Count::Int))
+        }
+        fn is_resolvable(&self) -> Result<bool> {
+            Ok(self.resolvable)
+        }
+        fn order_preference(&self) -> Result<(Order, OrderReason)> {
+            Ok((Order::Any, OrderReason::NoPreference))
+        }
+        /// Pops everything at once: one possibility, the source emptied, with the whole size as the count.
+        fn pop(&self, _: Order, _: &i64) -> Result<Vec<SourcePopped<i64>>> {
+            let rest = fixed(self.key, vec![], Some(0), true);
+            let count = Count::Int(self.size.unwrap_or(0));
+            Ok(vec![(MultisetSource::Host(rest), count, Quantity::from(3u8))])
+        }
+        fn host_eq(&self, other: &dyn HostSourceObject<i64>) -> bool {
+            other
+                .as_any()
+                .downcast_ref::<Fixed>()
+                .is_some_and(|o| o.key == self.key)
+        }
+        fn host_hash(&self) -> u64 {
+            self.key
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    fn fixed(key: u64, outcomes: Vec<i64>, size: Option<i64>, resolvable: bool) -> HostSource<i64> {
+        HostSource::new(Arc::new(Fixed {
+            key,
+            outcomes,
+            size,
+            resolvable,
+        }))
+    }
+
+    #[test]
+    fn methods_call_the_host() {
+        let s = fixed(7, vec![1, 2, 3], Some(2), true);
+        assert_eq!(s.outcomes().unwrap(), &[1, 2, 3]);
+        // The second call borrows the outcomes taken the first time.
+        assert_eq!(s.outcomes().unwrap(), &[1, 2, 3]);
+        assert_eq!(s.size().unwrap(), Some(Count::Int(2)));
+        assert!(s.is_resolvable().unwrap());
+        assert!(!fixed(7, vec![], None, false).is_resolvable().unwrap());
+        assert_eq!(fixed(7, vec![], None, false).size().unwrap(), None);
+        let popped = s.pop(Order::Ascending, &1).unwrap();
+        assert_eq!(popped.len(), 1);
+        let (rest, count, weight) = &popped[0];
+        assert_eq!(*count, Count::Int(2));
+        assert_eq!(*weight, Quantity::from(3u8));
+        assert_eq!(rest.outcomes().unwrap(), &[] as &[i64]);
+    }
+
+    #[test]
+    fn equality_and_hash_are_the_hosts() {
+        let a = fixed(1, vec![1], Some(1), true);
+        // Another object the host says is equal: the driver's memo must merge them.
+        let b = fixed(1, vec![1], Some(1), true);
+        let c = fixed(2, vec![1], Some(1), true);
+        assert_eq!(a, a.clone());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        let hasher = rustc_hash::FxBuildHasher;
+        assert_eq!(hasher.hash_one(&a), hasher.hash_one(&b));
+        assert_ne!(hasher.hash_one(&a), hasher.hash_one(&c));
+        assert_eq!(format!("{c:?}"), "HostSource(0x2)");
+    }
+}
