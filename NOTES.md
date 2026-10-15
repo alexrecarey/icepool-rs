@@ -22,6 +22,10 @@ turns out wrong. Newest decisions at the top of each section.
   picked by `fn_node` at random, called by name): `n_of`, `pool_d`, `pair_list`, `reroll_or_pair` (JS ports in
   crates/icepool-wasm/js/test/catalogue.mjs). Fuzz: `--ops to_pool_evaluate` (self-contained); at S3c 5x5000 fresh
   clean through icepool-run and the facade; fixtures/s3c (113).
+- JS suite at S3c (`crates/icepool-wasm/js/build.sh --dev`, then `node --test "test/*.test.mjs"`): fixtures/s3c pass
+  through the JS API; 5 older fixtures fail there, as they did before S3c (l202610142332/first_vector.jsonl:1-2 "object
+  is not subscriptable", m202610142332/mutant-killers.jsonl:13-15 "cannot pass [object Object] to the core"): for
+  S6c. node-args.json was regenerated (it lacked the K6c nodes too).
 - Gaps found, not S3c's: `die_pool(die, 'x')` (a str keep index) and `Pool([pool, pool])` (a pool of pools: Python
   expands it) are Unimplemented in the program layer; `die.reroll(depth=1.5)` too. The generator avoids them.
 - Facade: `icepool_rs.map_to_pool(transition, star, [arg_items...], kwargs)` = the loop, the host-callback calls and
