@@ -203,6 +203,25 @@ def equals(a, b, simplify):
     return a.equals(b, simplify=simplify)
 
 
+def _gen_equals_self(g, depth):
+    r = g.rng.random()
+    kind = ("die" if r < 0.3 else "die_truth" if r < 0.4 else "deck" if r < 0.5 else "pool" if r < 0.65 else
+            "mexpr" if r < 0.8 else "deal" if r < 0.85 else "multi_deal" if r < 0.9 else None)
+    if kind is None:
+        x = g.make("again_expr", depth) if g.rng.random() < 0.5 else g.outcome()
+    else:
+        x = g.make(kind, depth)
+    return {"op": "equals_self", "x": x}
+
+
+@node("equals_self", "value", weight=0.3, gen=_gen_equals_self)
+def equals_self(x):
+    """x.equals(x) on the same object: True for a die (Die.equals) and for a deck, a multiset expression or
+    generator, or an Again expression (MaybeHashKeyed.equals), both of which check `self is other` first; anything
+    else has no equals (AttributeError)."""
+    return x.equals(x)
+
+
 def _gen_hash_key_compare(g, depth):
     a, b = _equal_ish(g, depth)
     if not isinstance(b, dict):

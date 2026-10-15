@@ -673,6 +673,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [a, b, simplify] = args.exactly(["a", "b", "simplify"])?;
             format::equals(a, b, simplify)
         }
+        "equals_self" => {
+            let [x] = args.exactly(["x"])?;
+            format::equals_self(x)
+        }
         "hash_key_compare" => {
             let [a, b, cmp] = args.exactly(["a", "b", "cmp"])?;
             format::hash_key_compare(a, b, cmp)

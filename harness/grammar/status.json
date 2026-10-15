@@ -238,5 +238,6 @@
   "mx_str": "ported",
   "break_str": "ported",
   "marginal_attr": "ported",
-  "group_by_attr": "ported"
+  "group_by_attr": "ported",
+  "equals_self": "ported"
 }

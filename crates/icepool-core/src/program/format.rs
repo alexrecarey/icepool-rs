@@ -157,6 +157,27 @@ pub fn equals(a: PValue, b: PValue, simplify: PValue) -> Result<PValue, PErr> {
     })))
 }
 
+/// `x.equals(x)` on the same object. `Die.equals` and `MaybeHashKeyed.equals` (decks, multiset expressions and
+/// generators, Again expressions) both start with `if self is other: return True`, before looking at any data
+/// (so even a `DieWithTruth` whose data raises answers). Other values have no `equals`.
+pub fn equals_self(x: PValue) -> Result<PValue, PErr> {
+    match x {
+        PValue::Die(_)
+        | PValue::DieWithTruth(..)
+        | PValue::DieWithTruthError(..)
+        | PValue::Deck(_)
+        | PValue::Pool(_)
+        | PValue::Deal(_)
+        | PValue::MultiDeal(_)
+        | PValue::Expr(_)
+        | PValue::Again(_) => Ok(PValue::Value(Value::Bool(true))),
+        PValue::MultisetFunction(_) | PValue::RawResult(_) => {
+            Err(PErr::Unimplemented("equals of this object".into()))
+        }
+        x => attribute_error(&x, "equals"),
+    }
+}
+
 /// `a.hash_key <cmp> b.hash_key` for two dice.
 pub fn hash_key_compare(a: PValue, b: PValue, cmp: PValue) -> Result<PValue, PErr> {
     let (Ok((a, _)), Ok((b, _))) = (named_die(&a), named_die(&b)) else {
