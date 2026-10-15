@@ -126,6 +126,9 @@
     },
     "S6b": {
       "status": "done"
+    },
+    "S6c": {
+      "status": "done"
     }
   },
   "merges": 42,
