@@ -244,6 +244,16 @@ pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
     }
 }
 
+/// `self` of a `Population` method that returns a value (a statistic, a quantity, a probability, a quantile): a die,
+/// or a deck as the die of its outcomes and quantities, which gives the same value (`deck_stat` relies on it too).
+/// Methods that return a population keep `the_die`: on a deck, Python's give a `Deck`.
+pub(super) fn the_population(x: PValue) -> Result<Die<Value>, PErr> {
+    match x {
+        PValue::Deck(d) => Ok(d.population().clone()),
+        x => the_die(x),
+    }
+}
+
 /// `x in collection`, for the collections a program can give: lists, tuples, strs (substring), dice and mappings
 /// (keys).
 pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {

@@ -1311,3 +1311,10 @@ turns out wrong. Newest decisions at the top of each section.
   `die.meanTimeToAbsorb` in fixtures.mjs `IDIOMATIC`; node-args.json regenerated. Fixtures: t1e/die-mean-time-to-absorb.
   A facade fuzz run once reported `FAIL None` on its very first program while run-facade.sh was rebuilding the
   extension (maturin); the same seed is clean afterwards: a timeout from the rebuild, not a port bug.
+- **Population statistics take a deck (T1e).** Adding a node shifts the fixed fuzz seeds' streams, and seed 1 then
+  minimised a failure to `die_stat` over a `deck`: in Python these are `Population` methods (population/base.py), so
+  a Deck has them. `map::the_population` (a die, or a deck's population as a die) is now `self` for the
+  value-returning ones in statistics.rs: quantities, probabilities, quantity, probability, nearest, die_stat,
+  standardized_moment, entropy, die_quantile. Methods that return a population (pad_to_denominator, group_by,
+  marginals, ...) keep `the_die`: on a deck Python returns a Deck, not yet modelled there. The generators still never
+  give these ops a deck (only the minimiser does); fixtures: t1e/population-stats-of-decks.

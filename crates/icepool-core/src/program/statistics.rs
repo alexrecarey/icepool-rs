@@ -5,7 +5,7 @@
 //! does the rest.
 
 use super::catalogue::{truthy, Func};
-use super::map::{call, select, star_arg, the_die};
+use super::map::{call, select, star_arg, the_die, the_population};
 use super::ops::{py_iter, type_error, weights_die, Key};
 use super::{PErr, PValue};
 use crate::population::{check_public_attr, Comparison, Data};
@@ -40,7 +40,7 @@ fn tuple_of(values: Vec<Value>) -> PValue {
 
 /// `tuple(die.quantities(comparison))`.
 pub fn quantities(die: PValue, comparison: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let qs = die.quantities(comparison_or_eq(comparison)?);
     Ok(tuple_of(
         qs.into_iter().map(|q| Value::Int(q.into())).collect(),
@@ -49,7 +49,7 @@ pub fn quantities(die: PValue, comparison: PValue) -> Result<PValue, PErr> {
 
 /// `die.probabilities(comparison, percent=percent)`.
 pub fn probabilities(die: PValue, comparison: PValue, percent: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let c = comparison_or_eq(comparison)?;
     Ok(tuple_of(die.probabilities(c, truthy(&percent)?)?))
 }
@@ -70,14 +70,14 @@ fn query(args: PValue) -> Result<(Comparison, Value), PErr> {
 
 /// `die.quantity(*args)`.
 pub fn quantity(die: PValue, args: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let (c, outcome) = query(args)?;
     Ok(int(die.quantity(c, &outcome)?))
 }
 
 /// `die.probability(*args, percent=percent)`.
 pub fn probability(die: PValue, args: PValue, percent: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let (c, outcome) = query(args)?;
     Ok(PValue::Value(die.probability(
         c,
@@ -88,7 +88,7 @@ pub fn probability(die: PValue, args: PValue, percent: PValue) -> Result<PValue,
 
 /// `die.nearest(comparison, outcome)`: `None` if no outcome fits.
 pub fn nearest(die: PValue, comparison: PValue, outcome: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let c = Comparison::parse(&value(comparison)?)?;
     let found = die.nearest(c, &value(outcome)?)?;
     Ok(PValue::Value(found.unwrap_or(Value::None)))
@@ -96,7 +96,7 @@ pub fn nearest(die: PValue, comparison: PValue, outcome: PValue) -> Result<PValu
 
 /// `getattr(die, stat)()` for the methods without arguments.
 pub fn die_stat(die: PValue, stat: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let Value::Str(stat) = value(stat)? else {
         return type_error("attribute name must be string");
     };
@@ -122,13 +122,13 @@ pub fn die_stat(die: PValue, stat: PValue) -> Result<PValue, PErr> {
 
 /// `die.standardized_moment(k)`.
 pub fn standardized_moment(die: PValue, k: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     Ok(PValue::Value(die.standardized_moment(&value(k)?)?))
 }
 
 /// `die.entropy(*base)`; the base defaults to `2.0`.
 pub fn entropy(die: PValue, base: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let base = match <[PValue; 1]>::try_from(py_iter(base)?) {
         Ok([b]) => value(b)?,
         Err(v) if v.is_empty() => Value::Float(2.0),
@@ -140,7 +140,7 @@ pub fn entropy(die: PValue, base: PValue) -> Result<PValue, PErr> {
 /// `getattr(die, method)(*args)` for `quantile`, `quantile_low`, `quantile_high`: `(n)` or `(n, d)`, `d`
 /// defaulting to 100.
 pub fn quantile(die: PValue, method: PValue, args: PValue) -> Result<PValue, PErr> {
-    let die = the_die(die)?;
+    let die = the_population(die)?;
     let mut args = py_iter(args)?.into_iter().map(value);
     let (n, d) = match (args.next(), args.next(), args.next()) {
         (Some(n), d, None) => (n?, d.transpose()?.unwrap_or(Value::from(100))),
