@@ -114,7 +114,11 @@ _METHODS = ["sum", "size", "empty", "any", "product_of_counts", "highest_outcome
 def _leaf(g, depth):
     """A pool or deal (with keep-like operations) to build on."""
     from harness.grammar.pool import gen_pool
-    return gen_pool(g, depth, negative=g.rng.random() < 0.3, deals=True, expressions=False)
+    p = gen_pool(g, depth, negative=g.rng.random() < 0.3, deals=True, expressions=False)
+    if g.rng.random() < 0.05:
+        # Now and then its weightless() (weightless.py), so every evaluation node meets weightless sources.
+        return {"op": "weightless", "generator": p}
+    return p
 
 
 def _outcomes(g):

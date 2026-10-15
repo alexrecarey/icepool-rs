@@ -343,6 +343,8 @@ export class MultisetExpression extends Handle {
   keepOutcomes(target: readonly Outcome[] | ((outcome: any) => unknown) | MultisetExpression): MultisetExpression;
   dropOutcomes(target: readonly Outcome[] | ((outcome: any) => unknown) | MultisetExpression): MultisetExpression;
   forceOrder(order: OrderValue): MultisetExpression;
+  /** Each possible multiset weighted 1 (pools, deals and compound keeps only; others raise). */
+  weightless(): MultisetExpression;
 
   maxPairKeep(comparison: Comparison, other: MultisetArg, priority?: "low" | "high" | null): MultisetExpression;
   maxPairDrop(comparison: Comparison, other: MultisetArg, priority?: "low" | "high" | null): MultisetExpression;

@@ -846,6 +846,9 @@ export class MultisetExpression extends Handle {
   keepOutcomes(target) { return call("mx_filter", { expr: this, invert: false, target: list(target) }); }
   dropOutcomes(target) { return call("mx_filter", { expr: this, invert: true, target: list(target) }); }
   forceOrder(order) { return call("mx_force_order", { expr: this, order }); }
+  // `MultisetGenerator.weightless()`: each possible multiset weighted 1. Only generators (pools, deals, compound
+  // keeps, weightless ones) have it in Python; on another expression the core raises AttributeError's TypeError.
+  weightless() { return call("weightless", { generator: this }); }
 
   // Pairing.
   maxPairKeep(comparison, other, priority = null) {

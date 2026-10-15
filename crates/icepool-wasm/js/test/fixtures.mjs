@@ -272,6 +272,7 @@ const IDIOMATIC = {
   mx_filter: ({ expr, invert, target }) =>
     isExpr(expr) && typeof invert === "boolean" && ok(invert ? expr.dropOutcomes(target) : expr.keepOutcomes(target)),
   mx_force_order: ({ expr, order }) => isExpr(expr) && ok(expr.forceOrder(order)),
+  weightless: ({ generator }) => isExpr(generator) && ok(generator.weightless()),
   mx_max_pair: ({ expr, keep, comparison, other, priority }) =>
     isExpr(expr) && typeof keep === "boolean" &&
     ok(keep ? expr.maxPairKeep(comparison, other, priority) : expr.maxPairDrop(comparison, other, priority)),

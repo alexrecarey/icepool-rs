@@ -91,7 +91,7 @@ def _gen_weightless_evaluate(g, depth):
     return {"op": "weightless_evaluate", "expr": expr, "method": {"str": straight_safe_method(g, expr, _METHODS)}}
 
 
-@node("weightless_evaluate", "die", gen=_gen_weightless_evaluate, weight=0.5)
+@node("weightless_evaluate", "die", gen=_gen_weightless_evaluate, weight=1.0)
 def weightless_evaluate(expr, method):
     """getattr(expr, method)() over an expression with weightless generators in it (= mx_evaluate): each distinct
     multiset counts once."""
