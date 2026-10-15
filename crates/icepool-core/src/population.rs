@@ -560,7 +560,9 @@ impl Die<Value> {
             }
         }
         for ((oa, qa), (ob, qb)) in self.items().iter().zip(other.items()) {
-            if oa != ob {
+            // Python's tuple comparison skips items that are `==` (or identical, which dict equality stands in
+            // for): a `Symbols` with only zero counts is `== ()`, though it is no dict key equal to it.
+            if oa != ob && !oa.eq_op(ob, false)?.truthy()? {
                 return oa.binary(op, ob);
             }
             if qa != qb {

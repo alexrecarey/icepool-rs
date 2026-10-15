@@ -26,6 +26,8 @@ turns out wrong. Newest decisions at the top of each section.
   through the JS API; 5 older fixtures fail there, as they did before S3c (l202610142332/first_vector.jsonl:1-2 "object
   is not subscriptable", m202610142332/mutant-killers.jsonl:13-15 "cannot pass [object Object] to the core"): for
   S6c. node-args.json was regenerated (it lacked the K6c nodes too).
+- Fixed in passing (a fresh-seed gate fuzz found it): `Die::hash_key_compare` skipped only dict-equal items, but
+  Python's tuple comparison skips `==` ones: `Symbols('b- b')` (zero counts) `== ()`. fixtures/s3c/hash-key-compare-symbols.
 - Gaps found, not S3c's: `die_pool(die, 'x')` (a str keep index) and `Pool([pool, pool])` (a pool of pools: Python
   expands it) are Unimplemented in the program layer; `die.reroll(depth=1.5)` too. The generator avoids them.
 - Facade: `icepool_rs.map_to_pool(transition, star, [arg_items...], kwargs)` = the loop, the host-callback calls and
