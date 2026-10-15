@@ -228,18 +228,15 @@ fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
     list_len(keep_size)
 }
 
-/// The length of a list of `n` elements Python builds (`[0] * n`, `(x,) * n`; empty for `n <= 0`), within the
-/// limits of [`keep_size_as_len`].
+/// The length of a list of `n` elements Python builds (`[0] * n`, `(x,) * n`), within the limits of
+/// [`keep_size_as_len`]: empty for `n <= 0`, but `OverflowError` for any `n` beyond 64 bits, negative too.
 pub fn list_len(n: &Int) -> Result<usize> {
-    if !n.is_positive() {
-        return Ok(0);
-    }
-    match n.to_usize() {
-        Some(n) if n <= MAX_KEEP_SIZE => Ok(n),
-        Some(n) if n < MEMORY_ERROR_SIZE => {
+    match n.to_len("a list repeated")? {
+        n if n <= MAX_KEEP_SIZE => Ok(n),
+        n if n < MEMORY_ERROR_SIZE => {
             Err(Error::Unsupported(format!("a keep tuple of size {n}")))
         }
-        _ => Err(Error::Overflow(format!(
+        n => Err(Error::Overflow(format!(
             "a keep tuple of size {n} (Python: MemoryError or OverflowError)"
         ))),
     }

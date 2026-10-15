@@ -57,17 +57,16 @@ impl Int {
         }
     }
 
-    /// The value as a `usize` index or length Python would build something of: `OverflowError` beyond
-    /// `sys.maxsize` (Python's "cannot fit 'int' into an index-sized integer"), negatives as 0.
+    /// The `n` of a sequence repeat `seq * n` as a length: `OverflowError` beyond 64 bits, whatever the sign
+    /// (Python's "cannot fit 'int' into an index-sized integer", raised before looking at the sequence), and 0 for
+    /// any other negative.
     pub fn to_len(&self, what: &str) -> Result<usize> {
-        if self.is_negative() {
-            return Ok(0);
-        }
-        self.to_usize().ok_or_else(|| {
-            Error::Overflow(format!(
+        match self.0 {
+            Repr::Small(i) => Ok(usize::try_from(i).unwrap_or(0)),
+            Repr::Big(_) => Err(Error::Overflow(format!(
                 "cannot fit 'int' into an index-sized integer ({what})"
-            ))
-        })
+            ))),
+        }
     }
 
     pub fn to_ibig(&self) -> IBig {

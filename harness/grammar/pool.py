@@ -202,6 +202,18 @@ def straight_safe_method(g, expr, methods):
     return method
 
 
+# Counts (and count multipliers) near and beyond 64 bits, now and then: Python's ints are unbounded. Sums of these
+# and of small counts are either small or past 2**61, where Python's `[0] * keep_size` (keeping again) raises
+# MemoryError at once; never in between, where Python would spend seconds building the list and the port refuses.
+HUGE_COUNTS = [2**62, 2**63 - 1, 2**63, 2**64 + 1, 2**70]
+
+
+def huge_count(g, negative=False):
+    """One of HUGE_COUNTS, negated half the time if `negative`."""
+    x = g.rng.choice(HUGE_COUNTS)
+    return -x if negative and g.rng.random() < 0.5 else x
+
+
 def _times(g, n):
     """`times` for n keys: an int for all, or one per key (rarely the wrong length or negative, which raise)."""
     if g.rng.random() < 0.6:
@@ -254,7 +266,8 @@ def _base_pool(g, depth, uniform=False):
         if uniform or g.rng.random() < 0.8:
             rolls = g.rng.randint(0, 5)
         else:
-            rolls = [g.rng.choice([0, 1, 1, 2]) for _ in range(g.rng.randint(0, 4))]
+            rolls = [g.rng.choice([0, 1, 1, 2]) if g.rng.random() < 0.95 else huge_count(g)
+                     for _ in range(g.rng.randint(0, 4))]
         return {"op": "die_pool", "die": _die(g, depth), "rolls": rolls}
     if uniform:
         return {"op": "die_pool", "die": _die(g, depth), "rolls": g.rng.randint(0, 3)}
@@ -263,6 +276,8 @@ def _base_pool(g, depth, uniform=False):
 
 
 def _count(g, final):
+    if g.rng.random() < 0.03:
+        return huge_count(g, negative=final)
     return g.rng.choice([0, 1, 1, 1, 2] + ([-1, -2] if final else []))
 
 
@@ -296,10 +311,11 @@ def _keep_op(g, p, final):
                 "drop": _opt(g, 0, 3)}
     if r < 0.8:
         tie = g.rng.choice(["error", "high", "high", "low", "low", "bad"])
-        return {"op": "pool_middle", "pool": p, "keep": g.rng.randint(-1 if g.rng.random() < 0.05 else 0, 5),
-                "tie": {"str": tie}}
+        keep = g.rng.randint(-1 if g.rng.random() < 0.05 else 0, 5) if g.rng.random() < 0.97 else huge_count(g)
+        return {"op": "pool_middle", "pool": p, "keep": keep, "tie": {"str": tie}}
     if r < 0.92 or not final:
-        return {"op": "pool_mul", "pool": p, "n": g.rng.randint(-2 if final else 0, 3)}
+        n = g.rng.randint(-2 if final else 0, 3) if g.rng.random() < 0.95 else huge_count(g, negative=final)
+        return {"op": "pool_mul", "pool": p, "n": n}
     return {"op": "pool_neg", "pool": p}
 
 
@@ -363,7 +379,7 @@ def pool_pop(pool, order, outcome):
 
 
 def _gen_pool_index(g, depth):
-    index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10])
+    index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10, 2**64, -2**64])
     return {"op": "pool_index", "pool": gen_pool(g, depth, negative=False, deals=True), "index": index}
 
 
@@ -472,7 +488,7 @@ def _gen_die_keep_index(g, depth):
     else:
         rolls = g.rng.randint(0, 5) if g.rng.random() < 0.95 else g.rng.choice([-1, True])
         if r < 0.65:
-            index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10])
+            index = g.rng.randint(-4, 4) if g.rng.random() < 0.95 else g.rng.choice([10, -10, 2**64, -2**64])
         elif r < 0.97:
             index = _keep_index(g, True)
         else:

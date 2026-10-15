@@ -317,7 +317,8 @@ def evaluate_tree(tree, sources) -> 'icepool.Die':
 
 
 def _exact_int(x) -> bool:
-    return type(x) is int and -2**63 <= x < 2**63
+    # Any size: the core's counts are unbounded, as Python's ints.
+    return type(x) is int
 
 
 def builtin_spec(evaluator, inputs: int,

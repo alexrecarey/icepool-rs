@@ -12,7 +12,7 @@ import operator
 import icepool
 
 from harness.core.grammar_api import node
-from harness.grammar.pool import fresh_caches, straight_safe_method
+from harness.grammar.pool import fresh_caches, huge_count, straight_safe_method
 
 _BINARY = {"+": operator.add, "-": operator.sub, "&": operator.and_, "|": operator.or_, "^": operator.xor}
 
@@ -198,7 +198,7 @@ def gen_expression(g, depth, budget=None, leaf=None):
                        "multiply_counts", "divide_counts", "modulo_counts"])
         if op == "mul" and r.random() < 0.3:
             op = "rmul"
-        n = r.choice([0, 1, 1, 2, 2, 3, -1])
+        n = r.choice([0, 1, 1, 2, 2, 3, -1]) if r.random() < 0.96 else huge_count(g, negative=True)
         if op in ("floordiv", "divide_counts", "mod", "modulo_counts") and n == 0 and r.random() < 0.7:
             n = 2
         if op in ("mul", "rmul", "mod") and r.random() < 0.15:
@@ -255,7 +255,8 @@ def _keep(g, e):
         return {"op": "pool_slice", "pool": e, "start": start, "stop": stop,
                 "step": 1 if r.random() < 0.03 else None}
     if k < 0.55:
-        counts = [r.choice([0, 1, 1, 2, -1]) for _ in range(r.randint(0, 3))]
+        counts = [r.choice([0, 1, 1, 2, -1]) if r.random() < 0.97 else huge_count(g, negative=True)
+                  for _ in range(r.randint(0, 3))]
         x = r.random()
         if x < 0.8:
             counts.insert(0 if r.random() < 0.5 else len(counts), {"op": "Ellipsis"})
@@ -272,7 +273,8 @@ def _keep(g, e):
     if k < 0.85:
         return {"op": r.choice(["pool_highest", "pool_lowest"]), "pool": e,
                 "keep": None if r.random() < 0.35 else r.randint(0, 3), "drop": None if r.random() < 0.5 else r.randint(0, 2)}
-    return {"op": "pool_mul", "pool": e, "n": r.randint(-2, 3)}
+    n = r.randint(-2, 3) if r.random() < 0.95 else huge_count(g, negative=True)
+    return {"op": "pool_mul", "pool": e, "n": n}
 
 
 def _gen_mx_evaluate(g, depth):
@@ -325,7 +327,7 @@ def gen_str_expression(g, depth, budget=None, leaf=None):
     if k < 0.6:
         op = r.choice(["mul", "rmul", "neg", "pos", "floordiv", "mod", "unique", "unique", "keep_counts",
                        "keep_counts", "multiply_counts", "divide_counts", "modulo_counts"])
-        n = r.choice([0, 1, 1, 2, 3, -1, -2])
+        n = r.choice([0, 1, 1, 2, 3, -1, -2]) if r.random() < 0.96 else huge_count(g, negative=True)
         if op in ("floordiv", "divide_counts", "mod", "modulo_counts") and n == 0:
             n = 2
         comparison = _comparison(g, ["==", "!=", "<=", "<", ">=", ">"])

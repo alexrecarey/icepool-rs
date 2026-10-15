@@ -209,11 +209,8 @@ pub(crate) fn tuple_error() -> Error {
 
 /// Python's `count * n` for a tuple count: the tuple repeated `n` times (empty if `n <= 0`).
 pub(crate) fn repeat(t: &[Int], n: &Int) -> Result<Count> {
-    if t.is_empty() || !n.is_positive() {
-        return Ok(Count::Tuple(Arc::from([])));
-    }
     // Python builds any length it has memory for; past 2**24 elements the port says it does not cover it, and past
-    // 64 bits Python cannot either (OverflowError).
+    // 64 bits Python cannot either (OverflowError, even for an empty tuple or a negative `n`).
     let n = n.to_len("a tuple count repeated")?;
     if t.len().saturating_mul(n) > 1 << 24 {
         return Err(Error::Unsupported("a tuple count of this length".into()));
