@@ -1378,7 +1378,7 @@ Vector.prototype.div = Vector.prototype.truediv;
 Vector.prototype.round = function (ndigits = null) {
   return call("coll_unary", { a: this, name: "round", ndigits });
 };
-/** Python's `bool(x)` of a Vector (from a comparison) or Symbols. */
+/** Python's `bool(x)` of a Vector (from a comparison), Symbols, or an `Again` expression (from `eq` / `ne`). */
 export function truth(x) {
   return x instanceof Vector || x instanceof Symbols ? call("coll_truth", { x }) : call("truth", { x });
 }

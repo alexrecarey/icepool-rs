@@ -644,7 +644,8 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [a, b] = args.exactly(["a", "b"])?;
             format::eq(a, b, op == "ne")
         }
-        "truth" => {
+        // `again_truth` is `bool(expr)` for an `Again` expression (its own node only for its generator).
+        "truth" | "again_truth" => {
             let [x] = args.exactly(["x"])?;
             format::truth(x)
         }
@@ -867,6 +868,16 @@ pub(super) fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
     }
 }
 
+/// A `DieWithTruth` is a `Die` subclass: as an operand of the arithmetic operators it is just its die. (One
+/// reaches them when an `Again` expression built with `==` is evaluated inside a bigger one: `(Again == 1) + 2`,
+/// `2 @ (Again != 3)`.)
+fn plain_die(x: PValue) -> PValue {
+    match x {
+        PValue::DieWithTruth(d, _) => PValue::Die(d),
+        x => x,
+    }
+}
+
 /// `a <op> b` in Python. With a die on the left, `Die.__op__` converts the right operand. With a die only on the
 /// right, the left operand's own `__op__` returns `NotImplemented` (no outcome type knows about dice), so Python
 /// calls the die's reflected method: `__radd__` and friends convert the left operand and keep the order
@@ -877,7 +888,7 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             .map(PValue::Die)
             .map_err(PErr::from)
     };
-    match (a, b) {
+    match (plain_die(a), plain_die(b)) {
         // `AgainExpression` defines every operator (and dice return NotImplemented for it), so an expression on
         // either side builds a bigger expression. A comparison with the expression on the right reflects.
         (a @ PValue::Again(_), b) => again::apply(AgainOp::Binary(op), vec![a, b]),
@@ -928,7 +939,7 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
 
 /// `-a`, `+a`, `~a`, `abs(a)`, `math.trunc(a)`, `math.floor(a)`, `math.ceil(a)`: `Die.unary_operator` on a die.
 pub(super) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
-    match a {
+    match plain_die(a) {
         // `AgainExpression` has `-`, `+`, `~` and `abs`, but no `__trunc__`, `__floor__`, `__ceil__`.
         a @ PValue::Again(_) if matches!(op, UnOp::Neg | UnOp::Pos | UnOp::Invert | UnOp::Abs) => {
             again::apply(AgainOp::Unary(op), vec![a])
@@ -978,7 +989,7 @@ fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<(), PErr> {
 /// calls `Die.__rmatmul__`, which converts it with `implicit_convert_to_die`: `Die([n]) @ die`. With an `Again`
 /// expression on either side (dice return NotImplemented for it) the result is a bigger expression.
 pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
-    let (n, die) = match (n, die) {
+    let (n, die) = match (plain_die(n), plain_die(die)) {
         (n @ PValue::Again(_), die) | (n, die @ PValue::Again(_)) => {
             return again::apply(AgainOp::MatMul, vec![n, die])
         }

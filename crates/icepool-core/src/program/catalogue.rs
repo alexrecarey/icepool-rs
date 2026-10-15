@@ -518,11 +518,7 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
             return Err(PErr::Unimplemented("the truth value of a pool".into()))
         }
-        PValue::Again(_) => {
-            return raise(Error::Value(
-                "An `Again` only has a truth value if it is the result of == or !=.".into(),
-            ))
-        }
+        PValue::Again(a) => super::again::truth_value(a)?,
     })
 }
 

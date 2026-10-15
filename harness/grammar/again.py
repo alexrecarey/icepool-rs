@@ -12,6 +12,7 @@ import icepool
 from harness.core.grammar_api import node
 from harness.grammar import peek
 from harness.grammar.maps import _star, _which
+from harness.grammar.operators import _small as small_operand
 
 
 @node("Again", "again_expr")
@@ -24,25 +25,58 @@ def _small(g):
     return g.rng.randint(-2, 4)
 
 
+# Every binary operator `AgainExpression` defines (`@` and `==` / `!=` aside), and the unary ones.
+_BINARY = ["add", "add", "sub", "mul", "truediv", "floordiv", "mod", "and", "or", "xor", "lt", "le", "gt", "ge"]
+_UNARY = ["neg", "pos", "invert", "abs"]
+
+
+def _other(g, small_only=False):
+    """The non-expression operand: a small int or (unless `small_only`) a die."""
+    return _small(g) if small_only or g.rng.random() < 0.7 else g.die(0)
+
+
 def _again_expr(g, depth, counts):
-    """`Again`, or an operator applied to an expression and a small int or die. `counts` allows `Again @ die`."""
+    """`Again`, or an operator applied to an expression and a small int or die (on either side, so both the
+    expression's forward and reflected operators run), or to two expressions. `counts` allows `Again @ die`."""
     if depth <= 0 or g.rng.random() < 0.3:
         return {"op": "Again"}
     inner = _again_expr(g, depth - 1, counts)
     r = g.rng.random()
     if r < 0.4:
-        op = g.rng.choice(["add", "add", "sub", "mul", "floordiv", "lt", "ge"])
+        op = g.rng.choice(_BINARY)
         # Multiply only by small ints: products grow at every level, and a die of big counts on the left of `@`
         # makes Python's `_sum_all` recurse past its limit.
-        other = _small(g) if op in ("mul", "floordiv") or g.rng.random() < 0.7 else g.die(0)
+        other = _other(g, small_only=op in ("mul", "floordiv"))
         a, b = (inner, other) if g.rng.random() < 0.6 else (other, inner)
         return {"op": op, "a": a, "b": b}
-    if r < 0.55:
-        return {"op": g.rng.choice(["neg", "abs"]), "a": inner}
-    if r < 0.75:
+    if r < 0.48:
+        op = g.rng.choice(["pow", "lshift", "rshift"])
+        if g.rng.random() < 0.6:
+            # A small exponent or shift count, as in operators.py.
+            return {"op": op, "a": inner, "b": small_operand(g)}
+        # The expression as the exponent or shift count: its outcomes can be anything the again die rolls (huge
+        # ints too), so `% k` keeps them small first.
+        b = {"op": "mod", "a": inner, "b": g.rng.randint(2, 4)} if op != "rshift" else inner
+        a = _small(g) if g.rng.random() < 0.6 else {"op": "d", "sides": g.rng.randint(1, 3)}
+        return {"op": op, "a": a, "b": b}
+    if r < 0.58:
+        # `==` / `!=`: against another expression (often the same one: equal hash_keys) or a non-expression.
+        op = g.rng.choice(["eq", "ne"])
+        x = g.rng.random()
+        if x < 0.25:
+            other = inner
+        elif x < 0.5:
+            other = _again_expr(g, depth - 1, counts)
+        else:
+            other = _other(g)
+        a, b = (inner, other) if g.rng.random() < 0.6 else (other, inner)
+        return {"op": op, "a": a, "b": b}
+    if r < 0.68:
+        return {"op": g.rng.choice(_UNARY), "a": inner}
+    if r < 0.8:
         # `k @ Again`: roll again k times and add those up.
         return {"op": "matmul", "n": g.rng.randint(0, 2), "die": inner}
-    if r < 0.85 and counts:
+    if r < 0.88 and counts:
         # `Again @ die`: roll again, then roll die that many times. Only on a bare Again, and with a small die.
         return {"op": "matmul", "n": {"op": "Again"}, "die": {"op": "d", "sides": g.rng.randint(1, 3)}}
     return {"op": "add", "a": inner, "b": _again_expr(g, depth - 1, counts)}
@@ -83,6 +117,26 @@ def again(outcomes, depth, end):
     """icepool.Die(outcomes, again_depth=depth, again_end=end): outcomes may be Again expressions, rolled again up
     to depth times (None: the default, 1); past that, Again is end (None: a zero; Reroll: those outcomes drop)."""
     return icepool.Die(outcomes, again_depth=depth, again_end=end)
+
+
+def _gen_again_truth(g, depth):
+    """Mostly `==` / `!=` (between two expressions, often the same one, or against a non-expression), which have a
+    truth value; sometimes any other expression, which raises."""
+    a = _again_expr(g, 2, True)
+    if g.rng.random() < 0.15:
+        return {"op": "again_truth", "x": a}
+    x = g.rng.random()
+    b = a if x < 0.35 else _again_expr(g, 2, True) if x < 0.65 else _other(g)
+    if g.rng.random() < 0.3:
+        a, b = b, a
+    return {"op": "again_truth", "x": {"op": g.rng.choice(["eq", "ne"]), "a": a, "b": b}}
+
+
+@node("again_truth", "value", gen=_gen_again_truth, weight=0.3)
+def again_truth(x):
+    """bool(x) for an Again expression x: its truth value if it came from == or != (between two expressions:
+    whether their hash_keys are equal; against anything else: False for ==), else ValueError."""
+    return bool(x)
 
 
 def _gen_explode(g, depth):

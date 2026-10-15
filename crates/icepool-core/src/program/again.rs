@@ -23,6 +23,19 @@ pub enum AgainOp {
     Binary(BinOp),
     Unary(UnOp),
     MatMul,
+    /// `operator.eq` (`ne`: `operator.ne`), as `__eq__` / `__ne__` build it: with the expression's `truth_value`,
+    /// the only kind of expression that has one. The truth value is not part of the `hash_key`.
+    Eq { ne: bool, truth: bool },
+}
+
+impl AgainOp {
+    /// `self._func == other._func` in `hash_key`: the same `operator` function (the truth value aside).
+    fn same_function(&self, other: &AgainOp) -> bool {
+        match (self, other) {
+            (AgainOp::Eq { ne: a, .. }, AgainOp::Eq { ne: b, .. }) => a == b,
+            (a, b) => a == b,
+        }
+    }
 }
 
 pub type AgainExpr = Again<AgainOp, PValue>;
@@ -73,6 +86,96 @@ fn call(op: &AgainOp, args: Vec<PValue>) -> Result<PValue, PErr> {
         AgainOp::Binary(op) => ops::binary(op, next(), next()),
         AgainOp::Unary(op) => ops::unary(op, next()),
         AgainOp::MatMul => ops::matmul(next(), next()),
+        AgainOp::Eq { ne, .. } => super::format::eq(next(), next(), ne),
+    }
+}
+
+/// `a == b` (`ne`: `a != b`) with an expression on at least one side. Dice and plain values return
+/// `NotImplemented` for an expression, and `==` reflects to itself, so the expression's `__eq__` runs with it as
+/// `self`: `AgainExpression(operator.eq, self, other, truth_value=...)`. The truth value is whether the two
+/// `hash_key`s are equal (`!=`: differ) when `other` is an expression too, else `False` (`!=`: `True`).
+pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
+    let (this, other) = match (a, b) {
+        (a @ PValue::Again(_), b) => (a, b),
+        (a, b) => (b, a),
+    };
+    let truth = match (&this, &other) {
+        (PValue::Again(x), PValue::Again(y)) => hash_key_eq(x, y)? != ne,
+        _ => ne,
+    };
+    Ok(PValue::Again(Arc::new(Again::Apply {
+        function: AgainOp::Eq { ne, truth },
+        args: vec![arg(this), arg(other)],
+        is_additive: false,
+    })))
+}
+
+/// `bool(expr)`: only an expression from `==` or `!=` has a truth value.
+pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
+    match x {
+        Again::Apply { function: AgainOp::Eq { truth, .. }, .. } => Ok(*truth),
+        _ => raise(Error::Value(
+            "An `Again` only has a truth value if it is the result of == or !=.".into(),
+        )),
+    }
+}
+
+/// `x.hash_key == y.hash_key`, the tuples `(AgainExpression, self._func, self._args)`: Python compares the
+/// functions, then the argument tuples (lengths first, then element by element up to the first unequal one,
+/// each with `==` and `bool`). Two expressions in there compare by their own `__eq__`, so by `hash_key` again;
+/// an expression and anything else are unequal (the other side returns `NotImplemented`, and the expression's
+/// truth value is `False`).
+fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
+    match (x, y) {
+        // `_func` is `None` and `_args` is `()` for both.
+        (Again::Again { .. }, Again::Again { .. }) => Ok(true),
+        (
+            Again::Apply { function: f, args: a, .. },
+            Again::Apply { function: g, args: b, .. },
+        ) => {
+            if !f.same_function(g) || a.len() != b.len() {
+                return Ok(false);
+            }
+            for (a, b) in a.iter().zip(b) {
+                let equal = match (a, b) {
+                    (AgainArg::Again(a), AgainArg::Again(b)) => hash_key_eq(a, b)?,
+                    (AgainArg::Other(a), AgainArg::Other(b)) => {
+                        // Tuple `==` tries identity before `==`, so the same NaN object is equal to itself; the
+                        // port cannot tell one NaN object from another.
+                        if has_nan(a) || has_nan(b) {
+                            return Err(PErr::Unimplemented(
+                                "NaN in the hash_key of an Again expression".into(),
+                            ));
+                        }
+                        super::catalogue::truthy(&super::format::eq(a.clone(), b.clone(), false)?)?
+                    }
+                    _ => false,
+                };
+                if !equal {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Whether a NaN is in a plain value or among a die's outcomes.
+fn has_nan(x: &PValue) -> bool {
+    fn value(v: &Value) -> bool {
+        match v {
+            Value::Float(f) => f.is_nan(),
+            Value::Complex(re, im) => re.is_nan() || im.is_nan(),
+            Value::Tuple(items) => items.iter().any(value),
+            _ => false,
+        }
+    }
+    match x {
+        PValue::Value(v) => value(v),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => d.outcomes().any(value),
+        PValue::Tuple(xs) | PValue::List(xs) => xs.iter().any(has_nan),
+        _ => false,
     }
 }
 

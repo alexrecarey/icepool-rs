@@ -114,9 +114,7 @@ pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
 pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
     let is_die = |x: &PValue| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..));
     let (die, other) = match (a, b) {
-        (PValue::Again(_), _) | (_, PValue::Again(_)) => {
-            return Err(PErr::Unimplemented("== with an Again expression".into()))
-        }
+        (a @ PValue::Again(_), b) | (a, b @ PValue::Again(_)) => return super::again::eq(a, b, ne),
         (a, b) if is_die(&a) => (a, b),
         (a, b) if is_die(&b) => (b, a),
         (PValue::Value(a), PValue::Value(b)) => return Ok(PValue::Value(a.eq_op(&b, ne)?)),

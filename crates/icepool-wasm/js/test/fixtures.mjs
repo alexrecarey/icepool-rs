@@ -438,6 +438,7 @@ const IDIOMATIC = {
     ok(name === "round" ? a.round(ndigits) : a[name]()),
   coll_truth: ({ x }) => ok(ip.truth(x)),
   truth: ({ x }) => x instanceof ip.DieWithTruth && ok(x.truth()),
+  again_truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
 };
 
 /** `icepool.Wallenius(dict(data) if mapping else data)` as a JS `Wallenius` (a Map for the dict), if the arguments
