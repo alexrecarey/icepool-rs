@@ -1218,3 +1218,32 @@ turns out wrong. Newest decisions at the top of each section.
 - **Never run a bare `cargo fmt`**: the tree is not rustfmt-clean, so it rewrites dozens of files, including the
   protected `crates/icepool-core/tests/fixtures.rs` (the guard rejects that). Format only your own files
   (`rustfmt --edition 2021 <file>`), and run `harness/core/guard.sh $(git merge-base HEAD main) HEAD` before stopping.
+- **T1b: multiset operators with non-multiset and reflected operands.** Generators (multiset.py): `mx_binary` now
+  has a tuple on the left now and then, and `_non_multiset` operands (int, True, float, None, a die) on either
+  side; `mx_counts` has `o = "rmul"` (`n * expr`) and a non-int `n` (float, str, list, None, die) for `*` / `%`;
+  `_keep` makes two-Ellipsis indexes and non-sequence ones (None, 1.5, a small `d`); `mf_call` / `mf_call_kw`
+  sometimes pass no arguments. New node `straight_and_outcome_evaluate(priority, arg)` =
+  `icepool.evaluator.LargestStraightAndOutcomeEvaluator(priority).evaluate(arg)` (its constructor's ValueError).
+- **Again is not a fuzz operand of multiset operators**, only in fixtures/t1b: `pool + Again` (and `expr * Again`,
+  `Again ^ pool`...) is an AgainExpression over the expression, and a node that passes a reflected comparison
+  through (`mx_compare`: `pool < that` is `AgainExpression.__gt__`) returns it as the program result, whose repr
+  holds an address. The port builds the AgainExpression (`ops::binary`), `implicit_convert` of one is TypeError.
+- Port (program/expression.rs): `binary_op` with a number / None on the left is TypeError (both sides return
+  NotImplemented), with a die on the left TypeError ("Items do not appear to be sortable": `Die.__op__` makes
+  `Die([expr])`, and an expression's `<` gives a die without a truth value), with Again on either side
+  `ops::binary`. `not_int` is `*` / `%` with a non-int: Again builds the expression, a die TypeError, anything
+  else TypeError. Core `MultisetKeepIndex::Invalid(type name)`: a non-`Sequence` index of a `MultisetKeep`
+  raises TypeError only in `_initial_state` (operator/keep.py l.124); the facade builds it too (`keep_index_attr`).
+  A str (or Vector) index of a MultisetKeep stays unimplemented (a str is a Sequence: ValueError when evaluated).
+- Unreachable through the public API (confirmed against the oracle): multiset_expression.py l.135
+  (`MultisetExpression._make_param` with a star index: `star=True` takes `len()` of the first argument first, and
+  only multiset *tuple* expressions have `__len__`, so a single multiset is TypeError "has no len()" before it);
+  evaluator/keep.py l.45 (`KeepEvaluator.final_outcome` with a `None` final state: `initial_state` always returns
+  a tuple; an empty multiset reaches l.47 "ended 1 element(s) short").
+- fixtures/t1b: edge-cases (350 hand-picked: every path above, max_pair under the wrong forced order / with a
+  right side of unknown size, MultisetMixture.multiply_counts on non-keepable inners, no-argument
+  @multiset_function), again-operand-fuzz (6 fuzz failures fixed: an AgainExpression as an evaluator argument;
+  the shrinker reduced them to unrelated subprograms, so the originals), keep-against-order (slices with mixed-sign
+  bounds and `pool[i]` evaluated against their end over an expression of known size: operator/keep.py l.101-102,
+  evaluator/keep.py l.25, covered before only by chance). JS: node-args.json regenerated; `rmul` and the new node
+  go through `call()`.
