@@ -5,7 +5,8 @@
 // `die.reroll(which, { star, depth })`, ...), else the generic `call(op, args)`. Every intermediate value is a JS
 // value (dice are JS objects, tuples arrays, ints numbers or BigInts...), so each node's arguments cross the JS API
 // boundary both ways. Catalogue functions and evaluators are the JS ones of catalogue.mjs (JS callbacks), except
-// the "mapping" dict. The result is encoded back into the wire format by JS (dice through `items()`) and compared
+// the "mapping" dict. A `mf_def` is `multisetFunction` of a JS function that evaluates its body program this way
+// (so the core traces JS functions, and `mf_var` / `mf_kwarg` read the JS function's arguments). The result is encoded back into the wire format by JS (dice through `items()`) and compared
 // exactly with the oracle's, as harness/core/compare.py does.
 
 import fs from "node:fs";
@@ -62,6 +63,13 @@ export function evaluate(x) {
   if (Array.isArray(x)) return ip.List.from(x.map(evaluate));
   if (x !== null && typeof x === "object" && "op" in x) {
     const op = x.op;
+    if (op === "mf_def") {
+      const f = multisetFunction(x);
+      if (f !== undefined) {
+        count(usage.idiomatic, op);
+        return f;
+      }
+    }
     const args = {};
     // Arguments in the order the Rust runner evaluates them (serde_json's sorted keys).
     for (const k of Object.keys(x).filter((k) => k !== "op").sort()) {
@@ -81,6 +89,61 @@ export function evaluate(x) {
   }
   // A typed literal, read by the core's own decoder, then held as a JS value.
   return ip.fromWire(text(x));
+}
+
+// --- Multiset functions from JS functions -------------------------------------------------------------------------
+
+/** The (positional, keyword) arguments of the JS function bodies being traced, innermost last (grammar
+ * multiset_function.py `_VARS`). */
+const MF_VARS = [];
+
+/** `mf_def` as `multisetFunction(f)`: `f(p0, ..., [...rest], [{ kwonly... }])` evaluates the lazy body program
+ * with its arguments as the variables. Undefined (the generic call) for arguments `mf_def` would refuse. */
+function multisetFunction(x) {
+  const keys = canon(Object.keys(x).filter((k) => k !== "op").sort());
+  if (keys !== canon(["body", "params", "var"]) && keys !== canon(["body", "kwonly", "params", "var"])) return undefined;
+  // In the order the Rust runner evaluates them (sorted keys); the body stays a program.
+  const names = "kwonly" in x ? evaluate(x.kwonly) : [];
+  const params = evaluate(x.params);
+  const rest = evaluate(x.var);
+  const isInt = (n) => typeof n === "bigint" || Number.isInteger(n);
+  if (!Array.isArray(names) || !names.every((k) => typeof k === "string")) return undefined;
+  if (!isInt(params) || params < 0 || typeof rest !== "boolean") return undefined;
+  const kwonly = Array.from(names);
+  const body = x.body;
+  const f = (...args) => {
+    // Keyword-only arguments come as a trailing options object (always there: each is required).
+    const kwargs = kwonly.length ? args.pop() : {};
+    MF_VARS.push({ args, kwargs });
+    try {
+      return evaluate(body);
+    } finally {
+      MF_VARS.pop();
+    }
+  };
+  return ip.multisetFunction(f, { params: Number(params), rest, kwonly });
+}
+
+/** `_VARS[-1][0][i]`: Python indexing (negative from the end, IndexError past it). */
+function mfVar(i) {
+  const args = MF_VARS.at(-1).args;
+  const j = Number(i) < 0 ? args.length + Number(i) : Number(i);
+  if (j < 0 || j >= args.length) throw new ip.IcepoolError("IndexError", "tuple index out of range");
+  return args[j];
+}
+
+/** `_VARS[-1][1][name]` (KeyError if there is none). */
+function mfKwarg(name) {
+  const kwargs = MF_VARS.at(-1).kwargs;
+  if (!Object.hasOwn(kwargs, name)) throw new ip.IcepoolError("KeyError", JSON.stringify(name));
+  return kwargs[name];
+}
+
+/** A `[name, value]` list as an options object, if every name is a str (else undefined: the generic call). */
+function kwargsObject(kwargs) {
+  if (!isList(kwargs) || !kwargs.every((kv) => Array.isArray(kv) && kv.length === 2 && typeof kv[0] === "string")) return undefined;
+  // `dict(kwargs)`: a repeated name keeps its last value.
+  return Object.fromEntries(kwargs);
 }
 
 // --- The idiomatic routes: op -> args -> { value } (or undefined when the arguments do not fit the method) --------
@@ -292,8 +355,20 @@ const IDIOMATIC = {
   },
   mx_map_counts: ({ args, function: f }) => isList(args) && ok(ip.MultisetExpression.mapCounts(...args, { function: f })),
   mx_mixture: ({ inners }) => ok(ip.multisetMixture(inners)),
-  mx_tuple_index: ({ expr, index }) => expr instanceof ip.MultiDeal && ok(expr.hand(index)),
-  mx_tuple_slice: ({ expr, start, stop, step }) => expr instanceof ip.MultiDeal && ok(expr.slice(start, stop, step)),
+  mx_tuple_index: ({ expr, index }) => expr instanceof ip.MultisetTupleExpression && ok(expr.hand(index)),
+  mx_tuple_slice: ({ expr, start, stop, step }) =>
+    expr instanceof ip.MultisetTupleExpression && ok(expr.slice(start, stop, step)),
+
+  // Multiset functions (mf_def: `multisetFunction` above).
+  mf_var: ({ i }) => MF_VARS.length > 0 && (typeof i === "bigint" || Number.isInteger(i)) && ok(mfVar(i)),
+  mf_kwarg: ({ name }) => MF_VARS.length > 0 && typeof name === "string" && ok(mfKwarg(name)),
+  // `star=None` is "not passed" in mf_call (unlike `call({ star: null })`).
+  mf_call: ({ f, args, star }) =>
+    f instanceof ip.MultisetFunction && isList(args) && ok(f.call(...args, star === null ? {} : { star })),
+  mf_call_kw: ({ f, args, kwargs }) => {
+    const kw = kwargsObject(kwargs);
+    return f instanceof ip.MultisetFunction && isList(args) && kw !== undefined && ok(f.call(...args, kw));
+  },
 
   // Decks and deals.
   deck: ({ outcomes, times }) => isList(outcomes) && ok(new ip.Deck(outcomes, times)),

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use super::catalogue_evaluators;
 use super::evaluate::implicit_convert;
+use super::multiset_function::{in_function, raw_result};
 use super::ops::py_iter;
 use super::{PErr, PValue};
 use crate::error::Result;
@@ -79,9 +80,10 @@ fn int_sizes(sizes: &[Option<i64>]) -> Vec<Value> {
 
 /// The driver's view of a [`HostEvaluator`]. States are `Value`s, so the host's states are hashed and merged as
 /// Python would (the JS facade turns its states into values, or into keys it serialises, before they get here).
-struct Host<'a>(&'a dyn HostEvaluator);
+/// It shares the evaluator: inside a `@multiset_function` body the evaluation is recorded for later.
+struct Host(Arc<dyn HostEvaluator>);
 
-impl MultisetEvaluator<Value> for Host<'_> {
+impl MultisetEvaluator<Value> for Host {
     type State = Value;
     type Final = PValue;
 
@@ -154,7 +156,9 @@ impl MultisetEvaluator<Value> for Host<'_> {
 }
 
 /// `evaluator.evaluate(*args)` for a host evaluator: each argument implicitly converted to an expression (a list
-/// or tuple of outcomes becomes a pool), then evaluated as `EVALUATORS[...]` are.
+/// or tuple of outcomes becomes a pool), then evaluated as `EVALUATORS[...]` are. Inside a `@multiset_function`
+/// body (an argument holds a parameter) it is a `MultisetFunctionRawResult` recording the evaluator instead,
+/// evaluated when the function is.
 pub fn evaluate(
     evaluator: &Arc<dyn HostEvaluator>,
     args: PValue,
@@ -163,7 +167,34 @@ pub fn evaluate(
         .into_iter()
         .map(implicit_convert)
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    catalogue_evaluators::run(&Host(&**evaluator), &exprs)
+    let host = Host(evaluator.clone());
+    if in_function(&exprs) {
+        return Ok(raw_result(host, &exprs));
+    }
+    catalogue_evaluators::run(&host, &exprs)
+}
+
+/// `icepool.multiset_function(f)` for a host function: `f` is called with one parameter expression per
+/// positional parameter (`params` required ones, more if `var`, the `*args` parameter), then the keyword-only
+/// arguments `kwonly` by name, and returns evaluations of them (or a tuple of evaluations, or constants), as a
+/// Python `@multiset_function` body does. The host states the signature, which Python reads from the function.
+pub fn multiset_function(
+    f: Arc<dyn HostFunction>,
+    params: usize,
+    var: bool,
+    kwonly: Vec<String>,
+) -> PValue {
+    super::multiset_function::host_function(f, params, var, kwonly)
+}
+
+/// Whether a value is a multiset tuple expression (a `MultiDeal`, a tuple parameter, a slice of one): the host
+/// gives these their own class (indexing yields one hand).
+pub fn is_tuple_expression(v: &PValue) -> bool {
+    match v {
+        PValue::MultiDeal(_) => true,
+        PValue::Expr(e) => matches!(e.tuple_len(), Ok(Some(_))),
+        _ => false,
+    }
 }
 
 /// A host callable as a program value (Python's function object).

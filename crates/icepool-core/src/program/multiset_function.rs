@@ -5,7 +5,8 @@
 //! A function is node `mf_def` (`params` positional parameters, `var` = a `*args` parameter, `kwonly` the names
 //! of keyword-only parameters, `body` a lazy program); inside its body node `mf_var` is its `i`-th argument and
 //! `mf_kwarg` a keyword argument (the innermost function's: a nested function's body is traced later, with its own
-//! arguments). Evaluating an expression that holds a parameter does not
+//! arguments). A host function (the JS facade's `multisetFunction(f)`) is a body too: it is called with the
+//! parameters as Python calls the wrapped function. Evaluating an expression that holds a parameter does not
 //! evaluate: it returns a [`RawResult`] (Python's `MultisetFunctionRawResult`) recording the evaluator and its
 //! inputs. Calling the function (`mf_call`) traces the body and evaluates what it recorded.
 
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value as Json};
 
 use super::expression::{prepare, product, MExpr};
+use super::host::HostFunction;
 use super::ops::{new_die, py_iter, type_error};
 use super::{eval, raise, PErr, PValue};
 use crate::error::Error;
@@ -37,7 +39,17 @@ pub struct FunctionDef {
     var: bool,
     /// Its keyword-only parameters (none has a default): non-multiset values passed by `f(..., name=value)`.
     kwonly: Vec<String>,
-    body: Json,
+    body: Body,
+}
+
+/// What tracing the function runs: Python's `self._wrapped(*multiset_variables, **kwargs)`.
+#[derive(Debug)]
+enum Body {
+    /// A lazy program (node `mf_def`), whose `mf_var` / `mf_kwarg` read the arguments.
+    Program(Json),
+    /// A host callable (the JS facade's `multisetFunction(f)`), called with the arguments: parameter
+    /// expressions, then the keyword arguments.
+    Host(Arc<dyn HostFunction>),
 }
 
 /// What a `MultisetFunctionRawResult` records.
@@ -113,8 +125,25 @@ pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
         params,
         var,
         kwonly,
-        body: body.clone(),
+        body: Body::Program(body.clone()),
     })))
+}
+
+/// `icepool.multiset_function(f)` for a host function `f` with `params` required positional parameters, a
+/// `*args` parameter if `var`, and the keyword-only parameters `kwonly` (the host states the signature: Python
+/// reads it with `inspect.signature`).
+pub fn host_function(
+    f: Arc<dyn HostFunction>,
+    params: usize,
+    var: bool,
+    kwonly: Vec<String>,
+) -> PValue {
+    PValue::MultisetFunction(Arc::new(FunctionDef {
+        params,
+        var,
+        kwonly,
+        body: Body::Host(f),
+    }))
 }
 
 /// Node `mf_var`: argument `i` of the innermost function being traced.
@@ -390,10 +419,15 @@ fn prepare_function(
             "wrapped() missing 1 required keyword-only argument: '{k}'"
         ));
     }
-    VARS.with(|v| v.borrow_mut().push((vars, kwargs)));
-    let result = eval(&f.body);
-    VARS.with(|v| v.borrow_mut().pop());
-    let result = result?;
+    let result = match &f.body {
+        Body::Program(body) => {
+            VARS.with(|v| v.borrow_mut().push((vars, kwargs)));
+            let result = eval(body);
+            VARS.with(|v| v.borrow_mut().pop());
+            result?
+        }
+        Body::Host(body) => body.call(vars, kwargs)?,
+    };
     match result {
         PValue::RawResult(_)
         | PValue::Die(_)

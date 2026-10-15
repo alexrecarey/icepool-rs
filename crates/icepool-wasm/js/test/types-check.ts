@@ -1,7 +1,7 @@
 // Type-checks typical uses of the API against icepool.d.ts (build.sh --test runs `tsc --noEmit` on it; it is never
 // executed). A declaration that drifts from core.js shows up here or in the JS tests.
-import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops } from "../icepool.js";
-import type { Outcome } from "../icepool.js";
+import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction } from "../icepool.js";
+import type { Outcome, MultisetExpression } from "../icepool.js";
 
 const d6: Die = d(6);
 const sum: Die = d6.add(d6).sub(1).mul(2n);
@@ -33,8 +33,12 @@ const objectStates: Die = evaluator({
   nextState: (s: { n: number } | null, order, outcome, count: number) => ({ n: (s?.n ?? 0) + count }),
   finalOutcome: (s: { n: number }) => s.n,
 }).evaluate([1, 2]);
+const twoWay = multisetFunction((a: MultisetExpression, b: MultisetExpression) => [a.sub(b).size(), b.sub(a).size()]);
+const traced: Die = twoWay.call(new Pool([d6, d6]), [1, 2]);
+const countIn: Die = multisetFunction((a: MultisetExpression, { target }: { target?: number[] } = {}) =>
+  a.keepOutcomes(target ?? []).size(), { kwonly: ["target"] }).call(new Pool([d6]), { target: [6] });
 
 export {
   quantities, items, mean, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,
-  quantity, product, counted, objectStates,
+  quantity, product, counted, objectStates, traced, countIn,
 };

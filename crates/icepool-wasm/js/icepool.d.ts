@@ -476,10 +476,14 @@ export class Deal extends KeepGenerator {
   repr(): string;
 }
 
-/** Several hands dealt from one deck. */
-export class MultiDeal extends Handle {
+/** Several hands: a `MultiDeal`, a tuple parameter of a multiset function, or a slice of one. */
+export class MultisetTupleExpression extends Handle {
   hand(index: Int): MultisetExpression;
-  slice(start?: Int | null, stop?: Int | null, step?: Int | null): MultiDeal;
+  slice(start?: Int | null, stop?: Int | null, step?: Int | null): MultisetTupleExpression;
+}
+
+/** Several hands dealt from one deck. */
+export class MultiDeal extends MultisetTupleExpression {
   info(): [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
   handSizes(): Int[];
   totalCardsDealt(): Int;
@@ -599,7 +603,20 @@ export class Symbols {
 
 /** A callable made by the core (the harness's catalogue functions). */
 export class CoreFunction extends Handle {}
-/** A `@multiset_function` made by the program language's `mf_def`. */
+/** A `@multiset_function`: from `multisetFunction(f)` or the program language's `mf_def`. A trailing options
+ * object holds `star` and the function's keyword-only arguments. */
 export class MultisetFunction extends Handle {
   call(...args: unknown[]): Die;
+  evaluate(...args: unknown[]): Die;
 }
+
+/** A parameter of a multiset function: one input, or one hand of an unstarred MultiDeal input. */
+export type MultisetParameter = MultisetExpression | MultisetTupleExpression;
+
+/** `@multiset_function`: `f` is traced with parameter expressions and returns evaluations of them (an array for
+ * a joint evaluation, or constants). Inside `f`, evaluation methods (typed as returning `Die`) only record the
+ * evaluation. Keyword-only arguments (`kwonly`) arrive as a trailing options object. */
+export function multisetFunction(
+  f: (...args: any[]) => unknown,
+  options?: { params?: number; rest?: boolean; kwonly?: readonly string[] },
+): MultisetFunction;

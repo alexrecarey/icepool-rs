@@ -50,7 +50,7 @@ extern "C" {
     /// `f(*args, **kwargs)` for the JS function registered as `id`: JS-JSON in, a result envelope out.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = call)]
     fn host_call(id: u32, args: &str, kwargs: &str) -> String;
-    /// Forgets the JS function registered as `id`: the core dropped its last reference.
+    /// Forgets the JS function or evaluator registered as `id`: the core dropped its last reference.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = release)]
     fn host_release(id: u32);
     /// A method of the JS evaluator registered as `id`; `kwargs` are `evaluate()`'s keyword arguments, which
@@ -135,13 +135,49 @@ pub fn call(op: &str, args: &str) -> String {
 /// kwargs: a JSON object, handed back to JS as it is).
 #[wasm_bindgen]
 pub fn evaluate(id: u32, args: &str, kwargs: &str) -> String {
+    // Made first: its drop releases `id` on the JS side, whatever happens next.
+    let evaluator: Arc<dyn HostEvaluator> = Arc::new(JsEvaluator {
+        id,
+        kwargs: kwargs.to_string(),
+    });
     let result = (|| {
         let args = from_js(&json!({ "$list": parse(args)? }))?;
-        let evaluator: Arc<dyn HostEvaluator> = Arc::new(JsEvaluator {
-            id,
-            kwargs: kwargs.to_string(),
-        });
         program::host::evaluate(&evaluator, args)
+    })();
+    envelope(result.and_then(|v| to_js(&v)))
+}
+
+/// `icepool.multiset_function(f)` for a JS function: `{"f": {"$fn": id, "n": length}, "params": n, "var": bool,
+/// "kwonly": [names]}` (the signature as Python would read it: required positional parameters, a `*args`, the
+/// keyword-only names). Calling the result traces `f` with parameter expressions (see `program::host`).
+#[wasm_bindgen]
+pub fn multiset_function(args: &str) -> String {
+    let result = (|| {
+        let args = parse(args)?;
+        let id = args["f"]["$fn"]
+            .as_u64()
+            .ok_or_else(|| bad("function id"))? as u32;
+        // Registered on the JS side: from here on the core owns it (and releases it when dropped).
+        let f = Arc::new(JsFunction {
+            id,
+            length: args["f"]["n"].as_u64().unwrap_or(0) as usize,
+        });
+        let params = args["params"]
+            .as_u64()
+            .ok_or_else(|| bad("a parameter count"))? as usize;
+        let var = args["var"].as_bool().ok_or_else(|| bad("var"))?;
+        let kwonly = match &args["kwonly"] {
+            Json::Array(names) => names
+                .iter()
+                .map(|n| {
+                    n.as_str()
+                        .map(String::from)
+                        .ok_or_else(|| bad("a keyword name"))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => return Err(bad("kwonly")),
+        };
+        Ok(program::host::multiset_function(f, params, var, kwonly))
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -265,6 +301,8 @@ fn to_js(v: &PValue) -> Result<Json, PErr> {
         PValue::Deck(_) => handle(v, "deck"),
         PValue::Deal(_) => handle(v, "deal"),
         PValue::MultiDeal(_) => handle(v, "multi_deal"),
+        // A tuple expression (a tuple parameter, a slice of hands) indexes into hands, as a MultiDeal does.
+        PValue::Expr(_) if program::host::is_tuple_expression(v) => handle(v, "tuple_expr"),
         PValue::Expr(_) => handle(v, "expr"),
         PValue::MultisetFunction(_) => handle(v, "mfunc"),
         PValue::RawResult(_) => handle(v, "raw"),
@@ -465,6 +503,14 @@ impl HostFunction for JsFunction {
 struct JsEvaluator {
     id: u32,
     kwargs: String,
+}
+
+/// The JS side keeps the evaluator registered as long as the core may call it: a `@multiset_function` body
+/// records the evaluation, which runs when the function is called.
+impl Drop for JsEvaluator {
+    fn drop(&mut self) {
+        host_release(self.id);
+    }
 }
 
 impl JsEvaluator {

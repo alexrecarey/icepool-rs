@@ -153,6 +153,43 @@ test("evaluators in JS: states, Reroll, die outcomes, kwargs, extraOutcomes, Uns
   assert.deepEqual(descendingOnly.evaluate([1, 2, 3]).outcomes(), [[3, 2, 1]]);
 });
 
+test("multisetFunction: JS functions traced like @multiset_function", () => {
+  const { multisetFunction, evaluator, IcepoolError } = ip;
+  // Joint results are tuples (arrays).
+  const twoWay = multisetFunction((a, b) => [a.sub(b).size(), b.sub(a).size()]);
+  assert.ok(twoWay instanceof ip.MultisetFunction);
+  assert.deepEqual(twoWay.call(d(4).pool(2), d(4).pool(1)).items(), [[[1, 0], 28n], [[2, 1], 36n]]);
+  // A MultiDeal input: star inferred (2 parameters, 1 input), or one tuple parameter whose hands are indexed.
+  const hands = new Deck([1, 2, 3, 4]).deal([2, 1]);
+  assert.deepEqual(multisetFunction((a, b) => a.sub(b).size()).call(hands).items(), [[2, 12n]]);
+  const handsSum = multisetFunction((h) => {
+    assert.ok(h instanceof ip.MultisetTupleExpression);
+    return h.hand(0).add(h.hand(1)).sum();
+  });
+  assert.deepEqual(handsSum.evaluate(hands).items(), [[6, 3n], [7, 3n], [8, 3n], [9, 3n]]);
+  // Keyword-only arguments arrive as a trailing options object.
+  const countIn = multisetFunction((a, { target } = {}) => a.keepOutcomes(target).size(), { kwonly: ["target"] });
+  assert.deepEqual(countIn.call(d(6).pool(3), { target: [5, 6] }).items(), [[0, 64n], [1, 96n], [2, 48n], [3, 8n]]);
+  assert.throws(() => countIn.call(d(6).pool(3)), (e) => e instanceof IcepoolError && e.pythonType === "TypeError");
+  // Nested multiset functions, and a `...rest` parameter.
+  const uniq = multisetFunction((a) => a.unique().size());
+  const outer = multisetFunction((a, b) => [uniq.call(a.add(b)), a.and(b).size()]);
+  assert.deepEqual(outer.call(d(3).pool(2), d(3).pool(1)).items(), [[[1, 1], 3n], [[2, 0], 6n], [[2, 1], 12n], [[3, 0], 6n]]);
+  const restF = multisetFunction((a, ...rest) => (rest.length ? a.add(rest[0]).sum() : a.sum()), { rest: true });
+  assert.deepEqual(restF.call(d(2).pool(1), d(2).pool(1)).items(), [[2, 1n], [3, 2n], [4, 1n]]);
+  // A JS evaluator inside the body, and a constant in a joint result.
+  const evens = evaluator({ nextState: (s, order, o, c) => (s ?? 0) + (o % 2 === 0 ? c : 0) });
+  const withEvens = multisetFunction((a, b) => [evens.evaluate(a.or(b)), 7]);
+  assert.deepEqual(withEvens.call(d(4).pool(2), d(4).pool(1)).items(), [[[0, 7], 8n], [[1, 7], 32n], [[2, 7], 22n], [[3, 7], 2n]]);
+  // The JS evaluator is still registered when the function is evaluated again.
+  assert.deepEqual(withEvens.call(d(4).pool(2), d(4).pool(1)).items()[3], [[3, 7], 2n]);
+  // Python's errors, and the body's own exception, rethrown as it was.
+  assert.throws(() => multisetFunction((a) => a.add(a)).call(d(6).pool(2)), (e) => e.pythonType === "TypeError");
+  const oops = new RangeError("oops");
+  assert.throws(() => multisetFunction((a) => { throw oops; }).call(d(6).pool(2)), (e) => e === oops);
+  assert.throws(() => multisetFunction((a) => a.sum()).call(d(6).pool(2), d(6).pool(2)), (e) => e.pythonType === "TypeError");
+});
+
 test("Again, pools, decks", () => {
   assert.deepEqual(new Die([1, 2, Again.add(2)], { againDepth: 1 }).items(), [[1, 3n], [2, 3n], [3, 1n], [4, 2n]]);
   const pool = new Pool([d(6), d(6), d(6)]);

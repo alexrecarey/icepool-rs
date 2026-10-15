@@ -291,7 +291,9 @@ export function liveHandles() {
 // --- Callbacks from the core --------------------------------------------------------------------------------------
 
 const functions = new Map(); // id -> JS function; one id per time a function is passed, released by the core
-const evaluators = new Map(); // id -> evaluator, for the duration of one evaluate()
+// id -> evaluator, from one evaluate() until the core releases it (at once, or later for an evaluation recorded in
+// a multiset function's body)
+const evaluators = new Map();
 let nextId = 1;
 
 function registerFunction(f) {
@@ -324,6 +326,7 @@ const HOST = {
   },
   release(id) {
     functions.delete(id);
+    evaluators.delete(id);
   },
   evaluator(id, method, args, kwargs) {
     return callback(() => {
@@ -961,9 +964,10 @@ class KeepGenerator extends MultisetExpression {
   middle(keep = 1, { tie = "error" } = {}) {
     return call("pool_middle", { pool: this, keep, tie });
   }
-  /** `pool.keep(index)`: an array of counts (a keep tuple, `Ellipsis` allowed) or an int (the kept roll as a die). */
+  /** `pool.keep(index)`: an array of counts (a keep tuple, `Ellipsis` allowed) or an int (the kept roll as a die).
+   * An array is a tuple, as everywhere: a `List` index is unhashable (a mixture of such keeps raises TypeError). */
   keep(index) {
-    return call("pool_keep", { pool: this, index: list(index) });
+    return call("pool_keep", { pool: this, index });
   }
   /** `pool[index]`: the roll at that sorted position, as a die. */
   at(index) {
@@ -1125,14 +1129,19 @@ export class Deal extends KeepGenerator {
   repr() { return call("deal_str", { deal: this })[0]; }
 }
 
-/** `deck.deal([size, ...])`: several hands; `hand(i)` or `slice(...)` picks some. */
-export class MultiDeal extends Handle {
+/** A multiset tuple expression: several hands (a `MultiDeal`, a tuple parameter of a multiset function, a slice
+ * of either). `hand(i)` is one hand (Python's `x[i]`), `slice(...)` some of them. */
+export class MultisetTupleExpression extends Handle {
   hand(index) {
     return call("mx_tuple_index", { expr: this, index });
   }
   slice(start = null, stop = null, step = null) {
     return call("mx_tuple_slice", { expr: this, start, stop, step });
   }
+}
+
+/** `deck.deal([size, ...])`: several hands; `hand(i)` or `slice(...)` picks some. */
+export class MultiDeal extends MultisetTupleExpression {
   /** `(deck items, hand_sizes, total_cards_dealt, len, denominator, outcomes)` */
   info() {
     return call("multi_deal_info", { multi_deal: this });
@@ -1168,14 +1177,13 @@ export class MultisetEvaluator {
   /** `evaluate(...inputs, { ...kwargs })`: keyword arguments reach initialState and finalOutcome. */
   evaluate(...rest) {
     const [inputs, kwargs] = opts(rest);
+    const args = `[${inputs.map((x) => enc(list(x))).join(",")}]`;
+    const kw = argsText(kwargs);
+    // The core releases the id (HOST.release) once it no longer needs the evaluator: when this call returns, or,
+    // inside a multiset function's body, when the function holding the recorded evaluation is dropped.
     const id = nextId++;
     evaluators.set(id, this);
-    try {
-      const args = `[${inputs.map((x) => enc(list(x))).join(",")}]`;
-      return dec(unwrap(W.evaluate(id, args, argsText(kwargs))));
-    } finally {
-      evaluators.delete(id);
-    }
+    return dec(unwrap(W.evaluate(id, args, kw)));
   }
 }
 
@@ -1294,12 +1302,40 @@ class RawMapping extends RawJSON {
 
 /** A callable the core made (the harness's catalogue functions). */
 export class CoreFunction extends Handle {}
-/** A `@multiset_function` (the program language's `mf_def`). */
+/** A `@multiset_function`: from `multisetFunction(f)`, or the program language's `mf_def`.
+ * `f.call(...inputs, { star, ...kwargs })` evaluates it (Python's `f(*inputs, star=star, **kwargs)`); `star` may
+ * be left out (then it is inferred), the other options are the function's keyword-only arguments. */
 export class MultisetFunction extends Handle {
   call(...rest) {
-    const [args, { star = null }] = opts(rest);
-    return call("mf_call", { f: this, args: List.from(args), star });
+    const [args, { star, ...kwargs }] = opts(rest);
+    // `star` left out (undefined) is inferred; any other value is passed, as Python's `star=...` (even null).
+    const items = Object.entries(kwargs);
+    if (star !== undefined) items.unshift(["star", star]);
+    return call("mf_call_kw", { f: this, args: List.from(args), kwargs: List.from(items) });
   }
+  /** The same as `call` (Python's `evaluator.evaluate(...)`). */
+  evaluate(...rest) {
+    return this.call(...rest);
+  }
+}
+
+/** `@multiset_function`: a multiset evaluator from a JS function of multisets, as Python's decorator makes one.
+ *
+ * Calling the result traces `f`: it is called with one parameter expression per input (a `MultisetExpression`,
+ * or a `MultisetTupleExpression` for a `MultiDeal` input, unless `star` unpacks the first input into its hands),
+ * builds expressions with their methods, and returns an evaluation of them (`a.sub(b).size()`, a JS evaluator's
+ * `evaluate(a)`, another multiset function's `call(a)`), an array of evaluations (a joint evaluation, whose
+ * outcomes are arrays), or a constant. Evaluations inside `f` only record what to evaluate: the core evaluates
+ * the whole function at once. `f` may be traced several times, so it should be a pure function.
+ *
+ * Python reads the signature from the function; here `params` (default `f.length`) is the number of required
+ * positional parameters, `rest` says `f` takes any number more (`(...xs) => ...`), and `kwonly` names its
+ * keyword-only parameters, which `f` receives as a trailing options object: `(a, { target } = {}) => ...` with
+ * `{ kwonly: ["target"] }` (give it a default, as for other callbacks, or `f.length` counts it). */
+export function multisetFunction(f, { params = f.length, rest = false, kwonly = [] } = {}) {
+  if (typeof f !== "function") throw new TypeError("icepool: multisetFunction takes a function");
+  const args = `{"f":${enc(f)},"params":${Number(params)},"var":${rest ? "true" : "false"},"kwonly":${JSON.stringify(Array.from(kwonly, String))}}`;
+  return dec(unwrap(W.multiset_function(args)));
 }
 class RawResult extends Handle {}
 
@@ -1309,6 +1345,7 @@ Object.assign(KINDS, {
   deck: Deck,
   deal: Deal,
   multi_deal: MultiDeal,
+  tuple_expr: MultisetTupleExpression,
   expr: Expression,
   again: AgainExpression,
   fn: CoreFunction,
