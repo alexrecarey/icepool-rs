@@ -2,7 +2,7 @@
 
 use dashu_int::IBig;
 
-use super::basic::{int, state_as_outcome};
+use super::basic::{int, py_sorted_reverse, state_as_outcome};
 use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
@@ -501,5 +501,169 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
         let (mut all, ended) = runs(final_state);
         all.extend(ended);
         Ok(Final::Outcome(int_tuple(sorted_descending(all))))
+    }
+}
+
+/// `count + total` and friends on the `int` counts of a state; Python's ints do not overflow, the port says
+/// unsupported rather than wrap.
+fn add_counts(a: i64, b: i64) -> Result<i64> {
+    a.checked_add(b)
+        .ok_or_else(|| Error::Unsupported("a count beyond 64 bits".into()))
+}
+
+/// The size of the largest matching set, with wilds (`LargestCountWithWildEvaluator`, what
+/// `largest_count(wild=, wild_low=, wild_high=)` uses).
+///
+/// Each selector is `make_select_function(which)`: `None` selects nothing, a callable is called with the outcome,
+/// any other collection becomes a `frozenset` tested with `in`. The caller builds them, returning the truth value
+/// of the result.
+pub struct LargestCountWithWildEvaluator<S> {
+    /// These outcomes' counts are combined with the counts of any other outcomes.
+    pub wild: S,
+    /// These wilds can only be combined with outcomes that they are lower than.
+    pub wild_low: S,
+    /// These wilds can only be combined with outcomes that they are higher than.
+    pub wild_high: S,
+}
+
+impl<S: Fn(&Value) -> Result<bool>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
+    /// `None` before the first outcome, then `(best, total_wild_early)`.
+    type State = Option<(i64, i64)>;
+    type Final = Value;
+
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Self::State> {
+        Ok(None)
+    }
+
+    fn next_state(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &Value,
+        counts: &[i64],
+    ) -> Result<Option<Self::State>> {
+        let count = counts[0];
+        let is_wild = (self.wild)(outcome)?;
+        // `is_wild or select(outcome)`: the second selector only runs when the first is falsy.
+        let either = |select: &S| -> Result<bool> { Ok(is_wild || select(outcome)?) };
+        let (is_wild_early, is_wild_late) = if order.is_ascending() {
+            (either(&self.wild_low)?, either(&self.wild_high)?)
+        } else {
+            (either(&self.wild_high)?, either(&self.wild_low)?)
+        };
+        let Some((mut best, mut total_wild_early)) = *state else {
+            return Ok(Some(Some(if is_wild_early {
+                (count, count)
+            } else {
+                (count, 0)
+            })));
+        };
+        if is_wild_late {
+            best = add_counts(best, count)?;
+        }
+        best = best.max(add_counts(count, total_wild_early)?);
+        if is_wild_early {
+            total_wild_early = add_counts(total_wild_early, count)?;
+        }
+        Ok(Some(Some((best, total_wild_early))))
+    }
+
+    fn final_outcome(
+        &self,
+        final_state: &Self::State,
+        _: Order,
+        _: &[Value],
+        _: &[Option<i64>],
+    ) -> Result<Final<Value>> {
+        match final_state {
+            // `final_state[0]`
+            Some((best, _)) => Ok(Final::Outcome(int(*best))),
+            None => Err(Error::Type("'NoneType' object is not subscriptable".into())),
+        }
+    }
+}
+
+/// All straights with a reduce operation on the counts (`AllStraightsReduceCountsEvaluator`).
+///
+/// This can be used to evaluate e.g. cribbage-style straight counting. The result is a tuple of
+/// `(run_length, run_score)`s.
+pub struct AllStraightsReduceCountsEvaluator<R> {
+    /// How to reduce the counts within each straight. The default is `operator.mul`, which counts the number of
+    /// ways to pick elements for each straight, e.g. cribbage.
+    pub reducer: R,
+}
+
+/// `current_run_length, current_run_score, ended_runs = state or (None, None, ())`.
+fn reduce_state(state: &Value) -> (Value, Value, Vec<Value>) {
+    match items(state) {
+        [length, score, ended] => (length.clone(), score.clone(), items(ended).to_vec()),
+        _ => (Value::None, Value::None, Vec::new()),
+    }
+}
+
+/// `tuple(sorted(ended_runs + ((current_run_length, current_run_score), ), reverse=True))`.
+fn end_run(ended_runs: Vec<Value>, length: Value, score: Value) -> Result<Vec<Value>> {
+    let mut runs = ended_runs;
+    runs.push(Value::tuple(vec![length, score]));
+    py_sorted_reverse(runs)
+}
+
+impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
+    for AllStraightsReduceCountsEvaluator<R>
+{
+    type State = Value;
+    type Final = Value;
+
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+        Ok(Value::None)
+    }
+
+    fn next_state(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[i64],
+    ) -> Result<Option<Value>> {
+        let (mut length, mut score, mut ended_runs) = reduce_state(state);
+        let count = counts[0];
+        if count > 0 {
+            if length == Value::None {
+                length = int(1);
+                score = int(count);
+            } else {
+                length = length.binary(BinOp::Add, &int(1))?;
+                score = (self.reducer)(&score, &int(count))?;
+            }
+        } else {
+            if length != Value::None {
+                ended_runs = end_run(ended_runs, length, score)?;
+            }
+            length = Value::None;
+            score = Value::None;
+        }
+        Ok(Some(Value::tuple(vec![
+            length,
+            score,
+            Value::tuple(ended_runs),
+        ])))
+    }
+
+    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
+        consecutive(outcomes)
+    }
+
+    fn final_outcome(
+        &self,
+        final_state: &Value,
+        _: Order,
+        _: &[Value],
+        _: &[Option<i64>],
+    ) -> Result<Final<Value>> {
+        let (length, score, mut ended_runs) = reduce_state(final_state);
+        if length != Value::None {
+            ended_runs = end_run(ended_runs, length, score)?;
+        }
+        Ok(Final::Outcome(Value::tuple(ended_runs)))
     }
 }

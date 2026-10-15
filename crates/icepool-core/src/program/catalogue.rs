@@ -37,6 +37,8 @@ pub enum Func {
     Sum3,
     /// `lambda a, b: max(a, b)`
     Max2,
+    /// `lambda a, b: a * b`
+    Mul2,
     /// `lambda t: t[0]`
     First,
     /// `lambda x: (x, k)`
@@ -94,8 +96,8 @@ impl Func {
         };
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
-            "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "first"
-            | "break_eq" | "add_kw" | "collatz" | "count_diff" => 0,
+            "read_roll" | "is_even" | "identity" | "swap" | "add2" | "sum3" | "max2" | "mul2"
+            | "first" | "break_eq" | "add_kw" | "collatz" | "count_diff" => 0,
             "add_k" | "mul_k" | "gt_k" | "pair_k" | "plus_d" | "reroll_below"
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
             | "pair_walk" | "count_if_gt_k" => 1,
@@ -122,6 +124,7 @@ impl Func {
             "add2" => Add2,
             "sum3" => Sum3,
             "max2" => Max2,
+            "mul2" => Mul2,
             "first" => First,
             "pair_k" => PairK(next()),
             "die_if_k" => DieIfK(next(), next()),
@@ -157,8 +160,8 @@ impl Func {
             Host(f) => return Some(f.positional()),
             Const(_) => return Some((0, None)),
             CountDiff | CountIfGtK(_) => return Some((1, None)),
-            ReadRoll | Swap | Add2 | Max2 | BreakEq | CapSum(_) | BreakAt(..) | RestartOn(..)
-            | Walk(..) => 2,
+            ReadRoll | Swap | Add2 | Max2 | Mul2 | BreakEq | CapSum(_) | BreakAt(..)
+            | RestartOn(..) | Walk(..) => 2,
             Sum3 | PairWalk(_) => 3,
             _ => 1,
         };
@@ -267,6 +270,7 @@ impl Func {
                 binary(BinOp::Add, ab, x())?
             }
             Max2 => py_max(x(), x())?,
+            Mul2 => binary(BinOp::Mul, x(), x())?,
             First => first(x())?,
             PairK(k) => PValue::tuple(vec![x(), k.clone()]),
             DieIfK(k, n) => {

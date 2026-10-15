@@ -223,11 +223,15 @@ fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
                 p.len()
             )))
         })?;
-        match &key {
-            PValue::Die(_) | PValue::Value(_) => {}
+        let key = match key {
+            key @ (PValue::Die(_) | PValue::Value(_)) => key,
+            // A `DieWithTruth` hashes and compares as its die (`hash_key`), which needs its data; the pool only
+            // ever uses the die's data.
+            PValue::DieWithTruth(d, _) => PValue::Die(d),
+            PValue::DieWithTruthError(e, _) => return raise(e),
             PValue::List(_) => return type_error("unhashable type: 'list'"),
             _ => return Err(PErr::Unimplemented("this dict key".into())),
-        }
+        };
         let same = |k: &PValue| match (k, &key) {
             (PValue::Die(a), PValue::Die(b)) => a == b,
             (PValue::Value(a), PValue::Value(b)) => a == b,
@@ -308,8 +312,11 @@ fn new_pool(dice: Vec<PValue>, times: Vec<Value>) -> Result<PValue, PErr> {
 
 /// `Die.pool(rolls)`: `Pool({die: rolls})` for an int, else `Pool({die: len(rolls)})[rolls]`.
 pub fn die_pool(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
-    let PValue::Die(die) = die else {
-        return type_error("pool() needs a Die");
+    let die = match die {
+        // A `DieWithTruth` (the result of `==`) is a die too.
+        PValue::Die(die) | PValue::DieWithTruth(die, _) => die,
+        PValue::DieWithTruthError(e, _) => return raise(e),
+        _ => return type_error("pool() needs a Die"),
     };
     if let Some(rolls) = int_value(&rolls) {
         return Ok(PValue::Pool(new_die_pool(&die, rolls)?));

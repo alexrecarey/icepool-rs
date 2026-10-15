@@ -2,25 +2,36 @@
 //! evaluators of `crate::evaluator`, and the shared code that turns evaluator arguments into sources and the
 //! final outcomes into a die.
 
+use rustc_hash::FxHashSet;
+
+use super::catalogue::{truthy, Func};
 use super::catalogue_evaluators::CatalogueEvaluator;
-use super::expression::{as_expression, as_tuple_expression, prepare, the_expression, MExpr};
+use super::expression::{
+    as_expression, as_tuple_expression, prepare, same_expression, the_expression, MExpr,
+};
 use super::map::the_die;
 use super::multiset_function::{in_function, raw_result};
-use super::ops::{die_arg, new_die, py_iter, type_error};
+use super::ops::{die_arg, new_die, py_iter, type_error, Key};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
 use crate::error::Error;
+use crate::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
 use crate::evaluator::basic::{
-    EmptyEvaluator, ExpandEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
+    EmptyEvaluator, ExpandEvaluator, MappedSumEvaluator, ProductOfCountsEvaluator, SizeEvaluator,
+    SumEvaluator,
 };
 use crate::evaluator::comparison::{Comparison, ComparisonEvaluator};
 use crate::evaluator::keep::KeepEvaluator;
+use crate::evaluator::lexi::LexiComparisonEvaluator;
 use crate::evaluator::poker::{
-    AllCountsEvaluator, AllStraightsEvaluator, CountSubsetEvaluator,
-    HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
-    LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
+    AllCountsEvaluator, AllStraightsEvaluator, AllStraightsReduceCountsEvaluator,
+    CountSubsetEvaluator, HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator,
+    LargestCountEvaluator, LargestCountWithWildEvaluator, LargestStraightAndOutcomeEvaluator,
+    LargestStraightEvaluator,
 };
 use crate::evaluator::{evaluate_expressions, MultisetEvaluator};
+use crate::lexi::compute_lexi_tuple_with_extra;
+use crate::order::Order;
 use crate::{Die, Quantity, Value};
 
 /// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
@@ -278,4 +289,379 @@ pub fn method_evaluation(method: &str, e: PValue) -> Result<PValue, PErr> {
         | "all_straights" => evaluation(&format!("pool_{method}"), e),
         _ => Err(PErr::Unimplemented(format!("evaluation method {method}"))),
     }
+}
+
+// --- K6c: evaluations with callables, argsort, lexi, the comparison operators ----------------------------------
+
+/// A program-layer error inside a core evaluator: an unimplemented feature stays unsupported.
+fn core_error(e: PErr) -> Error {
+    match e {
+        PErr::Raise(e) => e,
+        PErr::Unimplemented(what) => Error::Unsupported(what),
+    }
+}
+
+/// The result of a catalogue callable inside an evaluator, as a value: a die or `Reroll` as an evaluation state
+/// is beyond the port's `Value` states.
+fn plain(x: PValue) -> crate::error::Result<Value> {
+    match x {
+        PValue::Value(v) => Ok(v),
+        _ => Err(Error::Unsupported(
+            "a callable returning a die or Reroll inside an evaluation".into(),
+        )),
+    }
+}
+
+/// Calls a catalogue function with values. A mapping (a dict) is not callable.
+fn call_values(f: &Func, args: &[Value]) -> crate::error::Result<Value> {
+    if matches!(f, Func::Mapping(_)) {
+        return Err(Error::Type("'dict' object is not callable".into()));
+    }
+    plain(
+        f.call(args.iter().cloned().map(PValue::Value).collect())
+            .map_err(core_error)?,
+    )
+}
+
+/// `pool.sum(map=map)`: `None` is the plain sum; a callable or mapping maps each outcome just before summing (for a
+/// mapping, unmapped outcomes are left as-is: `Func::call` is `mapping.get(o, o)`).
+pub fn sum_map(p: PValue, map: PValue) -> Result<PValue, PErr> {
+    let pools = [method_self(p)?];
+    match map {
+        PValue::Value(Value::None) => die(SumEvaluator, &pools),
+        PValue::Func(f) => die(
+            MappedSumEvaluator {
+                map: move |o: &Value| {
+                    plain(f.call(vec![PValue::Value(o.clone())]).map_err(core_error)?)
+                },
+            },
+            &pools,
+        ),
+        // `{k: v for k, v in map.items()}`
+        PValue::Value(v) => type_error(format!(
+            "AttributeError: '{}' object has no attribute 'items'",
+            v.type_name()
+        )),
+        _ => Err(PErr::Unimplemented("this sum map".into())),
+    }
+}
+
+type Select = Box<dyn Fn(&Value) -> crate::error::Result<bool> + Send + Sync>;
+
+/// `make_select_function(which)`: `None` selects nothing, a callable is called with the outcome (its truth value
+/// is used), any other collection becomes a `frozenset` tested with `in`.
+fn make_select_function(which: PValue) -> Result<Select, PErr> {
+    let set: FxHashSet<Key> = match which {
+        PValue::Value(Value::None) => return Ok(Box::new(|_| Ok(false))),
+        PValue::Func(f) => match &*f {
+            // A dict is not callable: `frozenset(dict)` is its keys.
+            Func::Mapping(m) => m.keys().cloned().collect(),
+            _ => {
+                return Ok(Box::new(move |o: &Value| {
+                    truthy(&f.call(vec![PValue::Value(o.clone())]).map_err(core_error)?)
+                        .map_err(core_error)
+                }))
+            }
+        },
+        PValue::List(items) => items
+            .into_iter()
+            .map(|x| match x {
+                PValue::Value(v) => Ok(Key::Value(v)),
+                PValue::Die(d) => Ok(Key::Die(d)),
+                PValue::List(_) => type_error("unhashable type: 'list'"),
+                _ => Err(PErr::Unimplemented("this wild collection element".into())),
+            })
+            .collect::<Result<_, _>>()?,
+        PValue::Value(Value::Tuple(t)) => t.iter().cloned().map(Key::Value).collect(),
+        PValue::Value(Value::Str(s)) => s
+            .chars()
+            .map(|c| Key::Value(Value::str(&c.to_string())))
+            .collect(),
+        PValue::Die(d) => d.outcomes().cloned().map(Key::Value).collect(),
+        PValue::Value(
+            v @ (Value::Int(_) | Value::Bool(_) | Value::Float(_) | Value::Fraction(_)),
+        ) => {
+            return type_error(format!("'{}' object is not iterable", v.type_name()));
+        }
+        _ => return Err(PErr::Unimplemented("this wild selector".into())),
+    };
+    Ok(Box::new(move |o: &Value| {
+        Ok(set.contains(&Key::Value(o.clone())))
+    }))
+}
+
+/// `pool.largest_count(wild=wild, wild_low=wild_low, wild_high=wild_high)`: without any wild, the plain largest
+/// count.
+pub fn largest_count_wild(
+    p: PValue,
+    wild: PValue,
+    wild_low: PValue,
+    wild_high: PValue,
+) -> Result<PValue, PErr> {
+    let pools = [method_self(p)?];
+    let none = |x: &PValue| matches!(x, PValue::Value(Value::None));
+    if none(&wild) && none(&wild_low) && none(&wild_high) {
+        return die(LargestCountEvaluator, &pools);
+    }
+    die(
+        LargestCountWithWildEvaluator {
+            wild: make_select_function(wild)?,
+            wild_low: make_select_function(wild_low)?,
+            wild_high: make_select_function(wild_high)?,
+        },
+        &pools,
+    )
+}
+
+/// `pool.all_straights_reduce_counts(reducer)`.
+pub fn all_straights_reduce_counts(p: PValue, reducer: PValue) -> Result<PValue, PErr> {
+    let pools = [method_self(p)?];
+    let PValue::Func(f) = reducer else {
+        // Anything else is not callable, which only matters once a straight continues.
+        return Err(PErr::Unimplemented(
+            "a reducer that is not a catalogue function".into(),
+        ));
+    };
+    die(
+        AllStraightsReduceCountsEvaluator {
+            reducer: move |a: &Value, b: &Value| call_values(&f, &[a.clone(), b.clone()]),
+        },
+        &pools,
+    )
+}
+
+/// An `int | None` evaluator parameter (`limit`).
+fn optional_int(x: PValue) -> Result<Option<i64>, PErr> {
+    match value(x)? {
+        Value::None => Ok(None),
+        Value::Int(i) => {
+            Ok(Some(i64::try_from(&i).map_err(|_| {
+                PErr::Unimplemented("a limit beyond 64 bits".into())
+            })?))
+        }
+        _ => Err(PErr::Unimplemented("a limit that is not an int".into())),
+    }
+}
+
+/// `MultisetExpression.argsort(*args, order=, limit=, limit_pad=, tie=)` (called on the class, so the first
+/// argument may be a sequence too). All arguments are converted before `tie` is looked at.
+pub fn argsort(
+    args: PValue,
+    order: PValue,
+    limit: PValue,
+    limit_pad: PValue,
+    tie: PValue,
+) -> Result<PValue, PErr> {
+    let exprs = argsort_args(args)?;
+    let tie = match value(tie)? {
+        v if v == Value::str("drop") => Tie::Drop,
+        v if v == Value::str("left") => Tie::Left,
+        v if v == Value::str("right") => Tie::Right,
+        _ => {
+            return raise(Error::Value(
+                "tie must be \"drop\", \"left\", or \"right\".".into(),
+            ))
+        }
+    };
+    let limit_pad = match value(limit_pad)? {
+        Value::None => None,
+        v => Some(v),
+    };
+    let evaluator = ArgsortEvaluator {
+        tie,
+        order: value(order)?,
+        limit: optional_int(limit)?,
+        limit_pad,
+    };
+    die(evaluator, &exprs)
+}
+
+/// `MultisetExpression.argsort_grouped(*args, order=, limit=)`.
+pub fn argsort_grouped(args: PValue, order: PValue, limit: PValue) -> Result<PValue, PErr> {
+    let exprs = argsort_args(args)?;
+    let evaluator = ArgsortGroupedEvaluator {
+        order: value(order)?,
+        limit: optional_int(limit)?,
+    };
+    die(evaluator, &exprs)
+}
+
+/// `self, *args` of the argsort methods, each `implicit_convert_to_expression`ed.
+fn argsort_args(args: PValue) -> Result<Vec<MExpr>, PErr> {
+    let args = py_iter(args)?;
+    if args.is_empty() {
+        return type_error("argsort() missing 1 required positional argument: 'self'");
+    }
+    args.into_iter().map(implicit_convert).collect()
+}
+
+/// `pool.leximin(comparison, other, extra)` / `pool.leximax(...)`: the lexi tuple is computed (and checked)
+/// before `other` is converted.
+pub fn lexi(
+    p: PValue,
+    max: bool,
+    comparison: PValue,
+    other: PValue,
+    extra: PValue,
+) -> Result<PValue, PErr> {
+    let left = method_self(p)?;
+    let sort_order = if max {
+        Order::Descending
+    } else {
+        Order::Ascending
+    };
+    // A non-str matches no `case` either.
+    let name = |x: PValue| match x {
+        PValue::Value(Value::Str(s)) => s.to_string(),
+        _ => String::new(),
+    };
+    let lexi_tuple =
+        compute_lexi_tuple_with_extra(&name(comparison), sort_order.value(), &name(extra))?;
+    let right = implicit_convert(other)?;
+    die(
+        LexiComparisonEvaluator {
+            sort_order,
+            lexi_tuple,
+        },
+        &[left, right],
+    )
+}
+
+/// Whether Python's `except TypeError` catches this error.
+fn is_type_error(e: &PErr) -> bool {
+    matches!(e, PErr::Raise(Error::Type(_)))
+}
+
+/// The comparison evaluator of `<`, `<=`, `>`, `>=`, and the reflected operator (`a < b` falls back on
+/// `b > a`).
+fn order_comparison(op: &str) -> Option<(Comparison, &'static str)> {
+    Some(match op {
+        "<" => (Comparison::IsProperSubset, ">"),
+        "<=" => (Comparison::IsSubset, ">="),
+        ">" => (Comparison::IsProperSuperset, "<"),
+        ">=" => (Comparison::IsSuperset, "<="),
+        _ => return None,
+    })
+}
+
+/// `a op b` for `op` in `< <= > >= == !=` with a multiset expression on at least one side (node `mx_compare`).
+///
+/// `MultisetExpression.__lt__` etc. return `NotImplemented` on a `TypeError` (from converting the other operand or
+/// from the evaluation), and Python then tries the reflected operator before raising `TypeError` itself. `==` and
+/// `!=` give a `DieWithTruth` whose data is evaluated lazily (an evaluation error is only raised when the data is
+/// used) and whose truth value is `self.equals(other)` (hash keys); when the other operand cannot be converted,
+/// Python falls back on identity: `False` for `==`, `True` for `!=`.
+pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
+    let is_die = |x: &PValue| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..));
+    let plain_operand = |x: &PValue| {
+        matches!(x, PValue::List(_))
+            || matches!(x, PValue::Value(v) if !matches!(v, Value::Vector(_) | Value::Symbols(_) | Value::Host(_)))
+    };
+    match (as_expression(&a), as_expression(&b)) {
+        // `Die.__op__` converts the expression into a one-outcome die, whose `Counts` checks that its outcome is
+        // sortable with `bool(pool < pool)`: a die has no truth value (or the comparison raises), so TypeError.
+        (None, Some(_)) if is_die(&a) => type_error("Items do not appear to be sortable."),
+        (Some(left), _) => match (op, order_comparison(op)) {
+            (_, Some((comparison, reflected))) => {
+                // `self._compare(other, ...)`, NotImplemented on TypeError.
+                let attempt = |left: MExpr, other: PValue, comparison: Comparison| {
+                    implicit_convert(other)
+                        .and_then(|right| die(ComparisonEvaluator(comparison), &[left, right]))
+                };
+                match attempt(left, b.clone(), comparison) {
+                    Err(e) if is_type_error(&e) => {
+                        // The reflected operator of an expression on the right (its own NotImplemented ends it).
+                        if let Some(right) = as_expression(&b) {
+                            let reflected =
+                                order_comparison(reflected).expect("reflected comparison").0;
+                            match attempt(right, a, reflected) {
+                                Err(e) if is_type_error(&e) => {}
+                                result => return result,
+                            }
+                        }
+                        type_error(format!("'{op}' not supported between these instances"))
+                    }
+                    result => result,
+                }
+            }
+            ("==" | "!=", None) => {
+                let ne = op == "!=";
+                let right = match implicit_convert(b.clone()) {
+                    Ok(right) => right,
+                    Err(e) if is_type_error(&e) => {
+                        // NotImplemented: the other operand's own `__eq__`. A die converts the expression (see
+                        // above); for the others it is NotImplemented too, then identity.
+                        if is_die(&b) {
+                            return type_error("Items do not appear to be sortable.");
+                        }
+                        return Ok(PValue::Value(Value::Bool(ne)));
+                    }
+                    Err(e) => return Err(e),
+                };
+                // `self.equals(other)`: only another expression has a hash key.
+                let equals = match as_expression(&b) {
+                    Some(other) => same_expression(&left, &other)?,
+                    None => false,
+                };
+                let truth = equals != ne;
+                let comparison = if ne {
+                    Comparison::IsNotEqualSet
+                } else {
+                    Comparison::IsEqualSet
+                };
+                let exprs = [left, right];
+                if in_function(&exprs) {
+                    // The data callback refuses a raw result.
+                    return Ok(PValue::DieWithTruthError(
+                        Error::Type("Did not resolve to a die.".into()),
+                        truth,
+                    ));
+                }
+                match die(ComparisonEvaluator(comparison), &exprs) {
+                    Ok(PValue::Die(d)) => Ok(PValue::DieWithTruth(d, truth)),
+                    Ok(_) => Err(PErr::Unimplemented(
+                        "a comparison result that is not a die".into(),
+                    )),
+                    Err(PErr::Raise(e)) => Ok(PValue::DieWithTruthError(e, truth)),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Err(PErr::Unimplemented(format!("multiset comparison {op}"))),
+        },
+        // The left operand's own operator returns NotImplemented (no plain type knows multisets), so Python calls
+        // the expression's reflected one: `a < b` is `b > a`, `a == b` is `b == a`.
+        (None, Some(_)) if plain_operand(&a) => match order_comparison(op) {
+            Some((_, reflected)) => compare_operator(reflected, b, a),
+            None => compare_operator(op, b, a),
+        },
+        _ => Err(PErr::Unimplemented(
+            "a multiset comparison with these operands".into(),
+        )),
+    }
+}
+
+/// `other // pool` (node `mx_rfloordiv`): with an expression on the left, its `__floordiv__` is `count_subset`
+/// (the right side is not an int); otherwise the left operand's own `//` returns NotImplemented and
+/// `MultisetExpression.__rfloordiv__` is `implicit_convert_to_expression(other).count_subset(self)`, whose
+/// conversion errors are not caught.
+pub fn rfloordiv(other: PValue, p: PValue) -> Result<PValue, PErr> {
+    let right = method_self(p)?;
+    let left = match other {
+        // `Die.__floordiv__` converts the pool into a one-outcome die (see `compare_operator`).
+        PValue::Die(_) | PValue::DieWithTruth(..) => {
+            return type_error("Items do not appear to be sortable.")
+        }
+        PValue::Value(Value::Vector(_) | Value::Symbols(_) | Value::Host(_)) => {
+            return Err(PErr::Unimplemented(
+                "this left operand of // a multiset".into(),
+            ))
+        }
+        other => implicit_convert(other)?,
+    };
+    die(
+        CountSubsetEvaluator {
+            empty_divisor: Value::None,
+        },
+        &[left, right],
+    )
 }

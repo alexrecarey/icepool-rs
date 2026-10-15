@@ -137,6 +137,12 @@ def max2():
     return lambda a, b: max(a, b)
 
 
+@entry("mul2", args=_two)
+def mul2():
+    """operator.mul: all_straights_reduce_counts' default reducer."""
+    return lambda a, b: a * b
+
+
 def _three(g, depth):
     if g.rng.random() < 0.2:
         return [tuple_die(g, depth, width=3)]

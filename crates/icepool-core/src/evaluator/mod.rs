@@ -13,9 +13,11 @@
 //! A `@multiset_function` evaluation is a call tree (`crate::expression::CallTree`) whose counts and sizes reach
 //! the evaluator as trees ([`multiset_function`]).
 
+pub mod argsort;
 pub mod basic;
 pub mod comparison;
 pub mod keep;
+pub mod lexi;
 pub mod multiset_function;
 pub mod poker;
 

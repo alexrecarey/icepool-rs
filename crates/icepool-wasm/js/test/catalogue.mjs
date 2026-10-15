@@ -72,6 +72,7 @@ export const FUNCTIONS = {
   swap: () => function (a, b) { arity(arguments, 2); return [b, a]; },
   add2: () => function (a, b) { arity(arguments, 2); return ops.add(a, b); },
   max2: () => function (a, b) { arity(arguments, 2); return max(a, b); },
+  mul2: () => function (a, b) { arity(arguments, 2); return ops.mul(a, b); },
   sum3: () => function (a, b, c) { arity(arguments, 3); return ops.add(ops.add(a, b), c); },
   first: () => function (t) { arity(arguments, 1); return first(t); },
   pair_k: (k) => function (x) { arity(arguments, 1); return [x, k]; },

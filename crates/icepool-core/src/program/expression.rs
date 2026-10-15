@@ -657,7 +657,7 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
 /// Whether a dict holding expression `a` finds it equal to `b` (`MultisetMixture` counts its inners in one): their
 /// `hash_key`s. Expressions of different classes have different hash keys and are never compared; the port only
 /// compares generators and parameters.
-fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
+pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
     Ok(match (a, b) {
         (MExpr::Gen(KeepGen::Pool(a)), MExpr::Gen(KeepGen::Pool(b))) => {
             a.dice() == b.dice() && a.keep_tuple() == b.keep_tuple()

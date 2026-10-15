@@ -199,5 +199,14 @@
   "map_function": "ported",
   "die_method": "ported",
   "die_keep": "ported",
-  "die_keep_slice": "ported"
+  "die_keep_slice": "ported",
+  "pool_sum_map": "ported",
+  "pool_largest_count_wild": "ported",
+  "pool_all_straights_reduce_counts": "ported",
+  "argsort": "ported",
+  "argsort_grouped": "ported",
+  "pool_leximin": "ported",
+  "pool_leximax": "ported",
+  "mx_compare": "ported",
+  "mx_rfloordiv": "ported"
 }

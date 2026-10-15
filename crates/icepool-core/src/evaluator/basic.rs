@@ -24,6 +24,15 @@ pub(crate) fn int(i: i64) -> Value {
     Value::from(i)
 }
 
+/// `sorted(items, reverse=True)`: a reverse sort reverses, sorts stably and reverses back (so equal items keep
+/// their order).
+pub(crate) fn py_sorted_reverse(mut items: Vec<Value>) -> Result<Vec<Value>> {
+    items.reverse();
+    let mut sorted = py_sorted(items, |a, b| a.py_lt(b))?;
+    sorted.reverse();
+    Ok(sorted)
+}
+
 /// All elements of the multiset (`ExpandEvaluator`).
 ///
 /// This is expensive and not recommended unless there are few possibilities. Outcomes with negative count will
@@ -70,15 +79,11 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
             Value::Tuple(t) => t.to_vec(),
             _ => return Ok(Final::Outcome(Value::tuple(Vec::new()))),
         };
-        // `sorted(final_state, reverse=reverse)`: a reverse sort reverses, sorts stably and reverses back.
+        // `sorted(final_state, reverse=reverse)`.
         let sorted = if self.ascending {
             py_sorted(items, |a, b| a.py_lt(b))?
         } else {
-            let mut items = items;
-            items.reverse();
-            let mut sorted = py_sorted(items, |a, b| a.py_lt(b))?;
-            sorted.reverse();
-            sorted
+            py_sorted_reverse(items)?
         };
         Ok(Final::Outcome(Value::tuple(sorted)))
     }
@@ -102,18 +107,58 @@ impl MultisetEvaluator<Value> for SumEvaluator {
         outcome: &Value,
         counts: &[i64],
     ) -> Result<Option<Value>> {
-        let count = counts[0];
-        Ok(Some(match state {
-            Value::None => {
-                if count == 1 {
-                    // The outcome does not need to support addition or multiplication in this case.
-                    outcome.clone()
-                } else {
-                    outcome.binary(BinOp::Mul, &int(count))?
-                }
+        Ok(Some(add_to_sum(state, outcome.clone(), counts[0])?))
+    }
+
+    fn final_outcome(
+        &self,
+        final_state: &Value,
+        _: Order,
+        _: &[Value],
+        _: &[Option<i64>],
+    ) -> Result<Final<Value>> {
+        Ok(state_as_outcome(final_state))
+    }
+}
+
+/// `SumEvaluator.next_state` after the (optional) map: `outcome * count` added to the state.
+fn add_to_sum(state: &Value, outcome: Value, count: i64) -> Result<Value> {
+    Ok(match state {
+        Value::None => {
+            if count == 1 {
+                // The outcome does not need to support addition or multiplication in this case.
+                outcome
+            } else {
+                outcome.binary(BinOp::Mul, &int(count))?
             }
-            state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, &int(count))?)?,
-        }))
+        }
+        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, &int(count))?)?,
+    })
+}
+
+/// `SumEvaluator(map)`: outcomes are mapped by `map` just before summing. A callable is called with each outcome
+/// (every outcome the evaluation sees, zero counts included); for a mapping, unmapped outcomes are left as-is
+/// (`map_dict.get(outcome, outcome)`). The caller builds `map` accordingly.
+pub struct MappedSumEvaluator<F> {
+    pub map: F,
+}
+
+impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvaluator<F> {
+    type State = Value;
+    type Final = Value;
+
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<i64>]) -> Result<Value> {
+        Ok(Value::None)
+    }
+
+    fn next_state(
+        &self,
+        state: &Value,
+        _: Order,
+        outcome: &Value,
+        counts: &[i64],
+    ) -> Result<Option<Value>> {
+        Ok(Some(add_to_sum(state, (self.map)(outcome)?, counts[0])?))
     }
 
     fn final_outcome(

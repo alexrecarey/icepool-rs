@@ -450,6 +450,41 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             };
             evaluate::compare(&cmp, p, other)
         }
+        "pool_sum_map" => {
+            let [p, map] = args.exactly(["pool", "map"])?;
+            evaluate::sum_map(p, map)
+        }
+        "pool_largest_count_wild" => {
+            let [p, wild, wild_low, wild_high] =
+                args.exactly(["pool", "wild", "wild_low", "wild_high"])?;
+            evaluate::largest_count_wild(p, wild, wild_low, wild_high)
+        }
+        "pool_all_straights_reduce_counts" => {
+            let [p, reducer] = args.exactly(["pool", "reducer"])?;
+            evaluate::all_straights_reduce_counts(p, reducer)
+        }
+        "argsort" => {
+            let [a, order, limit, limit_pad, tie] =
+                args.exactly(["args", "order", "limit", "limit_pad", "tie"])?;
+            evaluate::argsort(a, order, limit, limit_pad, tie)
+        }
+        "argsort_grouped" => {
+            let [a, order, limit] = args.exactly(["args", "order", "limit"])?;
+            evaluate::argsort_grouped(a, order, limit)
+        }
+        "pool_leximin" | "pool_leximax" => {
+            let [p, comparison, other, extra] =
+                args.exactly(["pool", "comparison", "other", "extra"])?;
+            evaluate::lexi(p, op == "pool_leximax", comparison, other, extra)
+        }
+        "mx_compare" => {
+            let [a, o, b] = args.exactly(["a", "o", "b"])?;
+            evaluate::compare_operator(&str_arg(&o)?, a, b)
+        }
+        "mx_rfloordiv" => {
+            let [other, p] = args.exactly(["other", "pool"])?;
+            evaluate::rfloordiv(other, p)
+        }
         "keep_evaluate" => {
             let [p, index] = args.exactly(["pool", "index"])?;
             evaluate::keep_evaluate(p, index)
