@@ -22,6 +22,7 @@ use crate::math::comb_row;
 use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
 use crate::outcome::Outcome;
+use crate::weightless::WeightlessSource;
 use crate::Quantity;
 
 /// Above this many dice the port refuses a pool (`(1,) * n` keep tuple): Python would spend minutes or run out of
@@ -214,13 +215,15 @@ impl<O: Outcome> Pool<O> {
 /// What the evaluator pops outcomes from: one variant per kind of multiset generator (`MultisetSource`), each a
 /// small immutable value that hashes for the evaluator's memo. `Pool` and `Deal` produce an `int` count per
 /// outcome; `MultiDeal` (a `MultisetTupleSource`) a tuple of counts, one per hand. `CompoundKeep` is the additive
-/// union of other keep generators' sources.
+/// union of other keep generators' sources. `Weightless` wraps another source with every weight set to 1
+/// (`MultisetGenerator.weightless()`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
     Pool(PoolSource<O>),
     Deal(DealSource<O>),
     MultiDeal(MultiDealSource<O>),
     CompoundKeep(CompoundKeepSource<O>),
+    Weightless(WeightlessSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
@@ -256,6 +259,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Deal(s) => s.outcomes(),
             MultisetSource::MultiDeal(s) => s.outcomes(),
             MultisetSource::CompoundKeep(s) => s.outcomes()?,
+            MultisetSource::Weightless(s) => s.outcomes()?,
         })
     }
 
@@ -267,6 +271,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Deal(s) => s.size()?.map(Count::Int),
             MultisetSource::MultiDeal(s) => Some(Count::Tuple(s.size())),
             MultisetSource::CompoundKeep(s) => s.size()?.map(Count::Int),
+            MultisetSource::Weightless(s) => s.size()?,
         })
     }
 
@@ -277,6 +282,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Deal(s) => s.is_resolvable(),
             MultisetSource::MultiDeal(s) => s.is_resolvable(),
             MultisetSource::CompoundKeep(s) => s.is_resolvable(),
+            MultisetSource::Weightless(s) => s.is_resolvable(),
         }
     }
 
@@ -287,6 +293,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::Deal(s) => s.order_preference(),
             MultisetSource::MultiDeal(s) => s.order_preference(),
             MultisetSource::CompoundKeep(s) => s.order_preference(),
+            MultisetSource::Weightless(s) => s.order_preference(),
         }
     }
 
@@ -305,6 +312,7 @@ impl<O: Outcome> MultisetSource<O> {
             MultisetSource::CompoundKeep(s) => {
                 int_popped(s.pop(order, outcome)?, MultisetSource::CompoundKeep)
             }
+            MultisetSource::Weightless(s) => s.pop(order, outcome)?,
         })
     }
 }

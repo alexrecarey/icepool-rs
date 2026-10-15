@@ -324,6 +324,10 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [e, order] = args.exactly(["expr", "order"])?;
             expression::force_order(e, order)
         }
+        "weightless" => {
+            let [g] = args.exactly(["generator"])?;
+            expression::weightless(g)
+        }
         "mx_mixture" => {
             let [inners] = args.exactly(["inners"])?;
             expression::mixture(inners)
@@ -344,7 +348,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [f, a, star] = args.exactly(["f", "args", "star"])?;
             super::multiset_function::mf_call(f, a, star)
         }
-        "mx_evaluate" | "mx_tuple_evaluate" | "to_pool_evaluate" => {
+        "mx_evaluate" | "mx_tuple_evaluate" | "to_pool_evaluate" | "weightless_evaluate" => {
             let [e, method] = args.exactly(["expr", "method"])?;
             evaluate::method_evaluation(&str_arg(&method)?, e)
         }

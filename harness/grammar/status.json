@@ -213,5 +213,7 @@
   "die_map_to_pool": "ported",
   "explode_to_pool": "ported",
   "reroll_to_pool": "ported",
-  "to_pool_evaluate": "ported"
+  "to_pool_evaluate": "ported",
+  "weightless": "ported",
+  "weightless_evaluate": "ported"
 }

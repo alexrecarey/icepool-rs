@@ -85,6 +85,8 @@ def _wrap_rust_source(rs):
         return icepool.generator.deal.DealSource._new_rust(rs)
     if isinstance(rs, rust.MultiDealSource):
         return icepool.generator.multi_deal.MultiDealSource._new_rust(rs)
+    if isinstance(rs, rust.WeightlessSource):
+        return icepool.generator.weightless.WeightlessSource._new_rust(rs)
     return CompoundKeepSource._new_rust(rs)
 
 

@@ -25,6 +25,7 @@ use crate::operator::{
 };
 use crate::pool::{MultisetSource, Pool};
 use crate::value::builtins::{getitem, Index};
+use crate::weightless::WeightlessSource;
 use crate::{MultiDeal, Quantity, Value};
 
 /// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
@@ -34,6 +35,9 @@ pub enum MExpr {
     Gen(KeepGen),
     /// A `MultiDeal`.
     MultiDeal(MultiDeal<Value>),
+    /// `WeightlessGenerator`: `g.weightless()` of a keep generator `g` (generator/weightless.py). Not a keep
+    /// generator itself, so keep-like operations and `+` on it build operators.
+    Weightless(KeepGen),
     /// A `MultisetOperator` and its children.
     Op(Arc<(Operator<Value>, Vec<MExpr>)>),
     /// `MultisetParameter`: argument `arg_index` of a `@multiset_function` (its `star_index` element if starred).
@@ -56,6 +60,7 @@ impl fmt::Debug for MExpr {
         match self {
             MExpr::Gen(g) => write!(f, "{g:?}"),
             MExpr::MultiDeal(_) => write!(f, "MultiDeal"),
+            MExpr::Weightless(g) => write!(f, "WeightlessGenerator({g:?})"),
             MExpr::Op(node) => write!(f, "MultisetOperator({:?})", node.1),
             MExpr::Param { arg_index, .. } | MExpr::TupleParam { arg_index, .. } => {
                 write!(f, "MultisetParameter({arg_index})")
@@ -78,6 +83,13 @@ impl MExpr {
         let one = |dungeonlet, sources| Ok(vec![(vec![dungeonlet], sources, Quantity::ONE)]);
         match self {
             MExpr::Gen(g) => one(Dungeonlet::FreeVariable, vec![g.source()?]),
+            // `WeightlessSource(self._wrapped._make_source())`.
+            MExpr::Weightless(g) => one(
+                Dungeonlet::FreeVariable,
+                vec![MultisetSource::Weightless(WeightlessSource::new(
+                    g.source()?,
+                ))],
+            ),
             MExpr::MultiDeal(md) => one(
                 Dungeonlet::FreeVariable,
                 vec![MultisetSource::MultiDeal(md.source())],
@@ -152,7 +164,7 @@ impl MExpr {
     /// only records the evaluation for the function).
     pub fn has_parameter(&self) -> bool {
         match self {
-            MExpr::Gen(_) | MExpr::MultiDeal(_) => false,
+            MExpr::Gen(_) | MExpr::MultiDeal(_) | MExpr::Weightless(_) => false,
             MExpr::Param { .. } | MExpr::TupleParam { .. } => true,
             MExpr::Op(node) => node.1.iter().any(MExpr::has_parameter),
             MExpr::TupleIndex(node) => node.0.has_parameter(),
@@ -659,12 +671,9 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
 /// compares generators and parameters.
 pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
     Ok(match (a, b) {
-        (MExpr::Gen(KeepGen::Pool(a)), MExpr::Gen(KeepGen::Pool(b))) => {
-            a.dice() == b.dice() && a.keep_tuple() == b.keep_tuple()
-        }
-        (MExpr::Gen(KeepGen::Deal(a)), MExpr::Gen(KeepGen::Deal(b))) => a == b,
-        (MExpr::Gen(KeepGen::Compound(a)), MExpr::Gen(KeepGen::Compound(b))) => a == b,
-        (MExpr::Gen(_), MExpr::Gen(_)) => false,
+        (MExpr::Gen(a), MExpr::Gen(b)) => same_generator(a, b),
+        // `(WeightlessGenerator, wrapped.hash_key)`.
+        (MExpr::Weightless(a), MExpr::Weightless(b)) => same_generator(a, b),
         (MExpr::MultiDeal(a), MExpr::MultiDeal(b)) => a == b,
         (
             MExpr::Param {
@@ -720,6 +729,28 @@ pub(super) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             ))
         }
     })
+}
+
+/// Whether two keep generators have the same `hash_key`.
+fn same_generator(a: &KeepGen, b: &KeepGen) -> bool {
+    match (a, b) {
+        (KeepGen::Pool(a), KeepGen::Pool(b)) => {
+            a.dice() == b.dice() && a.keep_tuple() == b.keep_tuple()
+        }
+        (KeepGen::Deal(a), KeepGen::Deal(b)) => a == b,
+        (KeepGen::Compound(a), KeepGen::Compound(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// `g.weightless()` (node `weightless`): only multiset generators have the method, and a `WeightlessGenerator`
+/// returns itself.
+pub fn weightless(g: PValue) -> Result<PValue, PErr> {
+    match as_expression(&g) {
+        Some(MExpr::Gen(g)) => Ok(PValue::Expr(MExpr::Weightless(g))),
+        Some(e @ MExpr::Weightless(_)) => Ok(PValue::Expr(e)),
+        _ => type_error("AttributeError: object has no attribute 'weightless'"),
+    }
 }
 
 /// `data[inner] += weight` for a mixture's `defaultdict(int)` of inners.

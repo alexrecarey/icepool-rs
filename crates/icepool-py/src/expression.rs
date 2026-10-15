@@ -29,6 +29,7 @@ use crate::convert::{from_py, host_error, int_from_py, quantity_to_py, to_py, to
 use crate::deck::RsDealSource;
 use crate::multi_deal::RsMultiDealSource;
 use crate::pool::{exact_count, hash_of, keep_index, outcome_tuple, RsPoolSource};
+use crate::weightless::RsWeightlessSource;
 
 /// A `CompoundKeepGenerator` of the core, held by the facade's as `_rs`.
 #[pyclass(frozen, name = "CompoundKeep", module = "icepool_rs")]
@@ -42,7 +43,7 @@ pub struct RsCompoundKeepSource {
     pub(crate) source: CompoundKeepSource<Value>,
 }
 
-/// The core source of a facade source's `_rs`: a pool's, deal's, multi-deal's or compound keep's.
+/// The core source of a facade source's `_rs`: a pool's, deal's, multi-deal's, compound keep's or weightless one's.
 pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value>> {
     if let Ok(s) = s.cast::<RsPoolSource>() {
         return Ok(MultisetSource::Pool(s.get().source.clone()));
@@ -53,13 +54,16 @@ pub(crate) fn core_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value
     if let Ok(s) = s.cast::<RsMultiDealSource>() {
         return Ok(MultisetSource::MultiDeal(s.get().source.clone()));
     }
+    if let Ok(s) = s.cast::<RsWeightlessSource>() {
+        return Ok(MultisetSource::Weightless(s.get().source.clone()));
+    }
     Ok(MultisetSource::CompoundKeep(
         s.cast::<RsCompoundKeepSource>()?.get().source.clone(),
     ))
 }
 
 /// A core source as the `icepool_rs` object the facade wraps (`PoolSource._new_rust(...)` and so on).
-fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> PyResult<Bound<'py, PyAny>> {
     Ok(match s {
         MultisetSource::Pool(s) => Bound::new(py, RsPoolSource { source: s.clone() })?.into_any(),
         MultisetSource::Deal(s) => Bound::new(py, RsDealSource { source: s.clone() })?.into_any(),
@@ -68,6 +72,9 @@ fn source_object<'py>(py: Python<'py>, s: &MultisetSource<Value>) -> PyResult<Bo
         }
         MultisetSource::CompoundKeep(s) => {
             Bound::new(py, RsCompoundKeepSource { source: s.clone() })?.into_any()
+        }
+        MultisetSource::Weightless(s) => {
+            Bound::new(py, RsWeightlessSource { source: s.clone() })?.into_any()
         }
     })
 }

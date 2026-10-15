@@ -37,6 +37,7 @@ pub mod pysort;
 pub mod random;
 pub mod to_pool;
 pub mod value;
+pub mod weightless;
 
 pub use creation_args::DieArg;
 pub use deal::Deal;

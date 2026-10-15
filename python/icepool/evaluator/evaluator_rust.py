@@ -127,7 +127,7 @@ def _tuple_item_spec(operator) -> tuple | None:
 
 
 def _core_source(q, source) -> bool:
-    """Whether a free variable's source is the core's: a pool, deal or compound keep source with a
+    """Whether a free variable's source is the core's: a pool, deal, compound keep or weightless source with a
     `MultisetGeneratorQuestlet`, a multi-deal source with a `MultisetTupleGeneratorQuestlet`."""
     if '_rs' not in source.__dict__:
         return False
@@ -136,7 +136,8 @@ def _core_source(q, source) -> bool:
             source,
             (icepool.generator.pool.PoolSource,
              icepool.generator.deal.DealSource,
-             icepool.generator.compound_keep.CompoundKeepSource))
+             icepool.generator.compound_keep.CompoundKeepSource,
+             icepool.generator.weightless.WeightlessSource))
     if type(q) is MultisetTupleGeneratorQuestlet:
         return isinstance(source, icepool.generator.multi_deal.MultiDealSource)
     return False
