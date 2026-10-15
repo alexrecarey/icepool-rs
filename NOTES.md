@@ -726,9 +726,12 @@ turns out wrong. Newest decisions at the top of each section.
   crates/icepool-py/src/evaluate.rs instead of `Dungeon.evaluate`. `builtin_spec` names the core built-ins
   (`type(evaluator) is` the exact class, its `next_state` arity, only the kwargs it reads with exact types:
   `SumEvaluator()` without map, size, product_of_counts, empty(any: bool), expand(order: Order/int/bool), keep(index:
-  None or i64), poker ones, all_counts, count_subset, largest_straight_and_outcome, the seven comparisons) ->
-  `evaluate_builtin`, all in Rust. Anything else (subclasses, `SumEvaluator(map)`, wild/reduce counts, lexi,
-  argsort, wrong arity, extra kwargs) -> `evaluate_host`: the core driver with the evaluator's bound methods as host
+  None or i64), poker ones, all_counts, count_subset, largest_straight_and_outcome, the seven comparisons; since
+  K6e argsort drop/left/right and argsort_grouped (no kwargs, >= 1 input, `_order` an `Order` passed as its int,
+  `_limit` None or i64, `_limit_pad` None or exact int) and lexi (2 inputs, kwargs exactly `sort_order` an `Order`
+  and `lexi_tuple` a tuple of 5 i64s)) -> `evaluate_builtin`, all in Rust. Anything else (subclasses,
+  `SumEvaluator(map)`, wild/reduce counts, argsort with order=1 / an IntEnum / a big limit, wrong arity, extra
+  kwargs) -> `evaluate_host`: the core driver with the evaluator's bound methods as host
   callbacks (`HostEvaluator`), states as `Value` (native where possible, `Value::Host` otherwise), `Order` members
   and the `outcomes` tuple passed as Python does, `x in REROLL_TYPES` asked of Python, `UnsupportedOrder` (and
   subclasses) from initial_state/next_state/final_outcome = the core's retry signal (from `extra_outcomes` it

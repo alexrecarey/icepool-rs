@@ -8,7 +8,7 @@
 //! comes back (as `Quest.finalize_evaluation` does). Three ways in:
 //!
 //! - [`evaluate_builtin`]: the built-in evaluators the core has (`sum_evaluator`, `size_evaluator`, poker, keep,
-//!   comparisons...), named by the facade with their parameters. Everything runs in Rust.
+//!   comparisons, argsort, leximin / leximax...), named by the facade with their parameters. Everything runs in Rust.
 //! - [`evaluate_host`]: any other `MultisetEvaluator` (user subclasses included). The core driver pops the sources
 //!   and memoises rooms; `next_state` / `initial_state` / `extra_outcomes` / `final_outcome` are host callbacks,
 //!   and states are Python objects (native `Value`s where the core models the type, `Value::Host` otherwise).
@@ -21,11 +21,13 @@
 
 use std::cell::RefCell;
 
+use icepool_core::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
 use icepool_core::evaluator::basic::{
     EmptyEvaluator, ExpandEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
 };
 use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
 use icepool_core::evaluator::keep::KeepEvaluator;
+use icepool_core::evaluator::lexi::LexiComparisonEvaluator;
 use icepool_core::evaluator::multiset_function::{
     Call, DynEvaluator, Erased, MultisetFunction, Tupleize,
 };
@@ -164,6 +166,36 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
         "is_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsEqualSet)),
         "is_not_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsNotEqualSet)),
         "is_disjoint_set" => v.visit(ComparisonEvaluator(Comparison::IsDisjointSet)),
+        // `(tie, order, limit, limit_pad)`: the order as its `Order` value, which is all `order != self._order`
+        // compares.
+        "argsort" => v.visit(ArgsortEvaluator {
+            tie: match param(0)?.extract::<String>()?.as_str() {
+                "drop" => Tie::Drop,
+                "left" => Tie::Left,
+                "right" => Tie::Right,
+                tie => {
+                    return Err(PyValueError::new_err(format!(
+                        "icepool_rs: no argsort tie {tie:?}"
+                    )))
+                }
+            },
+            order: Value::from(param(1)?.extract::<i64>()?),
+            limit: param(2)?.extract()?,
+            limit_pad: match param(3)? {
+                pad if pad.is_none() => None,
+                pad => Some(from_py(pad)?),
+            },
+        }),
+        "argsort_grouped" => v.visit(ArgsortGroupedEvaluator {
+            order: Value::from(param(0)?.extract::<i64>()?),
+            limit: param(1)?.extract()?,
+        }),
+        // `(sort_order, lexi_tuple)`: the `evaluate()` keyword arguments of `leximin` / `leximax`.
+        "lexi" => v.visit(LexiComparisonEvaluator {
+            sort_order: Order::from_int(param(0)?.extract()?)
+                .ok_or_else(|| PyValueError::new_err("icepool_rs: lexi needs an Order"))?,
+            lexi_tuple: param(1)?.extract()?,
+        }),
         _ => Err(PyValueError::new_err(format!(
             "icepool_rs: no built-in evaluator {name:?}"
         ))),

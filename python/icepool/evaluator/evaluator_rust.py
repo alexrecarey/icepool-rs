@@ -321,6 +321,11 @@ def _exact_int(x) -> bool:
     return type(x) is int
 
 
+def _i64(x) -> bool:
+    """An exact int the core holds as an `i64` (argsort's `limit`, the lexi tuple)."""
+    return type(x) is int and -2**63 <= x < 2**63
+
+
 def builtin_spec(evaluator, inputs: int,
                  kwargs: Mapping[str, Any]) -> tuple[str, tuple] | None:
     """The core's name and parameters for a built-in evaluator, or `None` to call back the evaluator's methods.
@@ -383,6 +388,33 @@ def builtin_spec(evaluator, inputs: int,
         }
         if t in comparisons:
             return comparisons[t], ()
+    if (t is ev.LexiComparisonEvaluator and inputs == 2
+            and set(kwargs) == {'sort_order', 'lexi_tuple'}):
+        # `leximin` / `leximax` pass both; `initial_state` compares `order == sort_order` and `final_outcome`
+        # returns one of the five ints.
+        sort_order, lexi_tuple = kwargs['sort_order'], kwargs['lexi_tuple']
+        if (type(sort_order) is Order and type(lexi_tuple) is tuple
+                and len(lexi_tuple) == 5 and all(_i64(x) for x in lexi_tuple)):
+            return 'lexi', (int(sort_order), lexi_tuple)
+    if inputs >= 1 and not kwargs:
+        # argsort takes any number of inputs. Its `initial_state` compares `order != self._order`: only an `Order`
+        # is passed on (as its value), so the comparison is the core's.
+        argsort = {
+            ev.ArgsortEvaluatorDrop: 'drop',
+            ev.ArgsortEvaluatorLeft: 'left',
+            ev.ArgsortEvaluatorRight: 'right',
+        }
+        if (t in argsort and type(evaluator._order) is Order
+                and (evaluator._limit is None or _i64(evaluator._limit))
+                and (evaluator._limit_pad is None
+                     or _exact_int(evaluator._limit_pad))):
+            return 'argsort', (argsort[t], int(evaluator._order),
+                               evaluator._limit, evaluator._limit_pad)
+        if (t is ev.ArgsortGroupedEvaluator
+                and type(evaluator._order) is Order
+                and (evaluator._limit is None or _i64(evaluator._limit))):
+            return 'argsort_grouped', (int(evaluator._order),
+                                       evaluator._limit)
     return None
 
 
