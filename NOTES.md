@@ -61,12 +61,21 @@ turns out wrong. Newest decisions at the top of each section.
   the count with an int (keep, highest_outcome_and_count, the straights) return `tuple_compared_with_int`; keep
   overrides `initial_state_counts` (a tuple size is read only to count from the other end: TypeError). States
   produced from tuple counts can meet `int` counts later (a filter gives 0 for filtered-out outcomes), so the
-  state-producing evaluators run their `int` path through the `Value` one. argsort and lexi are NOT ported for
-  tuple counts (still `Unsupported`; facade: callbacks, `builtin_spec(..., tuple_counts=True)` returns None for
-  them).
-- Facade: `builtin_spec` takes `tuple_counts` (any `_tuple_source`); `evaluate` and `rust_call_tree` no longer
-  refuse built-ins for tuple sources, and built-ins fed tuple counts by a host operator are no longer
-  NotImplementedError.
+  state-producing evaluators run their `int` path through the `Value` one. argsort and lexi: S5e (below).
+- Facade: `evaluate` and `rust_call_tree` no longer refuse built-ins for tuple sources, and built-ins fed tuple
+  counts by a host operator are no longer NotImplementedError. Since S5e `builtin_spec` names every built-in
+  whatever the sources (the `tuple_counts` argument and `_tuple_source` are gone).
+- **argsort / lexi over tuple counts (S5e).** `ArgsortEvaluator::step(state, Vec<Result<Int>>)` is the one
+  `next_state`: a tuple count is the `Err` Python's arithmetic raises when it reaches it (drop: only below the
+  limit, all counts compared; left / right: in turn, so a return at the limit before the tuple succeeds; grouped:
+  below the limit always raises, `'>'` or `(i,) * tuple` by whether a positive int came first). Lexi:
+  `next_state_values` always raises (`max(left, 0)`), `initial_state_counts` reads tuple sizes only in reverse
+  order (None size: UnsupportedOrder first). All of them `reads_sizes() == false`. So with tuple counts the only
+  successful results are argsort ones that reach the limit (limit <= 0, or left / right filling it at the one
+  outcome); everything else is TypeError. builtin_evaluate generates the four argsort classes (1-3 inputs, ctor
+  kwargs order / limit / limit_pad) and LexiComparisonEvaluator (evaluate kwargs sort_order ±1, lexi_tuple a
+  list of 5). Fuzzed by a direct generator script (as S5d): 20.5k natively, 4k + the edge cases through
+  run-facade.sh, clean. fixtures/s5e (edge-cases 330, generated 350); facade cases (S5e block).
 - Node `builtin_evaluate` (multiset_function.py): `getattr(icepool.evaluator, cls)(*params, **ctor_kwargs)
   .evaluate(*args, **kwargs)` for the 23 built-in classes (`_BUILTIN_EVALUATORS`: arity and parameter
   generators), args mostly MultiDeals / `tuple_count_expression`s, now and then a pool. Function bodies

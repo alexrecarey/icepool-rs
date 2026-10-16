@@ -21,12 +21,12 @@ ran on the core or composed core calls), then by S5c (the leftovers it moved to 
 | `collection/vector_with_truth_only.py` | via | a truth value only |
 | `creation_args.py` | core | `expand_args_for_die_rust` / `_deck_rust`; `itemize` / `expand_arg` are argument handling |
 | `evaluator/__init__.py` | via | imports |
-| `evaluator/argsort.py` | partly | not native: `next_state` called back from the core driver (K6c) |
+| `evaluator/argsort.py` | core | native (`builtin_spec`: an `Order` and an i64 `limit`), over tuple counts too since S5e |
 | `evaluator/basic.py` | core | Sum (no map), Size, ProductOfCounts, Empty, Expand native; `SumEvaluator(map)` called back (K6c) |
 | `evaluator/comparison.py` | core | all seven native |
 | `evaluator/evaluator_rust.py` | core | the bridge (`rust_flats`, `rust_call_tree`, `builtin_spec`) |
 | `evaluator/keep.py` | core | native for an index within i64 |
-| `evaluator/lexi.py` | partly | `LexiComparisonEvaluator` called back (K6c) |
+| `evaluator/lexi.py` | core | `LexiComparisonEvaluator` native for an `Order` and an i64 lexi tuple, over tuple counts too since S5e |
 | `evaluator/multiset_evaluator.py` | via | base class; user methods are host callbacks of the core driver |
 | `evaluator/multiset_evaluator_base.py` | core | `evaluate` on the core: user sources and operators as host ones (S5c); dungeon / dungeonlet classes the core does not know raise `NotImplementedError` (no fallback to upstream's driver) |
 | `evaluator/multiset_function.py` | core | tracing in Python by design; the call tree runs in `evaluate_tree` |
@@ -43,7 +43,7 @@ ran on the core or composed core calls), then by S5c (the leftovers it moved to 
 | `generator/compound_keep.py` | core | |
 | `generator/deal.py` | core | |
 | `generator/keep.py` | core | `keep()` via `_rs.keep` |
-| `generator/multi_deal.py` | core | sources on the core; built-in evaluators over it on the core since S5d (argsort / lexi called back) |
+| `generator/multi_deal.py` | core | sources on the core; built-in evaluators over it on the core since S5d (argsort / lexi since S5e) |
 | `generator/multiset_generator.py` | via | abstract base; a user subclass's source is a host source of the core driver (S5c) |
 | `generator/multiset_tuple_generator.py` | via | abstract base |
 | `generator/pool.py` | core | |
@@ -83,8 +83,8 @@ ran on the core or composed core calls), then by S5c (the leftovers it moved to 
 3. Evaluators called back from the core driver: `SumEvaluator(map)`, `LargestCountWithWild`,
    `AllStraightsReduceCounts`, argsort, `LexiComparisonEvaluator`, keep with an index beyond i64: **K6c**.
 4. ~~Evaluators over a `MultiDeal` (tuple counts)~~: operators on the core since S4f, the built-in evaluators
-   since S5d (natively in the facade and icepool-run, also fed tuple counts by a host operator), except argsort and
-   lexi, which are still host callbacks in the facade for tuple sources and `Unsupported` in icepool-run.
+   since S5d (natively in the facade and icepool-run, also fed tuple counts by a host operator), argsort and lexi
+   since S5e.
 5. ~~Sources the core does not recognise use upstream's driver silently~~: since S5c user sources are host sources
    and operators without a spec host operators of the core driver; an evaluation prepared into dungeon /
    dungeonlet classes the core does not know (a user's own `_prepare`, internal API) raises `NotImplementedError`.
