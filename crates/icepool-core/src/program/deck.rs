@@ -200,9 +200,24 @@ pub fn deck_op(op: PValue, a: PValue, b: PValue) -> Result<PValue, PErr> {
 /// flattens the dice that are left into their outcomes, after the deck's own cards. Equal dice need not be counted
 /// together: one key counted twice adds the same cards as two keys counted once each.
 fn deck_op_expression(deck: &Deck<Value>, op: CounterOp, expr: PValue) -> Result<PValue, PErr> {
+    use super::expression::{as_expression, keepable_mixture, MExpr};
+    // A keep generator (or a mixture of them) checks its keep tuple first: an index past it is an `IndexError`
+    // even if the dice are empty. Anything else gets the index only in the evaluation.
+    let keep_tuple_bounded = as_expression(&expr).is_some_and(|e| {
+        keepable_mixture(&e).is_some() || matches!(&e, MExpr::Gen(g) if !g.has_negative_keeps())
+    });
     let mut dice = Vec::new();
     for i in 0i64.. {
         match super::pool::pool_keep(expr.clone(), PValue::Value(int(i))) {
+            // Evaluated with the index, an expression without outcomes at all is the empty die at every index,
+            // never an `IndexError`: Python never stops.
+            Ok(PValue::Die(d) | PValue::DieWithTruth(d, _))
+                if !keep_tuple_bounded && d.items().is_empty() =>
+            {
+                return Err(PErr::Unimplemented(
+                    "iterating an expression without outcomes (Python never stops)".into(),
+                ))
+            }
             Ok(PValue::Die(d) | PValue::DieWithTruth(d, _)) => dice.push(d),
             // Inside a multiset function `expr[i]` is a raw result, never an `IndexError`: Python never stops.
             Ok(_) => {
