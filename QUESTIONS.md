@@ -27,3 +27,4 @@ JS facade unnoticed. Please add it to the long gate, next to "fixtures through w
     step "JS suite" crates/icepool-wasm/js/build.sh --test
   fi
 ```
+- S6c question: done 2026-10-16, JS suite added to the long gate (node 22 in ~/.local/node22).

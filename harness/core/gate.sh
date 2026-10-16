@@ -68,6 +68,11 @@ if [ "$MODE" = long ] && [ -f crates/icepool-wasm/Cargo.toml ]; then
     step "fuzz through wasm" env ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --seed 21 --count 3000
     step "khepri sweep through wasm" env ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --ops khepri --seed 71 --count 500
   fi
+  # The JS facade's own suite: every fixture through the JS API, API tests, type check. Needs node >= 22.
+  NODE22="$HOME/.local/node22/bin"
+  if command -v wasm-pack > /dev/null && [ -x "$NODE22/node" ]; then
+    step "JS suite" env PATH="$NODE22:$PATH" crates/icepool-wasm/js/build.sh --test
+  fi
 fi
 if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS_BASE:-}" ]; then
   # Mutants in code changed since MUTANTS_BASE. Survivors are reported, not failed: the loop turns them into tasks.
