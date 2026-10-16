@@ -444,8 +444,35 @@ def _keep_args(g):
     return [], [], [[{"str": "index"}, g.rng.choice([None, 0, 1, 2, -1, -2])]]
 
 
-# Built-in evaluator class -> (number of inputs, generator of (constructor args, constructor kwargs, evaluate
-# kwargs)).
+def _argsort_ctor(g, pad):
+    # Keyword-only constructor arguments; `order` must match the evaluation's (else UnsupportedOrder).
+    kwargs = []
+    if g.rng.random() < 0.7:
+        kwargs.append([{"str": "order"}, g.rng.choice([-1, -1, 1, 0])])
+    if g.rng.random() < 0.7:
+        kwargs.append([{"str": "limit"}, g.rng.choice([None, 0, 1, 1, 2, 3, -1])])
+    if pad and g.rng.random() < 0.5:
+        kwargs.append([{"str": "limit_pad"}, g.rng.choice([None, -1, 0, 9])])
+    g.rng.shuffle(kwargs)
+    return [], kwargs, []
+
+
+def _argsort_args(g):
+    return _argsort_ctor(g, True)
+
+
+def _argsort_grouped_args(g):
+    return _argsort_ctor(g, False)
+
+
+def _lexi_args(g):
+    # What `leximin` / `leximax` pass to `evaluate`: the sort order and the five results of the comparison.
+    lexi_tuple = [g.rng.randint(-1, 1) for _ in range(5)]
+    return [], [], [[{"str": "sort_order"}, g.rng.choice([1, -1])], [{"str": "lexi_tuple"}, lexi_tuple]]
+
+
+# Built-in evaluator class -> (number of inputs, None for 1 to 3, generator of (constructor args, constructor
+# kwargs, evaluate kwargs)).
 _BUILTIN_EVALUATORS = {
     "SumEvaluator": (1, _no_args),
     "SizeEvaluator": (1, _no_args),
@@ -470,6 +497,11 @@ _BUILTIN_EVALUATORS = {
     "IsEqualSetEvaluator": (2, _no_args),
     "IsNotEqualSetEvaluator": (2, _no_args),
     "IsDisjointSetEvaluator": (2, _no_args),
+    "ArgsortEvaluatorDrop": (None, _argsort_args),
+    "ArgsortEvaluatorLeft": (None, _argsort_args),
+    "ArgsortEvaluatorRight": (None, _argsort_args),
+    "ArgsortGroupedEvaluator": (None, _argsort_grouped_args),
+    "LexiComparisonEvaluator": (2, _lexi_args),
 }
 
 _STRAIGHT_EVALUATORS = {"LargestStraightEvaluator", "LargestStraightAndOutcomeEvaluator", "AllStraightsEvaluator",
@@ -498,6 +530,8 @@ def _gen_builtin_evaluate(g, depth):
         return gen_pool(g, 0)
     name = g.rng.choice(sorted(_BUILTIN_EVALUATORS))
     inputs, gen_params = _BUILTIN_EVALUATORS[name]
+    if inputs is None:
+        inputs = g.rng.choice([1, 2, 2, 3])
     args = [arg() for _ in range(inputs)]
     if name in _STRAIGHT_EVALUATORS and huge_range(args):
         # `consecutive` over a huge span of outcomes (pool.py `huge_range`).

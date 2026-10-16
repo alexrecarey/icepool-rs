@@ -1232,7 +1232,7 @@ CASES = [
     'multiset_function(lambda a, b: (MultisetExpression.argsort(a, b, limit=2, tie="drop"), a.leximax("<", b)))(d(4).pool(2), d(4).pool(2))',
     'multiset_function(lambda a, b: MultisetExpression.argsort_grouped(a + b, b, order=Order.Ascending))(d(3).pool(2), d(3).pool(1))',
     # S5d: the built-in evaluators over tuple counts (a MultiDeal, operators over one, a host operator) run natively
-    # (evaluate_builtin / a builtin leaf of evaluate_tree); argsort and lexi are still called back.
+    # (evaluate_builtin / a builtin leaf of evaluate_tree); argsort and lexi since S5e.
     'evaluator.product_of_counts_evaluator.evaluate(HANDS)',
     'evaluator.empty_evaluator.evaluate(Deck([1, 2]).deal(()))',
     'evaluator.empty_evaluator.evaluate(HANDS, any=True)',
@@ -1265,6 +1265,28 @@ CASES = [
     'multiset_function(lambda h, p: (MultisetExpression.union(h).sum(), p.sum()))(HANDS, d(3).pool(1))',
     'multiset_function(lambda h: evaluator.keep_evaluator.evaluate(h, index=1))(HANDS)',
     'MultisetExpression.argsort(MultisetExpression.union(HANDS), d(3).pool(1), tie="drop")',
+    # S5e: argsort and lexi over tuple counts. Argsort looks at a tuple count only below the limit (and left /
+    # right return once they reach it); lexi's next_state is `max(left, 0)`, its reverse order compares sizes.
+    'evaluator.ArgsortEvaluatorDrop().evaluate(HANDS)',
+    'evaluator.ArgsortEvaluatorDrop(limit=0, limit_pad=7).evaluate(HANDS, d(3).pool(1))',
+    'evaluator.ArgsortEvaluatorDrop(order=Order.Ascending, limit=0).evaluate(HANDS)',
+    'evaluator.ArgsortEvaluatorLeft(limit=1).evaluate(Pool([5, 5]), Deck([5, 5, 5]).deal((1, 1)))',
+    'evaluator.ArgsortEvaluatorLeft(limit=1).evaluate(d(3).pool(2), HANDS)',
+    'evaluator.ArgsortEvaluatorLeft().evaluate(HANDS)',
+    'evaluator.ArgsortEvaluatorRight(limit=1).evaluate(Deck([5, 5, 5]).deal((1, 1)), Pool([5, 5]))',
+    'evaluator.ArgsortEvaluatorRight(limit=-1, limit_pad=0).evaluate(HANDS, HANDS2)',
+    'evaluator.ArgsortGroupedEvaluator(limit=0).evaluate(HANDS, d(3).pool(1))',
+    'evaluator.ArgsortGroupedEvaluator().evaluate(Pool([3]), HANDS)',
+    'evaluator.ArgsortGroupedEvaluator().evaluate(HANDS, Pool([3]))',
+    'MultisetExpression.argsort_grouped(MultisetExpression.union(HANDS), limit=0)',
+    'evaluator.lexi_comparison_evaluator.evaluate(HANDS, d(3).pool(2), sort_order=Order.Descending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'evaluator.lexi_comparison_evaluator.evaluate(HANDS, d(3).pool(2), sort_order=Order.Ascending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'evaluator.lexi_comparison_evaluator.evaluate(HANDS, HANDS2, sort_order=Order.Ascending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'evaluator.lexi_comparison_evaluator.evaluate(Deck([1]).deal(()), Deck([1]).deal(()), sort_order=Order.Descending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'evaluator.lexi_comparison_evaluator.evaluate(Deck([1]).deal(()), Deck([1]).deal(()), sort_order=Order.Ascending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'evaluator.lexi_comparison_evaluator.evaluate(HANDS, d(3).pool(2).keep_outcomes([1]), sort_order=Order.Ascending, lexi_tuple=(1, 2, 3, 4, 5))',
+    'multiset_function(lambda h, p: MultisetExpression.argsort(h, p, limit=0, limit_pad=1, tie="left"))(HANDS, d(3).pool(1))',
+    'multiset_function(lambda h, p: (p.sum(), MultisetExpression.argsort_grouped(h, limit=0)))(HANDS, d(3).pool(1))',
 ]
 
 SCRIPT = PRELUDE + '''

@@ -1,7 +1,7 @@
 //! Port of icepool `evaluator/argsort.py`: the indexes of the originating multisets for each rank in their
 //! additive union.
 
-use super::{Final, MultisetEvaluator};
+use super::{tuple_compared_with_int, Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::keep_tuple::list_len;
 use crate::order::Order;
@@ -49,24 +49,10 @@ pub struct ArgsortEvaluator {
     pub limit_pad: Option<Value>,
 }
 
-impl MultisetEvaluator<Value> for ArgsortEvaluator {
-    /// The indexes so far.
-    type State = Vec<i64>;
-    type Final = Value;
-
-    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<Int>]) -> Result<Vec<i64>> {
-        check_order(order, &self.order, "argsort")?;
-        Ok(Vec::new())
-    }
-
-    fn next_state(
-        &self,
-        state: &Vec<i64>,
-        _: Order,
-        _: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Vec<i64>>> {
-        let mut state = state.clone();
+impl ArgsortEvaluator {
+    /// `next_state` with each count an `int`, or the error Python raises when its arithmetic reaches that count (a
+    /// tuple).
+    fn step(&self, mut state: Vec<i64>, counts: Vec<Result<Int>>) -> Result<Vec<i64>> {
         // `min(count, limit - len(state))`, or the count without a limit.
         let room = |state: &Vec<i64>, count: Int| match self.limit {
             None => count,
@@ -80,6 +66,7 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
         match self.tie {
             Tie::Drop => {
                 if below(state.len(), self.limit) {
+                    let counts = counts.into_iter().collect::<Result<Vec<Int>>>()?;
                     let mut max_count = &Int::ZERO;
                     let mut tie_count = &Int::ZERO;
                     let mut max_index = 0;
@@ -99,12 +86,12 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
                 }
             }
             Tie::Left | Tie::Right => {
-                let mut indexed: Vec<(usize, Int)> = counts.iter().cloned().enumerate().collect();
+                let mut indexed: Vec<(usize, Result<Int>)> = counts.into_iter().enumerate().collect();
                 if self.tie == Tie::Right {
                     indexed.reverse();
                 }
                 for (index, count) in indexed {
-                    let append_count = room(&state, count);
+                    let append_count = room(&state, count?);
                     if append_count.is_positive() {
                         append(&mut state, index as i64, &append_count)?;
                         if Some(state.len() as i64) == self.limit {
@@ -114,7 +101,60 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
                 }
             }
         }
-        Ok(Some(state))
+        Ok(state)
+    }
+}
+
+impl MultisetEvaluator<Value> for ArgsortEvaluator {
+    /// The indexes so far.
+    type State = Vec<i64>;
+    type Final = Value;
+
+    fn initial_state(&self, order: Order, _: &[Value], _: &[Option<Int>]) -> Result<Vec<i64>> {
+        check_order(order, &self.order, "argsort")?;
+        Ok(Vec::new())
+    }
+
+    fn next_state(
+        &self,
+        state: &Vec<i64>,
+        _: Order,
+        _: &Value,
+        counts: &[Int],
+    ) -> Result<Option<Vec<i64>>> {
+        let counts = counts.iter().cloned().map(Ok).collect();
+        self.step(state.clone(), counts).map(Some)
+    }
+
+    /// Python's arithmetic on a tuple count: drop compares `count > max_count` (`TypeError`) unless the limit is
+    /// reached, so it never looks at the counts; left / right take each count in turn, `min(count, limit -
+    /// len(state))` (`TypeError`) or the count itself, then `append_count > 0` (`TypeError`), and may return
+    /// early once the limit is reached.
+    fn next_state_values(
+        &self,
+        state: &Vec<i64>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Vec<i64>>> {
+        let limit = self.limit;
+        let counts = counts
+            .iter()
+            .map(|count| match count {
+                Value::Int(c) => Ok(Int::from(c)),
+                // `min(count, limit - len(state))` compares `limit - len(state) < count`.
+                _ if limit.is_some() => Err(Error::Type(
+                    "'<' not supported between instances of 'int' and 'tuple'".into(),
+                )),
+                _ => Err(tuple_compared_with_int(">")),
+            })
+            .collect();
+        self.step(state.clone(), counts).map(Some)
+    }
+
+    /// `argsort` reads no sizes.
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -170,6 +210,34 @@ impl MultisetEvaluator<Value> for ArgsortGroupedEvaluator {
             state.push(to_append);
         }
         Ok(Some(state))
+    }
+
+    /// A tuple count: `any(count > 0 for count in counts)` short-circuits on an earlier positive `int` count, and
+    /// then `(i, ) * count` of the tuple raises; else `count > 0` does. Both only if the limit is not reached.
+    fn next_state_values(
+        &self,
+        state: &Self::State,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Self::State>> {
+        if !below(state.len(), self.limit) {
+            return Ok(Some(state.clone()));
+        }
+        let positive_before_tuple = counts
+            .iter()
+            .take_while(|count| matches!(count, Value::Int(_)))
+            .any(|count| matches!(count, Value::Int(c) if Int::from(c).is_positive()));
+        Err(if positive_before_tuple {
+            Error::Type("can't multiply sequence by non-int of type 'tuple'".into())
+        } else {
+            tuple_compared_with_int(">")
+        })
+    }
+
+    /// `argsort_grouped` reads no sizes.
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(

@@ -819,6 +819,74 @@ pub fn builtin_evaluate(
             };
             die(evaluator, &exprs()?)
         }
+        "ArgsortEvaluatorDrop" | "ArgsortEvaluatorLeft" | "ArgsortEvaluatorRight" | "ArgsortGroupedEvaluator"
+            if positional == 0 && kwargs.is_empty() =>
+        {
+            // Keyword-only constructor arguments, defaults `order=Order.Descending, limit=None, limit_pad=None`.
+            let grouped = &*name == "ArgsortGroupedEvaluator";
+            let (mut order, mut limit, mut limit_pad) = (Value::from(Order::Descending.value()), None, None);
+            for (key, v) in ctor_kwargs.iter().cloned() {
+                match &*key {
+                    "order" => order = value(v)?,
+                    "limit" => limit = optional_int(v)?,
+                    "limit_pad" if !grouped => {
+                        limit_pad = match value(v)? {
+                            Value::None => None,
+                            v => Some(v),
+                        }
+                    }
+                    _ => return unsupported(),
+                }
+            }
+            if grouped {
+                return die(ArgsortGroupedEvaluator { order, limit }, &exprs()?);
+            }
+            let tie = match &*name {
+                "ArgsortEvaluatorDrop" => Tie::Drop,
+                "ArgsortEvaluatorLeft" => Tie::Left,
+                _ => Tie::Right,
+            };
+            die(
+                ArgsortEvaluator {
+                    tie,
+                    order,
+                    limit,
+                    limit_pad,
+                },
+                &exprs()?,
+            )
+        }
+        "LexiComparisonEvaluator" if simple(&[]) && kwargs.len() == 2 => {
+            // `leximin` / `leximax` pass `sort_order` and `lexi_tuple` to `evaluate`.
+            let get = |key: &str| kwargs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+            let (Some(sort_order), Some(lexi_tuple)) = (get("sort_order"), get("lexi_tuple")) else {
+                return unsupported();
+            };
+            let Value::Int(sort_order) = value(sort_order)? else {
+                return unsupported();
+            };
+            let Some(sort_order) = i64::try_from(&sort_order).ok().and_then(Order::from_int) else {
+                return unsupported();
+            };
+            let lexi_tuple = py_iter(lexi_tuple)?
+                .into_iter()
+                .map(|x| match value(x)? {
+                    Value::Int(i) => Ok(i64::try_from(&i).ok()),
+                    _ => Ok(None),
+                })
+                .collect::<Result<Option<Vec<i64>>, PErr>>()?
+                .unwrap_or_default();
+            let [a, b, c, d, e] = lexi_tuple[..] else {
+                return unsupported();
+            };
+            die(
+                LexiComparisonEvaluator {
+                    sort_order,
+                    lexi_tuple: (a, b, c, d, e),
+                },
+                &exprs()?,
+            )
+        }
         _ => unsupported(),
     }
 }

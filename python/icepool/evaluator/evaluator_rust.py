@@ -146,12 +146,6 @@ def _rust_sources(sources) -> list:
     return [_rust_source(source) for source in sources]
 
 
-def _tuple_source(source) -> bool:
-    """Whether a source produces tuple counts (a `MultisetTupleSource`: a `MultiDeal`'s, or a user's)."""
-    from icepool.generator.multiset_tuple_generator import MultisetTupleSource
-    return isinstance(source, MultisetTupleSource)
-
-
 def rust_flats(dungeon, quest, sources) -> list | None:
     """The prepared inputs as the core takes them, if `dungeon.evaluate(quest, sources, kwargs)` is a plain
     `MultisetEvaluator`'s (no `@multiset_function` calls) that can run on the core driver; else `None`.
@@ -238,7 +232,7 @@ def _is_bound(method, name: str) -> bool:
     return getattr(getattr(method, '__self__', None), name, None) == method
 
 
-def _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts: bool):
+def _call_tree(dungeon, quest, source_iter, kwargs):
     """`(kind, flats, ...)`: the description of one call of a prepared evaluation, as `icepool_rs.evaluate_tree`
     takes it, or `None` if some part is not the core's.
 
@@ -249,7 +243,7 @@ def _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts: bool):
       called in the function, or a constant result (`ConstantDungeon` / `Quest`), called back in Python.
 
     `kwargs` are the ones its quest's methods get: the evaluation's own at the top, the function's `inner_kwargs`
-    inside it. `tuple_counts`: some source is a tuple source (see `builtin_spec`).
+    inside it.
     """
     from icepool.evaluator.multiset_evaluator import MultisetEvaluatorDungeon, MultisetEvaluatorQuest
     from icepool.evaluator import multiset_function as mf
@@ -259,7 +253,7 @@ def _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts: bool):
     t, q = type(dungeon), type(quest)
     if t is mf.MultisetFunctionDungeon and q is mf.MultisetFunctionQuest:
         inner = _call_tree(dungeon.inner_dungeon, quest.inner_quest,
-                           source_iter, quest.inner_kwargs, tuple_counts)
+                           source_iter, quest.inner_kwargs)
         if inner is None:
             return None
         return 'function', flats, inner
@@ -271,7 +265,7 @@ def _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts: bool):
         for d, iq, inner_kwargs in zip(dungeon.inner_dungeons,
                                        quest.inner_quests,
                                        quest.inner_kwargses):
-            inner = _call_tree(d, iq, source_iter, inner_kwargs, tuple_counts)
+            inner = _call_tree(d, iq, source_iter, inner_kwargs)
             if inner is None:
                 return None
             inners.append(inner)
@@ -284,7 +278,7 @@ def _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts: bool):
         if (evaluator is not None and type(
                 getattr(dungeon.next_state_main, '__self__', None)) is type(evaluator)
                 and _is_bound(quest.initial_state_main, 'initial_state')):
-            spec = builtin_spec(evaluator, len(flats), kwargs, tuple_counts)
+            spec = builtin_spec(evaluator, len(flats), kwargs)
             if spec is not None:
                 return ('builtin', flats) + spec
     elif not (t is mf.ConstantDungeon and q is mf.ConstantQuest):
@@ -300,9 +294,8 @@ def rust_call_tree(dungeon, quest, sources, kwargs):
     if type(dungeon) not in (mf.MultisetFunctionDungeon,
                              mf.MultisetFunctionJointDungeon):
         return None
-    tuple_counts = any(_tuple_source(source) for source in sources)
     source_iter = iter(sources)
-    tree = _call_tree(dungeon, quest, source_iter, kwargs, tuple_counts)
+    tree = _call_tree(dungeon, quest, source_iter, kwargs)
     if tree is None or next(source_iter, None) is not None:
         return None
     return tree
@@ -326,10 +319,8 @@ def _i64(x) -> bool:
     return type(x) is int and -2**63 <= x < 2**63
 
 
-def builtin_spec(evaluator,
-                 inputs: int,
-                 kwargs: Mapping[str, Any],
-                 tuple_counts: bool = False) -> tuple[str, tuple] | None:
+def builtin_spec(evaluator, inputs: int,
+                 kwargs: Mapping[str, Any]) -> tuple[str, tuple] | None:
     """The core's name and parameters for a built-in evaluator, or `None` to call back the evaluator's methods.
 
     Only an evaluator whose type is exactly the built-in class qualifies (a subclass may override any method),
@@ -337,9 +328,8 @@ def builtin_spec(evaluator,
     (e.g. two inputs to `sum_evaluator`, which raises `TypeError` in `next_state`) goes through the callbacks,
     which raise what Python raises.
 
-    With `tuple_counts` (some source is a `MultisetTupleSource`), the core's built-ins compute with tuple counts
-    and sizes as Python's do (`outcome * count` repeats a tuple, `count >= 1` is `TypeError`...), except argsort
-    and lexi, which are called back.
+    With a tuple source (a `MultisetTupleSource`), the core's built-ins compute with tuple counts and sizes as
+    Python's do (`outcome * count` repeats a tuple, `count >= 1` is `TypeError`...).
     """
     ev = icepool.evaluator
     t = type(evaluator)
@@ -394,8 +384,6 @@ def builtin_spec(evaluator,
         }
         if t in comparisons:
             return comparisons[t], ()
-    if tuple_counts:
-        return None
     if (t is ev.LexiComparisonEvaluator and inputs == 2
             and set(kwargs) == {'sort_order', 'lexi_tuple'}):
         # `leximin` / `leximax` pass both; `initial_state` compares `order == sort_order` and `final_outcome`
@@ -432,8 +420,7 @@ def evaluate(evaluator, dungeon, quest, sources, kwargs: Mapping[str, Any],
     rust = icepool.backend.RUST
     rs_sources = _rust_sources(sources)
     budget = _depth_budget()
-    spec = builtin_spec(evaluator, len(flats), kwargs,
-                        any(_tuple_source(source) for source in sources))
+    spec = builtin_spec(evaluator, len(flats), kwargs)
     if spec is not None:
         name, params = spec
         final_outcomes, final_weights = rust.evaluate_builtin(

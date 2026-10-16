@@ -3,6 +3,7 @@
 use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
+use crate::pool::Count;
 use crate::Int;
 use crate::Value;
 
@@ -85,6 +86,57 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
             }
         }
         Ok(Some((forward_order, extra, first, left_lead)))
+    }
+
+    /// Python passes tuple sizes (a `MultiDeal` input) on to `initial_state`, which reads them only in reverse
+    /// order: after the `None` check, `left_size < right_size` (`TypeError` between a tuple and an `int`) and then
+    /// `right_size - left_size` (`TypeError` between two tuples).
+    fn initial_state_counts(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<LexiState> {
+        let (left_size, right_size) = two(sizes, "initial_state")?;
+        let int = |size: Option<Count>| match size {
+            Some(Count::Int(size)) => Ok(Some(size)),
+            None => Ok(None),
+            Some(Count::Tuple(_)) => Err(()),
+        };
+        match (int(left_size), int(right_size)) {
+            (Ok(left_size), Ok(right_size)) => {
+                self.initial_state(order, outcomes, &[left_size, right_size])
+            }
+            _ if order == self.sort_order => Ok((true, 0, 0, Int::ZERO)),
+            (Ok(None), _) | (_, Ok(None)) => self.initial_state(order, outcomes, &[None, None]),
+            (Err(()), Err(())) => Err(Error::Type(
+                "unsupported operand type(s) for -: 'tuple' and 'tuple'".into(),
+            )),
+            (left, _) => Err(Error::Type(format!(
+                "'<' not supported between instances of '{}' and '{}'",
+                if left.is_ok() { "int" } else { "tuple" },
+                if left.is_ok() { "tuple" } else { "int" },
+            ))),
+        }
+    }
+
+    /// `final_outcome` does not read the sizes; `initial_state_counts` handles tuple sizes itself.
+    fn reads_sizes(&self) -> bool {
+        false
+    }
+
+    /// `left = max(left, 0)` of a tuple compares `0 > left`: `TypeError` (the int count, if any, is fine).
+    fn next_state_values(
+        &self,
+        _: &LexiState,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<LexiState>> {
+        two(counts, "next_state")?;
+        Err(Error::Type(
+            "'>' not supported between instances of 'int' and 'tuple'".into(),
+        ))
     }
 
     fn final_outcome(
