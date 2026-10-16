@@ -158,8 +158,8 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
         self.next_state_values(state, order, outcome, &[int(&counts[0])])
     }
 
-    /// Also for `int` counts: a state may hold tuple counts (a tuple count is `>= 'all'`-filtered like any, and
-    /// sorting tuples with ints is `TypeError`).
+    /// Also for `int` counts: a state may hold tuple counts. A tuple count is kept only with `filter='all'`
+    /// (`count >= filter` is `TypeError` for an int filter), and sorting tuples with ints is `TypeError`.
     fn next_state_values(
         &self,
         state: &Value,
