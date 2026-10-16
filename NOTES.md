@@ -5,6 +5,19 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **A deck beside a multiset expression, and mx_str of a non-expression (M202610160934a).** `deck <op> expr` is
+  `Deck.__op__`, which takes any iterable: `Counter(expr)` iterates the expression by `__getitem__` (`expr[0]`,
+  `expr[1]`, ...: `keep(i)` evaluated into a die) until an index raises IndexError, so the keys are dice. No die is
+  among the deck's cards, so `+ | ^` keep each die's count of 1, `- &` drop it, and `Deck(+data)` flattens the
+  dice that are left (their quantities as card counts) after the deck's own cards. Port: `program/deck.rs`
+  `deck_op_expression` (from `deck_op` when the other operand is an expression; `expression::binary_op` sends a
+  deck on the left there). Inside a multiset function `expr[i]` is a raw result and never raises, so Python never
+  stops: the port says Unimplemented. `mx_str` of a non-expression is plain `str()`: a value (`py_str`), a deck
+  (`deck_str`), a die; an `AgainExpression` (`Again <op> expr`, either side) has no `__str__`, so its str is an
+  address: `address("AgainExpression")`, Unimplemented, never generated (fixtures can't hold an address).
+  Generators: deck.py `_other` now and then gives a small expression; `_gen_mx_str` now and then a deck on the left
+  of `mx_binary`. Fixtures: fixtures/m202610160934a.
+
 - **str() of multiset expressions (T1c).** Node `mx_str` (multiset.py, kind "value"): `str(expr)` of a multiset
   expression, a MultiDeal, or the die a pool's int index evaluates to. Only `str`: every expression's `repr` (and the
   `str` of classes without a `__str__`: `weightless()`, map_counts, sort_pair / max_pair (not `==`) / versus,
