@@ -48,6 +48,35 @@ turns out wrong. Newest decisions at the top of each section.
   `call_per_outcome` (Deck.map's calls; `Deck(...)` of the results stays upstream's), `mean_time_to_sum(die,
   cache_list, target)` (appends to the die's own `_mean_time_to_sum_cache`), `iter_cartesian_product(items...)`
   and `cartesian_product_data(outcome_type, items...)` (a dict; `outcome_type` called back unless it is `tuple`).
+- **Built-in evaluators over tuple counts (S5d).** `MultisetEvaluator` has two new hooks: `next_state_values`
+  (called by the default `next_state_counts` when some count is a `Count::Tuple`, every count as its Python value;
+  default `Unsupported`) and `reads_sizes` (default `true`; `false` makes a tuple size reach `initial_state` /
+  `final_outcome` as `None`, for evaluators that never read sizes). Python has no special case, so each built-in
+  ports its `next_state` over `Value`s: sum / mapped sum (`count == 1` False, `outcome * count` repeats, `+`
+  concatenates), size (`0 + tuple` TypeError), product (`1 * tuple`, then tuple * tuple TypeError), empty (`== 0`
+  False), expand (`(outcome,) * tuple` TypeError), comparisons (`<` between tuples lexicographic, with an int
+  TypeError, `==` False; disjoint's `left > 0 and ...` short-circuits), count_subset (`right == 0` False, `//`
+  TypeError), largest_count / largest_count_and_outcome / all_counts / wild largest_count (Python's `max` / `sorted`
+  / `+` on Value states; wild's state is `Option<(Value, Value)>` now). Those whose `next_state` starts by comparing
+  the count with an int (keep, highest_outcome_and_count, the straights) return `tuple_compared_with_int`; keep
+  overrides `initial_state_counts` (a tuple size is read only to count from the other end: TypeError). States
+  produced from tuple counts can meet `int` counts later (a filter gives 0 for filtered-out outcomes), so the
+  state-producing evaluators run their `int` path through the `Value` one. argsort and lexi are NOT ported for
+  tuple counts (still `Unsupported`; facade: callbacks, `builtin_spec(..., tuple_counts=True)` returns None for
+  them).
+- Facade: `builtin_spec` takes `tuple_counts` (any `_tuple_source`); `evaluate` and `rust_call_tree` no longer
+  refuse built-ins for tuple sources, and built-ins fed tuple counts by a host operator are no longer
+  NotImplementedError.
+- Node `builtin_evaluate` (multiset_function.py): `getattr(icepool.evaluator, cls)(*params, **ctor_kwargs)
+  .evaluate(*args, **kwargs)` for the 23 built-in classes (`_BUILTIN_EVALUATORS`: arity and parameter
+  generators), args mostly MultiDeals / `tuple_count_expression`s, now and then a pool. Function bodies
+  (`_evaluation`) give whole tuple variables (or operators over them) to mx_evaluate / issubset / count_subset /
+  keep 20% of the time. Fuzzed by calling generators directly (throwaway script: `G.Gen(rng, G.ported_ops(),
+  depth)`, `G.NODES[op].gen(g, depth)`, `tool.oracle` vs `tool.Port`; needs `G.load_grammar()` first): at S5d 25k
+  builtin_evaluate + 16k mf_call/mf_call_kw + 6k tuple_op/multi_deal/mx evaluations natively, 4k builtin_evaluate
+  and 3k mf_call through run-facade.sh: clean. fixtures/s5d/edge-cases (258), s5d/function-edge-cases (46), also
+  clean through the JS fixture runner; facade cases (S5d block).
+
 - **Host sources and host operators (S5c).** The core driver now takes what it has no variant for:
   `MultisetSource::Host` (core host_source.rs: `HostSourceObject` callbacks, outcomes asked once, equality /
   hash the host's) and `Operator::Host` + `Statelet::Host(Value)` (a `HostOperator`'s `initial_state(order,
@@ -65,14 +94,12 @@ turns out wrong. Newest decisions at the top of each section.
   tuple sources (`_tuple_source`: any `MultisetTupleSource`). multiset_evaluator_base.py raises
   `NotImplementedError` for anything still not describable (custom Dungeon / Dungeonlet classes) instead of
   running upstream's driver. Gaps: counts / sizes from a user source or operator that are not ints / int tuples
-  within 64 bits are NotImplementedError; built-ins fed tuple counts by a host operator are NotImplementedError
-  (S5d). Cases in crates/icepool-py/tests (user `Uniform` generator, `DoubleCounts` operator, `MyUnion(
+  within 64 bits are NotImplementedError (built-ins fed tuple counts by a host operator run natively since S5d). Cases in crates/icepool-py/tests (user `Uniform` generator, `DoubleCounts` operator, `MyUnion(
   MultisetUnion)`): no grammar nodes, the program language has no user classes. Make test classes' `hash_key`
   include `type(self)`: the oracle's evaluators cache rooms by source equality across cases.
 - Fixed in passing: `LargestCountWithWildEvaluator` (poker.rs) took every selector's truth value at once; Python
   keeps `is_wild or select(outcome)` as an object and asks its truth only in `if is_wild_early/late` (a Vector
   from `identity` raised only in the port). Selectors (program evaluate.rs `make_select_function`) return values.
-- Left for S5d (tasks.json): built-in evaluators over tuple counts natively.
 
 - **Operators over tuple counts, operator equality, @multiset_function kwargs (S4f).** Core `operator/`: counts
   and sizes stay `Count` (`Int` | `Tuple`) through the operators. Python has no special case for a tuple count; its
@@ -86,9 +113,8 @@ turns out wrong. Newest decisions at the top of each section.
   reverse order, max_pair early) gets `Statelet::TupleSize`, whose next state is the TypeError Python's first
   comparison raises; `UnsupportedOrder` / `OrderError` for a `None` size still come first. `CountFunction` (map_counts)
   takes and returns `Count`s (catalogue: `expression::count_value` / `value_count`; facade: `count_py`, a result
-  that is an int or a flat tuple of ints, else a facade gap: a nested tuple, a bool). Only operators: built-in
-  evaluators still say `Unsupported` for tuple counts in icepool-run (task S5d); the generators evaluate tuple-count
-  expressions with catalogue evaluators (written over `Value`s) only.
+  that is an int or a flat tuple of ints, else a facade gap: a nested tuple, a bool). Built-in evaluators over
+  tuple counts: S5d (above).
 - Program layer: a multiset tuple expression is an operand of an expression's operators (reflected: `md + pool` is
   `pool.__radd__`), has no operators of its own (`md + md`, `md * 2`, `-md`, `+md` in `max_pair('==')` are
   TypeError) and no methods (`the_expression` now raises AttributeError for it); `pool_slice` on one is its
@@ -513,8 +539,8 @@ turns out wrong. Newest decisions at the top of each section.
   `iter_hypergeom` split (`math::iter_hypergeom`), the per-group descending sort + `groupby` regrouping and the skip
   branch). New `MultisetSource::MultiDeal`; `MultisetSource::pop` now yields `pool::Count` (`Int(i64)` |
   `Tuple(Arc<[i64]>)`) and `size()` is `Option<Count>`. The driver calls the new trait methods
-  `initial_state_counts` / `next_state_counts` / `final_outcome_counts`; their defaults convert to the old `i64`
-  methods and say `Unsupported` for a tuple, so the built-in evaluators and khepri are untouched. `HostEvaluator`
+  `initial_state_counts` / `next_state_counts` / `final_outcome_counts`; their defaults convert to the old `int`
+  methods (a tuple: `next_state_values` / `reads_sizes`, S5d). `HostEvaluator`
   (icepool-py) and `CatalogueEvaluator` override them: counts/sizes reach Python (or the Value bodies) as tuples.
 - `CatalogueEvaluator` bodies are now written over counts as `Value`s (so a tuple count meets Python's operators:
   mostly TypeError, `count_eq` with an absent k is fine). New catalogue evaluators `hand_sums` (per-hand sums; a
@@ -534,9 +560,8 @@ turns out wrong. Newest decisions at the top of each section.
   `total_cards_dealt`, `len`, `hash_key`, repr stay Python; `denominator` and `_make_source` are the core's.
   `MultiDealSource._new_rust` (deck / hand_groups lazily via `__getattr__`) pops, sizes (a tuple), outcomes (a
   tuple, not a keys view, as for DealSource), resolvability and `hash_key` on the core. `is_rust_evaluable`
-  accepts a `MultisetTupleGeneratorQuestlet` over a `MultiDealSource`; an evaluation with one always goes through
-  `evaluate_host` (never `builtin_spec`), so built-ins given tuples behave as in Python (`sum_evaluator` repeats
-  tuples). A hand of a multi-deal (`deal[0]`, `MultisetTupleIndex`) is an expression node on the core since
+  accepts a `MultisetTupleGeneratorQuestlet` over a `MultiDealSource`; since S5d a built-in evaluation over one runs
+  natively too (`builtin_spec` with `tuple_counts`; argsort / lexi still through `evaluate_host`). A hand of a multi-deal (`deal[0]`, `MultisetTupleIndex`) is an expression node on the core since
   S4d (`Dungeonlet::TupleItem`).
 - Upstream bug copied: `MultiDeal.denominator()` for 3+ hands is not the multinomial (DIVERGENCES.md).
 

@@ -477,6 +477,15 @@
     "details": "FACADE-AUDIT item 4 (S5c split it off): with a MultisetTupleSource input (a MultiDeal, a user tuple source) or tuple counts from operators, the built-in evaluators (sum without map, size, product_of_counts, empty, expand, keep, the poker ones, all_counts, largest_straight*, count_subset, the seven comparisons) run through evaluate_host callbacks in the facade (correct, slower) and say Unsupported in icepool-run (program layer; the generators avoid them). Python has no special case: its arithmetic just runs on the tuple count, case by case, e.g. SumEvaluator `outcome * count` repeats a tuple (int outcome) and `state + ...` concatenates; `count == 1` is False; ExpandEvaluator `(outcome,) * count` is TypeError; SizeEvaluator `0 + count` TypeError; ProductOfCounts `1 * count` is the tuple, then tuple * tuple TypeError; EmptyEvaluator `count == 0` is False. Port each built-in's next_state / initial_state / final_outcome for Count::Tuple in the core (as S4f did for operators: crates/icepool-core/src/operator/mod.rs next_state_tuple), with states as Values where they stop being ints; let builtin_spec in python/icepool/evaluator/evaluator_rust.py name them for tuple sources too (evaluate / rust_call_tree currently refuse builtins when _tuple_source); add grammar coverage (multi_deal / tuple_op_evaluate generators picking built-ins over tuple counts), fuzz clean through icepool-run and run-facade.sh, fixtures, facade cases."
   },
   {
+    "id": "S5e",
+    "title": "argsort and lexi evaluators over tuple counts on the core",
+    "deps": [
+      "S5d"
+    ],
+    "milestone": null,
+    "details": "S5d ported the other built-in evaluators' next_state for tuple counts (MultisetEvaluator::next_state_values / reads_sizes, see NOTES S5d). ArgsortEvaluator (drop / left / right), ArgsortGroupedEvaluator and LexiComparisonEvaluator still say Unsupported for a tuple count or size in icepool-run, and the facade calls them back (builtin_spec returns None with tuple_counts). Python's arithmetic runs on the tuples case by case: argsort drop compares `count > max_count` (TypeError) but with limit <= len(state) never looks at counts; left/right compute `min(count, limit - len(state))` or `count` then `append_count > 0`; grouped short-circuits on the limit before `count > 0`; lexi's initial_state compares tuple sizes in reverse order and next_state does `max(left, 0)`. Port them over Values, let builtin_spec name them for tuple sources, add them to builtin_evaluate's generator (or a sibling node), fuzz through icepool-run and run-facade.sh, fixtures, facade cases."
+  },
+  {
     "id": "M202610160934a",
     "title": "Reflected multiset operators with an Again or Deck left operand, and mx_str of a non-expression",
     "deps": [],

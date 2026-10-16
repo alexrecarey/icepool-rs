@@ -43,7 +43,7 @@ ran on the core or composed core calls), then by S5c (the leftovers it moved to 
 | `generator/compound_keep.py` | core | |
 | `generator/deal.py` | core | |
 | `generator/keep.py` | core | `keep()` via `_rs.keep` |
-| `generator/multi_deal.py` | core | sources on the core; built-in evaluators over it are host callbacks (tuple counts; S5d) |
+| `generator/multi_deal.py` | core | sources on the core; built-in evaluators over it on the core since S5d (argsort / lexi called back) |
 | `generator/multiset_generator.py` | via | abstract base; a user subclass's source is a host source of the core driver (S5c) |
 | `generator/multiset_tuple_generator.py` | via | abstract base |
 | `generator/pool.py` | core | |
@@ -82,8 +82,9 @@ ran on the core or composed core calls), then by S5c (the leftovers it moved to 
 2. ~~Evaluations over `weightless()` generators~~: on the core since S4e.
 3. Evaluators called back from the core driver: `SumEvaluator(map)`, `LargestCountWithWild`,
    `AllStraightsReduceCounts`, argsort, `LexiComparisonEvaluator`, keep with an index beyond i64: **K6c**.
-4. Evaluators over a `MultiDeal` (tuple counts): ~~operators~~ on the core since S4f; built-ins (host callbacks in
-   the facade, `Unsupported` in icepool-run) **S5d**.
+4. ~~Evaluators over a `MultiDeal` (tuple counts)~~: operators on the core since S4f, the built-in evaluators
+   since S5d (natively in the facade and icepool-run, also fed tuple counts by a host operator), except argsort and
+   lexi, which are still host callbacks in the facade for tuple sources and `Unsupported` in icepool-run.
 5. ~~Sources the core does not recognise use upstream's driver silently~~: since S5c user sources are host sources
    and operators without a spec host operators of the core driver; an evaluation prepared into dungeon /
    dungeonlet classes the core does not know (a user's own `_prepare`, internal API) raises `NotImplementedError`.
