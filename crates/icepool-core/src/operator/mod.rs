@@ -212,9 +212,11 @@ pub(crate) fn repeat(t: &[Int], n: &Int) -> Result<Count> {
     // Python builds any length it has memory for; past 2**24 elements the port says it does not cover it, and past
     // 64 bits Python cannot either (OverflowError, even for an empty tuple or a negative `n`).
     let n = n.to_len("a tuple count repeated")?;
-    if t.len().saturating_mul(n) > 1 << 24 {
+    if (t.len() as u64).saturating_mul(n) > 1 << 24 {
         return Err(Error::Unsupported("a tuple count of this length".into()));
     }
+    // Within 2**24 (or an empty tuple), so a `usize` on every target.
+    let n = if t.is_empty() { 0 } else { n as usize };
     Ok(Count::Tuple(
         t.iter().cycle().take(t.len() * n).cloned().collect(),
     ))

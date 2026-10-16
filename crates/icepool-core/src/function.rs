@@ -187,8 +187,18 @@ pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
     let stop = py_min_max(second, true)?.binary(BinOp::Add, &Value::from(1))?;
     // `range(start, stop + 1)`.
     let (start, stop) = (index_arg(&start)?, index_arg(&stop)?);
-    if stop > start && &stop - &start > IBig::from(MAX_RANGE) {
-        return Err(Error::Unsupported("consecutive() over a huge range".into()));
+    if stop > start {
+        let len = &stop - &start;
+        // `tuple()` asks the range for its length first, and `len()` of a range longer than `sys.maxsize` (64-bit
+        // Python) raises OverflowError.
+        if len > IBig::from(i64::MAX) {
+            return Err(Error::Overflow(
+                "Python int too large to convert to C ssize_t".into(),
+            ));
+        }
+        if len > IBig::from(MAX_RANGE) {
+            return Err(Error::Unsupported("consecutive() over a huge range".into()));
+        }
     }
     let mut out = Vec::new();
     let mut i = start;
@@ -245,6 +255,15 @@ mod tests {
         assert!(matches!(
             consecutive_of(&[0, 1 << 40]),
             Err(Error::Unsupported(_))
+        ));
+        // Longer than `sys.maxsize`: `len()` of the range overflows.
+        assert!(matches!(
+            consecutive_of(&[0, i64::MAX - 1]),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            consecutive_of(&[-1, i64::MAX - 1]),
+            Err(Error::Overflow(_))
         ));
         // Far from zero, only the length counts.
         assert_eq!(

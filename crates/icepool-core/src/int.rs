@@ -60,10 +60,11 @@ impl Int {
 
     /// The `n` of a sequence repeat `seq * n` as a length: `OverflowError` beyond 64 bits, whatever the sign
     /// (Python's "cannot fit 'int' into an index-sized integer", raised before looking at the sequence), and 0 for
-    /// any other negative.
-    pub fn to_len(&self, what: &str) -> Result<usize> {
+    /// any other negative. A `u64` rather than a `usize`: Python's index-sized integer is 64 bits, also where the
+    /// port's `usize` is not (wasm32), so callers bound the length before taking it as a `usize`.
+    pub fn to_len(&self, what: &str) -> Result<u64> {
         match self.0 {
-            Repr::Small(i) => Ok(usize::try_from(i).unwrap_or(0)),
+            Repr::Small(i) => Ok(u64::try_from(i).unwrap_or(0)),
             Repr::Big(_) => Err(Error::Overflow(format!(
                 "cannot fit 'int' into an index-sized integer ({what})"
             ))),

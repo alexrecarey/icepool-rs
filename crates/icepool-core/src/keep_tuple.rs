@@ -232,7 +232,7 @@ fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
 /// [`keep_size_as_len`]: empty for `n <= 0`, but `OverflowError` for any `n` beyond 64 bits, negative too.
 pub fn list_len(n: &Int) -> Result<usize> {
     match n.to_len("a list repeated")? {
-        n if n <= MAX_KEEP_SIZE => Ok(n),
+        n if n <= MAX_KEEP_SIZE as u64 => Ok(n as usize),
         n if n < MEMORY_ERROR_SIZE => {
             Err(Error::Unsupported(format!("a keep tuple of size {n}")))
         }
@@ -246,7 +246,8 @@ pub fn list_len(n: &Int) -> Result<usize> {
 pub const MAX_KEEP_SIZE: usize = crate::pool::MAX_POOL_SIZE;
 
 /// From this length on a Python list of ints (8 bytes per element, 512 GiB) is beyond any memory: `MemoryError`.
-pub const MEMORY_ERROR_SIZE: usize = 1 << 36;
+/// A `u64`, as it is past a 32-bit `usize` (wasm32).
+pub const MEMORY_ERROR_SIZE: u64 = 1 << 36;
 
 /// `KeepGenerator.multiply_counts`: every count multiplied by `constant` (`-g` is `-1 * g`).
 pub fn multiply_counts(keep_tuple: &[Int], constant: &Int) -> Vec<Int> {
@@ -452,11 +453,11 @@ mod tests {
         // Fixtures only see *that* both sides raise: the kind of error past each limit is checked here.
         assert_eq!(list_len(&Int::from(-3)).unwrap(), 0);
         assert_eq!(list_len(&Int::from(MAX_KEEP_SIZE)).unwrap(), MAX_KEEP_SIZE);
-        for n in [MAX_KEEP_SIZE + 1, MEMORY_ERROR_SIZE - 1] {
-            assert!(matches!(list_len(&Int::from(n)), Err(Error::Unsupported(_))), "{n}");
+        for n in [MAX_KEEP_SIZE as u64 + 1, MEMORY_ERROR_SIZE - 1] {
+            assert!(matches!(list_len(&Int::from(n as i64)), Err(Error::Unsupported(_))), "{n}");
         }
         for n in [MEMORY_ERROR_SIZE, MEMORY_ERROR_SIZE + 1] {
-            assert!(matches!(list_len(&Int::from(n)), Err(Error::Overflow(_))), "{n}");
+            assert!(matches!(list_len(&Int::from(n as i64)), Err(Error::Overflow(_))), "{n}");
         }
         assert!(matches!(list_len(&(Int::from(i64::MAX) + 1)), Err(Error::Overflow(_))));
     }
