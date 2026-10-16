@@ -168,8 +168,15 @@ def _evaluation(g, depth, kinds, nested, kwonly=()):
         return _param_str(g, depth, kinds)
     r = g.rng.random()
     body_expr = lambda: _body_expr(g, depth, kinds, kwonly)  # noqa: E731
+    tuples = [i for i, k in enumerate(kinds) if k is not None]
+
+    def counts_expr():
+        # Now and then operators over whole tuple variables: the built-in evaluations see tuple counts (S5d).
+        if tuples and g.rng.random() < 0.2:
+            return tuple_count_expression(g, depth, lambda: _var(g.rng.choice(tuples)))
+        return body_expr()
     if r < 0.5:
-        expr = body_expr()
+        expr = counts_expr()
         return {"op": "mx_evaluate", "expr": expr, "method": {"str": straight_safe_method(g, expr, _METHODS)}}
     if r < 0.72:
         name = g.rng.choice(["record", "record", "count_eq", "count_diff", "final_die", "seen", "reroll_at_least"])
@@ -179,7 +186,6 @@ def _evaluation(g, depth, kinds, nested, kwonly=()):
         for _ in range(n):
             # The evaluators written for any count see a tuple variable whole too, or operators over it (tuple
             # counts).
-            tuples = [i for i, k in enumerate(kinds) if k is not None]
             if tuples and g.rng.random() < (0.3 if name == "record" else 0.1):
                 t = lambda: _var(g.rng.choice(tuples))  # noqa: E731
                 args.append(t() if g.rng.random() < 0.5 else tuple_count_expression(g, depth, t))
@@ -187,11 +193,11 @@ def _evaluation(g, depth, kinds, nested, kwonly=()):
                 args.append(body_expr())
         return {"op": "evaluate", "name": {"str": name}, "params": e.params(g), "args": args}
     if r < 0.76:
-        return {"op": "pool_issubset", "pool": body_expr(), "other": body_expr()}
+        return {"op": "pool_issubset", "pool": counts_expr(), "other": counts_expr()}
     if r < 0.8:
-        return {"op": "pool_count_subset", "pool": body_expr(), "divisor": body_expr(), "empty_divisor": None}
+        return {"op": "pool_count_subset", "pool": counts_expr(), "divisor": counts_expr(), "empty_divisor": None}
     if r < 0.86:
-        return {"op": "keep_evaluate", "pool": body_expr(), "index": g.rng.choice([None, 0, 1, -1])}
+        return {"op": "keep_evaluate", "pool": counts_expr(), "index": g.rng.choice([None, 0, 1, -1])}
     if r < 0.93 and nested:
         # A nested function over expressions of the variables (its keyword arguments now and then this
         # function's own).
