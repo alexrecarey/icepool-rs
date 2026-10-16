@@ -414,3 +414,28 @@ pub fn run<E: MultisetEvaluator<Value, Final = PValue>>(
     }
     super::evaluate::mix(results)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The driver calls the `*_counts` forms; the `int` forms the trait requires must give the same as them.
+    #[test]
+    fn int_forms_pass_the_counts_and_sizes_on() {
+        let e = CatalogueEvaluator::Record;
+        let (asc, one) = (Order::Ascending, int(1));
+        let state = e
+            .next_state(&Value::None, asc, &one, &[Int::small(2), Int::small(-3)])
+            .unwrap();
+        let entry = Value::tuple(vec![int(1), int(2), int(-3)]);
+        assert_eq!(state, Some(Value::tuple(vec![entry])));
+        let sizes = [Some(Int::small(4)), None];
+        let Final::Outcome(PValue::Value(record)) =
+            e.final_outcome(&Value::None, asc, &[one], &sizes).unwrap()
+        else {
+            panic!("Record finalizes to a value");
+        };
+        let sizes = Value::tuple(vec![int(4), Value::None]);
+        assert_eq!(record, Value::tuple(vec![Value::None, sizes]));
+    }
+}

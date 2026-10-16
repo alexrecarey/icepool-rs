@@ -155,8 +155,9 @@ pub(super) fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
                     (AgainArg::Again(a), AgainArg::Again(b)) => hash_key_eq(a, b)?,
                     (AgainArg::Other(a), AgainArg::Other(b)) => {
                         // Tuple `==` tries identity before `==`, so the same NaN object is equal to itself; the
-                        // port cannot tell one NaN object from another.
-                        if has_nan(a) || has_nan(b) {
+                        // port cannot tell one NaN object from another. That only matters with a NaN on both
+                        // sides: one side's NaN is never identical to anything on the other, so `==` decides.
+                        if has_nan(a) && has_nan(b) {
                             return Err(PErr::Unimplemented(
                                 "NaN in the hash_key of an Again expression".into(),
                             ));

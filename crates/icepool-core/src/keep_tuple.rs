@@ -446,4 +446,18 @@ mod tests {
         assert_eq!(slice.canonical(3), (0, 3));
         assert!(keep_size_as_len(&(&big * 4), &KeepIndex::Int(0)).is_err());
     }
+
+    #[test]
+    fn list_len_limits() {
+        // Fixtures only see *that* both sides raise: the kind of error past each limit is checked here.
+        assert_eq!(list_len(&Int::from(-3)).unwrap(), 0);
+        assert_eq!(list_len(&Int::from(MAX_KEEP_SIZE)).unwrap(), MAX_KEEP_SIZE);
+        for n in [MAX_KEEP_SIZE + 1, MEMORY_ERROR_SIZE - 1] {
+            assert!(matches!(list_len(&Int::from(n)), Err(Error::Unsupported(_))), "{n}");
+        }
+        for n in [MEMORY_ERROR_SIZE, MEMORY_ERROR_SIZE + 1] {
+            assert!(matches!(list_len(&Int::from(n)), Err(Error::Overflow(_))), "{n}");
+        }
+        assert!(matches!(list_len(&(Int::from(i64::MAX) + 1)), Err(Error::Overflow(_))));
+    }
 }

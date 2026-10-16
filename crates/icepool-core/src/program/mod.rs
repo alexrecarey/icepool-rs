@@ -300,4 +300,37 @@ mod tests {
         assert_eq!(r["ok"], json!(false));
         assert_eq!(r["error"], json!("unimplemented: mean_time_to_sum of a huge target"));
     }
+
+    #[test]
+    fn again_hash_keys_with_a_nan_on_both_sides_are_unimplemented() {
+        // Tuple `==` tries identity first, and the port cannot tell one NaN object from another; with a NaN on
+        // one side only, `==` decides (fixtures/m202610160934/mutant-killers).
+        let same_both_sides = |x: &str| {
+            let a = format!(r#"{{"op":"add","a":{{"op":"Again"}},"b":{x}}}"#);
+            let program = format!(r#"{{"op":"again_truth","x":{{"op":"eq","a":{a},"b":{a}}}}}"#);
+            let (error, _) = raised(&program);
+            assert!(error.starts_with("unimplemented: NaN"), "{x}: {error}");
+        };
+        same_both_sides(r#"{"float":"nan"}"#);
+        same_both_sides(r#"{"op":"complex","re":{"float":"1.0"},"im":{"float":"nan"}}"#);
+        same_both_sides(r#"{"op":"complex","re":{"float":"nan"},"im":{"float":"1.0"}}"#);
+        same_both_sides(r#"{"tuple":[1,{"float":"nan"}]}"#);
+        same_both_sides(r#"{"op":"die","outcomes":[1,{"float":"nan"}]}"#);
+        same_both_sides(r#"[1,{"float":"nan"}]"#);
+    }
+
+    #[test]
+    fn type_error_messages_of_die_sequence_and_multiset_counts() {
+        let (ty, msg) = raised(
+            r#"{"op":"die_sequence","die":{"op":"d","sides":2},"rolls":{"float":"1.5"}}"#,
+        );
+        assert_eq!(ty, "TypeError");
+        assert_eq!(msg, "'float' object cannot be interpreted as an integer");
+        // `expr * die` is `Die.__rmul__`, which makes `Die([expr])` first.
+        let (ty, msg) = raised(
+            r#"{"op":"mx_str","expr":{"op":"mx_counts","expr":{"op":"die_pool","die":{"op":"d","sides":2},"rolls":2},"o":{"str":"mul"},"comparison":null,"n":{"op":"d","sides":2}}}"#,
+        );
+        assert_eq!(ty, "TypeError");
+        assert_eq!(msg, "Items do not appear to be sortable.");
+    }
 }

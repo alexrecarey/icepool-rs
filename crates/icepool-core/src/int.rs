@@ -394,4 +394,21 @@ mod tests {
         assert_eq!((q, r), (-Int::from(i64::MIN), Int::ZERO));
         assert!(Int::ONE.floor_divmod(&Int::ZERO).is_err());
     }
+
+    #[test]
+    fn small_values_hash_and_debug_as_their_i64() {
+        use std::collections::hash_map::DefaultHasher;
+        fn hash<T: Hash>(x: &T) -> u64 {
+            let mut h = DefaultHasher::new();
+            x.hash(&mut h);
+            h.finish()
+        }
+        // No enum tag in the hash (the doc comment on `impl Hash`), and unequal values hash apart.
+        assert_eq!(hash(&Int::small(5)), hash(&5i64));
+        assert_ne!(hash(&Int::small(5)), hash(&Int::small(6)));
+        let big = Int::from(i64::MAX) + 1;
+        assert_eq!(hash(&big), hash(&big.to_ibig()));
+        assert_eq!(format!("{:?}", Int::small(-3)), "-3");
+        assert_eq!(format!("{big:?}"), "9223372036854775808");
+    }
 }
