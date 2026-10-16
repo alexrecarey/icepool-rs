@@ -1121,7 +1121,8 @@ turns out wrong. Newest decisions at the top of each section.
   sizes are unknown so the tuple counts concatenate instead of raising at `0 + tuple`; `expr * Again` vs `Again *
   expr` argument order, seen by comparing with `Again * 1` / `1 * Again`; a die on the left of a multiset
   operator). Unit tests: `Int` hash/Debug, `list_len` limits, `CatalogueEvaluator`'s `int` forms (the driver only
-  calls the `*_counts` forms, so nothing else reaches them), error messages of `die_sequence` / `expr * die`, and
+  calls the `*_counts` forms, so nothing else reaches them), error messages of `die_sequence` / `expr * die` /
+  `die + expr` (a fixture cannot see that the die is never made a pool: `Pool(die)` raises too), and
   the NaN-in-Again-hash_key `Unimplemented`. That check now needs a NaN on **both** sides (`&&`, was `||`): a NaN
   on one side cannot be identical to anything on the other, so `==` decides, as the oracle does. Two NaN leaves
   in a program are distinct objects (the oracle says False), but the port keeps declining both-sided NaN since it

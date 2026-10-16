@@ -475,5 +475,12 @@
     ],
     "milestone": null,
     "details": "FACADE-AUDIT item 4 (S5c split it off): with a MultisetTupleSource input (a MultiDeal, a user tuple source) or tuple counts from operators, the built-in evaluators (sum without map, size, product_of_counts, empty, expand, keep, the poker ones, all_counts, largest_straight*, count_subset, the seven comparisons) run through evaluate_host callbacks in the facade (correct, slower) and say Unsupported in icepool-run (program layer; the generators avoid them). Python has no special case: its arithmetic just runs on the tuple count, case by case, e.g. SumEvaluator `outcome * count` repeats a tuple (int outcome) and `state + ...` concatenates; `count == 1` is False; ExpandEvaluator `(outcome,) * count` is TypeError; SizeEvaluator `0 + count` TypeError; ProductOfCounts `1 * count` is the tuple, then tuple * tuple TypeError; EmptyEvaluator `count == 0` is False. Port each built-in's next_state / initial_state / final_outcome for Count::Tuple in the core (as S4f did for operators: crates/icepool-core/src/operator/mod.rs next_state_tuple), with states as Values where they stop being ints; let builtin_spec in python/icepool/evaluator/evaluator_rust.py name them for tuple sources too (evaluate / rust_call_tree currently refuse builtins when _tuple_source); add grammar coverage (multi_deal / tuple_op_evaluate generators picking built-ins over tuple counts), fuzz clean through icepool-run and run-facade.sh, fixtures, facade cases."
+  },
+  {
+    "id": "M202610160934a",
+    "title": "Reflected multiset operators with an Again or Deck left operand, and mx_str of a non-expression",
+    "deps": [],
+    "milestone": null,
+    "details": "Found while killing mutants (M202610160934). With E = die_pool(d2, 2): the oracle returns a result for mx_str(mx_binary(Again, '+', E)) (Again.__add__ makes an AgainExpression, which str() prints) and for mx_str(mx_binary(deck(...), '+', E)), but the port raises TypeError ('not a multiset expression', from mx_str) and Unimplemented ('a reflected multiset operator with this left operand', program/expression.rs binary_op) respectively. Port both as the oracle does, add fixtures and fuzz coverage (the multiset generators never put an Again or a Deck on the left of mx_binary)."
   }
 ]

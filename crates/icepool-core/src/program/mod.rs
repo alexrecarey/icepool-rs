@@ -332,5 +332,11 @@ mod tests {
         );
         assert_eq!(ty, "TypeError");
         assert_eq!(msg, "Items do not appear to be sortable.");
+        // `die + expr` is `Die.__add__`, the same `Die([expr])`: a TypeError, not `Pool(die)`'s ValueError.
+        let (ty, msg) = raised(
+            r#"{"op":"mx_str","expr":{"op":"mx_binary","a":{"op":"d","sides":2},"o":{"str":"+"},"b":{"op":"die_pool","die":{"op":"d","sides":2},"rolls":2}}}"#,
+        );
+        assert_eq!(ty, "TypeError");
+        assert_eq!(msg, "Items do not appear to be sortable.");
     }
 }
