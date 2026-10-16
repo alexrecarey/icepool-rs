@@ -126,7 +126,21 @@ def fresh_caches():
 def _has_nan(x):
     if isinstance(x, float):
         return x != x
-    return isinstance(x, tuple) and any(_has_nan(y) for y in x)
+    return isinstance(x, (tuple, icepool.Vector)) and any(_has_nan(y) for y in x)
+
+
+def _order_free(outcomes):
+    """Whether sorting `outcomes` gives one answer from any starting order. A Die sorts the list it is given, but a
+    pool sorts a set, in hash order (random per process): with partly incomparable outcomes (Vectors of mixed
+    element types, ...) Python then raises or not, or orders them differently, from run to run. Tries every rotation
+    of the outcomes, forwards and backwards."""
+    outcomes = list(outcomes)
+    starts = [outcomes[i:] + outcomes[:i] for i in range(len(outcomes))]
+    starts += [s[::-1] for s in starts]
+    try:
+        return len({tuple(sorted(s)) for s in starts}) <= 1
+    except Exception:  # noqa: BLE001 - a comparison that raises is order-dependent too
+        return False
 
 
 def _die(g, depth):
@@ -137,12 +151,14 @@ def _die(g, depth):
 def _die_without_nan(g, depth):
     """A die program without NaN outcomes (inf arithmetic makes them), for anything that may end up in a pool: a
     pool's outcomes are sorted(set(...)), and NaN hashes by object identity, so where NaNs land in Python depends
-    on memory addresses. Asks the oracle, like _gen_pool_pop."""
+    on memory addresses. For the same reason no outcomes whose sorted order depends on where they start
+    (_order_free). Asks the oracle, like _gen_pool_pop."""
     for _ in range(10):
         p = g.die(depth)
         try:
             die = peek(p)
-            if isinstance(die, icepool.Die) and any(_has_nan(o) for o in die.outcomes()):
+            if isinstance(die, icepool.Die) and (any(_has_nan(o) for o in die.outcomes())
+                                                 or not _order_free(die.outcomes())):
                 continue
         except Exception:  # noqa: BLE001 - a die that raises is a fine program too
             pass

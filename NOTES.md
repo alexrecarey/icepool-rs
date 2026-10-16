@@ -1365,3 +1365,17 @@ turns out wrong. Newest decisions at the top of each section.
   die_keep indices, and multiset.py's mx_counts constants, MultisetKeep counts and pool_mul. About 7% of the
   pool/multiset programs hold one. A filter-to-huge fuzz (generate, keep programs with |int| >= 2**61, compare)
   ran ~20k such programs clean natively and through run-facade.sh; fixtures/k6d has 95 hand-picked cases.
+
+- **Long gate fix (L202610160934).** (1) wasm32: `usize` is 32 bits there, so `1 << 36` as a `usize` const broke
+  the build and `usize::try_from(i64)` turned big lengths into 0. `Int::to_len` now returns a `u64` (Python's
+  index-sized integer is 64 bits on every target) and `MEMORY_ERROR_SIZE` is a `u64`; callers bound a length
+  before casting to `usize`. Write new size limits as `u64`/`i64`, never `usize` constants above 2**32, and run
+  `cargo build -p icepool-wasm --target wasm32-unknown-unknown` when touching them (only the long gate does).
+  (2) `consecutive()` over a range longer than `sys.maxsize` raises OverflowError (`tuple()` calls `len()` of
+  the range); fixtures l202610160934/consecutive-overflow. (3) The minimiser can shrink a failure to a bare pool
+  (its repr has an address, so it "fails" as unimplemented): don't `import-failures` that, take the `original`
+  from harness-out/failures.jsonl and hand-minimise. (4) `grammar/pool.py` `_die_without_nan` also rejects dice
+  whose outcomes sort differently from different starting orders (`_order_free`: Vectors of mixed element
+  types): a pool sorts a set in per-process hash order, so the oracle itself raised TypeError on some runs only.
+  `_has_nan` now looks inside Vectors too. (5) The long gate's "khepri sweep through wasm" failure was rustup
+  (`rustc ... not applicable to the stable toolchain`, a toolchain update mid-run), not the port.
