@@ -1116,6 +1116,22 @@ turns out wrong. Newest decisions at the top of each section.
   nothing is appended until a larger count resets the index) and every `append_count > 0` -> `>=` (appending 0
   is a no-op, and the `limit` break only fires when nothing more fits); `to_pool.rs` `explode_counts` guard `depth
   < -1` -> `<= -1` / `< 1` (the guard only sees depths below -1 or above `u32::MAX`).
+- **Surviving mutants (task M202610160934).** Kill fixtures: fixtures/m202610160934/ (all_straights with a
+  negative count after runs started, via `pool + -pool`; `additive_union` of two `union(multi_deal)`s, whose
+  sizes are unknown so the tuple counts concatenate instead of raising at `0 + tuple`; `expr * Again` vs `Again *
+  expr` argument order, seen by comparing with `Again * 1` / `1 * Again`; a die on the left of a multiset
+  operator). Unit tests: `Int` hash/Debug, `list_len` limits, `CatalogueEvaluator`'s `int` forms (the driver only
+  calls the `*_counts` forms, so nothing else reaches them), error messages of `die_sequence` / `expr * die`, and
+  the NaN-in-Again-hash_key `Unimplemented`. That check now needs a NaN on **both** sides (`&&`, was `||`): a NaN
+  on one side cannot be identical to anything on the other, so `==` decides, as the oracle does. Two NaN leaves
+  in a program are distinct objects (the oracle says False), but the port keeps declining both-sided NaN since it
+  cannot see identity. Left alive, equivalent: every `int.rs` `<`/`>` -> `<=`/`>=` against zero on a `Big` (a big
+  value is never 0) and in `floor_divmod` (`r != 0` and `b != 0` there); `keep.rs` `order.value() > 0` -> `>=`
+  (the driver merges in `Descending`, so `Order::Any` never reaches an evaluator); `poker.rs` all_straights
+  `count < len` -> `<=` (at `count == len` both branches give the same runs: ended runs are always sorted
+  already); `binary.rs` `reduce` without its `(Int, Int)` arm (only called when some count is a tuple, and any
+  int beside a tuple is the same TypeError either way); `collection.rs` `die_sequence` `i < 0` -> `<= 0`;
+  `MultisetFunction::next_state` -> `Ok(None)` (as before).
 - **Tuple comparison uses Python's `==` to find the first difference** (`Value::first_difference`, shared by
   `py_lt`, `ops::compare`, `Value::binary`): `Symbols('ab') == ('a', 'b')`, so `(Symbols('ab'),)` and
   `(('a', 'b'),)` compare by length, as Python does (they used to raise). Elements equal as dict keys skip
