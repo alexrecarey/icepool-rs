@@ -187,7 +187,49 @@ pub fn deck_op(op: PValue, a: PValue, b: PValue) -> Result<PValue, PErr> {
         ("^", true) => return type_error("unsupported operand type(s) for ^: 'Deck'"),
         _ => return Err(PErr::Unimplemented(format!("deck operator {op}"))),
     };
+    if super::expression::as_expression(&other).is_some() {
+        return deck_op_expression(&deck, op, other);
+    }
     Ok(PValue::Deck(deck.counter_op(op, &counter(other)?)?))
+}
+
+/// `deck <op> expr` for a multiset expression `expr`. `Counter(expr)` iterates it through `__getitem__` (`expr[0]`,
+/// `expr[1]`, ...: `keep(i)`, evaluated into a die) until an index raises `IndexError`, so its keys are dice. No die
+/// is among the deck's cards, so each operator treats one as a card the deck lacks: `+`, `|` and `^` (and
+/// `__rsub__`) keep its count, `-` and `&` leave it at zero or below, which `+data` drops. `Deck(+data)` then
+/// flattens the dice that are left into their outcomes, after the deck's own cards. Equal dice need not be counted
+/// together: one key counted twice adds the same cards as two keys counted once each.
+fn deck_op_expression(deck: &Deck<Value>, op: CounterOp, expr: PValue) -> Result<PValue, PErr> {
+    let mut dice = Vec::new();
+    for i in 0i64.. {
+        match super::pool::pool_keep(expr.clone(), PValue::Value(int(i))) {
+            Ok(PValue::Die(d) | PValue::DieWithTruth(d, _)) => dice.push(d),
+            // Inside a multiset function `expr[i]` is a raw result, never an `IndexError`: Python never stops.
+            Ok(_) => {
+                return Err(PErr::Unimplemented(
+                    "iterating an expression whose items are not dice".into(),
+                ))
+            }
+            Err(PErr::Raise(Error::Index(_))) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    let keeps_dice = matches!(
+        op,
+        CounterOp::Add | CounterOp::RSub | CounterOp::Or | CounterOp::Xor
+    );
+    let (mut args, mut times): (Vec<_>, Vec<_>) = deck
+        .counter_items(op, &Counter::default())
+        .into_iter()
+        .map(|(o, q)| (DieArg::Outcome(o), q))
+        .unzip();
+    if keeps_dice {
+        for d in dice {
+            args.push(DieArg::Die(d));
+            times.push(Quantity::ONE);
+        }
+    }
+    Ok(PValue::Deck(Deck::new(&args, &times)?))
 }
 
 /// `deck * n`, `n * deck` (`op` `'r*'`), `deck // n`, `deck % n`: `multiply_quantities` and friends for an `int`
@@ -496,7 +538,7 @@ pub(super) fn deal_text(deck: &Deck<Value>, hand_size: usize) -> Result<String, 
 }
 
 /// `str(deck)`: its table.
-fn deck_str(deck: &Deck<Value>) -> Result<String, PErr> {
+pub(super) fn deck_str(deck: &Deck<Value>) -> Result<String, PErr> {
     let Formatted::Text(table) = crate::format::format(deck.population(), "Deck", "", false)?
     else {
         unreachable!("only csv_table asks for a table")

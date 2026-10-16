@@ -79,8 +79,11 @@ _OPS = {"+": lambda a, b: a + b, "-": lambda a, b: a - b, "&": lambda a, b: a & 
 
 def _other(g, depth):
     """The other operand of a deck operator: a deck, or anything Counter() takes (a list or str of outcomes, a
-    die, None), or rarely an int (not iterable)."""
+    die, None, a multiset expression: iterated by index, its items are dice), or rarely an int (not iterable)."""
     r = g.rng.random()
+    if r < 0.1:
+        from harness.grammar.multiset import gen_expression
+        return gen_expression(g, min(depth, 1), budget=g.rng.choice([0, 0, 1]))
     if r < 0.5:
         return g.make("deck", depth)
     if r < 0.75:

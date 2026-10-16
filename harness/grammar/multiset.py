@@ -349,15 +349,22 @@ def gen_str_expression(g, depth, budget=None, leaf=None):
 
 
 def _gen_mx_str(g, depth):
-    if g.rng.random() < 0.1:
+    r = g.rng.random()
+    if r < 0.1:
         from harness.grammar.deck import gen_multi_deal
         return {"op": "mx_str", "expr": gen_multi_deal(g, depth)}
+    if r < 0.18:
+        # A deck on the left: `Deck.__op__` counts the expression's items (dice) and the result is a deck.
+        deck = g.make("deck", min(depth, 1))
+        expr = gen_expression(g, min(depth, 1), budget=g.rng.choice([0, 0, 1]))
+        return {"op": "mx_str", "expr": _binary(deck, g.rng.choice(list(_BINARY)), expr)}
     return {"op": "mx_str", "expr": gen_str_expression(g, depth)}
 
 
 @node("mx_str", "value", gen=_gen_mx_str, weight=0.5)
 def mx_str(expr):
-    """str(expr) of a multiset expression (or a MultiDeal, or the die a pool's int index evaluates to). Their repr
+    """str(expr) of a multiset expression (or a MultiDeal, the die a pool's int index evaluates to, or the deck
+    `deck <op> expr` makes). Their repr
     is object.__repr__ (an address) except a deal's (deal_str), and so is the str of the classes without a
     `__str__` (weightless(), map_counts, sort_pair, ...): the generator leaves those out."""
     return str(expr)

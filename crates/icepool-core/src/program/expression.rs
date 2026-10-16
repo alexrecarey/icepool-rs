@@ -489,6 +489,14 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
             match &a {
                 PValue::List(_) | PValue::Value(Value::Tuple(_) | Value::Str(_)) => {}
                 _ if as_tuple_expression(&a).is_some() => {}
+                // `Deck.__op__` takes any iterable: it counts the expression's items (dice).
+                PValue::Deck(_) => {
+                    return super::deck::deck_op(
+                        PValue::Value(Value::str(op)),
+                        a.clone(),
+                        into_pvalue(b),
+                    )
+                }
                 // `Die.__op__` converts the other operand first: `Die([expr])`, whose outcome cannot be sorted
                 // (an expression's `<` makes a die without a truth value).
                 PValue::Die(_) | PValue::DieWithTruth(..) => {
@@ -1221,7 +1229,14 @@ pub fn mx_str(x: PValue) -> Result<PValue, PErr> {
         PValue::MultiDeal(_) => super::deck::deal_repr_and_str(&x)?.1,
         _ => match as_expression(&x).or_else(|| as_tuple_expression(&x)) {
             Some(e) => expression_str(&e)?,
-            None => return type_error("AttributeError: not a multiset expression"),
+            // The node is `str(x)`, which never raises for these.
+            None => match &x {
+                PValue::Value(v) => crate::value::pystr::py_str(v)?,
+                PValue::Deck(d) => super::deck::deck_str(d)?,
+                // `AgainExpression` has no `__str__` (`a op b` with `Again` on either side makes one).
+                PValue::Again(_) => return Err(address("AgainExpression")),
+                _ => return Err(PErr::Unimplemented("str() of this object".into())),
+            },
         },
     };
     Ok(PValue::Value(Value::str(&text)))
