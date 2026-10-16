@@ -3,7 +3,7 @@
 use dashu_int::IBig;
 
 use super::basic::{int, py_sorted_reverse, state_as_outcome};
-use super::{Final, MultisetEvaluator};
+use super::{tuple_compared_with_int, Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
 use crate::value::BinOp;
@@ -76,6 +76,21 @@ impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
     type State = Value;
     type Final = Value;
 
+    /// `max(count, 0)` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &Self::State,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_compared_with_int(">"))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
+
     fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
@@ -136,22 +151,37 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
-        _: &Value,
+        order: Order,
+        outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
-        let count = counts[0].clone();
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// Also for `int` counts: a state may hold tuple counts (a tuple count is `>= 'all'`-filtered like any, and
+    /// sorting tuples with ints is `TypeError`).
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        let count = &counts[0];
         // `state = state or ()`
         let state = items(state);
-        if self.filter == Value::str("all")
-            || int(&count).binary(BinOp::Ge, &self.filter)?.truthy()?
-        {
-            let mut xs: Vec<Int> = state.iter().map(as_count).collect();
-            xs.push(count);
-            Ok(Some(int_tuple(sorted_descending(xs))))
+        if self.filter == Value::str("all") || count.binary(BinOp::Ge, &self.filter)?.truthy()? {
+            let mut xs = state.to_vec();
+            xs.push(count.clone());
+            // `tuple(sorted(state, reverse=True))`
+            Ok(Some(Value::tuple(py_sorted_reverse(xs)?)))
         } else {
             Ok(Some(Value::tuple(state.to_vec())))
         }
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     /// Always sees zero counts.
@@ -187,18 +217,34 @@ impl MultisetEvaluator<Value> for LargestCountEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
-        _: &Value,
+        order: Order,
+        outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// Also for `int` counts. A tuple count is the state while it is the largest (tuples compare
+    /// lexicographically, `()` is falsy), and `TypeError` against an `int` one.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
         // `max(state or count, count)`: a state of 0 is falsy too, which matters for negative counts.
-        let count = int(&counts[0]);
+        let count = counts[0].clone();
         let first = if state.truthy()? {
             state.clone()
         } else {
             count.clone()
         };
         Ok(Some(Value::py_max(first, count)?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -226,18 +272,34 @@ impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
+        order: Order,
         outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// Also for `int` counts: the pairs compare by count first (lexicographically for tuple counts, `TypeError`
+    /// between a tuple and an `int`), then by outcome.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
         // `max(state or (count, outcome), (count, outcome))`
-        let pair = Value::tuple(vec![int(&counts[0]), outcome.clone()]);
+        let pair = Value::tuple(vec![counts[0].clone(), outcome.clone()]);
         let first = if state.truthy()? {
             state.clone()
         } else {
             pair.clone()
         };
         Ok(Some(Value::py_max(first, pair)?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -269,19 +331,34 @@ impl MultisetEvaluator<Value> for CountSubsetEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
-        _: &Value,
+        order: Order,
+        outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
+        self.next_state_values(state, order, outcome, &[int(&counts[0]), int(&counts[1])])
+    }
+
+    /// Also for `int` counts: a tuple `right` is not `== 0`, and `//` with a tuple is `TypeError`.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
         let (left, right) = (&counts[0], &counts[1]);
-        if right.is_zero() {
+        if *right == int(0) {
             return Ok(Some(state.clone()));
         }
-        let current = int(left).binary(BinOp::FloorDiv, &int(right))?;
+        let current = left.binary(BinOp::FloorDiv, right)?;
         Ok(Some(match state {
             Value::None => current,
             state => Value::py_min(state.clone(), current)?,
         }))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -310,6 +387,21 @@ pub struct LargestStraightEvaluator;
 impl MultisetEvaluator<Value> for LargestStraightEvaluator {
     type State = Value;
     type Final = Value;
+
+    /// `count >= 1` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &Self::State,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_compared_with_int(">="))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
 
     fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
@@ -366,6 +458,21 @@ pub struct LargestStraightAndOutcomeEvaluator {
 impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
     type State = Value;
     type Final = Value;
+
+    /// `count >= 1` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &Self::State,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_compared_with_int(">="))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
 
     fn initial_state(&self, order: Order, outcomes: &[Value], _: &[Option<Int>]) -> Result<Value> {
         let end = if order.value() > 0 {
@@ -451,6 +558,21 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
     type State = Value;
     type Final = Value;
 
+    /// `count < len(current_runs)` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &Self::State,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_compared_with_int("<"))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
+
     fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)
     }
@@ -524,8 +646,8 @@ pub struct LargestCountWithWildEvaluator<S> {
 }
 
 impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
-    /// `None` before the first outcome, then `(best, total_wild_early)`.
-    type State = Option<(Int, Int)>;
+    /// `None` before the first outcome, then `(best, total_wild_early)`: counts, so tuples too.
+    type State = Option<(Value, Value)>;
     type Final = Value;
 
     fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Self::State> {
@@ -538,6 +660,18 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
         order: Order,
         outcome: &Value,
         counts: &[Int],
+    ) -> Result<Option<Self::State>> {
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// Also for `int` counts: Python's `+` and `max` on the counts, so tuple counts concatenate (`count + 0` is
+    /// `TypeError`).
+    fn next_state_values(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &Value,
+        counts: &[Value],
     ) -> Result<Option<Self::State>> {
         let count = &counts[0];
         let is_wild = (self.wild)(outcome)?;
@@ -559,18 +693,22 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
             return Ok(Some(Some(if is_wild_early.truthy()? {
                 (count.clone(), count.clone())
             } else {
-                (count.clone(), Int::ZERO)
+                (count.clone(), int(0))
             })));
         };
         let (mut best, mut total_wild_early) = (best.clone(), total_wild_early.clone());
         if is_wild_late.truthy()? {
-            best += count;
+            best = best.binary(BinOp::Add, count)?;
         }
-        best = best.max(count + &total_wild_early);
+        best = Value::py_max(best, count.binary(BinOp::Add, &total_wild_early)?)?;
         if is_wild_early.truthy()? {
-            total_wild_early += count;
+            total_wild_early = total_wild_early.binary(BinOp::Add, count)?;
         }
         Ok(Some(Some((best, total_wild_early))))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -582,7 +720,7 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
     ) -> Result<Final<Value>> {
         match final_state {
             // `final_state[0]`
-            Some((best, _)) => Ok(Final::Outcome(int(best))),
+            Some((best, _)) => Ok(Final::Outcome(best.clone())),
             None => Err(Error::Type("'NoneType' object is not subscriptable".into())),
         }
     }
@@ -618,6 +756,21 @@ impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
 {
     type State = Value;
     type Final = Value;
+
+    /// `count > 0` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &Self::State,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_compared_with_int(">"))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
 
     fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
         Ok(Value::None)

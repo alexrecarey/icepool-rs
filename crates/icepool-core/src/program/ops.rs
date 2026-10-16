@@ -540,6 +540,11 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [other, p] = args.exactly(["other", "pool"])?;
             evaluate::rfloordiv(other, p)
         }
+        "builtin_evaluate" => {
+            let [evaluator, params, ctor_kwargs, kwargs, a] =
+                args.exactly(["evaluator", "params", "ctor_kwargs", "kwargs", "args"])?;
+            evaluate::builtin_evaluate(evaluator, params, ctor_kwargs, kwargs, a)
+        }
         "keep_evaluate" => {
             let [p, index] = args.exactly(["pool", "index"])?;
             evaluate::keep_evaluate(p, index)

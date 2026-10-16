@@ -34,6 +34,7 @@ use crate::outcome::Outcome;
 use crate::pool::{Count, MultisetSource};
 use crate::Int;
 use crate::Quantity;
+use crate::Value;
 
 /// What `final_outcome` produced: an outcome for the result `Die`, `icepool.Reroll` (dropped), or `None` (which
 /// `finalize_evaluation` refuses with `TypeError`).
@@ -92,20 +93,43 @@ pub trait MultisetEvaluator<O> {
         sizes: &[Option<Int>],
     ) -> Result<Final<Self::Final>>;
 
+    /// Whether `initial_state` / `final_outcome` read the sizes at all. Python passes a tuple size (a `MultiDeal`
+    /// input) to them like any other; an evaluator that never looks at its sizes says `false` here, and then a
+    /// tuple size reaches it as `None` (unread). The default `true` keeps tuple sizes `Unsupported` for evaluators
+    /// that were not written for them.
+    fn reads_sizes(&self) -> bool {
+        true
+    }
+
+    /// [`Self::next_state`] when some count is a tuple (a `MultiDeal` input, or tuple counts passed on by
+    /// operators), every count as the Python value it is (`int` or `tuple` of `int`s). Python's evaluators have no
+    /// special case for a tuple count: their arithmetic just runs on it (`outcome * count` repeats a tuple,
+    /// `count >= 1` is `TypeError`, `count == 0` is `False`...), so an override ports `next_state` over `Value`s.
+    /// The default says `Unsupported`.
+    fn next_state_values(
+        &self,
+        _state: &Self::State,
+        _order: Order,
+        _outcome: &O,
+        _counts: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Err(tuple_unsupported())
+    }
+
     /// What the driver calls: [`Self::initial_state`] with the sizes as the sources give them. An `int` size is
-    /// passed on; a tuple size (a `MultiDeal` input) reaches only evaluators that override this, the others say
-    /// `Unsupported`.
+    /// passed on; a tuple size reaches only evaluators that override this or do not read sizes
+    /// ([`Self::reads_sizes`]), the others say `Unsupported`.
     fn initial_state_counts(
         &self,
         order: Order,
         outcomes: &[O],
         sizes: &[Option<Count>],
     ) -> Result<Self::State> {
-        self.initial_state(order, outcomes, &int_sizes(sizes)?)
+        self.initial_state(order, outcomes, &int_sizes(sizes, self.reads_sizes())?)
     }
 
-    /// What the driver calls: [`Self::next_state`] with the counts as the sources give them (see
-    /// [`Self::initial_state_counts`]).
+    /// What the driver calls: [`Self::next_state`] with the counts as the sources give them; if some count is a
+    /// tuple, [`Self::next_state_values`].
     fn next_state_counts(
         &self,
         state: &Self::State,
@@ -113,14 +137,13 @@ pub trait MultisetEvaluator<O> {
         outcome: &O,
         counts: &[Count],
     ) -> Result<Option<Self::State>> {
-        let counts = counts
-            .iter()
-            .map(|c| match c {
-                Count::Int(c) => Ok(c.clone()),
-                Count::Tuple(_) => Err(tuple_unsupported()),
-            })
-            .collect::<Result<Vec<Int>>>()?;
-        self.next_state(state, order, outcome, &counts)
+        match int_counts(counts) {
+            Some(counts) => self.next_state(state, order, outcome, &counts),
+            None => {
+                let counts: Vec<Value> = counts.iter().map(expression::count_value).collect();
+                self.next_state_values(state, order, outcome, &counts)
+            }
+        }
     }
 
     /// What the driver calls: [`Self::final_outcome`] with the sizes as the sources give them (see
@@ -132,7 +155,7 @@ pub trait MultisetEvaluator<O> {
         outcomes: &[O],
         sizes: &[Option<Count>],
     ) -> Result<Final<Self::Final>> {
-        self.final_outcome(final_state, order, outcomes, &int_sizes(sizes)?)
+        self.final_outcome(final_state, order, outcomes, &int_sizes(sizes, self.reads_sizes())?)
     }
 
     /// What the driver calls: [`Self::initial_state_counts`] with the size tree of the evaluation's call tree. Only
@@ -173,13 +196,35 @@ fn tuple_unsupported() -> Error {
     Error::Unsupported("a multiset tuple input (MultiDeal) to this evaluator".into())
 }
 
-fn int_sizes(sizes: &[Option<Count>]) -> Result<Vec<Option<Int>>> {
+/// The `TypeError` Python raises comparing a tuple count with an `int` (`count >= 1`; `max(count, 0)` compares
+/// `0 > count`). A one-input evaluator whose `next_state` starts by such a comparison raises it for any tuple count
+/// (its one count is the tuple whenever [`MultisetEvaluator::next_state_values`] is called).
+pub(crate) fn tuple_compared_with_int(op: &str) -> Error {
+    Error::Type(format!(
+        "'{op}' not supported between instances of 'tuple' and 'int'"
+    ))
+}
+
+/// The sizes as `int`s; a tuple size is `None` if the evaluator does not read sizes, else `Unsupported`.
+fn int_sizes(sizes: &[Option<Count>], reads_sizes: bool) -> Result<Vec<Option<Int>>> {
     sizes
         .iter()
         .map(|s| match s {
             None => Ok(None),
             Some(Count::Int(s)) => Ok(Some(s.clone())),
+            Some(Count::Tuple(_)) if !reads_sizes => Ok(None),
             Some(Count::Tuple(_)) => Err(tuple_unsupported()),
+        })
+        .collect()
+}
+
+/// The counts as `int`s, if none is a tuple.
+pub(crate) fn int_counts(counts: &[Count]) -> Option<Vec<Int>> {
+    counts
+        .iter()
+        .map(|c| match c {
+            Count::Int(c) => Some(c.clone()),
+            Count::Tuple(_) => None,
         })
         .collect()
 }

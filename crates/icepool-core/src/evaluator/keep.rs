@@ -1,9 +1,10 @@
 //! Port of icepool `evaluator/keep.py`.
 
 use super::basic::int;
-use super::{Final, MultisetEvaluator};
+use super::{tuple_compared_with_int, Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
+use crate::pool::Count;
 use crate::{Int, Value};
 
 /// Produces the outcome at a given sorted index (`KeepEvaluator`).
@@ -38,6 +39,46 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
             Some(index) => -index,
         };
         Ok((Value::None, remaining))
+    }
+
+    /// Python passes a tuple size on to `initial_state`, which reads it only to count from the other end
+    /// (`size + index + 1` / `size - index`: `TypeError` for a tuple).
+    fn initial_state_counts(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<(Value, Int)> {
+        let size = match &sizes[0] {
+            Some(Count::Int(size)) => Some(size.clone()),
+            Some(Count::Tuple(_)) => {
+                if matches!(&self.index, Some(index) if (order.value() > 0) != !index.is_negative()) {
+                    let op = if order.value() > 0 { "+" } else { "-" };
+                    return Err(Error::Type(format!(
+                        "unsupported operand type(s) for {op}: 'tuple' and 'int'"
+                    )));
+                }
+                None
+            }
+            None => None,
+        };
+        self.initial_state(order, outcomes, &[size])
+    }
+
+    /// `final_outcome` does not read the size; `initial_state_counts` handles a tuple size itself.
+    fn reads_sizes(&self) -> bool {
+        false
+    }
+
+    /// `max(count, 0)` of a tuple count: `TypeError`.
+    fn next_state_values(
+        &self,
+        _: &(Value, Int),
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<(Value, Int)>> {
+        Err(tuple_compared_with_int(">"))
     }
 
     fn next_state(

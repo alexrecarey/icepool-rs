@@ -400,3 +400,113 @@ def tuple_op_evaluate(name, params, args):
     from harness.catalogue.evaluators import EVALUATORS
     fresh_caches()
     return EVALUATORS[name](*params).evaluate(*args)
+
+
+# --- S5d: the built-in evaluators over tuple counts --------------------------------------------------------------
+
+def _no_args(g):
+    return [], [], []
+
+
+def _straight_and_outcome_args(g):
+    return [{"str": g.rng.choice(["high", "low"])}], [], []
+
+
+def _wild_args(g):
+    def which():
+        return None if g.rng.random() < 0.4 else [g.outcome() for _ in range(g.rng.randint(0, 2))]
+    return [which(), which(), which()], [], []
+
+
+def _all_counts_args(g):
+    return [], [[{"str": "filter"}, g.rng.choice([1, 1, 2, 0, -1, {"str": "all"}])]], []
+
+
+def _count_subset_args(g):
+    return [], [[{"str": "empty_divisor"}, g.rng.choice([None, 0, 2])]], []
+
+
+def _empty_args(g):
+    return [], [], ([[{"str": "any"}, {"bool": g.rng.random() < 0.5}]] if g.rng.random() < 0.7 else [])
+
+
+def _expand_args(g):
+    return [], [], ([[{"str": "order"}, g.rng.choice([1, -1])]] if g.rng.random() < 0.7 else [])
+
+
+def _keep_args(g):
+    return [], [], [[{"str": "index"}, g.rng.choice([None, 0, 1, 2, -1, -2])]]
+
+
+# Built-in evaluator class -> (number of inputs, generator of (constructor args, constructor kwargs, evaluate
+# kwargs)).
+_BUILTIN_EVALUATORS = {
+    "SumEvaluator": (1, _no_args),
+    "SizeEvaluator": (1, _no_args),
+    "ProductOfCountsEvaluator": (1, _no_args),
+    "EmptyEvaluator": (1, _empty_args),
+    "ExpandEvaluator": (1, _expand_args),
+    "KeepEvaluator": (1, _keep_args),
+    "HighestOutcomeAndCountEvaluator": (1, _no_args),
+    "AllCountsEvaluator": (1, _all_counts_args),
+    "LargestCountEvaluator": (1, _no_args),
+    "LargestCountWithWildEvaluator": (1, _wild_args),
+    "LargestCountAndOutcomeEvaluator": (1, _no_args),
+    "LargestStraightEvaluator": (1, _no_args),
+    "LargestStraightAndOutcomeEvaluator": (1, _straight_and_outcome_args),
+    "AllStraightsEvaluator": (1, _no_args),
+    "AllStraightsReduceCountsEvaluator": (1, _no_args),
+    "CountSubsetEvaluator": (2, _count_subset_args),
+    "IsProperSubsetEvaluator": (2, _no_args),
+    "IsSubsetEvaluator": (2, _no_args),
+    "IsProperSupersetEvaluator": (2, _no_args),
+    "IsSupersetEvaluator": (2, _no_args),
+    "IsEqualSetEvaluator": (2, _no_args),
+    "IsNotEqualSetEvaluator": (2, _no_args),
+    "IsDisjointSetEvaluator": (2, _no_args),
+}
+
+_STRAIGHT_EVALUATORS = {"LargestStraightEvaluator", "LargestStraightAndOutcomeEvaluator", "AllStraightsEvaluator",
+                        "AllStraightsReduceCountsEvaluator"}
+
+
+def _gen_builtin_evaluate(g, depth):
+    from harness.grammar.deck import gen_multi_deal
+    from harness.grammar.pool import gen_pool, huge_range
+
+    def tuple_leaf():
+        md = gen_multi_deal(g, 0)
+        if g.rng.random() < 0.1:
+            return {"op": "mx_tuple_slice", "expr": md, "start": g.rng.choice([None, 1, -1]),
+                    "stop": g.rng.choice([None, 2, -1]), "step": None}
+        return md
+
+    def arg():
+        # Mostly a whole MultiDeal (tuple counts and sizes), or operators over them; now and then a pool, so that
+        # two-input evaluators compare tuple counts with int ones.
+        k = g.rng.random()
+        if k < 0.45:
+            return tuple_leaf()
+        if k < 0.85:
+            return tuple_count_expression(g, depth, tuple_leaf)
+        return gen_pool(g, 0)
+    name = g.rng.choice(sorted(_BUILTIN_EVALUATORS))
+    inputs, gen_params = _BUILTIN_EVALUATORS[name]
+    args = [arg() for _ in range(inputs)]
+    if name in _STRAIGHT_EVALUATORS and huge_range(args):
+        # `consecutive` over a huge span of outcomes (pool.py `huge_range`).
+        name, inputs, gen_params = "SumEvaluator", 1, _no_args
+        args = args[:1]
+    params, ctor_kwargs, kwargs = gen_params(g)
+    return {"op": "builtin_evaluate", "evaluator": {"str": name}, "params": params, "ctor_kwargs": ctor_kwargs,
+            "kwargs": kwargs, "args": args}
+
+
+@node("builtin_evaluate", "die", gen=_gen_builtin_evaluate, weight=0.5)
+def builtin_evaluate(evaluator, params, ctor_kwargs, kwargs, args):
+    """getattr(icepool.evaluator, evaluator)(*params, **dict(ctor_kwargs)).evaluate(*args, **dict(kwargs)): a
+    built-in evaluator class, mostly over MultiDeals or operators over them, so it sees tuple counts and sizes
+    (Python's arithmetic just runs on them: `outcome * count` repeats a tuple, `count >= 1` is TypeError...)."""
+    fresh_caches()
+    ev = getattr(icepool.evaluator, evaluator)(*params, **{k: v for k, v in ctor_kwargs})
+    return ev.evaluate(*args, **{k: v for k, v in kwargs})

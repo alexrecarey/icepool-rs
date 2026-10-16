@@ -69,6 +69,27 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
         Ok(Some(Value::tuple(items)))
     }
 
+    /// A tuple count: `(outcome, ) * count` is `TypeError` (a tuple times a tuple).
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        let state = if state.truthy()? {
+            state.clone()
+        } else {
+            Value::tuple(Vec::new())
+        };
+        let more = Value::tuple(vec![outcome.clone()]).binary(BinOp::Mul, &counts[0])?;
+        Ok(Some(state.binary(BinOp::Add, &more)?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
+    }
+
     fn final_outcome(
         &self,
         final_state: &Value,
@@ -108,7 +129,23 @@ impl MultisetEvaluator<Value> for SumEvaluator {
         outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
+        Ok(Some(add_to_sum(state, outcome.clone(), &int(&counts[0]))?))
+    }
+
+    /// A tuple count: `count == 1` is `False`, an `int` outcome times it repeats the tuple, and `state + ...`
+    /// concatenates.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
         Ok(Some(add_to_sum(state, outcome.clone(), &counts[0])?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -123,17 +160,17 @@ impl MultisetEvaluator<Value> for SumEvaluator {
 }
 
 /// `SumEvaluator.next_state` after the (optional) map: `outcome * count` added to the state.
-fn add_to_sum(state: &Value, outcome: Value, count: &Int) -> Result<Value> {
+fn add_to_sum(state: &Value, outcome: Value, count: &Value) -> Result<Value> {
     Ok(match state {
         Value::None => {
-            if *count == 1 {
+            if *count == int(1) {
                 // The outcome does not need to support addition or multiplication in this case.
                 outcome
             } else {
-                outcome.binary(BinOp::Mul, &count.into())?
+                outcome.binary(BinOp::Mul, count)?
             }
         }
-        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, &count.into())?)?,
+        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, count)?)?,
     })
 }
 
@@ -159,7 +196,22 @@ impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvalu
         outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
+        Ok(Some(add_to_sum(state, (self.map)(outcome)?, &int(&counts[0]))?))
+    }
+
+    /// A tuple count, as for [`SumEvaluator`].
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
         Ok(Some(add_to_sum(state, (self.map)(outcome)?, &counts[0])?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -189,11 +241,26 @@ impl MultisetEvaluator<Value> for SizeEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
-        _: &Value,
+        order: Order,
+        outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(state.binary(BinOp::Add, &Value::from(&counts[0]))?))
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// `state + count`: `0 + tuple` is `TypeError`.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(state.binary(BinOp::Add, &counts[0])?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -226,11 +293,26 @@ impl MultisetEvaluator<Value> for ProductOfCountsEvaluator {
     fn next_state(
         &self,
         state: &Value,
-        _: Order,
-        _: &Value,
+        order: Order,
+        outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(state.binary(BinOp::Mul, &Value::from(&counts[0]))?))
+        self.next_state_values(state, order, outcome, &[int(&counts[0])])
+    }
+
+    /// `state * count`: `1 * tuple` is the tuple, then a tuple times a tuple is `TypeError`.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(state.binary(BinOp::Mul, &counts[0])?))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(
@@ -270,6 +352,25 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         } else {
             state.clone()
         }))
+    }
+
+    /// A tuple count: `count == 0` is `False`.
+    fn next_state_values(
+        &self,
+        state: &Value,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(if state.truthy()? {
+            Value::Bool(counts[0] == int(0))
+        } else {
+            state.clone()
+        }))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(

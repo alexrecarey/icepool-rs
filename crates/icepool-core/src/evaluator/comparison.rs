@@ -3,6 +3,7 @@
 use super::{Final, MultisetEvaluator};
 use crate::error::Result;
 use crate::order::Order;
+use crate::value::BinOp::{Ge, Gt, Le, Lt};
 use crate::Int;
 use crate::Value;
 
@@ -37,6 +38,27 @@ impl ComparisonEvaluator {
         }
     }
 
+    /// [`Self::any_all`] for counts that may be tuples, with Python's operators (`<` between tuples is
+    /// lexicographic, giving a bool for tuples of ints; between a tuple and an int `TypeError`; `==` just `False`). Python evaluates the pair left to
+    /// right, and `left > 0 and right > 0` stops at a false left.
+    fn any_all_values(&self, left: &Value, right: &Value) -> Result<(bool, bool)> {
+        use Comparison::*;
+        let cmp = |op, a: &Value, b: &Value| a.binary(op, b)?.truthy();
+        let zero = Value::from(0);
+        Ok(match self.0 {
+            IsProperSubset => (cmp(Lt, left, right)?, cmp(Le, left, right)?),
+            IsSubset => (true, cmp(Le, left, right)?),
+            IsProperSuperset => (cmp(Gt, left, right)?, cmp(Ge, left, right)?),
+            IsSuperset => (true, cmp(Ge, left, right)?),
+            IsEqualSet => (true, left == right),
+            IsNotEqualSet => (left != right, true),
+            IsDisjointSet => (
+                true,
+                !(cmp(Gt, left, &zero)? && cmp(Gt, right, &zero)?),
+            ),
+        })
+    }
+
     /// The final outcome if both left and right have no outcomes.
     fn default_outcome(&self) -> bool {
         use Comparison::*;
@@ -45,6 +67,14 @@ impl ComparisonEvaluator {
             IsSubset | IsSuperset | IsEqualSet | IsDisjointSet => true,
         }
     }
+}
+
+/// `next_state` given this outcome's `(this_any, this_all)`.
+fn step(state: Option<(bool, bool)>, (this_any, this_all): (bool, bool)) -> Option<(bool, bool)> {
+    let (has_any, has_all) = state.unwrap_or((false, true));
+    let has_all = has_all && this_all;
+    let has_any = has_all && (has_any || this_any);
+    Some((has_any, has_all))
 }
 
 impl MultisetEvaluator<Value> for ComparisonEvaluator {
@@ -63,11 +93,24 @@ impl MultisetEvaluator<Value> for ComparisonEvaluator {
         _: &Value,
         counts: &[Int],
     ) -> Result<Option<Self::State>> {
-        let (has_any, has_all) = state.unwrap_or((false, true));
-        let (this_any, this_all) = self.any_all(&counts[0], &counts[1]);
-        let has_all = has_all && this_all;
-        let has_any = has_all && (has_any || this_any);
-        Ok(Some(Some((has_any, has_all))))
+        Ok(Some(step(*state, self.any_all(&counts[0], &counts[1]))))
+    }
+
+    fn next_state_values(
+        &self,
+        state: &Self::State,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Self::State>> {
+        Ok(Some(step(
+            *state,
+            self.any_all_values(&counts[0], &counts[1])?,
+        )))
+    }
+
+    fn reads_sizes(&self) -> bool {
+        false
     }
 
     fn final_outcome(

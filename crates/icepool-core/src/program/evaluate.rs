@@ -681,3 +681,144 @@ pub fn rfloordiv(other: PValue, p: PValue) -> Result<PValue, PErr> {
         &[left, right],
     )
 }
+
+// --- S5d: the built-in evaluator classes, over tuple counts too -------------------------------------------------
+
+/// `getattr(icepool.evaluator, evaluator)(*params, **ctor_kwargs).evaluate(*args, **kwargs)` (node
+/// `builtin_evaluate`): a built-in evaluator class with the parameters its generator gives, on any multisets (its
+/// inputs are mostly MultiDeals, or operators over them: tuple counts). The evaluator is built first, as in
+/// Python, then the arguments converted.
+pub fn builtin_evaluate(
+    evaluator: PValue,
+    params: PValue,
+    ctor_kwargs: PValue,
+    kwargs: PValue,
+    args: PValue,
+) -> Result<PValue, PErr> {
+    let PValue::Value(Value::Str(name)) = evaluator else {
+        return raise(Error::Key("builtin_evaluate names an evaluator class".into()));
+    };
+    let mut params = py_iter(params)?.into_iter();
+    let ctor_kwargs = super::map::kwargs(ctor_kwargs)?;
+    let kwargs = super::map::kwargs(kwargs)?;
+    let unsupported = || {
+        Err(PErr::Unimplemented(format!(
+            "builtin_evaluate of {name} with these parameters"
+        )))
+    };
+    // The one keyword argument `key` of `kwargs` (constructor or `evaluate`), if no other is given.
+    let only = |kwargs: &[(String, PValue)], key: &str| -> Result<Option<PValue>, PErr> {
+        match kwargs {
+            [] => Ok(None),
+            [(k, v)] if k == key => Ok(Some(v.clone())),
+            _ => Err(PErr::Unimplemented(format!(
+                "builtin_evaluate of {name} with these keyword arguments"
+            ))),
+        }
+    };
+    let positional = params.len();
+    let exprs = || -> Result<Vec<MExpr>, PErr> {
+        py_iter(args.clone())?
+            .into_iter()
+            .map(implicit_convert)
+            .collect()
+    };
+    let simple = |kwargs: &[(String, PValue)]| ctor_kwargs.is_empty() && kwargs.is_empty() && positional == 0;
+    let comparison = match &*name {
+        "IsProperSubsetEvaluator" => Some(Comparison::IsProperSubset),
+        "IsSubsetEvaluator" => Some(Comparison::IsSubset),
+        "IsProperSupersetEvaluator" => Some(Comparison::IsProperSuperset),
+        "IsSupersetEvaluator" => Some(Comparison::IsSuperset),
+        "IsEqualSetEvaluator" => Some(Comparison::IsEqualSet),
+        "IsNotEqualSetEvaluator" => Some(Comparison::IsNotEqualSet),
+        "IsDisjointSetEvaluator" => Some(Comparison::IsDisjointSet),
+        _ => None,
+    };
+    if let Some(comparison) = comparison {
+        if !simple(&kwargs) {
+            return unsupported();
+        }
+        return die(ComparisonEvaluator(comparison), &exprs()?);
+    }
+    match &*name {
+        "SumEvaluator" if simple(&kwargs) => die(SumEvaluator, &exprs()?),
+        "SizeEvaluator" if simple(&kwargs) => die(SizeEvaluator, &exprs()?),
+        "ProductOfCountsEvaluator" if simple(&kwargs) => die(ProductOfCountsEvaluator, &exprs()?),
+        "HighestOutcomeAndCountEvaluator" if simple(&kwargs) => {
+            die(HighestOutcomeAndCountEvaluator, &exprs()?)
+        }
+        "LargestCountEvaluator" if simple(&kwargs) => die(LargestCountEvaluator, &exprs()?),
+        "LargestCountAndOutcomeEvaluator" if simple(&kwargs) => {
+            die(LargestCountAndOutcomeEvaluator, &exprs()?)
+        }
+        "LargestStraightEvaluator" if simple(&kwargs) => die(LargestStraightEvaluator, &exprs()?),
+        "AllStraightsEvaluator" if simple(&kwargs) => die(AllStraightsEvaluator, &exprs()?),
+        "AllStraightsReduceCountsEvaluator" if simple(&kwargs) => die(
+            // The default reducer, `operator.mul`.
+            AllStraightsReduceCountsEvaluator {
+                reducer: |a: &Value, b: &Value| a.binary(crate::value::BinOp::Mul, b),
+            },
+            &exprs()?,
+        ),
+        "EmptyEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
+            // `any` is a keyword argument of `initial_state` / `final_outcome`; only its truth value is read.
+            let any = match only(&kwargs, "any")? {
+                None => false,
+                Some(PValue::Value(Value::Bool(b))) => b,
+                Some(_) => return unsupported(),
+            };
+            die(EmptyEvaluator { any }, &exprs()?)
+        }
+        "ExpandEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
+            // `reverse = order != Order.Ascending` in `final_outcome`.
+            let ascending = match only(&kwargs, "order")? {
+                None => true,
+                Some(order) => value(order)? == Value::from(1),
+            };
+            die(ExpandEvaluator { ascending }, &exprs()?)
+        }
+        "KeepEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
+            let Some(index) = only(&kwargs, "index")? else {
+                return unsupported();
+            };
+            let index = match value(index)? {
+                Value::None => None,
+                Value::Int(i) => Some(i.into()),
+                _ => return unsupported(),
+            };
+            die(KeepEvaluator { index }, &exprs()?)
+        }
+        "AllCountsEvaluator" if positional == 0 && kwargs.is_empty() => {
+            let filter = match only(&ctor_kwargs, "filter")? {
+                None => Value::from(1),
+                Some(filter) => value(filter)?,
+            };
+            die(AllCountsEvaluator { filter }, &exprs()?)
+        }
+        "CountSubsetEvaluator" if positional == 0 && kwargs.is_empty() => {
+            let empty_divisor = match only(&ctor_kwargs, "empty_divisor")? {
+                None => Value::None,
+                Some(d) => value(d)?,
+            };
+            die(CountSubsetEvaluator { empty_divisor }, &exprs()?)
+        }
+        "LargestStraightAndOutcomeEvaluator"
+            if positional == 1 && ctor_kwargs.is_empty() && kwargs.is_empty() =>
+        {
+            let evaluator = straight_and_outcome_evaluator(params.next().expect("one parameter"))?;
+            die(evaluator, &exprs()?)
+        }
+        "LargestCountWithWildEvaluator"
+            if positional == 3 && ctor_kwargs.is_empty() && kwargs.is_empty() =>
+        {
+            let mut select = || make_select_function(params.next().expect("three parameters"));
+            let evaluator = LargestCountWithWildEvaluator {
+                wild: select()?,
+                wild_low: select()?,
+                wild_high: select()?,
+            };
+            die(evaluator, &exprs()?)
+        }
+        _ => unsupported(),
+    }
+}
