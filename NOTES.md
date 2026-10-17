@@ -5,6 +5,33 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Cycles and the collector (R4).** The review's "leak" (20k x `d(6).map(lambda o, big=big: o)` +
+  `pool(3).sum()`, maxrss +1.7 MB) was warm-up: after 500 warm-up iterations 20k more add 0 KB of maxrss and a few KB
+  of traced memory (icepool's caches) on both backends. The real leak was cycles: a Python object held by the core
+  (a host outcome `Value::Host(PyHost)`, a user's source `PyHostSource`) that refers back to its die was never
+  collected. `icepool_core::ownership`: `Traverse` (impl beside each type: Value, Vector, Symbols, Die with its
+  caches, Pool, the sources, Deck, Deal, MultiDeal, CompoundKeep, Weightless, HostSource) lists each `Arc` clone a
+  value holds; `owned_hosts(root)` keeps the host objects for which every `Arc` on the way has all its strong
+  references held from inside `root` (Kahn over the Arc DAG, counting edges from owned nodes against
+  `strong_count`). Each icepool_rs pyclass's `__traverse__` (`convert::traverse`) reports those. **Never report
+  anything shared**: Python subtracts one per report from the object's refcount, and two reports for the one
+  reference an Arc holds can free a live object. Under-reporting only leaks. A new pyclass holding core values
+  needs a `__traverse__`; a new core type holding Values (or a new cache in DieData) needs its `Traverse` impl
+  listing *every* Arc clone exactly once (a missing one is safe, a duplicate is not). No `__clear__`: the classes
+  are frozen, and PyO3's guide notes immutable references need none. Concurrency is safe: a clone held elsewhere
+  (another thread's computation, a callback's stack) raises `strong_count`, so nothing below it counts as owned.
+  `RsDeal` / `RsMultiDeal` hold their deck's `Py<RsDeck>` (reported) plus the keep tuple / hand groups, and build
+  the core value per call (`Deal::from_parts`, `MultiDeal::from_parts`): with a second clone of the cards neither
+  wrapper could report them. Still not collected (task R4b): cycles holding two wrappers that share core data (a
+  compound keep and its inner pools; a die and a pool of it). Tests: crates/icepool-py/tests/test_leaks.py (cycles
+  per type, a shared outcome survives, a collection at every allocation changes no result, the review's loop
+  stays flat). The upstream suite also passes with `gc.set_threshold(10, 2, 2)` (1716). JS: `Handle.release()` /
+  `[Symbol.dispose]` (icepool.d.ts references lib esnext.disposable); `handleOf` throws a TypeError for a released
+  handle; `Again.release()` does nothing. A JS callback the core holds sits in core.js's global `functions` map
+  until the core drops it, so a callback referring to its own handle is never collected without `release()`.
+  Tests in js/test/api.test.mjs. Their WeakRef check must not `deref()` before `gc()`: deref keeps the target
+  alive to the end of the job.
+
 - **Huge sizes and panics (R2).** `memory.rs`: every allocation sized by user input goes through `check_len` /
   `try_with_capacity` / `try_repeat` / `try_collect` (refused past `MAX_ALLOC_BYTES`: 64 GiB native, 256 MiB on
   wasm32, then `try_reserve_exact`) or, for a big-int power, `check_pow`; both give the new `Error::Memory`

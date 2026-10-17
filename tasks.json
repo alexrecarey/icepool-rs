@@ -536,6 +536,15 @@
     "details": "Investigate the possible leak: 20k iterations of d(6).map(lambda o, big=big: o) + pool(3).sum() grew maxrss 1.7 MB vs 0.77 MB in the oracle. Run long tracemalloc / RSS loops; callbacks held as Py<PyAny> inside Rust Arcs are invisible to Python's cycle GC: implement __traverse__/__clear__ where PyO3 objects can hold Python references. JS: handles are freed only by FinalizationRegistry; add explicit dispose (Symbol.dispose / release()) and document it. Add a leak regression test for both. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
+    "id": "R4b",
+    "title": "Robustness: cycles through icepool_rs objects that share core data",
+    "deps": [
+      "R4"
+    ],
+    "milestone": null,
+    "details": "Left by R4 (NOTES.md \"Cycles and the collector (R4)\"): an icepool_rs object reports a Python object to the cycle collector only if no other object shares the core data holding it (icepool_core::ownership; a shared one must never be reported). So a garbage cycle that contains two Python wrappers sharing core data is still not collected on the Rust backend: a CompoundKeepGenerator and its _inner_generators (RsCompoundKeep's sources share the inner pools' dice; check with gc.get_referents(x._rs) == []), a die and a pool of it both reachable only from the cycle, a facade object and its cached _rs-derived objects. Fix the structural ones the way RsDeal / RsMultiDeal were fixed (hold the Python wrapper of the shared part, build the core value per call), starting with CompoundKeep; add each to CYCLES in crates/icepool-py/tests/test_leaks.py. Parity with the oracle stays absolute."
+  },
+  {
     "id": "B9",
     "title": "Drop the glibc math ports; use Rust std float math",
     "deps": [
