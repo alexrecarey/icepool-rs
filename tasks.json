@@ -706,5 +706,25 @@
     ],
     "milestone": null,
     "details": "Design: design/library-architecture.md section 5 and 9.2. C2 put crates/icepool-core/src/khepri.rs behind icepool-core's default `khepri` feature (icepool-py turns it off). It could not become a crate yet: the protected fixtures test runs khepri nodes through icepool_core::program::run, and icepool-core cannot depend on a crate that depends on it. Once the runner lives in icepool-harness (C5b), move khepri.rs and tests/khepri_calculate.rs (+ its json) into crates/icepool-khepri (deps: icepool-core, serde_json), make the runner's khepri node and icepool-wasm's calculate depend on it, and drop icepool-core's khepri feature. Pure move: the khepri fixtures and sweep still pass, run-wasm.sh and test-calculate.mjs still work. Background: docs/reviews/2026-10-17-library-review.md. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C3b",
+    "title": "Bindings through deliberate public APIs; hidden internals become pub(crate)",
+    "deps": [
+      "C3"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 4 and 9.3; continues C3 (read NOTES.md 'Public Rust API (C3)'). C3 curated the crate root and made die/outcome/int/pool/order/error/deck/deal/multi_deal private, but the modules icepool-py, icepool-wasm, the icepool-run binary and the protected tests still reach (again, compound_keep, counts, creation_args, expand, format, function, host_source, interrupt, keep, keep_tuple, khepri, map_tools, memory, operator, ownership, population, program, to_pool, weightless) are `#[doc(hidden)] pub mod`. Give icepool-py and icepool-wasm deliberate APIs instead, documented 'for language bindings', in `value` (or a new `host` module per design section 5: HostObject/HostRef/HostError, HostSource, HostOperator), never a widened pub mod, and make every module they no longer need pub(crate). `program` (and what only it uses) stays hidden until C5b moves the runner; khepri until C2f. Every newly visible item documented with an example (missing_docs is on; cargo doc -D warnings clean). Pure move/re-export: every fixture and the upstream suite still pass."
+  },
+  {
+    "id": "C3c",
+    "title": "Typed API completion: Display for Pool/Deck, Deck/Deal constructors, Again, statistics in the guide, doctests everywhere",
+    "deps": [
+      "C3",
+      "C2d",
+      "C2e"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 4 and 7; continues C3 (read NOTES.md 'Public Rust API (C3)'). After C2d (generic map/explode/Again) and C2e (typed statistics, FormatOutcome): Display for Pool (Python's str(pool): header + repr(die) per die, today only in program/expression.rs pool_str) and Deck, Debug everywhere, Display for Die switched from IntoValue to FormatOutcome; typed Deck::from_iter/from_weights and Deck::deal(n) -> Deal; pointwise_max/pointwise_min at the root; floor_div and pow (Python's // and **) as Die methods; Again re-exported at the root with std::ops (Again::new() + 1); the crate guide (crates/icepool-core/README.md) gains map/explode/Again, decks and statistics (mean -> Ratio, pub type Ratio at the root). A doctest on every public item of evaluator, expression and value (C3 did the root surface). cargo doc -D warnings clean, every fixture still passes."
   }
 ]

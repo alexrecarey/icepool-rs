@@ -5,6 +5,35 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Public Rust API (C3, design section 4).** Rest in C3b (bindings off the hidden modules) and C3c (Display for
+  Pool/Deck, Deck constructors, Again, statistics, doctests on evaluator/expression/value).
+  - `lib.rs`: the crate docs are `crates/icepool-core/README.md` (the usage guide; its examples are doctests).
+    `#![warn(missing_docs)]` is on, and clippy's `-D warnings` makes it an error: **every new visible public item
+    needs a doc comment**. Visible = the root re-exports and `pub mod evaluator / expression / value`. Modules the
+    bindings, `icepool-run` or the protected tests still reach are `#[doc(hidden)] pub mod` (missing_docs skips
+    hidden items, also items defined in a hidden module and re-exported at the root, which is why `pool`, `order`,
+    `error`, `deck`, `deal`, `multi_deal`, `die`, `outcome`, `int` are private `mod`s). The bindings reach the source
+    types through `icepool_core::evaluator::{Order, OrderReason, Count, MultisetSource, PoolSource, DealSource,
+    MultiDealSource, HandGroup, Popped, SourcePopped}`, Deck's `Counter`/`CounterOp` through `value`, `Error`/`Result`
+    at the root. `RUSTDOCFLAGS="-D warnings" cargo doc -p icepool-core --no-deps` must stay clean (no links to
+    private items from public docs).
+  - `d(sides) -> Die<i64>` and `z` are typed and panic where Python raises (`sides must be at least 1.`); the
+    generic fallible forms are `function::try_d::<O>` / `try_z` (the runner and the Value layer use those).
+  - `Die::quantities(comparison)` (Python's `quantities(comparison)`) is now **`quantities_by`**: `quantities()` is
+    the typed iterator.
+  - `die_ops.rs`: `IntoDie<O>` (a die, `&Die`, or a plain outcome = `Die::single`) is the right-hand side of every
+    operator and comparison method. `+ - *` and `Neg` go through `OutcomeArith` (checked; they panic with the
+    message "attempt to add with overflow" in release builds too); `/ % & | ^ << >> !` are `O`'s own std operators.
+    `i64 + Die<i64>` etc. by macro for the signed primitives. Comparisons are methods `lt le gt ge equal not_equal`
+    -> `Die<bool>`; `==` stays structural (`Die.equals`). `sum_rolls(n)` = `n @ die`. `Display` converts outcomes
+    with `IntoValue` and prints `format(die, "Die", "")`, which is Python's `str(die)` exactly (checked against the
+    oracle for bool and int dice); C3c switches it to `FormatOutcome` once C2e adds that.
+  - Typed `Die<O: Outcome>`: `single`, `from_weights`, `FromIterator`, `From<Range/RangeInclusive>`, `map`,
+    `binary`, `try_binary`, `quantities()`, `IntoIterator for &Die`; `Pool<O: Outcome>`: `highest(n)`, `lowest(n)`,
+    `evaluate(&evaluator) -> Result<Die<Final>>`; `die.pool(n)`. These build dice with `from_mapping` (an
+    `OrderedMerge`), exactly as `binary_operator` does. C2d's generic `map` (with `Mapped`, reroll) should keep the
+    signature `map<P>(&self, f: impl FnMut(&O) -> P) -> Die<P>`.
+
 - **Generic evaluators (C2, design section 2).** Done for the poker evaluators; basic/keep/comparison are C2b,
   lexi/argsort C2c, map/explode/Again C2d, to_pool/statistics/formatting C2e, the khepri crate C2f.
   - `evaluator/fold.rs`: `CountFold<O>` (`initial` default `State::default()`, `extra`, `fold`, `finish`) is the
