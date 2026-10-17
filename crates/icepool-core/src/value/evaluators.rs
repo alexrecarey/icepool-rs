@@ -40,6 +40,12 @@ impl IntoValue for Int {
     }
 }
 
+impl IntoValue for i64 {
+    fn into_value(self) -> Value {
+        self.into()
+    }
+}
+
 impl IntoValue for bool {
     fn into_value(self) -> Value {
         Value::Bool(self)
@@ -408,3 +414,43 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::evaluator::{evaluate, MultisetEvaluator};
+    use crate::pool::MultisetSource;
+    use crate::{d, Pool, Quantity};
+
+    fn pool<O: crate::outcome::OutcomeOrder + From<i64>>(sides: i64, n: usize) -> MultisetSource<O> {
+        MultisetSource::Pool(Pool::new(vec![(d(sides).unwrap(), n)]).unwrap().source())
+    }
+
+    /// Evaluates `evaluator` on `n`d`sides` typed (`i64` outcomes) and as Python does (`Value` outcomes): the
+    /// typed finals, as Python spells them, are exactly Python's finals.
+    fn typed_matches_python<E>(evaluator: E, sides: i64, n: usize) -> Vec<(<E as MultisetEvaluator<i64>>::Final, Quantity)>
+    where
+        E: MultisetEvaluator<i64> + TupleCounts,
+        <E as MultisetEvaluator<i64>>::Final: IntoValue + Clone,
+        <E as MultisetEvaluator<Value>>::Final: IntoValue,
+    {
+        let typed = evaluate(&evaluator, &[pool::<i64>(sides, n)]).unwrap();
+        let python = evaluate(&PyEvaluator(evaluator), &[pool::<Value>(sides, n)]).unwrap();
+        let spelled: Vec<_> = typed.iter().map(|(f, q)| (f.clone().into_value(), q.clone())).collect();
+        assert_eq!(spelled, python);
+        typed
+    }
+
+    #[test]
+    fn typed_poker_evaluators_agree_with_python() {
+        let mut largest: Vec<(Int, Quantity)> = typed_matches_python(LargestCountEvaluator, 6, 3);
+        largest.sort_by(|a, b| a.0.cmp(&b.0));
+        let expected = [(1, 120u32), (2, 90), (3, 6)].map(|(c, q)| (Int::from(c as i64), Quantity::from(q)));
+        assert_eq!(largest, expected);
+        typed_matches_python(HighestOutcomeAndCountEvaluator, 4, 3);
+        typed_matches_python(LargestCountAndOutcomeEvaluator, 4, 3);
+        typed_matches_python(LargestStraightEvaluator, 6, 4);
+        typed_matches_python(LargestStraightAndOutcomeEvaluator { prioritize_highest: false }, 6, 3);
+        typed_matches_python(AllStraightsEvaluator, 5, 3);
+    }
+}
