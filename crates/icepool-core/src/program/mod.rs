@@ -267,6 +267,7 @@ pub fn call(op: &str, args: Vec<(&str, PValue)>) -> Result<PValue, PErr> {
 
 /// The `khepri` node: khepri-f2f's whole engine (harness/grammar/khepri.py). Its `input` is lazy: the engine
 /// input object itself, never evaluated as a program.
+#[cfg(feature = "khepri")]
 fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
     match (m.len(), m.get("input")) {
         (2, Some(input)) => Ok(PValue::Die(crate::khepri::engine_values(
@@ -274,6 +275,14 @@ fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
         )?)),
         _ => raise(Error::Type("expected arguments [\"input\"]".into())),
     }
+}
+
+/// Without the `khepri` feature the engine is not built in.
+#[cfg(not(feature = "khepri"))]
+fn khepri(_: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
+    Err(PErr::Unimplemented(
+        "the khepri node (icepool-core's `khepri` feature)".into(),
+    ))
 }
 
 /// A node's evaluated keyword arguments.

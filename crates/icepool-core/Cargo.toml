@@ -13,6 +13,14 @@ dashu-int = "0.6"
 dashu-ratio = "0.6"
 rustc-hash = "2"
 
+[features]
+# khepri's f2f engine (src/khepri.rs): application code on the typed core, not part of the library. On by default
+# so that every build of the `icepool-run` binary has the runner's `khepri` node (the fixtures, the khepri sweep);
+# icepool-py turns it off, icepool-wasm keeps it for `calculate`. It moves into its own crate once the runner
+# leaves icepool-core (tasks C5b, C2f).
+default = ["khepri"]
+khepri = []
+
 [[bin]]
 name = "icepool-run"
 path = "src/bin/icepool-run.rs"

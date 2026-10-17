@@ -26,6 +26,7 @@ pub mod int;
 pub mod interrupt;
 pub mod keep;
 pub mod keep_tuple;
+#[cfg(feature = "khepri")]
 pub mod khepri;
 pub mod lexi;
 pub mod map_tools;
