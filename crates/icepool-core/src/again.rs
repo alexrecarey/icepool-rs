@@ -10,14 +10,36 @@
 //! Both modes are here: depth mode (`evaluate_agains_using_depth`), generic over the facade's types, and count
 //! mode (`again_count`): its expression-level part (`is_additive`, `_again_count`, the step outcomes) is generic
 //! too, and its Markov chain (`map(step, step_die, repeat=again_count + 1)`) runs over `Die<Value>`.
+//!
+//! Python evaluates an expression recursively, so a deep one (`e = e + 1` in a loop) raises `RecursionError`. The
+//! recursion here counts the Python frames it stands for (`value::recursion`): `_evaluate` (or `_again_count`) for
+//! the expression, then the generator over its arguments and `_evaluate_arg` for each argument that is itself an
+//! expression; calling its function, `call_frames` more.
 
 use std::sync::Arc;
 
 use crate::creation_args::DieArg;
 use crate::error::{Error, Result};
 use crate::map_tools::{map_repeat, Next, Target, TransitionCache};
+use crate::value::recursion::{frames, level};
 use crate::value::BinOp;
 use crate::{Die, Quantity, Value};
+
+/// The Python frames a function of an expression uses at most in icepool when it is given a die: an operator on a
+/// die (`Die.__add__`, `binary_operator`, ...). Calibrated so that `Die([1, e])` for `e = Again + 1 + 1 ...` raises
+/// from the same nesting as Python (330 at top level). Only depth mode's outer levels give the expressions a die;
+/// its innermost level and count mode give them an outcome (usually an `int`, whose operators take no frames).
+const DIE_CALL_FRAMES: usize = 6;
+
+/// Python's frames for an argument that is itself an expression: the generator and `_evaluate_arg`, then the
+/// expression's own `_evaluate`, with a level of native recursion.
+fn descend<T, E: From<Error>>(
+    f: impl FnOnce() -> std::result::Result<T, E>,
+) -> std::result::Result<T, E> {
+    let _level = level()?;
+    let _frames = frames(3)?;
+    f()
+}
 
 /// An expression indicating that the die should be rolled again (`AgainExpression`).
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -47,10 +69,13 @@ pub enum AgainArg<F, L> {
 impl<F, L: Clone> Again<F, L> {
     /// `_evaluate`: recursively replaces the `Again` placeholders with the provided die (or other object), applying
     /// each function to its evaluated arguments, innermost first and arguments left to right, as Python does.
-    pub fn evaluate<E>(
+    ///
+    /// The caller has taken the frame of the top-level `_evaluate`.
+    pub fn evaluate<E: From<Error>>(
         &self,
         die: &L,
         apply: &impl Fn(&F, Vec<L>) -> std::result::Result<L, E>,
+        call_frames: usize,
     ) -> std::result::Result<L, E> {
         match self {
             Again::Again { .. } => Ok(die.clone()),
@@ -58,10 +83,11 @@ impl<F, L: Clone> Again<F, L> {
                 let args = args
                     .iter()
                     .map(|arg| match arg {
-                        AgainArg::Again(a) => a.evaluate(die, apply),
+                        AgainArg::Again(a) => descend(|| a.evaluate(die, apply, call_frames)),
                         AgainArg::Other(x) => Ok(x.clone()),
                     })
                     .collect::<std::result::Result<_, _>>()?;
+                let _frames = frames(call_frames)?;
                 apply(function, args)
             }
         }
@@ -77,7 +103,8 @@ impl<F, L: Clone> Again<F, L> {
     /// `_again_count`: counts the total number of Agains in the expression, by applying the expression's
     /// functions to `one` for each `Again` and `zero` for every other argument (so `Again + Again` is `1 + 1`, and
     /// `d6 @ Again` is `d6 @ 1`). Only works on additive expressions.
-    pub fn again_count<E>(
+    /// The caller has taken the frame of the top-level `_again_count`.
+    pub fn again_count<E: From<Error>>(
         &self,
         one: &L,
         zero: &L,
@@ -89,7 +116,7 @@ impl<F, L: Clone> Again<F, L> {
                 let args = args
                     .iter()
                     .map(|arg| match arg {
-                        AgainArg::Again(a) => a.again_count(one, zero, apply),
+                        AgainArg::Again(a) => descend(|| a.again_count(one, zero, apply)),
                         AgainArg::Other(_) => Ok(zero.clone()),
                     })
                     .collect::<std::result::Result<_, _>>()?;
@@ -108,7 +135,7 @@ impl<F, L: Clone> Again<F, L> {
 /// replaces `Again` with the die built by the level below: `Die(outcomes, times, again_depth=0, again_end=tail)`.
 ///
 /// `die` builds `Die(objects, times)` from one object per outcome; `apply` applies one operation.
-pub fn evaluate_agains_using_depth<F, L: Clone, E>(
+pub fn evaluate_agains_using_depth<F, L: Clone, E: From<Error>>(
     outcomes: &[AgainArg<F, L>],
     again_depth: u64,
     again_end: Option<&L>,
@@ -116,20 +143,25 @@ pub fn evaluate_agains_using_depth<F, L: Clone, E>(
     die: impl Fn(Vec<L>) -> std::result::Result<L, E>,
     apply: impl Fn(&F, Vec<L>) -> std::result::Result<L, E>,
 ) -> std::result::Result<L, E> {
-    let replace = |end: Option<&L>| -> std::result::Result<Vec<L>, E> {
+    // Python's frames below the facade's call: each level after the innermost is a `Die(...)` call (`Die.__new__`
+    // and `evaluate_agains_using_depth` again), then `replace_again` and `_evaluate`.
+    let replace = |end: Option<&L>, frames_above: usize, call_frames: usize| -> std::result::Result<Vec<L>, E> {
         outcomes
             .iter()
             .map(|outcome| match (outcome, end) {
-                (AgainArg::Again(a), Some(end)) => a.evaluate(end, &apply),
+                (AgainArg::Again(a), Some(end)) => {
+                    let _frames = frames(frames_above + 2)?;
+                    a.evaluate(end, &apply, call_frames)
+                }
                 (AgainArg::Again(_), None) => Ok(reroll.clone()),
                 // A tuple or simple arg that is not Again.
                 (AgainArg::Other(x), _) => Ok(x.clone()),
             })
             .collect()
     };
-    let mut tail = die(replace(again_end)?)?;
+    let mut tail = die(replace(again_end, 0, 0)?)?;
     for _ in 0..again_depth {
-        tail = die(replace(Some(&tail))?)?;
+        tail = die(replace(Some(&tail), 2, DIE_CALL_FRAMES)?)?;
     }
     Ok(tail)
 }
@@ -167,7 +199,9 @@ pub fn step_outcomes<F, L: Clone, E: From<Error>>(
                     )
                     .into());
                 }
-                let flat = a.evaluate(zero, &apply)?;
+                // `make_step_outcome`, then `_evaluate` / `_again_count`.
+                let _frames = frames(2)?;
+                let flat = a.evaluate(zero, &apply, 0)?;
                 let count = a.again_count(one, nought, &apply)?;
                 make(StepOutcome::Again { flat, count })
             }

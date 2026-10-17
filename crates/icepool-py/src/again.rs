@@ -17,6 +17,8 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyInt, PyList, PyTuple, PyType};
 
+use icepool_core::value::recursion::level;
+
 use crate::convert::{from_py, to_py_err};
 use crate::{matmul_core, RsDie};
 
@@ -42,11 +44,13 @@ impl From<PyErr> for HostErr {
     }
 }
 
-/// An itemized outcome: an `AgainExpression` becomes the core tree, anything else is passed as-is.
+/// An itemized outcome: an `AgainExpression` becomes the core tree, anything else is passed as-is. Expressions
+/// nest, so a deep one raises `RecursionError` (`recursion.rs`) rather than overflowing the stack.
 fn arg(x: &Bound<'_, PyAny>, cls: &Bound<'_, PyType>) -> PyResult<Arg> {
     if !x.is_instance(cls)? {
         return Ok(AgainArg::Other(Arc::new(x.clone().unbind())));
     }
+    let _level = level().map_err(to_py_err)?;
     let function = x.getattr("_func")?;
     let is_additive = x.getattr("is_additive")?.is_truthy()?;
     // No function: the expression represents the again roll directly.

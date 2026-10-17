@@ -296,6 +296,13 @@ class Deep:
         return nest_vector(100) + nest_vector(100)
     def __repr__(self): return 'Deep()'
 
+def nest_again(n, reflected=False):
+    """`Again + 1 + 1 ...` (or `1 + (1 + ... Again)`), `n` operators deep."""
+    e = Again
+    for _ in range(n):
+        e = 1 + e if reflected else e + 1
+    return e
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -1343,6 +1350,19 @@ CASES = [
     'nest_tuple(20000) == nest_tuple(20000)',
     'str(Die([nest_tuple(20000)]))',
     'Die([nest_tuple(20000), nest_tuple(20000, 2)])',
+    # Again expressions: Python evaluates them recursively, 3 frames a level, plus the operator on the die.
+    'Die([1, nest_again(329)])',
+    'Die([1, nest_again(330)])',
+    'Die([1, nest_again(329, True)])',
+    'Die([1, nest_again(330, True)])',
+    'Die([1, nest_again(331)], again_depth=0)',
+    'Die([1, nest_again(332)], again_depth=0)',
+    'Die([1, nest_again(329)], again_depth=2, again_end=d(2))',
+    'Die([1, nest_again(330)], again_depth=2, again_end=d(2))',
+    'Die([1, nest_again(331)], again_count=2)',
+    'Die([1, nest_again(332)], again_count=2)',
+    'Die([1, nest_again(100000)])',
+    'Die([1, nest_again(100000)], again_count=1)',
 ]
 
 SCRIPT = PRELUDE + '''
