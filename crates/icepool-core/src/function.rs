@@ -241,6 +241,16 @@ mod tests {
     }
 
     #[test]
+    fn huge_standard_dice_are_memory_errors() {
+        // Fixtures only see that both sides raise: Python's type here is MemoryError, not an abort or a panic.
+        for sides in [i64::MAX, 1 << 40] {
+            assert!(matches!(d::<Value>(sides), Err(Error::Memory(_))), "{sides}");
+            assert!(matches!(z::<Value>(sides), Err(Error::Memory(_))), "{sides}");
+        }
+        assert_eq!(d::<Value>(3).unwrap().len(), 3);
+    }
+
+    #[test]
     fn consecutive_builds_ranges_up_to_the_limit() {
         // Exactly `MAX_RANGE` steps is still built; one more is refused.
         let max = MAX_RANGE as i64;
