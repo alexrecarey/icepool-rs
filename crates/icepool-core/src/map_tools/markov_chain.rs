@@ -163,6 +163,7 @@ where
         spellings.check(s)?;
     }
     while let Some(curr_state) = frontier.pop_front() {
+        crate::interrupt::poll()?;
         in_frontier.remove(&curr_state);
         let transition = transition_cache.step_state(&curr_state)?;
         index.insert(curr_state.clone(), states.len());
@@ -263,6 +264,7 @@ where
         };
         fundamental_solve.swap(i, pivot_index);
         for i in pivot_index + 1..t {
+            crate::interrupt::poll()?;
             eliminate(&mut fundamental_solve, i, pivot_index);
         }
     }
@@ -270,6 +272,7 @@ where
     // Solve for the visit vector `v`.
     for pivot_index in (0..t).rev() {
         for i in 0..pivot_index {
+            crate::interrupt::poll()?;
             eliminate(&mut fundamental_solve, i, pivot_index);
         }
     }

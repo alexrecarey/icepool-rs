@@ -38,7 +38,7 @@ pub fn expand_args_for_die<O: Outcome>(
     args: &[DieArg<O>],
     times: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_weights_lcm(args, times))
+    Counts::new(merge_weights_lcm(args, times)?)
 }
 
 /// Merge for dice.
@@ -49,7 +49,7 @@ pub fn expand_args_for_die<O: Outcome>(
 pub fn merge_weights_lcm<O: Outcome>(
     subdatas: &[DieArg<O>],
     weights: &[Quantity],
-) -> Vec<(O, Quantity)> {
+) -> Result<Vec<(O, Quantity)>> {
     let denominators: Vec<Quantity> = subdatas.iter().map(DieArg::denominator).collect();
     let scale_factors = weighted_lcm(&denominators, weights);
     let mut data = OrderedMerge::default();
@@ -60,6 +60,8 @@ pub fn merge_weights_lcm<O: Outcome>(
         match subdata {
             DieArg::Outcome(o) => data.add(o.clone(), scale_factor),
             DieArg::Die(d) => {
+                // A mixture of many big dice is a long loop.
+                crate::interrupt::poll()?;
                 for (outcome, weight) in d.items() {
                     data.add(outcome.clone(), weight * &scale_factor);
                 }
@@ -67,7 +69,7 @@ pub fn merge_weights_lcm<O: Outcome>(
             DieArg::Reroll => {}
         }
     }
-    data.into_items()
+    Ok(data.into_items())
 }
 
 /// `expand_args_for_deck`: `Counts(merge_duplicates(subdatas, times).items())`.
@@ -75,7 +77,7 @@ pub fn expand_args_for_deck<O: Outcome>(
     args: &[DieArg<O>],
     duplicates: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_duplicates(args, duplicates))
+    Counts::new(merge_duplicates(args, duplicates)?)
 }
 
 /// Merge for decks.
@@ -86,7 +88,7 @@ pub fn expand_args_for_deck<O: Outcome>(
 pub fn merge_duplicates<O: Outcome>(
     subdatas: &[DieArg<O>],
     duplicates: &[Quantity],
-) -> Vec<(O, Quantity)> {
+) -> Result<Vec<(O, Quantity)>> {
     let mut data = OrderedMerge::default();
     for (subdata, subdup) in subdatas.iter().zip(duplicates) {
         if subdup.is_zero() {
@@ -95,6 +97,8 @@ pub fn merge_duplicates<O: Outcome>(
         match subdata {
             DieArg::Outcome(o) => data.add(o.clone(), subdup.clone()),
             DieArg::Die(d) => {
+                // A mixture of many big dice is a long loop.
+                crate::interrupt::poll()?;
                 for (outcome, dup) in d.items() {
                     if dup.is_zero() {
                         continue;
@@ -105,5 +109,5 @@ pub fn merge_duplicates<O: Outcome>(
             DieArg::Reroll => {}
         }
     }
-    data.into_items()
+    Ok(data.into_items())
 }

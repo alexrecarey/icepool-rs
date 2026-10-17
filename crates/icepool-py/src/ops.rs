@@ -173,7 +173,7 @@ pub fn call(
 }
 
 /// A value containing a host object anywhere (inside tuples, vectors and counts too).
-fn has_host(v: &Value) -> bool {
+pub fn has_host(v: &Value) -> bool {
     match v {
         Value::Host(_) => true,
         Value::Tuple(t) => t.iter().any(has_host),
@@ -185,7 +185,34 @@ fn has_host(v: &Value) -> bool {
     }
 }
 
+/// A built-in binary operator as the core computes it on native outcomes, without Python (see [`Binary::native`]).
+#[derive(Clone, Copy)]
+pub enum NativeBinary {
+    Op(BinOp),
+    Eq(bool),
+}
+
+impl NativeBinary {
+    /// `Binary::apply` for outcomes without host objects, except that a case the core does not model stays
+    /// `Unsupported` rather than going to Python's operator.
+    pub fn apply(self, a: &Value, b: &Value) -> icepool_core::Result<Value> {
+        match self {
+            NativeBinary::Op(op) => a.binary(op, b),
+            NativeBinary::Eq(ne) => a.eq_op(b, ne),
+        }
+    }
+}
+
 impl Binary<'_> {
+    /// The operator without its Python function, if it is a built-in one.
+    pub fn native(&self) -> Option<NativeBinary> {
+        match self {
+            Binary::Op(op, _) => Some(NativeBinary::Op(*op)),
+            Binary::Eq(ne, _) => Some(NativeBinary::Eq(*ne)),
+            Binary::Call(_) => None,
+        }
+    }
+
     pub fn apply(
         &self,
         a: &Value,

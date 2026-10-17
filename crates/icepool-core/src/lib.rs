@@ -22,6 +22,7 @@ pub mod format;
 pub mod function;
 pub mod host_source;
 pub mod int;
+pub mod interrupt;
 pub mod keep;
 pub mod keep_tuple;
 pub mod khepri;

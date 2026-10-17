@@ -406,6 +406,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
             let eval_order = -pop_order;
             let (outcome, prev_lo, prev_hi, pops) = self.pop(pop_order, lo, hi, &key.2)?;
             for (prev_sources, source_counts, weight) in pops {
+                crate::interrupt::poll()?;
                 let prev = self.evaluate_backward(pop_order, prev_lo, prev_hi, prev_sources)?;
                 for (prev_statelets, prev_main) in prev.items() {
                     let (statelets, counts) = expression::next_state(
@@ -456,6 +457,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
         } else {
             let (outcome, next_lo, next_hi, pops) = self.pop(pop_order, lo, hi, &key.2)?;
             for (next_sources, source_counts, weight) in pops {
+                crate::interrupt::poll()?;
                 let (next_statelets, counts) =
                     expression::next_state(self.tree, &key.3, pop_order, outcome, &source_counts)?;
                 let next_state = self

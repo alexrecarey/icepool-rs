@@ -450,6 +450,7 @@ impl<O: Outcome> PoolSource<O> {
         let mut result = Vec::new();
         let mut skip_weight: Option<Quantity> = None;
         for pop in Product::new(&generators) {
+            crate::interrupt::poll()?;
             let mut total_hits = 0;
             let mut result_weight = Quantity::ONE;
             let mut next_dice_counts = Vec::new();

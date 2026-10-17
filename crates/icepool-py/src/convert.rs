@@ -349,6 +349,13 @@ pub fn frame_budget() -> usize {
     .unwrap_or(usize::MAX)
 }
 
+/// Runs Python's signal handlers, for the core's long loops (`icepool_core::interrupt`): Ctrl-C raises
+/// `KeyboardInterrupt` from there, as it would between two bytecodes of pure-Python icepool. Python runs signal
+/// handlers on the main thread only; elsewhere this does nothing. Takes the GIL back if the computation released it.
+pub fn check_signals() -> icepool_core::Result<()> {
+    Python::attach(|py| py.check_signals()).map_err(host_error)
+}
+
 /// Python `int` -> `IBig`. Big ints go through hex: power-of-two bases are exempt from Python's limit on int/str
 /// conversions (`sys.set_int_max_str_digits`).
 pub fn int_from_py(x: &Bound<'_, PyAny>) -> PyResult<IBig> {

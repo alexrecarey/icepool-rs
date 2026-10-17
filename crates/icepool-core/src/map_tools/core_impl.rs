@@ -236,6 +236,7 @@ where
         let mut next_states = Vec::with_capacity(curr_die.len());
         let mut quantities = Vec::with_capacity(curr_die.len());
         for (outcome, quantity) in curr_die.items() {
+            crate::interrupt::poll()?;
             let p = parts(outcome);
             next_states.push(if p[0] == int(DEFAULT) {
                 DieArg::Die(self.step_state(&p[1])?)
@@ -256,6 +257,7 @@ where
         let mut next_states = Vec::with_capacity(curr_die.len());
         let mut quantities = Vec::with_capacity(curr_die.len());
         for (outcome, quantity) in curr_die.items() {
+            crate::interrupt::poll()?;
             let p = parts(outcome);
             next_states.push(if p[0] == int(DEFAULT) {
                 // `self.step_state(curr_state) + (time + 1,)`: `Die.__add__` with `Die([(time + 1,)])`.

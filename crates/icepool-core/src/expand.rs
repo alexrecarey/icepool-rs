@@ -90,6 +90,7 @@ pub fn cartesian_product_items(
     let mut data: Vec<(Value, Quantity)> = Vec::new();
     let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
     for (outcomes, quantity) in iter_cartesian_product(args) {
+        crate::interrupt::poll()?;
         let key = outcome_type(outcomes);
         key.check_hashable()?;
         match index.get(&key) {

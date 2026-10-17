@@ -141,6 +141,7 @@ impl<O: Outcome> Die<O> {
     ) -> Result<Self> {
         let mut data = OrderedMerge::default();
         for (outcome_self, quantity_self) in self.items() {
+            crate::interrupt::poll()?;
             for (outcome_other, quantity_other) in other.items() {
                 data.add(
                     op(outcome_self, outcome_other)?,
@@ -692,6 +693,7 @@ impl Die<crate::Value> {
         )?;
         let mut result = None;
         for i in cache.len()..stop {
+            crate::interrupt::poll()?;
             let i_value = Value::from(i as i64);
             // `.map(lambda x: self.mean_time_to_sum(i - x)).mean()`: the mapped Fractions weighted by quantity.
             let mut total = dashu_ratio::RBig::ZERO;

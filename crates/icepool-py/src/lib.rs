@@ -218,10 +218,20 @@ fn binary_operator(
 ) -> PyResult<RsDie> {
     let kwargs = kwargs.filter(|k| !k.is_empty());
     let op = ops::binary(op, args.is_empty() && kwargs.is_none())?;
-    let result = die
-        .get()
-        .die
-        .binary_operator(&other.get().die, |a, b| op.apply(a, b, args, kwargs));
+    let (die, other) = (&die.get().die, &other.get().die);
+    // A built-in operator on native outcomes is pure Rust, so it runs without the GIL, letting other threads go
+    // on, unless the core meets a case it does not model (`Unsupported`, e.g. printf-style `str %`): then it runs
+    // again with the GIL and Python's operator for those cases. The operators have no side effects, so running
+    // again computes the same.
+    if let Some(native) = op.native() {
+        if !die.outcomes().chain(other.outcomes()).any(ops::has_host) {
+            match py.detach(|| die.binary_operator(other, |a, b| native.apply(a, b))) {
+                Err(Error::Unsupported(_)) => {}
+                result => return RsDie::wrap(py, result),
+            }
+        }
+    }
+    let result = die.binary_operator(other, |a, b| op.apply(a, b, args, kwargs));
     RsDie::wrap(py, result)
 }
 
@@ -394,7 +404,9 @@ pub(crate) fn matmul_core(
             .collect::<PyResult<Vec<_>>>()?;
         n = CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items));
     }
-    icepool_core::program::matmul_dice(&n, die).map_err(perr_to_py)
+    // Pure Rust from here (but for host outcomes, which take the GIL back per operation): other threads go on.
+    py.detach(|| icepool_core::program::matmul_dice(&n, die))
+        .map_err(perr_to_py)
 }
 
 /// `Die._popped_min`: the die without its min outcome (zero quantities kept) and that outcome's quantity.
@@ -511,6 +523,8 @@ fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     icepool_core::value::recursion::set_frame_budget(convert::frame_budget);
+    // Ctrl-C during a long computation (`icepool_core::interrupt`).
+    icepool_core::interrupt::set_check(convert::check_signals);
     // PyO3 guards every entry point with `catch_unwind`: a panic in the core (a bug) unwinds to it and is raised as
     // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's
     // thread-local state is given back on the way: `recursion::Level`, `program::multiset_function::VarsFrame`).

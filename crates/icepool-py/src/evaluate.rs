@@ -113,7 +113,7 @@ trait BuiltinVisitor<'py> {
     type Out;
     fn visit<E>(self, evaluator: E) -> PyResult<Self::Out>
     where
-        E: MultisetEvaluator<Value, Final = Value> + 'static;
+        E: MultisetEvaluator<Value, Final = Value> + Sync + 'static;
 }
 
 /// The built-in evaluator of the core named by the facade (evaluator_rust.py `builtin_spec`) with its parameters,
@@ -215,9 +215,21 @@ impl<'py> BuiltinVisitor<'py> for RunBuiltin<'_, 'py> {
 
     fn visit<E>(self, evaluator: E) -> PyResult<Finals<'py>>
     where
-        E: MultisetEvaluator<Value, Final = Value> + 'static,
+        E: MultisetEvaluator<Value, Final = Value> + Sync + 'static,
     {
-        let result = run_evaluation(&evaluator, self.flats, self.sources, self.depth_budget)?;
+        let srcs = sources(self.sources)?;
+        let flats = match self.flats {
+            Some(flats) => flats.iter().map(flat).collect::<PyResult<Vec<_>>>()?,
+            None => srcs.iter().map(|_| free_variable()).collect(),
+        };
+        // A built-in evaluator is pure Rust, so the evaluation runs without the GIL: other Python threads go on
+        // meanwhile. (Host objects among the outcomes call back into Python, taking the GIL for each call.)
+        let result = self
+            .py
+            .detach(|| {
+                evaluate_expressions(&evaluator, &flats, &srcs, depth_check(self.depth_budget))
+            })
+            .map_err(to_py_err)?;
         finals(self.py, result, |o| to_py(self.py, &o))
     }
 }
@@ -530,7 +542,7 @@ impl<'py> BuiltinVisitor<'py> for BuiltinLeaf<'py> {
 
     fn visit<E>(self, evaluator: E) -> PyResult<Leaf<'py>>
     where
-        E: MultisetEvaluator<Value, Final = Value> + 'static,
+        E: MultisetEvaluator<Value, Final = Value> + Sync + 'static,
     {
         let py = self.0;
         Ok(Box::new(Erased {
