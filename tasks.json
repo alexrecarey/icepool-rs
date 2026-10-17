@@ -509,6 +509,15 @@
     "details": "`{\"op\":\"d\",\"sides\":8589934592}` aborts the process (allocation failure, uncatchable); sides=2**63-1 panics (function.rs:22, capacity overflow); die_sequence with huge rolls does vec![die; rolls] (program/collection.rs:64); JS d(2n**63n-1n) is a wasm trap. Move the size checks the Python facade does today into the core (d(), cartesian_product, every with_capacity / vec![x; n] / repeat sized by user input: audit all of them), returning a proper overflow/memory error; use try_reserve where sizes are large; cap below what wasm32's 4 GB address space can hold. Then catch_unwind (or equivalent) around every WASM export and PyO3 entry point as a backstop, converting panics to proper exceptions, and make sure thread-locals/RefCells (HANDLES, VARS) cannot stay poisoned after one. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
+    "id": "R2b",
+    "title": "Robustness leftovers: pool denominators on wasm32, direct WASM exports after a trap",
+    "deps": [
+      "R2"
+    ],
+    "milestone": null,
+    "details": "Left by R2 (see NOTES.md \"Huge sizes and panics (R2)\"): (1) pool.rs denominator() is den**count for up to 2**24 dice with no check_pow (infallible today): on wasm32 a die with a 129+-bit denominator in a huge pool can pass the 256 MiB cap and trap; make it fallible or bound it. (2) The WASM exports run() and calculate() (run-wasm.mjs, khepri's worker) are not wrapped like js/core.js wasm(): after a trap the shadow stack pointer and recursion state are not restored (run-wasm.mjs reloads the instance; khepri's worker does not). Give them the same recovery (e.g. a small JS helper shipped with the package, or document reloading)."
+  },
+  {
     "id": "R3",
     "title": "Robustness: Ctrl-C and the GIL during long computations",
     "deps": [
