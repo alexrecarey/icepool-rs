@@ -624,5 +624,86 @@
     ],
     "milestone": "library ready to show upstream: robustness fixed, typed core, Rust/Python/TS APIs with docs",
     "details": "README.md for the project (what it is, the three bindings, install/usage snippets for Rust, Python, JS, parity story), docs/MODULE-MAP.md (python module -> rust module(s) -> py facade file -> TS file, status, oracle version) plus a script that lists upstream icepool changes between two tags against the map, Python binding docs (what differs from upstream icepool), GitHub Actions CI (cargo test, clippy, the fixture suite, the JS suite, check-production.sh; the oracle comparison jobs need the oracle checkout per oracle.lock). Split oversized files (program/ops.rs, program/expression.rs, value/ops.rs) by domain. Note: the loop machinery files at the repo root (PROGRESS.md, tasks.json, QUESTIONS.md, loop/, harness-out) are owned by the loop; propose their new layout in QUESTIONS.md rather than moving them. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "B0",
+    "title": "Benchmark suite for the library",
+    "deps": [
+      "C8"
+    ],
+    "milestone": null,
+    "details": "A permanent benchmark suite of general icepool workloads (the 28 from the review: NdX sums, keep-highest, explode, pool evaluators, straights/poker, Deck/deal, MultiDeal, Again, map with callbacks, map(repeat='inf'), d100@d10, Vector outcomes, multiset_function, game mechanics from upstream notebooks), runnable natively, through the Python facade and through the TS API, with a script printing a comparison table against the pure-Python oracle. Not part of production builds. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B2",
+    "title": "Python facade fast path for plain outcomes",
+    "deps": [
+      "B0"
+    ],
+    "milestone": null,
+    "details": "Skip isinstance checks against Mapping/typing Protocols per outcome when type(arg) is exactly int/str/float/bool (creation_args expand_args_for_die_rust), same for contains_again (population/again.py). Target: Die(range(10000)) and map with a Python callback faster than pure Python; also reduce per-call overhead of tiny calls like quantity() (0.4x Python today). Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B4",
+    "title": "Small-int fast path in Value arithmetic",
+    "deps": [
+      "B0"
+    ],
+    "milestone": null,
+    "details": "Checked i64 fast path for Int op Int (add/sub/mul, comparisons) with promotion to big ints on overflow; consider storing Int(i64) with IBig promotion. Measured prototype: -15 to -21% on sums. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B1",
+    "title": "Dense integer convolution for sums of int dice",
+    "deps": [
+      "B4"
+    ],
+    "milestone": null,
+    "details": "k @ die, pool sums of a single die, and sums of int dice over bounded ranges via dense arrays instead of pairwise binary_operator + hash/merge. Prototype: 100d6 3.2x, 10d6 7x, d100@d10 2.9x. Gate it to outcomes that are all ints; results must stay identical (sorted ints, exact quantities). Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B5",
+    "title": "Evaluator: buffer reuse and borrowed memo keys",
+    "deps": [
+      "B1"
+    ],
+    "milestone": null,
+    "details": "Reuse pop buffers (CompoundKeepSource::pop, PoolSource::pop, int_counts), look up the memo with borrowed keys and build owned keys only on insert, add weights in place. Estimated -20-30% on pool evaluators and lower peak memory (currently 3-4x Python's). Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B6",
+    "title": "Typed evaluator states",
+    "deps": [
+      "B5"
+    ],
+    "milestone": null,
+    "details": "SmallVec<i64> (or the typed core's equivalent) instead of Value tuples for evaluator states where the outcome type allows: all_straights, poker evaluators. Estimated -30-40% on those. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B7",
+    "title": "Shrink Value and Die storage",
+    "deps": [
+      "B6"
+    ],
+    "milestone": null,
+    "details": "Box Fraction (and other large variants) so Value goes from 56 to ~32 bytes (Die item 80 -> 56 B); revisit per-outcome overhead (cumulative quantities, index map) and the Python facade's 219 B/outcome vs Python's 101 B. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B8",
+    "title": "binary_operator and OrderedMap tuning",
+    "deps": [
+      "B7"
+    ],
+    "milestone": null,
+    "details": "Pre-size maps (len_a x len_b), cache key hashes so rehashing doesn't recompute py_hash, skip the Python-style sort when inputs are already-sorted ints. Estimated -10-15% on generic dice. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
+  },
+  {
+    "id": "B3",
+    "title": "Bounded cross-call caches",
+    "deps": [
+      "B8"
+    ],
+    "milestone": "performance round done: faster than pure Python across the benchmark suite",
+    "details": "Python icepool keeps caches across calls (Die._sum_cache, evaluator dungeon cache, @cache on d()), so repeated identical calls are faster in pure Python today (a 300-iteration mixed loop: 0.18 s Python vs 0.34 s Rust facade). Add bounded (LRU) caches across calls: per-Die sum cache, memo keyed on die/evaluator identity hash. Results identical; memory bounded and configurable. Measurements and hotspots: docs/reviews/2026-10-17-library-review.md (Performance and memory). Add a benchmark (criterion or a bench binary, plus Python-facade timings vs the pure-Python oracle) for the workloads you touch, record before/after in NOTES.md, and never trade parity for speed."
   }
 ]
