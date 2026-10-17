@@ -1,7 +1,7 @@
 # icepool-wasm
 
 Exact dice probabilities in JS: [icepool](https://github.com/HighDiceRoller/icepool) (Python) ported to Rust and
-compiled to WASM, with a method-based JS API. Results are identical to Python icepool's (the same outcomes in the same
+compiled to WASM, with a TypeScript API mirroring Python icepool's. Results are identical to Python icepool's (the same outcomes in the same
 order, the same exact quantities); the test suite runs every golden fixture of the port through this API.
 
 ```js
@@ -21,8 +21,8 @@ new Deck([1, 2, 3], 4).deal(2).sum();
 
 - **Arithmetic is methods**: `add sub mul truediv (div) floordiv mod pow lshift rshift and or xor`, comparisons
   `lt le gt ge eq ne` (dice of bools; `eq`/`ne` also have Python's truth value: `.truth()`), `neg pos abs invert
-  round trunc floor ceil`. `Die.sum(n, die)` is Python's `n @ die`; `ops.add(a, b)` etc. apply Python's operators to
-  any operands.
+  round trunc floor ceil`, `matmul`, and the reflected ones (`radd rsub ... rmatmul`: `3 - d6` is `d6.rsub(3)`).
+  `Die.sum(n, die)` is Python's `n @ die`; `ops.add(a, b)` etc. apply Python's operators to any operands.
 - **Python names in camelCase** (`probabilityWhere`, `keepCounts`, `largestStraight`...); Python's keyword arguments
   are a trailing options object (`{ star, depth, againDepth, percent, ... }`). Python's `'inf'` is `Infinity`.
 - **Values**: ints are numbers (BigInts beyond 2**53), floats are numbers (an integral float such as `2.0` comes out
@@ -47,29 +47,34 @@ new Deck([1, 2, 3], 4).deal(2).sum();
   JS evaluators, other multiset functions) only record what to evaluate. Options: `params` (default `f.length`),
   `rest` (`(a, ...more) => ...`), `kwonly` (names of keyword-only arguments, passed to `f` as a trailing options
   object: `f.call(pool, { target: [5, 6] })`); `star` is inferred unless given.
-- **Errors**: icepool's exceptions are thrown as `IcepoolError` with `pythonType` (`"ValueError"`, ...); an exception
-  thrown by your callback reaches you unchanged. Sizes no memory holds (`d(2n ** 40n)`) are a `MemoryError`. A bug in
-  the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `pythonType` `"PanicException"`;
+- **Errors**: icepool's exceptions are thrown as `IcepoolError` (subclasses `OrderError`, `ConflictingOrderError`,
+  `UnsupportedOrder`) with `kind` (what went wrong, e.g. `"InvalidArgument"`) and `pythonType` (the exception Python
+  icepool raises, e.g. `"ValueError"`, also the error's `name`); an exception thrown by your callback reaches you
+  unchanged. Sizes no memory holds (`d(2n ** 40n)`) are a `MemoryError`. A bug in
+  the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `kind` `"Panic"` (`pythonType` `"PanicException"`);
   the instance and your objects stay usable afterwards. The low-level `run(programJson)` and `calculate(engineInput)`
   (khepri's engine) are exported with the same recovery, but only builds with the Cargo features `runner` (the
   tests') and `khepri` (khepri's) have them: this package's build throws an `Error` for either.
 - **Memory**: dice, pools, decks and expressions live in WASM memory. Each is freed when its JS object is
-  garbage-collected, or at once by `release()` (also `Symbol.dispose`, so `using die = d(6);` frees it at the end of
-  the block). Using an object after releasing it throws a `TypeError`; objects made from it are not affected. Release
+  garbage-collected, or at once by `free()` (also `Symbol.dispose`, so `using die = d(6);` frees it at the end of
+  the block). Using an object after freeing it throws a `TypeError`; objects made from it are not affected. Free
   explicitly in long loops (the collector frees WASM memory only when it gets round to the JS objects, so the memory
   grows meanwhile), and always for an object whose JS callback refers back to it, such as a multiset function that
   calls itself or a `mapCounts` function using its own expression. The core keeps such a callback in a global table
-  until the object is released, so the garbage collector never frees either.
+  until the object is freed, so the garbage collector never frees either.
 
-The TypeScript declarations are in `icepool.d.ts`.
+The API is written in TypeScript (`src/*.ts`); `build.sh` compiles it with tsc into `dist/`, declarations included.
 
 ## Building and testing (from the repository)
 
 ```bash
-crates/icepool-wasm/js/build.sh          # wasm-pack builds into js/pkg-node and js/pkg-web (wasm-opt -O3)
-crates/icepool-wasm/js/build.sh --test   # quick build, then the fixture suite, the API tests and the type check
+crates/icepool-wasm/js/build.sh          # wasm-pack builds into js/pkg-node and js/pkg-web (wasm-opt -O3), then tsc
+crates/icepool-wasm/js/build.sh --test   # quick build, then the fixture suite, the API tests (with upstream's tests
+                                         # translated, test/upstream-*.test.mjs) and the type check
 crates/icepool-wasm/js/build.sh --pack   # optimised build, then npm pack
 ```
 
 In node, `import ... from "icepool-wasm"` loads synchronously; in browsers and bundlers the module instantiates the
 WASM with top-level await.
+
+Building needs TypeScript (`npm install` in this directory, or a `tsc` on the PATH).

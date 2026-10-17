@@ -635,6 +635,54 @@
     "details": "Design: docs/design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 7 (JS/TS). Its own documentation for the JS/TS package: a guide (install, first dice, pools and evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python icepool), every public symbol with TSDoc comments and an example, and a generated API reference (TypeDoc or similar) built by a script; package README. Examples in the docs are executed as tests so they cannot rot. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
+    "id": "C6c",
+    "title": "TypeScript API: the rest of Die, Again and the free functions off the bridge",
+    "deps": [
+      "C6"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 6. C6 made Die's construction, operators, statistics, formatting, selections (reroll/filter/split/where/isIn/count/groupBy) and map(callable) native. Move the rest of the Die-level API onto typed exports: Again expressions (`AgainExpression` as a typed export or a TS expression object turned into the core's again::AgainExpr), Die(... again options), explode, ifElse, highest/lowest/middle/keep/keepSlice/sequence on a die, meanTimeToSum, timeToSum, mapAndTime, meanTimeToAbsorb, map with repeat (map_tools) and with a Map repl (Python dict lookup by ==), stochasticRound, sample (the core's seeded Mersenne Twister is behind icepool-core's `runner` feature: give it a public home first), and the free functions (coin, oneHot, stochasticRound, fromCumulative, fromRv, highest/lowest/middle, tupleize, vectorize, pointwiseMax/Min, maxOutcome/minOutcome, consecutive, sortedUnion, harmonizeDenominators, formatProbabilityInverse, reduce, accumulate, mapFunction), Vector/Symbols methods (vector_method, symbols_method, Symbols.from) and `new Die(...)` for the cases nativeDieArgs still hands to the bridge (tuples holding dice: `tupleize`; Maps with non-string/number keys; non-int times), including again options together with times or a Map (`Die({0: 7, 1: 2, Again + 1: 1}, again_depth=3)`, upstream again_test.py test_owod, a `todo` in js/test/upstream-again.test.mjs: neither form can be built from JS today). Read NOTES.md 'The TypeScript API (C6)' first. Keep the public TypeScript surface as it is (only the backend moves): as the Python facade keeps upstream's Python juggling, the TypeScript does Python's argument handling and calls typed wasm-bindgen exports (crates/icepool-wasm/src/api/) for the work; anything a native method does not model falls back to the bridge (js/src/rpc.ts), so every fixture keeps passing through the JS API (`crates/icepool-wasm/js/build.sh --test`; the fixture test prints the nodes still called through the bridge: drive those counts to zero for your area). Add API tests (js/test/) for what you move, and translate the matching upstream tests ($ICEPOOL_ORACLE/tests/*_test.py) into js/test/upstream-*.test.mjs where not done yet. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6d",
+    "title": "TypeScript API: Pool, keep, multiset expressions and built-in evaluators off the bridge",
+    "deps": [
+      "C6"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 6. Pools, keep generators and multiset expressions still go through the bridge, whose expression tree is the runner's own (program::expression::MExpr). Decide where the JS expression tree lives and write it down in the design doc: the Python facade's way is upstream's expression objects in Python, turned into the core's tree at evaluation (crates/icepool-py/src/evaluate.rs `evaluate_tree`); for JS that means TypeScript expression classes (multiset.ts) turned into the core's expression (icepool_core::expression) by one typed export at evaluation, which is likely the simplest. Then: Pool construction (pool, dPool, zPool, Map form, die.pool), keep (highest/lowest/middle/keep tuple/at/slice), the multiset operators and count adjustments, keepOutcomes/dropOutcomes, forceOrder, pairing (maxPair*, sortPair*, versus*), multisetMixture, mapCounts, and the built-in evaluations (sum, size, empty, any, productOfCounts, largestCount, ..., expand, allCounts, countSubset, subset comparisons, argsort/lexi), with Pool.info and friends. Split further if needed (e.g. pools and keep first, then expressions). Read NOTES.md 'The TypeScript API (C6)' first. Keep the public TypeScript surface as it is (only the backend moves): as the Python facade keeps upstream's Python juggling, the TypeScript does Python's argument handling and calls typed wasm-bindgen exports (crates/icepool-wasm/src/api/) for the work; anything a native method does not model falls back to the bridge (js/src/rpc.ts), so every fixture keeps passing through the JS API (`crates/icepool-wasm/js/build.sh --test`; the fixture test prints the nodes still called through the bridge: drive those counts to zero for your area). Add API tests (js/test/) for what you move, and translate the matching upstream tests ($ICEPOOL_ORACLE/tests/*_test.py) into js/test/upstream-*.test.mjs where not done yet. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6e",
+    "title": "TypeScript API: JS evaluators and multisetFunction off the bridge",
+    "deps": [
+      "C6d"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 6 (evaluator states, callbacks). JS `MultisetEvaluator` subclasses and `multisetFunction` still run through the bridge's HostEvaluator / FunctionDef (program/host.rs, program/multiset_function.rs). Give them a typed home: a host evaluator in icepool-wasm (src/api/) that calls the JS methods with values converted by src/api/convert.rs (states hashed the Python way: primitives, Fraction, Float, readonly arrays; plain objects keyed by canonical JSON as today), exceptions rethrown as themselves, UnsupportedOrder mapped to the core's; and multisetFunction traced from the TypeScript expression objects of C6d. Re-entrant calls into the API from a callback must keep working; the trap test (api.test.mjs) must keep passing. Read NOTES.md 'The TypeScript API (C6)' first. Keep the public TypeScript surface as it is (only the backend moves): as the Python facade keeps upstream's Python juggling, the TypeScript does Python's argument handling and calls typed wasm-bindgen exports (crates/icepool-wasm/src/api/) for the work; anything a native method does not model falls back to the bridge (js/src/rpc.ts), so every fixture keeps passing through the JS API (`crates/icepool-wasm/js/build.sh --test`; the fixture test prints the nodes still called through the bridge: drive those counts to zero for your area). Add API tests (js/test/) for what you move, and translate the matching upstream tests ($ICEPOOL_ORACLE/tests/*_test.py) into js/test/upstream-*.test.mjs where not done yet. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6f",
+    "title": "TypeScript API: Deck, Deal, MultiDeal and Wallenius off the bridge",
+    "deps": [
+      "C6d"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 6. Deck (construction, operators, map, statistics, sequence, padToDenominator, the mapping protocol), Deal and MultiDeal (keep, hands, slices, info, str/repr) and Wallenius still go through the bridge. Deck has no `equals`/`eq` in JS yet (Python compares decks with `==`; the upstream tests compare `items()`): add them. Move them onto typed exports (a WasmDeck class; deals as the C6d expression objects over a deck). Read NOTES.md 'The TypeScript API (C6)' first. Keep the public TypeScript surface as it is (only the backend moves): as the Python facade keeps upstream's Python juggling, the TypeScript does Python's argument handling and calls typed wasm-bindgen exports (crates/icepool-wasm/src/api/) for the work; anything a native method does not model falls back to the bridge (js/src/rpc.ts), so every fixture keeps passing through the JS API (`crates/icepool-wasm/js/build.sh --test`; the fixture test prints the nodes still called through the bridge: drive those counts to zero for your area). Add API tests (js/test/) for what you move, and translate the matching upstream tests ($ICEPOOL_ORACLE/tests/*_test.py) into js/test/upstream-*.test.mjs where not done yet. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6g",
+    "title": "TypeScript API: remove the JSON-op bridge from the npm package",
+    "deps": [
+      "C6c",
+      "C6d",
+      "C6e",
+      "C6f"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md sections 6 and 8. Once nothing in js/src calls the bridge (the fixture test's `bridge:` line lists only nodes the public API has no counterpart for, which the test-only adapter reaches through internal.ts), delete js/src/rpc.ts's use by the public modules and move src/facade.rs's `call`/`evaluate`/`from_wire`/`wire_result` behind icepool-wasm's test-only `runner` feature (the fixture adapter's generic fallback for harness-only nodes may keep using it in test builds). Drop icepool-wasm's dependency on icepool-core's `runner` feature and on serde_json; scripts/check-production.sh then stops reporting INTERIM and applies every check to the npm package (update its INTERIM comment). The npm package must not contain rpc.js, internal.js or any JSON program code. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
     "id": "C7",
     "title": "Rust unit tests and doctests for the typed core",
     "deps": [

@@ -386,6 +386,22 @@ The API mapping (all of `icepool/__init__.py` is covered the same way; this is t
 - The JS fixture suite keeps running every fixture, through a **test-only adapter** in `js/test/` that translates
   fixture programs into calls of this public API.
 
+**Where the work is done (C6).** As in the Python facade, where upstream's own Python does the argument juggling
+and calls `icepool_rs` for the work, the TypeScript does Python's juggling and calls the typed exports for the work:
+`die.reroll(which)` calls the JS predicate on each outcome itself (Python's `_select_outcomes`) and passes the core a
+mask; `map(f, ...)` enumerates the joint outcomes in JS and builds the result with a `DieBuilder`; the core never
+calls those callbacks, so they cannot trap inside it. Callbacks the core must call during its own work (evaluators,
+`mapCounts`) stay host callbacks.
+
+**Migration (C6-C6g).** The TypeScript API replaced the JS facade at once (same public surface), backed by typed
+exports class by class: C6 did `Die` (construction, operators, statistics, formatting, selections, `map` of a JS
+function) and Python's operators on plain values; the rest still calls the runner's nodes through an interim
+bridge (`js/src/rpc.ts` over `src/facade.rs`: a typed die crosses as a handle made for the call). Every fixture
+passes through the API throughout, and the fixture test reports which nodes still go through the bridge. C6c (the
+rest of `Die`, `Again`, the free functions), C6d (pools and multiset expressions: the TypeScript holds the expression
+objects and one export turns them into the core's tree at evaluation, as icepool-py's `evaluate_tree` does), C6e (JS
+evaluators and `multisetFunction`), C6f (decks and deals) move the rest; C6g removes the bridge from the package.
+
 ## 7. Documentation
 
 - **Rust:** rustdoc. The crate-level guide is `crates/icepool-core/README.md` included by
@@ -461,7 +477,9 @@ The runner keeps driving the oracle comparison throughout: it runs on `Value`, s
    **C5b** (new task, after the owner moves fixtures.rs): move `program/` into icepool-harness as a client of the
    public API; drop the `runner` feature.
 6. **C6 TypeScript API** (section 6), with the fixture adapter and API tests mirroring upstream's Python tests;
-   then **C6b** its documentation (section 7).
+   then **C6b** its documentation (section 7). *C6 (2026-10-17)*: the TypeScript API, typed `Die`, upstream tests in
+   JS; the classes still on the interim bridge move in C6c-C6f, and C6g removes the bridge (section 6,
+   "Migration").
 7. **C7 Rust tests**: typed `Die<i64>` unit tests and doctests; property tests comparing each typed path with the
    `Value` path on the same integer dice (they must agree exactly), runnable with plain `cargo test`.
 8. **C8 presentation**: README, MODULE-MAP, CI, split the oversized files (`program/ops.rs`,

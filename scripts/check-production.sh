@@ -13,10 +13,11 @@
 #   5. the .wasm modules hold none of those strings either, and export neither `run` (test-only) nor `calculate`
 #      (khepri's), nor the JSON-op exports `call`, `evaluate`, `from_wire`, `wire_result`.
 #
-# INTERIM, until task C6: the JS facade (crates/icepool-wasm/src/facade.rs, under js/core.js) still calls the
-# program runner's nodes by name, so the npm package links icepool-core's `runner` and serde_json and exports the
-# JSON-op calls. While facade.rs uses `icepool_core::program`, those (and only those) are reported, not failed;
-# once C6 backs the JS API with the core, every check above applies to the npm package too, with no edit here.
+# INTERIM, until task C6g: the TypeScript API's bridge (crates/icepool-wasm/src/facade.rs, under js/src/rpc.ts) still
+# calls the program runner's nodes by name for what is not on typed exports yet, so the npm package links
+# icepool-core's `runner` and serde_json and exports the JSON-op calls. While facade.rs uses `icepool_core::program`,
+# those (and only those) are reported, not failed; once C6g removes the bridge, every check above applies to the npm
+# package too, with no edit here.
 #
 # The npm package is checked as `js/build.sh --dev` builds it: the same wasm-bindgen output as `--pack`, without
 # wasm-opt, which only shrinks the module (and takes up to 45 s). Needs cargo, uv (maturin), wasm-pack, node, npm,
@@ -47,7 +48,7 @@ RUNNER_STRINGS=(src/program/ serde_json)
 INTERIM=0
 if grep -q 'icepool_core::program' crates/icepool-wasm/src/facade.rs 2> /dev/null; then
   INTERIM=1
-  echo "INTERIM (until C6): the JS facade calls the program runner; runner code in the npm package is reported, not failed"
+  echo "INTERIM (until C6g): the JS bridge calls the program runner; runner code in the npm package is reported, not failed"
 fi
 
 # check_paths WHAT < listing: fails on test-only paths.
@@ -147,7 +148,7 @@ fi
 echo
 if [ "$FAILED" = 0 ]; then
   if [ "$INTERIM" = 1 ]; then
-    echo "check-production: OK, no test code in the wheel; the npm package as INTERIM allows (until C6)"
+    echo "check-production: OK, no test code in the wheel; the npm package as INTERIM allows (until C6g)"
   else
     echo "check-production: OK, no test code in the wheel or the npm package"
   fi

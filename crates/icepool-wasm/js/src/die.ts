@@ -5,6 +5,7 @@
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import type { AgainExpression } from "./again.js";
 import type { MultisetExpression, Pool } from "./multiset.js";
+import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind, type Encodable } from "./rpc.js";
 import { map, mapAndTime, meanTimeToAbsorb, ops } from "./functions.js";
 import {
@@ -84,6 +85,8 @@ const inf = <T>(x: T): T | "inf" => (x === Infinity ? "inf" : x);
  * hands to the bridge. */
 function nativeDie(x: unknown): WasmDie | undefined {
   if (x instanceof Die) return x.w;
+  // A Map is Python's dict, which `Die([x])` cannot hash.
+  if (x instanceof Map) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'dict'");
   if (x === Reroll || x === Restart) return wasm((w) => w.WasmDie.empty());
   if (isPlainValue(x)) return wasm((w) => w.WasmDie.single(x));
   return undefined;
@@ -534,6 +537,40 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
     if (o === undefined) return call("die_cmp", { die: this, other }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => w.cmp(o)));
+  }
+  /** This die with `quantity` more of `outcome` (a negative quantity removes some, but not below zero). */
+  append(outcome: Outcome, quantity: Int = 1): Die {
+    const w = this.w;
+    return Die.wrap(wasm(() => w.append(outcome, quantity)));
+  }
+  /** This die with `quantity` less of `outcome` (`null`: all of it; a negative quantity adds). */
+  remove(outcome: Outcome, quantity: Int | null = null): Die {
+    const w = this.w;
+    return Die.wrap(wasm(() => w.remove(outcome, quantity)));
+  }
+  /** Each outcome as a one-hot Vector over `outcomes` (default: this die's outcomes). */
+  toOneHot(outcomes: readonly Outcome[] | null = null): Die {
+    return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Die;
+  }
+  /** `die.unary_operator(op)`: `op` applied to each outcome (the results with their quantities, as `Die`
+   * merges them). */
+  unaryOperator(op: Callback<Outcome>): Die {
+    const f = op as (outcome: unknown) => unknown;
+    return new Die(this.outcomes().map((o) => f(o) as Outcome), this.quantities());
+  }
+  /** `die.binary_operator(other, op)`: `op` applied to each pair of outcomes, with the product of their
+   * quantities. */
+  binaryOperator(other: Die, op: Callback<Outcome>): Die {
+    const f = op as (a: unknown, b: unknown) => unknown;
+    const results: Outcome[] = [];
+    const quantities: bigint[] = [];
+    for (const [a, qa] of this.items()) {
+      for (const [b, qb] of other.items()) {
+        results.push(f(a, b) as Outcome);
+        quantities.push(qa * qb);
+      }
+    }
+    return new Die(results, quantities);
   }
   padToDenominator(denominator: Int, outcome: Outcome): Die {
     const w = this.w;

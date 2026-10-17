@@ -45,6 +45,24 @@ export class Deck extends Handle implements Iterable<Outcome> {
   symmetricDifference(other: unknown): Deck {
     return call("deck_method", { deck: this, name: "symmetric_difference", arg: list(other) }) as Deck;
   }
+  /** This deck with `quantity` more of `outcome` (a negative quantity removes some, but not below zero). */
+  append(outcome: Outcome, quantity: Int = 1): Deck {
+    return call("pop_append", { population: this, outcome, quantity }) as Deck;
+  }
+  /** This deck with `quantity` less of `outcome` (`null`: all of it; a negative quantity adds). */
+  remove(outcome: Outcome, quantity: Int | null = null): Deck {
+    return call("pop_remove", { population: this, outcome, quantity }) as Deck;
+  }
+  /** Each card as a one-hot Vector over `outcomes` (default: this deck's outcomes). */
+  toOneHot(outcomes: readonly Outcome[] | null = null): Deck {
+    return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Deck;
+  }
+  // Python's Deck has these from its Population base, where they raise TypeError (upstream passes a keyword
+  // argument to `functools.reduce`); kept for parity.
+  additiveUnion(...others: unknown[]): Deck { return deckMethod(this, "additive_union", others); }
+  difference(...others: unknown[]): Deck { return deckMethod(this, "difference", others); }
+  intersection(...others: unknown[]): Deck { return deckMethod(this, "intersection", others); }
+  union(...others: unknown[]): Deck { return deckMethod(this, "union", others); }
   padToDenominator(denominator: Int, outcome: Outcome): Deck {
     return call("deck_pad_to_denominator", { deck: this, denominator, outcome }) as Deck;
   }
@@ -89,6 +107,10 @@ export class Deck extends Handle implements Iterable<Outcome> {
   minOutcome(): Outcome { return this.stat("min_outcome"); }
   maxOutcome(): Outcome { return this.stat("max_outcome"); }
   denominator(): bigint { return BigInt(this.stat("denominator") as Int); }
+}
+
+function deckMethod(deck: Deck, name: string, others: unknown[]): Deck {
+  return call("deck_method", { deck, name, arg: List.from(others.map(list)) }) as Deck;
 }
 
 function deckOp(deck: Deck, operator: string, other: unknown): Deck {

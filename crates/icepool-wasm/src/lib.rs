@@ -1,7 +1,8 @@
-//! The WASM (JS) facade over icepool-core, built with wasm-pack (see NOTES.md for the commands).
+//! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see NOTES.md for the commands).
 //!
-//! The exports under the JS facade (js/core.js) are in `facade`. Two more entry points, each behind a feature that
-//! no production build (the npm package) turns on:
+//! The typed exports (`WasmDie`, ...) are in `api`; the interim JSON-op bridge the API still uses for the rest is in
+//! `facade` (until task C6g). Two more entry points, each behind a feature that no production build (the npm
+//! package) turns on:
 //! - `run(programJson)` (feature `runner`, test-only, `runner.rs`): one program of the harness's JSON program
 //!   language in, its JSON result out. `run-wasm.sh` drives it so every fixture and fuzz run can go through WASM.
 //! - `calculate(engineInput)` (feature `khepri`, `khepri.rs`): khepri's engine, the drop-in for `f2f.calculate`.
@@ -10,9 +11,10 @@
 //! core features they need.
 //!
 //! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`. The panic hook installed at
-//! start-up keeps its message; the JS facade (js/core.js) then calls `recover()` and throws an `IcepoolError`
-//! ("PanicException", as the Python facade raises). Call `run` / `calculate` through core.js's wrappers of the same
-//! name (run-wasm.mjs and test-calculate.mjs do), not raw, to get that recovery. Sizes from user input are
+//! start-up keeps its message; the TypeScript API (js/src/wasm.ts) then calls `recover()` and throws an
+//! `IcepoolError` ("PanicException", as the Python facade raises). Call `run` / `calculate` through wasm.ts's
+//! wrappers of the same name (or recover.mjs's, as run-wasm.mjs and test-calculate.mjs do), not raw, to get that
+//! recovery. Sizes from user input are
 //! checked before allocating (`icepool_core::memory`), so huge inputs are a `MemoryError`, not a trap.
 
 mod api;

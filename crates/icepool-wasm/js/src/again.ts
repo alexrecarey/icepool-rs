@@ -24,6 +24,18 @@ export interface AgainExpression {
   and(other: Operand): AgainExpression;
   or(other: Operand): AgainExpression;
   xor(other: Operand): AgainExpression;
+  radd(other: Operand): AgainExpression;
+  rsub(other: Operand): AgainExpression;
+  rmul(other: Operand): AgainExpression;
+  rtruediv(other: Operand): AgainExpression;
+  rfloordiv(other: Operand): AgainExpression;
+  rmod(other: Operand): AgainExpression;
+  rpow(other: Operand): AgainExpression;
+  rlshift(other: Operand): AgainExpression;
+  rrshift(other: Operand): AgainExpression;
+  rand(other: Operand): AgainExpression;
+  ror(other: Operand): AgainExpression;
+  rxor(other: Operand): AgainExpression;
   lt(other: Operand): AgainExpression;
   le(other: Operand): AgainExpression;
   gt(other: Operand): AgainExpression;
@@ -61,6 +73,12 @@ export class AgainExpression extends Handle {
   for (const op of BINARY) {
     proto[op] = function (this: AgainExpression, other: unknown) {
       return call(op, { a: this, b: other });
+    };
+  }
+  // The reflected arithmetic operators: `3 - Again` is `Again.rsub(3)`.
+  for (const op of BINARY.slice(0, 12)) {
+    proto[`r${op}`] = function (this: AgainExpression, other: unknown) {
+      return call(op, { a: other, b: this });
     };
   }
   for (const op of UNARY) {

@@ -426,6 +426,24 @@ impl WasmDie {
         Ok(WasmDie::new(self.die.try_clip(min.as_ref(), max.as_ref()).or_throw()?))
     }
 
+    /// `die.append(outcome, quantity)`: that much more of the outcome (a negative quantity removes, down to zero).
+    pub fn append(&self, outcome: JsValue, quantity: JsValue) -> JsResult<WasmDie> {
+        let outcome = counter_key(&outcome)?;
+        let data = self.die.append(&outcome, &value(&quantity)?).or_throw()?;
+        self.new_or_self(Some(data))
+    }
+
+    /// `die.remove(outcome, quantity)`: that much less of the outcome; `null` removes all of it.
+    pub fn remove(&self, outcome: JsValue, quantity: JsValue) -> JsResult<WasmDie> {
+        let outcome = counter_key(&outcome)?;
+        let quantity = match value(&quantity)? {
+            Value::None => None,
+            q => Some(q),
+        };
+        let data = self.die.remove(&outcome, quantity.as_ref()).or_throw()?;
+        self.new_or_self(Some(data))
+    }
+
     /// `die.multiply_quantities(scale)`.
     #[wasm_bindgen(js_name = multiplyQuantities)]
     pub fn multiply_quantities(&self, scale: JsValue) -> JsResult<WasmDie> {
@@ -640,6 +658,13 @@ impl WasmDie {
             .or_throw()?;
         Ok(format!("{type_name}({{{}}})", items.join(", ")))
     }
+}
+
+/// An outcome used as a `Counter` key (`append`, `remove`): hashable, as Python's `Counter` requires.
+fn counter_key(outcome: &JsValue) -> JsResult<Value> {
+    let key = value(outcome)?;
+    key.check_hashable().or_throw()?;
+    Ok(key)
 }
 
 /// A selection mask from JS (one byte per outcome, nonzero for selected).

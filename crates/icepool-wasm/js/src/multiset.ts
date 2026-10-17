@@ -50,6 +50,31 @@ export class MultisetExpression extends Handle {
     return call("mx_binary", { a: this, o: "^", b: list(other) }) as MultisetExpression;
   }
 
+  // Keeping some of the sorted elements.
+  /** The highest `keep` elements after dropping the highest `drop` (Python's `highest(keep, drop)`). */
+  highest(keep: Int | null = null, drop: Int | null = null): MultisetExpression {
+    return call("pool_highest", { pool: this, keep, drop }) as MultisetExpression;
+  }
+  /** The lowest `keep` elements after dropping the lowest `drop`. */
+  lowest(keep: Int | null = null, drop: Int | null = null): MultisetExpression {
+    return call("pool_lowest", { pool: this, keep, drop }) as MultisetExpression;
+  }
+  /** `expr.keep(index)`: an array of counts (a keep tuple, `Ellipsis` allowed), or an int: that sorted element as a
+   * die. An array is a tuple, as everywhere: a `List` index is unhashable (a mixture of such keeps raises). */
+  keep(index: readonly (Int | typeof Ellipsis)[]): MultisetExpression;
+  keep(index: Int): Die;
+  keep(index: Int | readonly (Int | typeof Ellipsis)[]): MultisetExpression | Die {
+    return call("pool_keep", { pool: this, index }) as MultisetExpression | Die;
+  }
+  /** `expr[index]`: the element at that sorted position, as a die. */
+  at(index: Int): Die {
+    return call("pool_index", { pool: this, index }) as Die;
+  }
+  /** `expr[start:stop:step]`. */
+  slice(start: Int | null = null, stop: Int | null = null, step: Int | null = null): MultisetExpression {
+    return call("pool_slice", { pool: this, start, stop, step }) as MultisetExpression;
+  }
+
   // Counts.
   mul(n: Int): MultisetExpression { return mxCounts(this, "mul", null, n); }
   neg(): MultisetExpression { return mxCounts(this, "neg", null, null); }
@@ -159,31 +184,25 @@ function sortPair(expr: MultisetExpression, method: string, comparison: Comparis
   return call("mx_sort_pair", { expr, method, comparison, other: list(other), order, extra }) as MultisetExpression;
 }
 
-/** A `KeepGenerator`: a pool or a deal, whose sorted rolls can be kept or dropped. */
+/** A `KeepGenerator`: a pool or a deal, whose sorted rolls can be kept or dropped (keeping gives one of the same
+ * kind), and which has `middle`. */
 export class KeepGenerator extends MultisetExpression {
-  highest(keep: Int | null = null, drop: Int | null = null): this {
-    return call("pool_highest", { pool: this, keep, drop }) as this;
+  override highest(keep: Int | null = null, drop: Int | null = null): this {
+    return super.highest(keep, drop) as this;
   }
-  lowest(keep: Int | null = null, drop: Int | null = null): this {
-    return call("pool_lowest", { pool: this, keep, drop }) as this;
+  override lowest(keep: Int | null = null, drop: Int | null = null): this {
+    return super.lowest(keep, drop) as this;
   }
   middle(keep: Int = 1, { tie = "error" }: { tie?: "error" | "high" | "low" } = {}): this {
     return call("pool_middle", { pool: this, keep, tie }) as this;
   }
-  /** `pool.keep(index)`: an array of counts (a keep tuple, `Ellipsis` allowed), or an int: that sorted roll as a
-   * die. An array is a tuple, as everywhere: a `List` index is unhashable (a mixture of such keeps raises). */
-  keep(index: readonly (Int | typeof Ellipsis)[]): this;
-  keep(index: Int): Die;
-  keep(index: Int | readonly (Int | typeof Ellipsis)[]): this | Die {
+  override keep(index: readonly (Int | typeof Ellipsis)[]): this;
+  override keep(index: Int): Die;
+  override keep(index: Int | readonly (Int | typeof Ellipsis)[]): this | Die {
     return call("pool_keep", { pool: this, index }) as this | Die;
   }
-  /** `pool[index]`: the roll at that sorted position, as a die. */
-  at(index: Int): Die {
-    return call("pool_index", { pool: this, index }) as Die;
-  }
-  /** `pool[start:stop:step]`. */
-  slice(start: Int | null = null, stop: Int | null = null, step: Int | null = null): this {
-    return call("pool_slice", { pool: this, start, stop, step }) as this;
+  override slice(start: Int | null = null, stop: Int | null = null, step: Int | null = null): this {
+    return super.slice(start, stop, step) as this;
   }
 }
 

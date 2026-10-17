@@ -1,5 +1,6 @@
-//! The bridge under the JS facade (js/icepool.js): program values held in a handle table, nodes called with
-//! JSON arguments, and JS callables / evaluators called back through a global the JS side installs.
+//! INTERIM (until task C6g): the JSON-op bridge under the TypeScript API (js/src/rpc.ts), for what is not on typed
+//! exports (`crate::api`) yet: program values held in a handle table, nodes called with JSON arguments, and JS
+//! callables / evaluators called back through a global the JS side installs.
 //!
 //! JS sees every value that has a JS counterpart as JSON ("JS-JSON", below) and everything else (dice, pools,
 //! decks, expressions, ...) as a handle: an index into this module's table, which the JS object owns and releases
@@ -47,7 +48,7 @@ use crate::api::WasmDie;
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
 
-// The callbacks into JS. js/icepool.js installs `globalThis.__icepool_wasm_host` before the first call; nothing
+// The callbacks into JS. js/src/rpc.ts installs `globalThis.__icepool_wasm_host` before the first call; nothing
 // here calls it unless a JS function or evaluator was passed in.
 #[wasm_bindgen]
 extern "C" {

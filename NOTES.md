@@ -5,6 +5,49 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **The TypeScript API (C6, design section 6).** Rest in C6c-C6g (tasks.json); the docs are C6b.
+  - **Layout.** `crates/icepool-wasm/js/src/*.ts` (compiled by tsc into `js/dist`, gitignored; the `.d.ts` are
+    generated): `wasm.ts` (bind, the trap-recovering `wasm(f)` every call goes through, `run`/`calculate`),
+    `errors.ts`, `values.ts` (Float, Fraction, Complex, Vector, Symbols, Reroll..., `isPlainValue`), `die.ts`,
+    `operators.ts` (Python's operator dispatch between dice / Again / plain values), `functions.ts` (free
+    functions, `ops`), `multiset.ts`, `deck.ts`, `again.ts`, `evaluator.ts`, `host.ts` (what Rust calls back for
+    values), `rpc.ts` (the interim bridge), `index.ts` (the public exports), `internal.ts` (test-only exports, left
+    out of the npm package: `call`, `fromWire`, `RawJSON`, `Handle`, `liveObjects`, `bridgeCalls`, `run`),
+    `node.ts`/`web.ts` (entry points). Rust: `crates/icepool-wasm/src/api/` (`convert.rs` JsValue <-> Value with
+    no JSON, `error.rs`, `host.rs` the JS imports, `die.rs` WasmDie + DieBuilder, `value.rs`).
+  - **Who does what.** As in the Python facade (upstream Python + `icepool_rs`), the TypeScript does Python's
+    argument juggling and calls typed exports for the work: e.g. `reroll(which)` calls the JS predicate on each
+    outcome itself (Python's `_select_outcomes`) and hands the core a mask; `map(f, ...)` enumerates the joint
+    outcomes in JS and builds the die with `DieBuilder`. A JS callback the core never sees cannot trap, so the trap
+    test uses an evaluator's `nextState` (the core still calls those).
+  - **The bridge (interim, `js/src/rpc.ts` over `src/facade.rs`).** Whatever is not native yet still calls the
+    runner's nodes by name, exactly as the S6 facade did; a typed die crosses as a handle made for the call
+    (`dieHandle`, released after it; `{"$take": h}` for a callback's result, which the core takes over) and a die
+    handle coming back becomes a typed die (`WasmDie.fromHandle`). A native method falls back to the bridge for any
+    argument it does not model (an Again operand, a Map `which`, a tuple holding dice, odd times...), so the result
+    is always the runner's where it is not the native path's. The fixture suite prints `bridge: <node> <count>`:
+    what is left to move. At C6: Pool/expressions/evaluators/decks/Again and the Die methods listed in C6c.
+  - **Values.** `value_from_js` asks `__icepool_wasm_host.describe(x)` for every object (arrays too: a `List` is
+    Python's list, unhashable, a plain array a tuple). Integral JS numbers are ints (as the S6 facade had it), a
+    `Float` is a float. Results: safe ints as numbers, else BigInt; integral floats as `Float`.
+  - **Errors.** `IcepoolError(kind, pythonType, message)`: `kind` is the core's `Error` variant (`Panic` for a trap),
+    `pythonType` the Python exception (also the error's `name`); subclasses `OrderError`, `ConflictingOrderError`,
+    `UnsupportedOrder` (which JS evaluators throw). The bridge's envelope now carries `kind` too.
+  - **Freeing.** `free()` + `[Symbol.dispose]` everywhere (was `release()`). A `WasmDie` is freed by wasm-bindgen's
+    own FinalizationRegistry when its `Die` is collected; `liveObjects()` (test-only) = bridge handles + live
+    `WasmDie`s (`liveDice`).
+  - **Build.** `js/build.sh` runs tsc after wasm-pack (tsc from js/node_modules, PATH, `~/.bun/bin/tsc` or the global
+    npm root; TypeScript 7 is what is installed here). The sources type-check against the generated
+    `pkg-node/icepool_wasm.d.ts`, so tsc needs a wasm-pack build first; exports that only some builds have (`run`,
+    `calculate`) are typed by hand (`OptionalExports` in wasm.ts). `test/tsconfig.json` type-checks
+    `test/types-check.ts` (TS 7 refuses `tsc file.ts` when a tsconfig.json is in the directory). run-wasm.mjs and
+    test-calculate.mjs drive a raw wasm-pack build without the TypeScript: their trap recovery is
+    `crates/icepool-wasm/recover.mjs` (a copy of wasm.ts's; keep them in step).
+  - **No `any` in the public types:** a test scans `dist/*.d.ts`. Callbacks are `(...args: never[]) => R` (any JS
+    function fits); evaluator methods are declared as methods (bivariant), so subclasses narrow their parameters.
+  - **Upstream tests in JS:** `js/test/upstream-*.test.mjs` translate upstream's `tests/*_test.py` one test per
+    Python test (helpers in `test/upstream.mjs`); `{ todo: "API: ..." }` marks a known API discrepancy.
+
 - **Crates and production builds (C5, design sections 5 and 8).** Follow-up: C5b (the runner's code moves into
   icepool-harness once the loop owner moves the protected fixtures test, QUESTIONS.md "D1"), C6 (JS API off the
   runner), C2f (khepri crate).
@@ -34,13 +77,13 @@ turns out wrong. Newest decisions at the top of each section.
     src/khepri.rs). Their unit tests compile in every test build (`cfg(any(test, feature))` + a dev-dependency on
     core with both features). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
     same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
-    (khepri's) `khepri`. core.js's `run`/`calculate` throw a clear Error in builds without the feature.
-    **Interim until C6:** the JS facade (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
+    (khepri's) `khepri`. wasm.ts's `run`/`calculate` throw a clear Error in builds without the feature.
+    **Interim until C6g:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
     core with `runner` and on serde_json.
   - `scripts/check-production.sh` (the gate runs it once it exists; ~7 s warm, ~1 min cold): cargo tree of
     icepool-py / icepool-wasm (built alone), `maturin build --release` wheel file list + the .so's strings and
     symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports. While facade.rs uses
-    `icepool_core::program`, the npm package's runner code is reported as `interim`, not failed; C6 ends that by
+    `icepool_core::program`, the npm package's runner code is reported as `interim`, not failed; C6g ends that by
     dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
     and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
     The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with
@@ -425,6 +468,9 @@ turns out wrong. Newest decisions at the top of each section.
   Oracle-process history: `map_to_pool(lambda: [E.A]).sum()` gave `1` in the long-lived oracle of the facade tests
   (the shared sum evaluator's room cache is keyed by `==`), so test cases use fresh outcomes.
 
+- **Since C6** the S6-S6c notes below describe what is now the bridge: `js/core.js` became `js/src/rpc.ts` (enc/dec,
+  callbacks, handles) plus `js/src/wasm.ts` (bind, `wasm()`), `icepool.d.ts` is generated into `js/dist`, and
+  `release()` is `free()`. See "The TypeScript API (C6)" above.
 - **S6: the JS facade (`crates/icepool-wasm/js`, npm package `icepool-wasm`).** Every JS method is one grammar
   node run by the program layer (`program::call(op, args)`, the node dispatch `eval` uses, now public), so the JS
   API computes what the oracle-checked nodes compute and needs no Rust per method. Layers: `src/facade.rs` (wasm
