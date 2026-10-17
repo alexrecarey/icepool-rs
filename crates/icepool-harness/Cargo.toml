@@ -8,12 +8,20 @@ description = "Test-only: the JSON program runner and the icepool-run binary tha
 publish = false
 
 [dependencies]
-# The runner still lives in icepool-core behind its `runner` feature until the protected fixtures test moves here
-# (QUESTIONS.md "D1", task C5b); depending on it with the feature on is what turns it on in workspace builds.
-# `khepri`: the runner's `khepri` node (the khepri sweep).
-icepool-core = { path = "../icepool-core", features = ["runner", "khepri"] }
+icepool-core = { path = "../icepool-core" }
 # arbitrary_precision: program literals and results carry exact big integers.
 serde_json = { version = "1", features = ["arbitrary_precision"] }
+# The core's big integers: program literals, results and Python's `random.Random` (src/random.rs).
+dashu-base = "0.6"
+dashu-int = "0.6"
+dashu-ratio = "0.6"
+rustc-hash = "2"
+
+[features]
+# The runner's `khepri` node (the khepri sweep, the khepri fixtures): on by default, so every workspace build and
+# test runs it. icepool-wasm's interim bridge turns it off (until task C6g; see its Cargo.toml).
+default = ["khepri"]
+khepri = ["icepool-core/khepri"]
 
 [[bin]]
 name = "icepool-run"

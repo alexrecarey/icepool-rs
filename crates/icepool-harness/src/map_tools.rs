@@ -10,11 +10,11 @@ use super::expression::as_expression;
 use super::map::{arg_items, call, die_of, expand_arg, star_arg, the_die};
 use super::ops::{new_die, unhashable_list, wrong_type};
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::expand::iter_cartesian_product;
-use crate::map_tools::{self, Next, Target, TransitionCache};
-use crate::value::BinOp;
-use crate::{Die, Quantity, Value};
+use icepool_core::expand::iter_cartesian_product;
+use icepool_core::map_tools::{self, Next, Target, TransitionCache};
+use icepool_core::value::BinOp;
+use icepool_core::Error;
+use icepool_core::{Die, Quantity, Value};
 
 fn int(i: i64) -> Value {
     Value::from(dashu_int::IBig::from(i))
@@ -283,7 +283,10 @@ pub fn time_to_sum(
     };
     let step: &mut dyn FnMut(&Value, usize) -> Result<Next, PErr> = &mut step;
     let mut cache = TransitionCache::new(step, rolls.iter().map(|(_, q)| q.clone()).collect());
-    let initial = Die::new(vec![crate::DieArg::Outcome(int(0))], vec![Quantity::ONE])?;
+    let initial = Die::new(
+        vec![icepool_core::DieArg::Outcome(int(0))],
+        vec![Quantity::ONE],
+    )?;
     let result = map_tools::map_and_time(&mut cache, &initial, range_count(&max_time))?;
     // `result.map(get_time)`: `dnf if total < target else time`, star inferred.
     let mut states = Vec::with_capacity(result.len());

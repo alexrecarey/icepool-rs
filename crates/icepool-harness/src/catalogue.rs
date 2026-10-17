@@ -8,10 +8,10 @@ use rustc_hash::FxHashMap;
 
 use super::ops::{binary, d, dict_items, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::value::builtins::{getitem, Index};
-use crate::value::BinOp;
-use crate::Value;
+use icepool_core::value::builtins::{getitem, Index};
+use icepool_core::value::BinOp;
+use icepool_core::Error;
+use icepool_core::Value;
 
 #[derive(Debug)]
 pub enum Func {
@@ -435,12 +435,12 @@ impl Func {
                 if outside(&x, lo, hi)? {
                     x
                 } else {
-                    let step = crate::Die::new(
+                    let step = icepool_core::Die::new(
                         vec![
-                            crate::DieArg::Outcome(Value::from(-1)),
-                            crate::DieArg::Outcome(Value::from(1)),
+                            icepool_core::DieArg::Outcome(Value::from(-1)),
+                            icepool_core::DieArg::Outcome(Value::from(1)),
                         ],
-                        vec![crate::Quantity::ONE, crate::Quantity::ONE],
+                        vec![icepool_core::Quantity::ONE, icepool_core::Quantity::ONE],
                     )?;
                     binary(BinOp::Add, x, PValue::Die(step))?
                 }
@@ -600,7 +600,7 @@ fn list_times(items: Vec<PValue>, n: &PValue) -> Result<Vec<PValue>, PErr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::program::host::HostFunction;
+    use crate::host::HostFunction;
 
     #[derive(Debug)]
     struct TwoArgs;

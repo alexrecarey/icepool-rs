@@ -2,7 +2,7 @@
 //! `map_to_pool`, `explode_to_pool`, `reroll_to_pool`. Each makes a `MultisetMixture` of pools, one per joint
 //! outcome of the arguments, weighted by its quantity (equal pools counted together).
 //!
-//! The arithmetic of the pool compositions is the core's (`crate::to_pool`); here are Python's calling
+//! The arithmetic of the pool compositions is the core's (`icepool_core::to_pool`); here are Python's calling
 //! conventions and the pools each composition stands for.
 
 use std::sync::Arc;
@@ -13,14 +13,14 @@ use super::map::{arg_items, call, select, star_arg, the_die};
 use super::ops::wrong_type;
 use super::pool::{die_pool, pool, pool_highest_lowest, KeepGen};
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::expand::iter_cartesian_product;
-use crate::{Die, DieArg, Pool, Quantity, Value};
+use icepool_core::expand::iter_cartesian_product;
+use icepool_core::Error;
+use icepool_core::{Die, DieArg, Pool, Quantity, Value};
 
 /// `n @ die` with a Python int (or bool) `n`: `Die([n]) @ die` (`Die.__rmatmul__`).
 fn rmatmul(n: &Value, die: &Die<Value>) -> Result<Die<Value>, PErr> {
     let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
-    Ok(crate::value::matmul_dice(&n, die)?)
+    Ok(icepool_core::value::matmul_dice(&n, die)?)
 }
 
 /// `icepool.map_to_pool(repl, *args, star=star)` (node `map_to_pool`).
@@ -190,7 +190,7 @@ pub fn explode_to_pool(
             ))
         }
     };
-    let count_die = crate::to_pool::explode_counts(
+    let count_die = icepool_core::to_pool::explode_counts(
         &d.denominator(),
         &explode.denominator(),
         &not_explode.denominator(),
@@ -244,7 +244,7 @@ pub fn reroll_to_pool(
     } else {
         value_arg(&depth, "reroll_to_pool depth")?
     };
-    let pool_composition = crate::to_pool::reroll_composition(
+    let pool_composition = icepool_core::to_pool::reroll_composition(
         &d.denominator(),
         &rerollable_die.denominator(),
         &rolls,
@@ -257,10 +257,10 @@ pub fn reroll_to_pool(
     // one of the names: only a str prints without quotes or brackets).
     let mode = match &mode {
         PValue::Value(Value::Str(m)) => m.to_string(),
-        PValue::Value(v) if !v.is_collection() => crate::value::pystr::py_str(v)?,
+        PValue::Value(v) if !v.is_collection() => icepool_core::value::pystr::py_str(v)?,
         _ => return Err(PErr::Unimplemented("this reroll_to_pool mode".into())),
     };
-    let sub = |a: &Value, b: &Value| a.binary(crate::value::BinOp::Sub, b);
+    let sub = |a: &Value, b: &Value| a.binary(icepool_core::value::BinOp::Sub, b);
     let die_pool_of =
         |die: &Die<Value>, n: &Value| die_pool(PValue::Die(die.clone()), PValue::Value(n.clone()));
     // `pool_composition.map_to_pool(make_pool, star=True)`.

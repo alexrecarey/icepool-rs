@@ -23,10 +23,10 @@ use super::population;
 use super::statistics;
 use super::to_pool;
 use super::{raise, Args, PErr, PValue};
-use crate::creation_args::DieArg;
-use crate::error::Error;
-use crate::value::{BinOp, Num, UnOp};
-use crate::{Die, Quantity, Value};
+use icepool_core::creation_args::DieArg;
+use icepool_core::value::{BinOp, Num, UnOp};
+use icepool_core::Error;
+use icepool_core::{Die, Quantity, Value};
 
 pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
     match op {
@@ -58,7 +58,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
             let [] = args.exactly([])?;
             // `icepool.Again = AgainExpression(is_additive=True)`.
             Ok(PValue::Again(std::sync::Arc::new(
-                crate::again::Again::Again { is_additive: true },
+                icepool_core::again::Again::Again { is_additive: true },
             )))
         }
         "again" => {
@@ -944,9 +944,9 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
         (PValue::Die(a), b) => apply(&a, op, &to_die(b)?),
         // The exception: `str % die` is printf-style formatting with the die as the argument, and a die is a
         // Mapping, which formatting accepts even when the format string never uses it.
-        (PValue::Value(Value::Str(s)), PValue::Die(_)) if op == BinOp::Mod => {
-            Ok(PValue::Value(crate::value::ops::str_format_mapping(&s)?))
-        }
+        (PValue::Value(Value::Str(s)), PValue::Die(_)) if op == BinOp::Mod => Ok(PValue::Value(
+            icepool_core::value::ops::str_format_mapping(&s)?,
+        )),
         // `Symbols.__floordiv__` takes any iterable as `count_subset`, and a die is one (a mapping: its quantities
         // are the counts).
         (PValue::Value(Value::Symbols(s)), PValue::Die(d) | PValue::DieWithTruth(d, _))
@@ -995,9 +995,8 @@ pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
         (n, PValue::Die(die)) => (to_die(n)?, die),
         _ => return wrong_type("unsupported operand type(s) for @"),
     };
-    Ok(PValue::Die(crate::value::matmul_dice(&n, &die)?))
+    Ok(PValue::Die(icepool_core::value::matmul_dice(&n, &die)?))
 }
-
 
 /// `round(a, ndigits)`. For a die, `Die.round` rounds each outcome, so a bad `ndigits` only raises if there is an
 /// outcome to round.
@@ -1067,7 +1066,7 @@ pub(super) fn d(sides: PValue) -> Result<PValue, PErr> {
     // Beyond i64 Python would run out of memory long before finishing.
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
-    Ok(PValue::Die(crate::function::try_d(sides)?))
+    Ok(PValue::Die(icepool_core::function::try_d(sides)?))
 }
 
 /// Python's `iter(x)` over a program value: a list, a tuple's elements, a str's characters, a die's outcomes.

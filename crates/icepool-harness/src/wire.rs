@@ -7,9 +7,9 @@ use dashu_ratio::RBig;
 use serde_json::{json, Map, Number, Value as Json};
 
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::value::{float_repr, Symbols, Value, Vector};
-use crate::Die;
+use icepool_core::value::{float_repr, Symbols, Value, Vector};
+use icepool_core::Die;
+use icepool_core::Error;
 
 /// A JSON number: Python's `json` makes it an `int` unless it has a fraction or exponent. Returns `None` for floats.
 pub fn json_int(n: &Number) -> Option<IBig> {
@@ -254,9 +254,9 @@ fn int_json(s: String) -> Json {
 /// `Symbols` whose counts are not ints.
 ///
 /// Tuples and vectors nest: a level each (`value::recursion`).
-pub fn enc(v: &Value) -> crate::Result<Json> {
+pub fn enc(v: &Value) -> icepool_core::Result<Json> {
     let _level = match v {
-        Value::Tuple(_) | Value::Vector(_) => Some(crate::value::recursion::level()?),
+        Value::Tuple(_) | Value::Vector(_) => Some(icepool_core::value::recursion::level()?),
         _ => None,
     };
     let tagged = |k: &str, x: Json| {
@@ -279,11 +279,16 @@ pub fn enc(v: &Value) -> crate::Result<Json> {
         Value::Str(s) => tagged("str", Json::String(s.to_string())),
         Value::Tuple(t) => tagged(
             "tuple",
-            Json::Array(t.iter().map(enc).collect::<crate::Result<_>>()?),
+            Json::Array(t.iter().map(enc).collect::<icepool_core::Result<_>>()?),
         ),
         Value::Vector(x) => tagged(
             "vector",
-            Json::Array(x.data()?.iter().map(enc).collect::<crate::Result<_>>()?),
+            Json::Array(
+                x.data()?
+                    .iter()
+                    .map(enc)
+                    .collect::<icepool_core::Result<_>>()?,
+            ),
         ),
         Value::Symbols(x) => tagged("symbols", Json::String(x.py_str()?)),
         // encode.py's fallback for types it does not know.
@@ -293,7 +298,7 @@ pub fn enc(v: &Value) -> crate::Result<Json> {
     })
 }
 
-fn die_items(d: &Die<Value>) -> crate::Result<Vec<Json>> {
+fn die_items(d: &Die<Value>) -> icepool_core::Result<Vec<Json>> {
     d.items()
         .iter()
         .map(|(o, q)| Ok(Json::Array(vec![enc(o)?, int_json(q.to_string())])))
@@ -302,8 +307,8 @@ fn die_items(d: &Die<Value>) -> crate::Result<Vec<Json>> {
 
 /// `encode.enc` for any program value: `Ok(None)` for the ones the port cannot spell as Python does (lists,
 /// functions).
-fn enc_object(v: &PValue) -> crate::Result<Option<Json>> {
-    let _level = crate::value::recursion::level()?;
+fn enc_object(v: &PValue) -> icepool_core::Result<Option<Json>> {
+    let _level = icepool_core::value::recursion::level()?;
     Ok(Some(match v {
         // Encoding reads the data, which raises.
         PValue::DieWithTruthError(e, _) => return Err(e.clone()),
@@ -350,12 +355,12 @@ fn enc_object(v: &PValue) -> crate::Result<Option<Json>> {
 }
 
 /// `Deck.__repr__`: `Deck({outcome!r}: quantity, ...)`.
-pub(super) fn deck_repr(d: &crate::Deck<Value>) -> crate::Result<String> {
+pub(super) fn deck_repr(d: &icepool_core::Deck<Value>) -> icepool_core::Result<String> {
     let items = d
         .items()
         .iter()
-        .map(|(o, q)| Ok(format!("{}: {q}", crate::value::pystr::py_repr(o)?)))
-        .collect::<crate::Result<Vec<_>>>()?;
+        .map(|(o, q)| Ok(format!("{}: {q}", icepool_core::value::pystr::py_repr(o)?)))
+        .collect::<icepool_core::Result<Vec<_>>>()?;
     Ok(format!("Deck({{{}}})", items.join(", ")))
 }
 

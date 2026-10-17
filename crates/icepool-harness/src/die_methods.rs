@@ -6,10 +6,10 @@ use super::function::harmonize;
 use super::map::{contains, the_die};
 use super::ops::{die_with_agains, matmul, py_iter, to_die, unhashable_list, wrong_type};
 use super::{PErr, PValue};
-use crate::counts::OrderedMerge;
-use crate::population::Comparison;
-use crate::value::BinOp;
-use crate::{Die, Value};
+use icepool_core::counts::OrderedMerge;
+use icepool_core::population::Comparison;
+use icepool_core::value::BinOp;
+use icepool_core::{Die, Value};
 
 /// `die.zero()`: every outcome times `0`, which must resolve to a single outcome.
 pub fn zero(die: PValue) -> Result<PValue, PErr> {
@@ -67,7 +67,7 @@ pub fn from_cumulative(
     }
     let cumulative: Vec<PValue> = match cumulative.first() {
         None => {
-            return Err(PErr::Raise(crate::Error::IndexOutOfRange(
+            return Err(PErr::Raise(icepool_core::Error::IndexOutOfRange(
                 "list index out of range".into(),
             )))
         }
@@ -81,7 +81,7 @@ pub fn from_cumulative(
                     let q = die.try_quantity(Comparison::Ne, &Value::Bool(false))?;
                     Ok(PValue::Value(Value::Int(q.into())))
                 })
-                .collect::<Result<_, crate::Error>>()?
+                .collect::<Result<_, icepool_core::Error>>()?
         }
         Some(_) => return wrong_type("Unsupported type <class 'list'> for cumulative values."),
     };
@@ -148,7 +148,7 @@ fn is_in_die(die: &Die<Value>, outcomes: &PValue) -> Result<Die<Value>, PErr> {
     for (x, q) in die.items() {
         data.add(Value::Bool(contains(outcomes, x)?), q.clone());
     }
-    Ok(Die::from_mapping(data)?)
+    Ok(Die::from_dict(data.into_items())?)
 }
 
 /// `die.count(rolls, outcomes)`: `rolls @ self.is_in(outcomes)`.
@@ -197,7 +197,9 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
         PValue::Die(_) => "Die",
         // `repr()` takes anything: a "die" node may give a value (`d1.sequence(0)` is `()`).
         PValue::Value(v) => {
-            return Ok(PValue::Value(Value::str(&crate::value::pystr::py_repr(v)?)))
+            return Ok(PValue::Value(Value::str(
+                &icepool_core::value::pystr::py_repr(v)?,
+            )))
         }
         _ => return Err(PErr::Unimplemented("repr() of this kind of object".into())),
     };
@@ -205,8 +207,8 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
     let items = die
         .items()
         .iter()
-        .map(|(o, q)| Ok(format!("{}: {q}", crate::value::pystr::py_repr(o)?)))
-        .collect::<crate::Result<Vec<_>>>()?;
+        .map(|(o, q)| Ok(format!("{}: {q}", icepool_core::value::pystr::py_repr(o)?)))
+        .collect::<icepool_core::Result<Vec<_>>>()?;
     Ok(PValue::Value(Value::str(&format!(
         "{name}({{{}}})",
         items.join(", ")
@@ -218,12 +220,12 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
 /// values / items), `view[arg]` for an int or a `[start, stop, step]` slice, `view == arg`, and `min_outcome()` /
 /// `max_outcome()` / `is_empty()`.
 pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr> {
-    use crate::value::builtins::{getitem, Index};
+    use icepool_core::value::builtins::{getitem, Index};
     let die = the_die(die)?;
     let PValue::Value(Value::Str(name)) = name else {
         return Err(PErr::Unimplemented("a die method that is not a str".into()));
     };
-    let int = |n: &crate::Quantity| Value::Int(n.clone().into());
+    let int = |n: &icepool_core::Quantity| Value::Int(n.clone().into());
     // `self._mapping._keys` / `_values` / `_items`: tuples.
     let view = |v: &str| -> Value {
         Value::tuple(match v {
@@ -251,7 +253,7 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
     match &*name {
         "getitem" => match lookup(arg.clone())? {
             Some(i) => value(int(&die.items()[i].1)),
-            None => super::raise(crate::error::Error::MissingKey(match arg {
+            None => super::raise(icepool_core::Error::MissingKey(match arg {
                 PValue::Value(key) => format!("{key}"),
                 _ => String::new(),
             })),
@@ -296,7 +298,7 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
             };
             match outcome {
                 Some((o, _)) => value(o.clone()),
-                None => super::raise(crate::error::Error::IndexOutOfRange(
+                None => super::raise(icepool_core::Error::IndexOutOfRange(
                     "tuple index out of range".into(),
                 )),
             }

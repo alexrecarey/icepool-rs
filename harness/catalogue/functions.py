@@ -1,6 +1,6 @@
 """Named functions for map / reroll / filter / split (Python side).
 
-Rust side: crates/icepool-core/src/program/catalogue.rs, one `Func` variant per entry, same parameters, same body.
+Rust side: crates/icepool-harness/src/catalogue.rs, one `Func` variant per entry, same parameters, same body.
 
 A program names a function with the `fn` node: {"op": "fn", "name": "add_k", "params": [3]} is
 FUNCTIONS["add_k"](3), i.e. `lambda x: x + 3`. Each entry is a factory taking the params and returning the

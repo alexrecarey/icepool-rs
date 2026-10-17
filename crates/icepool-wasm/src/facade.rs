@@ -24,7 +24,7 @@
 //! | `Reroll`, `Restart`, `...` | `{"$special": "Reroll" \| "Restart" \| "Ellipsis"}` |
 //! | `Break(x)` | `{"$break": x}` |
 //! | a JS function | `{"$fn": <id>, "n": <its length>}` (JS keeps the function, see `host_call`) |
-//! | a JS `Map` (JS -> Rust only) | `{"$map": [[key, value], ...]}`: a Python dict (`program::host::mapping`) |
+//! | a JS `Map` (JS -> Rust only) | `{"$map": [[key, value], ...]}`: a Python dict (`icepool_harness::host::mapping`) |
 //! | an evaluator state that is a JS object | `{"$json": "<canonical JSON>"}`: hashed and compared by that key |
 //! | anything else | `{"$h": <handle>, "kind": "die" \| "die_truth" \| "pool" \| ...}` (`"truth"` for `die_truth`) |
 //!
@@ -35,16 +35,16 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::api::WasmDie;
 use icepool_core::evaluator::Final;
 use icepool_core::evaluator::Order;
-use icepool_core::program::host::{HostEvaluator, HostFunction};
-use icepool_core::program::{self, PErr, PValue};
-use icepool_core::value::recursion::{level, Level};
 use icepool_core::host::{HostError, HostObject, HostRef};
+use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{float_repr, Symbols, Vector};
 use icepool_core::Value;
 use icepool_core::{Error, Result as CoreResult};
-use crate::api::WasmDie;
+use icepool_harness::host::{HostEvaluator, HostFunction};
+use icepool_harness::{PErr, PValue};
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
 
@@ -125,7 +125,9 @@ impl WasmDie {
         match get(id) {
             Ok(PValue::Die(d) | PValue::DieWithTruth(d, _)) => Ok(WasmDie::new(d)),
             Ok(PValue::DieWithTruthError(e, _)) => Err(crate::api::to_js_error(e)),
-            Ok(_) => Err(crate::api::to_js_error(Error::WrongType("not a die handle".into()))),
+            Ok(_) => Err(crate::api::to_js_error(Error::WrongType(
+                "not a die handle".into(),
+            ))),
             Err(PErr::Raise(e)) => Err(crate::api::to_js_error(e)),
             Err(PErr::Unimplemented(what)) => Err(crate::api::to_js_error(Error::Unported(what))),
         }
@@ -152,7 +154,7 @@ pub fn release(id: u32) {
 /// none was recorded). The handle table is never borrowed across code that can panic, so it survives as it is.
 #[wasm_bindgen]
 pub fn recover() -> String {
-    program::reset_after_trap();
+    icepool_harness::reset_after_trap();
     crate::take_panic().unwrap_or_default()
 }
 
@@ -175,13 +177,13 @@ pub fn call(op: &str, args: &str) -> String {
         if matches!(op, "khepri" | "mf_def") {
             let mut node = args;
             node.insert("op".into(), Json::String(op.into()));
-            return program::eval(&Json::Object(node));
+            return icepool_harness::eval(&Json::Object(node));
         }
         let mut values = Vec::with_capacity(args.len());
         for (k, v) in &args {
             values.push((k.as_str(), from_js(v)?));
         }
-        program::call(op, values)
+        icepool_harness::call(op, values)
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -197,14 +199,14 @@ pub fn evaluate(id: u32, args: &str, kwargs: &str) -> String {
     });
     let result = (|| {
         let args = from_js(&json!({ "$list": parse(args)? }))?;
-        program::host::evaluate(&evaluator, args)
+        icepool_harness::host::evaluate(&evaluator, args)
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
 
 /// `icepool.multiset_function(f)` for a JS function: `{"f": {"$fn": id, "n": length}, "params": n, "var": bool,
 /// "kwonly": [names]}` (the signature as Python would read it: required positional parameters, a `*args`, the
-/// keyword-only names). Calling the result traces `f` with parameter expressions (see `program::host`).
+/// keyword-only names). Calling the result traces `f` with parameter expressions (see `icepool_harness::host`).
 #[wasm_bindgen]
 pub fn multiset_function(args: &str) -> String {
     let result = (|| {
@@ -232,7 +234,9 @@ pub fn multiset_function(args: &str) -> String {
                 .collect::<Result<Vec<_>, _>>()?,
             _ => return Err(bad("kwonly")),
         };
-        Ok(program::host::multiset_function(f, params, var, kwonly))
+        Ok(icepool_harness::host::multiset_function(
+            f, params, var, kwonly,
+        ))
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -259,7 +263,7 @@ pub fn from_rv(args: &str) -> String {
             .iter()
             .map(|(k, v)| Ok((k.clone(), from_js(v)?)))
             .collect::<Result<Vec<_>, PErr>>()?;
-        program::host::from_rv(
+        icepool_harness::host::from_rv(
             cdf,
             pdf,
             from_js(&args["outcomes"])?,
@@ -276,7 +280,7 @@ pub fn from_rv(args: &str) -> String {
 pub fn from_wire(literal: &str) -> String {
     envelope(
         parse(literal)
-            .and_then(|j| program::wire::dec(&j))
+            .and_then(|j| icepool_harness::wire::dec(&j))
             .and_then(|v| to_js(&v)),
     )
 }
@@ -286,7 +290,7 @@ pub fn from_wire(literal: &str) -> String {
 #[wasm_bindgen]
 pub fn wire_result(id: u32) -> String {
     match get(id) {
-        Ok(v) => program::wire::result_of(&v).to_string(),
+        Ok(v) => icepool_harness::wire::result_of(&v).to_string(),
         Err(e) => envelope(Err(e)),
     }
 }
@@ -387,7 +391,7 @@ fn to_js(v: &PValue) -> Result<Json, PErr> {
         PValue::List(_) | PValue::Tuple(_) | PValue::Break(_) => Some(nest()?),
         // A handle JS may build on, one level deeper each call: never deeper than the core recurses.
         PValue::Again(_) | PValue::Expr(_) | PValue::RawResult(_) => {
-            program::check_nesting(v)?;
+            icepool_harness::check_nesting(v)?;
             None
         }
         _ => None,
@@ -415,7 +419,7 @@ fn to_js(v: &PValue) -> Result<Json, PErr> {
         PValue::Deal(_) => handle(v, "deal"),
         PValue::MultiDeal(_) => handle(v, "multi_deal"),
         // A tuple expression (a tuple parameter, a slice of hands) indexes into hands, as a MultiDeal does.
-        PValue::Expr(_) if program::host::is_tuple_expression(v) => handle(v, "tuple_expr"),
+        PValue::Expr(_) if icepool_harness::host::is_tuple_expression(v) => handle(v, "tuple_expr"),
         PValue::Expr(_) => handle(v, "expr"),
         PValue::MultisetFunction(_) => handle(v, "mfunc"),
         PValue::RawResult(_) => handle(v, "raw"),
@@ -434,7 +438,7 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
         Json::Null => PValue::Value(Value::None),
         Json::Bool(b) => PValue::Value(Value::Bool(*b)),
         Json::String(s) => PValue::Value(Value::str(s)),
-        Json::Number(_) => program::wire::dec(j)?,
+        Json::Number(_) => icepool_harness::wire::dec(j)?,
         Json::Array(items) => PValue::tuple(items.iter().map(from_js).collect::<Result<_, _>>()?),
         // The two-key forms first (a vector's truth value, a symbols' str, a function's length).
         Json::Object(m) if m.contains_key("vector") => {
@@ -476,21 +480,23 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
             let Some(Json::Array(items)) = m.get("$map") else {
                 return Err(bad("$map"));
             };
-            program::host::mapping(PValue::List(
+            icepool_harness::host::mapping(PValue::List(
                 items.iter().map(from_js).collect::<Result<_, _>>()?,
             ))?
         }
         Json::Object(m) if m.contains_key("$fn") => {
             let id = m["$fn"].as_u64().ok_or_else(|| bad("function id"))? as u32;
             let length = m.get("n").and_then(Json::as_u64).unwrap_or(0) as usize;
-            program::host::function(Arc::new(JsFunction { id, length }))
+            icepool_harness::host::function(Arc::new(JsFunction { id, length }))
         }
         Json::Object(m) if m.len() == 1 => {
             let (k, x) = m.iter().next().expect("one entry");
             match (k.as_str(), x) {
                 ("$h", Json::Number(n)) => get(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?,
                 // A handle JS made for this value alone (a JS callback's result): the core takes it over.
-                ("$take", Json::Number(n)) => take(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?,
+                ("$take", Json::Number(n)) => {
+                    take(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?
+                }
                 ("$int", Json::String(s)) => {
                     PValue::Value(Value::Int(s.parse().map_err(|_| bad("$int digits"))?))
                 }
@@ -498,7 +504,7 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                     items
                         .iter()
                         .map(|x| match from_js(x)? {
-                            // As `program::eval` evaluates a list: only `bool()` may use this die.
+                            // As `icepool_harness::eval` evaluates a list: only `bool()` may use this die.
                             PValue::DieWithTruthError(e, _) => Err(PErr::from(e)),
                             x => Ok(x),
                         })
@@ -523,21 +529,22 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
                             p => Ok(p.clone()),
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    program::wire::dec(&json!({ "frac": parts }))?
+                    icepool_harness::wire::dec(&json!({ "frac": parts }))?
                 }
                 // Python's `complex`, as it went out: the reprs of its two floats.
                 ("complex", Json::Array(parts)) => match parts.as_slice() {
                     [re, im] => {
-                        let part = |x: &Json| match program::wire::dec(&json!({ "float": x }))? {
-                            PValue::Value(Value::Float(f)) => Ok(f),
-                            _ => Err(bad("complex")),
-                        };
+                        let part =
+                            |x: &Json| match icepool_harness::wire::dec(&json!({ "float": x }))? {
+                                PValue::Value(Value::Float(f)) => Ok(f),
+                                _ => Err(bad("complex")),
+                            };
                         PValue::Value(Value::Complex(part(re)?, part(im)?))
                     }
                     _ => return Err(bad("complex")),
                 },
                 // A float's repr; a Symbols from a str (`Symbols("aab")`), an iterable or a mapping.
-                ("float" | "symbols", _) => program::wire::dec(j)?,
+                ("float" | "symbols", _) => icepool_harness::wire::dec(j)?,
                 _ => return Err(bad(k)),
             }
         }

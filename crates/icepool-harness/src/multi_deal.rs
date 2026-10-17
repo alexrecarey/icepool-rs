@@ -1,15 +1,15 @@
 //! MultiDeal nodes (harness/grammar/deck.py): generator/multi_deal.py. `deck.deal(hand_sizes)` with an iterable,
 //! `deck.deal_groups(*hand_groups)`, reading a multi-deal and popping its source. Evaluations take a multi-deal as
-//! one of their inputs (program/evaluate.rs `catalogue`).
+//! one of their inputs (evaluate.rs `catalogue`).
 
 use dashu_int::IBig;
 
 use super::deck::the_deck;
 use super::ops::{missing_attribute, py_iter, wrong_type};
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::order::Order;
-use crate::{Deck, MultiDeal, Value};
+use icepool_core::Error;
+use icepool_core::Order;
+use icepool_core::{Deck, MultiDeal, Value};
 
 fn the_multi_deal(x: PValue) -> Result<MultiDeal<Value>, PErr> {
     match x {
@@ -141,9 +141,9 @@ pub fn multi_deal_pop(md: PValue, order: PValue, outcome: PValue) -> Result<PVal
 }
 
 /// `repr(md)`: `MultiDeal(<repr of the deck>, hand_groups=<the hand groups tuple>)`.
-pub(super) fn repr(md: &MultiDeal<Value>, deck_repr: &str) -> crate::Result<String> {
+pub(super) fn repr(md: &MultiDeal<Value>, deck_repr: &str) -> icepool_core::Result<String> {
     Ok(format!(
         "MultiDeal({deck_repr}, hand_groups={})",
-        crate::value::pystr::py_repr(&hand_groups(md.hand_groups()))?
+        icepool_core::value::pystr::py_repr(&hand_groups(md.hand_groups()))?
     ))
 }

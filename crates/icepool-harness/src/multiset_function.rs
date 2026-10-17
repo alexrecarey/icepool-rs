@@ -1,6 +1,6 @@
 //! `@multiset_function` (harness/grammar/multiset_function.py): the Python side of evaluator/multiset_function.py,
 //! i.e. tracing the function body with parameters and preparing the call tree that the core
-//! (`crate::evaluator::multiset_function`) evaluates.
+//! (`icepool_core::evaluator::multiset_function`) evaluates.
 //!
 //! A function is node `mf_def` (`params` positional parameters, `var` = a `*args` parameter, `kwonly` the names
 //! of keyword-only parameters, `body` a lazy program); inside its body node `mf_var` is its `i`-th argument and
@@ -20,14 +20,14 @@ use super::expression::{prepare, product, MExpr};
 use super::host::HostFunction;
 use super::ops::{new_die, py_iter, wrong_type};
 use super::{eval, raise, PErr, PValue};
-use crate::error::Error;
-use crate::evaluator::multiset_function::{Call, DynEvaluator, Erased, MultisetFunction};
-use crate::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
-use crate::expression::CallTree;
-use crate::order::Order;
-use crate::pool::MultisetSource;
-use crate::Int;
-use crate::{Quantity, Value};
+use icepool_core::evaluator::multiset_function::{Call, DynEvaluator, Erased, MultisetFunction};
+use icepool_core::evaluator::MultisetSource;
+use icepool_core::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
+use icepool_core::expression::CallTree;
+use icepool_core::Error;
+use icepool_core::Int;
+use icepool_core::Order;
+use icepool_core::{Quantity, Value};
 
 /// An evaluator called in a function body, type-erased, with final outcomes as program values.
 pub type Leaf = Arc<dyn DynEvaluator<Value, PValue> + Send + Sync>;
@@ -269,11 +269,17 @@ impl MultisetEvaluator<Value> for Constant {
     type State = ();
     type Final = PValue;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> crate::Result<()> {
+    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> icepool_core::Result<()> {
         Ok(())
     }
 
-    fn next_state(&self, _: &(), _: Order, _: &Value, _: &[Int]) -> crate::Result<Option<()>> {
+    fn next_state(
+        &self,
+        _: &(),
+        _: Order,
+        _: &Value,
+        _: &[Int],
+    ) -> icepool_core::Result<Option<()>> {
         Ok(Some(()))
     }
 
@@ -283,7 +289,7 @@ impl MultisetEvaluator<Value> for Constant {
         _: Order,
         _: &[Value],
         _: &[Option<Int>],
-    ) -> crate::Result<Final<PValue>> {
+    ) -> icepool_core::Result<Final<PValue>> {
         Ok(final_of(self.0.clone()))
     }
 }
@@ -299,7 +305,7 @@ fn final_of(x: PValue) -> Final<PValue> {
 
 /// `icepool.tupleize(*final_outcomes)` for a joint function: `Reroll` if any is a reroll type, else a tuple, or
 /// a die of tuples if any is a die.
-fn tupleize(finals: Vec<Final<PValue>>) -> crate::Result<Final<PValue>> {
+fn tupleize(finals: Vec<Final<PValue>>) -> icepool_core::Result<Final<PValue>> {
     let mut items = Vec::with_capacity(finals.len());
     for f in finals {
         items.push(match f {
@@ -321,7 +327,7 @@ fn tupleize(finals: Vec<Final<PValue>>) -> crate::Result<Final<PValue>> {
     if items.iter().any(|x| matches!(x, PValue::Die(_))) {
         let die = super::map::tupleize(items).map_err(core_error)?;
         return match die {
-            crate::DieArg::Die(d) => Ok(Final::Outcome(PValue::Die(d))),
+            icepool_core::DieArg::Die(d) => Ok(Final::Outcome(PValue::Die(d))),
             _ => Err(Error::Unported("tupleize".into())),
         };
     }
@@ -380,7 +386,7 @@ fn prepare_leaf(leaf: &Leaf, exprs: &[MExpr]) -> Result<Vec<Prepared>, PErr> {
 fn prepare_raw(raw: &RawResult) -> Result<Vec<Prepared>, PErr> {
     // Multiset functions calling multiset functions nest (a JS body may even call its own function): a level each
     // (`value::recursion`), as Python's recursion limit stops them.
-    let _level = crate::value::recursion::level()?;
+    let _level = icepool_core::value::recursion::level()?;
     match &raw.evaluator {
         RawEvaluator::Leaf(leaf) => prepare_leaf(leaf, &raw.exprs),
         RawEvaluator::Function(f) => prepare_function(f, &raw.exprs, &raw.kwargs),

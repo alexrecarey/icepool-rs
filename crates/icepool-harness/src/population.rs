@@ -6,9 +6,9 @@ use super::deck::{deck_from_data, the_deck};
 use super::map::{contains, select, the_die};
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die};
 use super::{PErr, PValue};
-use crate::population::Data;
-use crate::value::builtins::py_len;
-use crate::{Die, Value};
+use icepool_core::population::Data;
+use icepool_core::value::builtins::py_len;
+use icepool_core::{Die, Value};
 
 /// A die or a deck, whose `Population` methods are the same on its cards; `true` for a deck.
 fn the_population(p: PValue) -> Result<(Die<Value>, bool), PErr> {
@@ -143,7 +143,7 @@ pub fn to_one_hot(population: PValue, outcomes: PValue) -> Result<PValue, PErr> 
     };
     let items = die.one_hot_items(len, &positions)?;
     Ok(if is_deck {
-        PValue::Deck(crate::Deck::from_dict(items)?)
+        PValue::Deck(icepool_core::Deck::from_dict(items)?)
     } else {
         PValue::Die(Die::from_dict(items)?)
     })

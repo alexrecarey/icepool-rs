@@ -6,10 +6,6 @@
 // docs/design/library-architecture.md section 1): any `Ord` type is an `Outcome`, whose comparisons cannot fail, so
 // `Die<i64>` answers them with plain values; the bindings instantiate the core with the dynamic `Value`, which
 // carries Python's semantics (its comparisons can raise). Module layout mirrors icepool's own files; see NOTES.md.
-//
-// `program` (feature `runner`, test-only) runs the harness's JSON program language (see
-// harness/core/grammar_api.py and docs/semantics.md): it is how every check drives this crate, through
-// icepool-harness. It moves there in task C5b.
 
 // The public API (docs/design/library-architecture.md section 4): the typed dice at the root, plus the evaluator
 // trait with the built-in evaluators, multiset expressions, and `Value`, the dynamic outcome of the bindings.
@@ -44,14 +40,10 @@ mod multi_deal;
 mod order;
 mod outcome;
 mod pool;
-// Python's seeded `random.Random`: only the runner samples with its own seed (the bindings draw from the host's
-// generator and call `Die::sample_at`), so it is compiled with the runner.
-#[cfg(feature = "runner")]
-mod random;
 
-// Internals the language bindings (icepool-py, icepool-wasm), the program runner and the fixtures test still
-// reach directly. They are not part of the public API: hidden from the documentation, and to become `pub(crate)`
-// once the bindings go through deliberate APIs in `value` (task C3b) and the runner leaves the crate (C5b).
+// Internals the language bindings (icepool-py, icepool-wasm) and the program runner (icepool-harness) still reach
+// directly. They are not part of the public API: hidden from the documentation, and to become `pub(crate)` once
+// the bindings and the runner go through deliberate APIs in `value` (tasks C3b, C3d).
 #[doc(hidden)]
 pub mod again;
 #[doc(hidden)]
@@ -85,9 +77,6 @@ pub mod operator;
 pub mod ownership;
 #[doc(hidden)]
 pub mod population;
-#[cfg(feature = "runner")]
-#[doc(hidden)]
-pub mod program;
 #[doc(hidden)]
 pub mod to_pool;
 #[doc(hidden)]

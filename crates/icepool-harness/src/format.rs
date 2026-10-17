@@ -6,12 +6,12 @@ use super::catalogue::truthy;
 use super::collection::attribute_error;
 use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
-use crate::format::{
+use crate::random::Random;
+use icepool_core::format::{
     common_outcome_length as outcome_length, format as format_population, Formatted,
 };
-use crate::random::Random;
-use crate::value::BinOp;
-use crate::{Die, Error, Quantity, Value};
+use icepool_core::value::BinOp;
+use icepool_core::{Die, Error, Quantity, Value};
 
 /// A die argument with Python's `type(die).__name__`.
 fn named_die(die: &PValue) -> Result<(&Die<Value>, &'static str), PErr> {
@@ -33,7 +33,9 @@ pub fn format(die: PValue, spec: PValue) -> Result<PValue, PErr> {
         _ => return wrong_type("format() argument 2 must be str"),
     };
     if let (PValue::Value(v), "") = (&die, spec.as_str()) {
-        return Ok(PValue::Value(Value::str(&crate::value::pystr::py_str(v)?)));
+        return Ok(PValue::Value(Value::str(
+            &icepool_core::value::pystr::py_str(v)?,
+        )));
     }
     let (d, type_name) = named_die(&die)?;
     match format_population(d, type_name, &spec, false)? {
@@ -60,7 +62,7 @@ pub fn format_probability_inverse(probability: PValue, args: PValue) -> Result<P
         }
     };
     Ok(PValue::Value(Value::str(
-        &crate::format::format_probability_inverse(&p, &int_start)?,
+        &icepool_core::format::format_probability_inverse(&p, &int_start)?,
     )))
 }
 

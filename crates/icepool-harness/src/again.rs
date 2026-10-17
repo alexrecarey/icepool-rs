@@ -1,7 +1,7 @@
 //! `icepool.Again` in the program layer (population/again.py): building `AgainExpression`s with Python's
 //! operators, `Die(..., again_depth=, again_count=, again_end=)` in both modes, and `Die.explode`.
 //!
-//! The expression itself is the core's closed enum (`crate::again::Again`), over this layer's operations and
+//! The expression itself is the core's closed enum (`icepool_core::again::Again`), over this layer's operations and
 //! objects; evaluating it calls back into the same Python operator dispatch as the operator nodes (`ops::binary`),
 //! so `6 + Again` with `Again` replaced by a die is exactly `6 + die`.
 
@@ -12,10 +12,10 @@ use dashu_int::IBig;
 use super::map::{select, the_die};
 use super::ops::{self, new_die, wrong_type};
 use super::{raise, PErr, PValue};
-use crate::again::{Again, AgainArg, StepOutcome};
-use crate::error::Error;
-use crate::value::{BinOp, UnOp};
-use crate::{Die, DieArg, Quantity, Value};
+use icepool_core::again::{Again, AgainArg, StepOutcome};
+use icepool_core::value::{BinOp, UnOp};
+use icepool_core::Error;
+use icepool_core::{Die, DieArg, Quantity, Value};
 
 /// The functions an `AgainExpression` can apply: Python's `operator.add` & co.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,7 +134,7 @@ pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
 ///
 /// Expressions nest (from JS, as deep as its calls make them): a level each (`value::recursion`).
 pub(super) fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
-    let _level = crate::value::recursion::level()?;
+    let _level = icepool_core::value::recursion::level()?;
     match (x, y) {
         // `_func` is `None` and `_args` is `()` for both.
         (Again::Again { .. }, Again::Again { .. }) => Ok(true),
@@ -266,7 +266,7 @@ pub fn evaluate_agains_using_depth(
         end => Some(end),
     };
     let outcomes: Vec<_> = objects.into_iter().map(arg).collect();
-    crate::again::evaluate_agains_using_depth(
+    icepool_core::again::evaluate_agains_using_depth(
         &outcomes,
         again_depth,
         again_end.as_ref(),
@@ -301,7 +301,7 @@ pub fn evaluate_agains_using_count(
     };
     let int = |i: i64| PValue::Value(Value::from(IBig::from(i)));
     let outcomes: Vec<_> = objects.into_iter().map(arg).collect();
-    let step_objects = crate::again::step_outcomes(
+    let step_objects = icepool_core::again::step_outcomes(
         &outcomes,
         &PValue::Value(zero.clone()),
         &int(1),
@@ -323,16 +323,18 @@ pub fn evaluate_agains_using_count(
     // `n @ die` with an int `n` is `Die([n]) @ die` (`Die.__rmatmul__`).
     let matmul = |n: &Value, die: &Die<Value>| {
         let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
-        crate::value::matmul_dice(&n, die)
+        icepool_core::value::matmul_dice(&n, die)
     };
-    Ok(PValue::Die(crate::again::evaluate_agains_using_count(
-        &step_die,
-        &not_again_die,
-        &zero,
-        again_count,
-        again_end_die.as_ref(),
-        matmul,
-    )?))
+    Ok(PValue::Die(
+        icepool_core::again::evaluate_agains_using_count(
+            &step_die,
+            &not_again_die,
+            &zero,
+            again_count,
+            again_end_die.as_ref(),
+            matmul,
+        )?,
+    ))
 }
 
 /// `die.explode(which, star=star, depth=depth, end=end)`: the selected outcomes (by default the max outcome) are

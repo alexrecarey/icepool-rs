@@ -10,12 +10,12 @@ use super::evaluate::implicit_convert;
 use super::multiset_function::{in_function, raw_result};
 use super::ops::py_iter;
 use super::{PErr, PValue};
-use crate::error::Result;
-use crate::evaluator::{Final, MultisetEvaluator};
-use crate::order::Order;
-use crate::pool::Count;
-use crate::Int;
-use crate::Value;
+use icepool_core::evaluator::Count;
+use icepool_core::evaluator::{Final, MultisetEvaluator};
+use icepool_core::Int;
+use icepool_core::Order;
+use icepool_core::Result;
+use icepool_core::Value;
 
 /// A host callable passed where Python takes one (`map`, `reroll(which)`, `group_by(key)`, ...): it becomes a
 /// `catalogue::Func::Host`, called exactly where the catalogue's Python closures would be.
@@ -238,7 +238,7 @@ mod tests {
     //! A host multiset function must trace and evaluate exactly as the same body written as a program (`mf_def`),
     //! host evaluators inside it included (the JS facade's tests check the same against the oracle).
     use super::*;
-    use crate::program::{call, eval, wire::result_of};
+    use crate::{call, eval, wire::result_of};
     use serde_json::json;
 
     type BodyFn = fn(Vec<PValue>, Vec<(String, PValue)>) -> std::result::Result<PValue, PErr>;

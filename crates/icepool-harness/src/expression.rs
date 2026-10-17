@@ -5,7 +5,7 @@
 //!
 //! Python's argument juggling and dispatch (which class's `__add__` runs, implicit conversion of lists into
 //! pools, what raises at construction and what only when evaluated) happens here; the operators themselves are
-//! the core's (`crate::operator`).
+//! the core's (`icepool_core::operator`).
 
 use std::fmt;
 use std::sync::Arc;
@@ -15,19 +15,20 @@ use super::evaluate::implicit_convert;
 use super::ops::{missing_attribute, py_iter, unhashable_list, wrong_type};
 use super::pool::KeepGen;
 use super::{raise, PErr, PValue};
-use crate::compound_keep::CompoundKeep;
-use crate::error::Error;
-use crate::expression::{count_value, value_count, Dungeonlet, Flat};
-use crate::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
-use crate::operator::{
+use icepool_core::compound_keep::CompoundKeep;
+use icepool_core::evaluator::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
+use icepool_core::evaluator::{Count, MultisetSource};
+use icepool_core::expression::{count_value, value_count, Dungeonlet, Flat};
+use icepool_core::operator::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
     OutcomeFilter, OutcomePredicate,
 };
-use crate::pool::{Count, MultisetSource, Pool};
-use crate::value::builtins::{getitem, Index};
-use crate::value::BinOp;
-use crate::weightless::WeightlessSource;
-use crate::{Int, MultiDeal, Quantity, Value};
+use icepool_core::value::builtins::{getitem, Index};
+use icepool_core::value::BinOp;
+use icepool_core::weightless::WeightlessSource;
+use icepool_core::Error;
+use icepool_core::Pool;
+use icepool_core::{Int, MultiDeal, Quantity, Value};
 
 /// A `MultisetExpression` (or a multiset tuple generator, which only evaluations take).
 #[derive(Clone)]
@@ -112,7 +113,7 @@ impl MExpr {
     /// order), the sources of its free variables and the weight.
     fn prepare(&self) -> Result<Vec<Part>, PErr> {
         // Expressions nest (from JS, as deep as its calls make them): a level each (`value::recursion`).
-        let _level = crate::value::recursion::level()?;
+        let _level = icepool_core::value::recursion::level()?;
         let one = |dungeonlet, sources| Ok(vec![(vec![dungeonlet], sources, Quantity::ONE)]);
         match self {
             MExpr::Gen(g) => one(Dungeonlet::FreeVariable, vec![g.source()?]),
@@ -421,7 +422,7 @@ fn keep_generator_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
             .map(|g| g.source())
             .collect::<Result<Vec<_>, _>>()?;
         // `(1, ) * sum(generator.keep_size() for generator in generators)`
-        let len = crate::keep_tuple::list_len(&size)?;
+        let len = icepool_core::keep_tuple::list_len(&size)?;
         return Ok(MExpr::Gen(KeepGen::Compound(CompoundKeep::new(
             sources,
             vec![Int::ONE; len],
@@ -682,7 +683,7 @@ fn core_error(e: PErr) -> Error {
 }
 
 impl CountFunction<Value> for CatalogueCount {
-    fn call(&self, outcome: &Value, counts: &[Count]) -> crate::Result<Count> {
+    fn call(&self, outcome: &Value, counts: &[Count]) -> icepool_core::Result<Count> {
         let mut args = vec![PValue::Value(outcome.clone())];
         args.extend(counts.iter().map(|c| PValue::Value(count_value(c))));
         match self.0.call(args).map_err(core_error)? {
@@ -698,7 +699,7 @@ impl CountFunction<Value> for CatalogueCount {
 struct CataloguePredicate(Arc<Func>);
 
 impl OutcomePredicate<Value> for CataloguePredicate {
-    fn test(&self, outcome: &Value) -> crate::Result<bool> {
+    fn test(&self, outcome: &Value) -> icepool_core::Result<bool> {
         let r = self
             .0
             .call(vec![PValue::Value(outcome.clone())])
@@ -1237,7 +1238,7 @@ pub fn mx_str(x: PValue) -> Result<PValue, PErr> {
             Some(e) => expression_str(&e)?,
             // The node is `str(x)`, which never raises for these.
             None => match &x {
-                PValue::Value(v) => crate::value::pystr::py_str(v)?,
+                PValue::Value(v) => icepool_core::value::pystr::py_str(v)?,
                 PValue::Deck(d) => super::deck::deck_str(d)?,
                 // `AgainExpression` has no `__str__` (`a op b` with `Again` on either side makes one).
                 PValue::Again(_) => return Err(address("AgainExpression")),
@@ -1256,7 +1257,7 @@ fn address(class: &str) -> PErr {
 
 /// `str(expression)`. A level each (`value::recursion`).
 fn expression_str(e: &MExpr) -> Result<String, PErr> {
-    let _level = crate::value::recursion::level()?;
+    let _level = icepool_core::value::recursion::level()?;
     match e {
         MExpr::Gen(KeepGen::Pool(p)) => pool_str(p.dice(), p.keep_tuple()),
         MExpr::Gen(KeepGen::Deal(d)) => super::deck::deal_text(d.deck(), d.hand_size()),
@@ -1304,7 +1305,10 @@ fn expression_str(e: &MExpr) -> Result<String, PErr> {
 }
 
 /// `Pool.__str__`: a header, then `  {repr(die)} : {count},` per die (in `hash_key` order).
-fn pool_str(dice: &[(crate::Die<Value>, usize)], keep_tuple: &[Int]) -> Result<String, PErr> {
+fn pool_str(
+    dice: &[(icepool_core::Die<Value>, usize)],
+    keep_tuple: &[Int],
+) -> Result<String, PErr> {
     let raw_size: usize = dice.iter().map(|(_, count)| count).sum();
     let mut text = format!(
         "Pool of {raw_size} dice with keep_tuple={}\n",
@@ -1341,14 +1345,14 @@ fn compound_str(inners: &[MultisetSource<Value>], keep_tuple: &[Int]) -> Result<
 
 fn keep_tuple_repr(keep_tuple: &[Int]) -> Result<String, PErr> {
     let t = Value::tuple(keep_tuple.iter().map(Value::from).collect());
-    Ok(crate::value::pystr::py_repr(&t)?)
+    Ok(icepool_core::value::pystr::py_repr(&t)?)
 }
 
 /// `repr()` of a keep index or one of its elements (or of the outcome of a `Break`).
 pub(super) fn pvalue_repr(x: &PValue) -> Result<String, PErr> {
     let items = |xs: &[PValue]| xs.iter().map(pvalue_repr).collect::<Result<Vec<_>, _>>();
     Ok(match x {
-        PValue::Value(v) => crate::value::pystr::py_repr(v)?,
+        PValue::Value(v) => icepool_core::value::pystr::py_repr(v)?,
         PValue::Ellipsis => "Ellipsis".into(),
         PValue::List(xs) => format!("[{}]", items(xs)?.join(", ")),
         PValue::Tuple(xs) if xs.len() == 1 => format!("({},)", items(xs)?[0]),

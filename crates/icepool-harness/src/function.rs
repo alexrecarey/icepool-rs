@@ -13,11 +13,11 @@ use super::map::{die_of, the_die};
 use super::ops::{binary, d, py_iter, to_die, unhashable_list, weights_die, wrong_type};
 use super::statistics::new_or_self;
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::function;
-use crate::value::builtins::{fraction, limit_denominator};
-use crate::value::{BinOp, UnOp};
-use crate::{Die, Quantity, Value};
+use icepool_core::function;
+use icepool_core::value::builtins::{fraction, limit_denominator};
+use icepool_core::value::{BinOp, UnOp};
+use icepool_core::Error;
+use icepool_core::{Die, Quantity, Value};
 
 fn value(x: PValue) -> Result<Value, PErr> {
     match x {
@@ -445,7 +445,7 @@ pub(super) fn from_cdf(
 /// What `Wallenius.__init__` builds: one deck per weight (a `dict` keyed by weight, in insertion order) and the
 /// die of weights, each weighted by its total weight in the decks.
 struct Wallenius {
-    weight_decks: Vec<(Value, crate::Deck<Value>)>,
+    weight_decks: Vec<(Value, icepool_core::Deck<Value>)>,
     weight_die: Die<Value>,
 }
 
@@ -475,7 +475,7 @@ impl Wallenius {
     /// `Wallenius(data)`: `data` is either an iterable of `(outcome, weight)`, or (`mapping`) the items of a
     /// mapping from outcomes to either weights or `(weight, quantity)`.
     fn new(data: PValue, mapping: bool) -> Result<Wallenius, PErr> {
-        let mut weight_decks: Vec<(Value, crate::Deck<Value>)> = Vec::new();
+        let mut weight_decks: Vec<(Value, icepool_core::Deck<Value>)> = Vec::new();
         let pairs = if mapping {
             super::ops::dict_items(data)?
                 .into_iter()
@@ -554,7 +554,7 @@ impl Wallenius {
     /// many cards of each weight), weighted by its chance; `Pool([])` for a hand of 0.
     fn deal(&self, hand_size: &IBig) -> Result<MExpr, PErr> {
         if *hand_size == IBig::ZERO {
-            let pool = crate::Pool::new(vec![])?;
+            let pool = icepool_core::Pool::new(vec![])?;
             return Ok(as_expression(&PValue::Pool(pool)).expect("a pool"));
         }
         let hand_weights =
@@ -580,7 +580,7 @@ impl Wallenius {
                     .find(|(w, _)| w == weight)
                     .ok_or_else(|| PErr::Raise(Error::MissingKey(format!("{weight}"))))?
                     .1;
-                let deal = PValue::Deal(crate::Deal::new(deck.clone(), &IBig::from(count))?);
+                let deal = PValue::Deal(icepool_core::Deal::new(deck.clone(), &IBig::from(count))?);
                 result = Some(match result {
                     None => deal,
                     Some(r) => super::expression::binary_op("+", r, deal)?,
@@ -640,7 +640,7 @@ fn wallenius_weights(
                 let Value::Tuple(x) = x else {
                     unreachable!("tuples")
                 };
-                let sorted = crate::value::sort::sorted(x.to_vec())?;
+                let sorted = icepool_core::value::sort::sorted(x.to_vec())?;
                 Ok((PValue::Value(Value::tuple(sorted)), q.clone()))
             })
             .collect::<Result<Vec<_>, Error>>()?

@@ -1,6 +1,6 @@
 """Named multiset evaluators (Python side): custom `MultisetEvaluator` subclasses for the `evaluate` node.
 
-Rust side: crates/icepool-core/src/program/catalogue_evaluators.rs, one variant per entry, same parameters, same
+Rust side: crates/icepool-harness/src/catalogue_evaluators.rs, one variant per entry, same parameters, same
 bodies. A program names one as {"op": "evaluate", "name": "count_eq", "params": [3], "args": [<pool>, ...]}, which
 is EVALUATORS["count_eq"](3).evaluate(*args).
 

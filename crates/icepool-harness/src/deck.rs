@@ -13,14 +13,14 @@ use super::ops::{
 };
 use super::statistics;
 use super::{raise, PErr, PValue};
-use crate::creation_args::DieArg;
-use crate::deck::{Counter, CounterOp};
-use crate::error::Error;
-use crate::format::Formatted;
-use crate::order::Order;
-use crate::population::Data;
-use crate::value::Num;
-use crate::{Deal, Deck, Die, Int, Quantity, Value};
+use icepool_core::creation_args::DieArg;
+use icepool_core::format::Formatted;
+use icepool_core::population::Data;
+use icepool_core::value::Num;
+use icepool_core::value::{Counter, CounterOp};
+use icepool_core::Error;
+use icepool_core::Order;
+use icepool_core::{Deal, Deck, Die, Int, Quantity, Value};
 
 pub(super) fn the_deck(x: PValue) -> Result<Deck<Value>, PErr> {
     match x {
@@ -537,7 +537,7 @@ pub(super) fn deal_repr_and_str(deal: &PValue) -> Result<(String, String), PErr>
             let groups = super::multi_deal::hand_groups(md.hand_groups());
             let header = format!(
                 "MultiDeal of hand_groups={}",
-                crate::value::pystr::py_repr(&groups)?
+                icepool_core::value::pystr::py_repr(&groups)?
             );
             Ok((
                 super::multi_deal::repr(md, &deck_repr(md.deck())?)?,
@@ -558,7 +558,8 @@ pub(super) fn deal_text(deck: &Deck<Value>, hand_size: usize) -> Result<String, 
 
 /// `str(deck)`: its table.
 pub(super) fn deck_str(deck: &Deck<Value>) -> Result<String, PErr> {
-    let Formatted::Text(table) = crate::format::format(deck.population(), "Deck", "", false)?
+    let Formatted::Text(table) =
+        icepool_core::format::format(deck.population(), "Deck", "", false)?
     else {
         unreachable!("only csv_table asks for a table")
     };

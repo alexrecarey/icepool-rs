@@ -3,7 +3,7 @@
 Rules for every node (the reviewer checks them):
   - The Python side is a direct call into icepool: no logic of its own beyond unpacking arguments.
   - The generator keeps programs small enough that the oracle answers in well under a second.
-  - The Rust side lives in crates/icepool-core/src/program/ and must produce identical results.
+  - The Rust side lives in crates/icepool-harness/src/ and must produce identical results.
 """
 import icepool
 

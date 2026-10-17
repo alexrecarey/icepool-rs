@@ -6,7 +6,7 @@
 use dashu_base::{BitTest, UnsignedAbs};
 use dashu_int::{IBig, UBig};
 
-use crate::error::{Error, Result};
+use icepool_core::{Error, Result};
 
 const N: usize = 624;
 const M: usize = 397;

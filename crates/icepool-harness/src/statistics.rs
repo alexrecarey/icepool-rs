@@ -8,9 +8,9 @@ use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die, the_population};
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type, Key};
 use super::{PErr, PValue};
-use crate::population::{check_public_attr, Comparison, Data};
-use crate::value::builtins::{getattr, getitem, Index};
-use crate::{Die, Value};
+use icepool_core::population::{check_public_attr, Comparison, Data};
+use icepool_core::value::builtins::{getattr, getitem, Index};
+use icepool_core::{Die, Value};
 
 /// An argument that must be a plain value (an outcome, a number): the generators never pass dice here.
 fn value(x: PValue) -> Result<Value, PErr> {

@@ -6,16 +6,20 @@
 
 use super::ops::{d, new_die};
 use super::{raise, PErr, PValue};
-use crate::error::{Error, Result};
-use crate::evaluator::basic::int;
-use crate::evaluator::poker::IntegerOutcome;
-use crate::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
-use crate::order::Order;
-use crate::pool::Count;
-use crate::value::builtins::py_sum;
-use crate::value::BinOp;
-use crate::Int;
-use crate::Value;
+use icepool_core::evaluator::poker::IntegerOutcome;
+use icepool_core::evaluator::Count;
+use icepool_core::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
+use icepool_core::value::builtins::py_sum;
+use icepool_core::value::BinOp;
+use icepool_core::Int;
+use icepool_core::Order;
+use icepool_core::Value;
+use icepool_core::{Error, Result};
+
+/// A Python `int` literal as a value.
+fn int(i: impl Into<Value>) -> Value {
+    i.into()
+}
 
 #[derive(Debug)]
 pub enum CatalogueEvaluator {

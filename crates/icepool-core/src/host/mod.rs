@@ -10,8 +10,8 @@
 //! - [`HostOperator`] (in a multiset expression's operator nodes): a user's `MultisetOperator`.
 //!
 //! Their arguments and results are core types only. (The JS facade's callables and evaluators, `HostFunction` and
-//! `HostEvaluator`, still live with the program runner, whose values they take: until task C6 backs the JS API
-//! with the core directly.)
+//! `HostEvaluator`, still live with the program runner in icepool-harness, whose values they take: until task C6e
+//! gives them a typed home in icepool-wasm.)
 
 mod object;
 mod operator;

@@ -1,7 +1,7 @@
 //! Pool nodes (harness/grammar/pool.py): building pools, keeping, popping, and the lowest / highest of dice.
 //!
 //! Evaluating a pool (`pool[int]`, the pool path of `highest` / `lowest`) goes through the evaluators
-//! (program/evaluate.rs).
+//! (evaluate.rs).
 
 use dashu_int::IBig;
 
@@ -16,16 +16,16 @@ use super::ops::{
     unhashable_list, wrong_type,
 };
 use super::{raise, PErr, PValue};
-use crate::compound_keep::CompoundKeep;
-use crate::error::Error;
-use crate::evaluator::basic::SumEvaluator;
-use crate::evaluator::keep::KeepEvaluator;
-use crate::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
-use crate::operator::MultisetKeepIndex;
-use crate::order::Order;
-use crate::pool::MultisetSource;
-use crate::value::{BinOp, UnOp};
-use crate::{Deal, Die, Int, Pool, Value};
+use icepool_core::compound_keep::CompoundKeep;
+use icepool_core::evaluator::basic::SumEvaluator;
+use icepool_core::evaluator::keep::KeepEvaluator;
+use icepool_core::evaluator::MultisetSource;
+use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
+use icepool_core::operator::MultisetKeepIndex;
+use icepool_core::value::{BinOp, UnOp};
+use icepool_core::Error;
+use icepool_core::Order;
+use icepool_core::{Deal, Die, Int, Pool, Value};
 
 /// `pool.sum()`.
 fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
@@ -285,7 +285,7 @@ pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue
                 None => return wrong_type("can't multiply sequence by non-int"),
             };
             // Python's `MemoryError` for a list no memory holds (the pool size limit comes after).
-            let n = crate::memory::check_len::<PValue, _>(
+            let n = icepool_core::memory::check_len::<PValue, _>(
                 (list.len() as u64).checked_add(n),
                 "d_pool(die_sizes)",
             )? - list.len();
@@ -322,7 +322,7 @@ pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue
 /// `Pool({icepool.Die([0]): 0})`: if empty, the pool will be considered to consist of zero zeros.
 fn empty_standard_pool() -> Result<PValue, PErr> {
     Ok(PValue::Pool(Pool::new(vec![(
-        Die::from_dict(vec![(Value::from(0), crate::Quantity::ONE)])?,
+        Die::from_dict(vec![(Value::from(0), icepool_core::Quantity::ONE)])?,
         0,
     )])?))
 }
@@ -816,10 +816,10 @@ fn sum_slice(args: Vec<PValue>, index: Slice) -> Result<PValue, PErr> {
         return sum(dice);
     }
     if start == 0 && stop == 1 {
-        return Ok(PValue::Die(crate::keep::lowest_single(&dice)?));
+        return Ok(PValue::Die(icepool_core::keep::lowest_single(&dice)?));
     }
     if start == len - 1 && stop == len {
-        return Ok(PValue::Die(crate::keep::highest_single(&dice)?));
+        return Ok(PValue::Die(icepool_core::keep::highest_single(&dice)?));
     }
     // Use pool.
     pool_sum(

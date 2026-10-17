@@ -1,7 +1,7 @@
 """Named random variables for `icepool.from_rv` (Python side), duck-typed like `scipy.stats` ones: `cdf` takes a
 sequence and returns a list, and a continuous one has a `pdf` attribute (from_rv tests `hasattr(rv, 'pdf')`).
 
-Rust side: crates/icepool-core/src/program/function.rs `Rv`, same formulas with the same Python operators.
+Rust side: crates/icepool-harness/src/function.rs `Rv`, same formulas with the same Python operators.
 """
 import math
 

@@ -14,7 +14,7 @@ pub fn run(program_json: &str) -> String {
 /// What icepool-run answers for one input line (minus its panic guard: WASM cannot catch panics).
 pub fn run_line(program_json: &str) -> Json {
     match serde_json::from_str(program_json) {
-        Ok(program) => icepool_core::program::run(&program),
+        Ok(program) => icepool_harness::run(&program),
         Err(e) => {
             serde_json::json!({"ok": false, "error": format!("unimplemented: bad JSON: {e}")})
         }
@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn run_line_matches_the_program_runner() {
         let p = r#"{"op":"d","sides":6}"#;
-        let expected = icepool_core::program::run(&serde_json::from_str(p).unwrap());
+        let expected = icepool_harness::run(&serde_json::from_str(p).unwrap());
         assert_eq!(run_line(p), expected);
         assert_eq!(run_line("{nope")["ok"], Json::Bool(false));
     }

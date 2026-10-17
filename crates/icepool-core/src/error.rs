@@ -104,7 +104,7 @@ impl Error {
     /// Whether this is an operand or argument of the wrong kind ([`Error::WrongType`], [`Error::Incomparable`],
     /// [`Error::Unhashable`]): what Python raises as one exception type (`TypeError`), so what icepool's
     /// `except TypeError` catches where the port copies one (returning `NotImplemented`, trying a fallback).
-    pub(crate) fn is_wrong_kind(&self) -> bool {
+    pub fn is_wrong_kind(&self) -> bool {
         matches!(
             self,
             Error::WrongType(_) | Error::Incomparable { .. } | Error::Unhashable { .. }

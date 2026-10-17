@@ -11,10 +11,10 @@ use super::catalogue::{py_eq, truthy, Func};
 use super::expression::as_expression;
 use super::ops::{die_arg, missing_attribute, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
-use crate::creation_args::DieArg;
-use crate::error::Error;
-use crate::expand::iter_cartesian_product;
-use crate::{Die, Quantity, Value};
+use icepool_core::creation_args::DieArg;
+use icepool_core::expand::iter_cartesian_product;
+use icepool_core::Error;
+use icepool_core::{Die, Quantity, Value};
 
 /// What `repl` is: `transition_and_star` accepts a callable or a mapping.
 enum Repl<'a> {
@@ -234,7 +234,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
             }
         });
     }
-    Ok(DieArg::Die(crate::expand::tupleize_dice(&parts)?))
+    Ok(DieArg::Die(icepool_core::expand::tupleize_dice(&parts)?))
 }
 
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {

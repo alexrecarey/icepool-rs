@@ -1,5 +1,5 @@
 //! Evaluation nodes (harness/grammar/evaluate.py): `pool.sum()`, `pool.size()`, ... through the built-in
-//! evaluators of `crate::evaluator`, and the shared code that turns evaluator arguments into sources and the
+//! evaluators of `icepool_core::evaluator`, and the shared code that turns evaluator arguments into sources and the
 //! final outcomes into a die.
 
 use rustc_hash::FxHashSet;
@@ -14,26 +14,26 @@ use super::multiset_function::{in_function, raw_result};
 use super::ops::{die_arg, missing_attribute, new_die, py_iter, unhashable_list, wrong_type, Key};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
-use crate::error::Error;
-use crate::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
-use crate::evaluator::basic::{
+use icepool_core::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
+use icepool_core::evaluator::basic::{
     EmptyEvaluator, ExpandEvaluator, MappedSumEvaluator, ProductOfCountsEvaluator, SizeEvaluator,
     SumEvaluator,
 };
-use crate::evaluator::comparison::{Comparison, ComparisonEvaluator};
-use crate::evaluator::keep::KeepEvaluator;
-use crate::evaluator::lexi::LexiComparisonEvaluator;
-use crate::evaluator::poker::{
+use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+use icepool_core::evaluator::keep::KeepEvaluator;
+use icepool_core::evaluator::lexi::compute_lexi_tuple_with_extra;
+use icepool_core::evaluator::lexi::LexiComparisonEvaluator;
+use icepool_core::evaluator::poker::{
     AllCountsEvaluator, AllStraightsEvaluator, AllStraightsReduceCountsEvaluator,
     CountSubsetEvaluator, HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator,
     LargestCountEvaluator, LargestCountWithWildEvaluator, LargestStraightAndOutcomeEvaluator,
     LargestStraightEvaluator,
 };
-use crate::evaluator::{evaluate_expressions, MultisetEvaluator};
-use crate::lexi::compute_lexi_tuple_with_extra;
-use crate::order::Order;
-use crate::value::evaluators::PyEvaluator;
-use crate::{Die, Int, Quantity, Value};
+use icepool_core::evaluator::{evaluate_expressions, MultisetEvaluator};
+use icepool_core::value::evaluators::PyEvaluator;
+use icepool_core::Error;
+use icepool_core::Order;
+use icepool_core::{Die, Int, Quantity, Value};
 
 /// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
 /// die is a mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
@@ -333,7 +333,7 @@ fn core_error(e: PErr) -> Error {
 
 /// The result of a catalogue callable inside an evaluator, as a value: a die or `Reroll` as an evaluation state
 /// is beyond the port's `Value` states.
-fn plain(x: PValue) -> crate::error::Result<Value> {
+fn plain(x: PValue) -> icepool_core::Result<Value> {
     match x {
         PValue::Value(v) => Ok(v),
         _ => Err(Error::Unported(
@@ -343,7 +343,7 @@ fn plain(x: PValue) -> crate::error::Result<Value> {
 }
 
 /// Calls a catalogue function with values. A mapping (a dict) is not callable.
-fn call_values(f: &Func, args: &[Value]) -> crate::error::Result<Value> {
+fn call_values(f: &Func, args: &[Value]) -> icepool_core::Result<Value> {
     if matches!(f, Func::Mapping(_)) {
         return Err(Error::WrongType("'dict' object is not callable".into()));
     }
@@ -376,7 +376,7 @@ pub fn sum_map(p: PValue, map: PValue) -> Result<PValue, PErr> {
     }
 }
 
-type Select = Box<dyn Fn(&Value) -> crate::error::Result<Value> + Send + Sync>;
+type Select = Box<dyn Fn(&Value) -> icepool_core::Result<Value> + Send + Sync>;
 
 /// `make_select_function(which)`: `None` selects nothing (`False`), a callable is called with the outcome (its
 /// result as is: the evaluator takes its truth value where Python does; a result that is not a plain value, a die,
@@ -783,7 +783,9 @@ pub fn builtin_evaluate(
         "AllStraightsReduceCountsEvaluator" if simple(&kwargs) => die(
             // The default reducer, `operator.mul`.
             PyEvaluator(AllStraightsReduceCountsEvaluator::new(
-                |score: &Value, count: &Int| score.binary(crate::value::BinOp::Mul, &count.into()),
+                |score: &Value, count: &Int| {
+                    score.binary(icepool_core::value::BinOp::Mul, &count.into())
+                },
             )),
             &exprs()?,
         ),

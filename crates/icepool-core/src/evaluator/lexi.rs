@@ -7,6 +7,11 @@ use crate::pool::Count;
 use crate::Int;
 use crate::Value;
 
+// icepool `lexi.py`'s helpers, which compute the `lexi_tuple` these evaluators (and the multiset operators) take.
+pub use crate::lexi::{
+    compute_lexi_tuple, compute_lexi_tuple_with_extra, compute_lexi_tuple_with_zero_right_first,
+};
+
 /// `LexiComparisonEvaluator` with its `evaluate()` keyword arguments `sort_order` and `lexi_tuple`
 /// (`compute_lexi_tuple_with_extra`).
 pub struct LexiComparisonEvaluator {

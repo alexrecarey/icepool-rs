@@ -10,10 +10,12 @@ description = "WASM (JS) facade over icepool-core, for the npm package icepool-w
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Interim, until task C6: the JS facade (src/facade.rs under js/core.js) calls the program runner's nodes by name,
-# so the npm package still links icepool-core's `runner` (scripts/check-production.sh reports this as INTERIM).
-# C6 backs the JS API with the core directly and drops the feature here.
-icepool-core = { path = "../icepool-core", features = ["runner"] }
+icepool-core = { path = "../icepool-core" }
+# Interim, until task C6g: the TypeScript API's bridge (src/facade.rs under js/src/rpc.ts) calls the program
+# runner's nodes by name for what is not on typed exports yet, so the npm package still links the runner
+# (scripts/check-production.sh reports this as INTERIM). Without its default `khepri`: the npm package has no
+# khepri engine. C6g moves the bridge behind the test-only `runner` feature, and this becomes optional.
+icepool-harness = { path = "../icepool-harness", default-features = false }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 # The core's big integers and fractions, converted to and from JS BigInts (src/api/convert.rs).
 dashu-int = "0.6"
@@ -23,14 +25,15 @@ wasm-bindgen = "0.2"
 
 [dev-dependencies]
 # The unit tests of `run` and `calculate` run in every test build, whatever the features (src/lib.rs).
-icepool-core = { path = "../icepool-core", features = ["runner", "khepri"] }
+icepool-core = { path = "../icepool-core", features = ["khepri"] }
+icepool-harness = { path = "../icepool-harness" }
 
 [features]
 # None default: the npm package (js/build.sh) is built without either.
 # The `run` export, test-only: run-wasm.sh drives the fixtures and the fuzzer through it.
 runner = []
 # The `calculate` export: khepri's engine, for khepri's own build (build.sh).
-khepri = ["icepool-core/khepri"]
+khepri = ["icepool-core/khepri", "icepool-harness/khepri"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]
