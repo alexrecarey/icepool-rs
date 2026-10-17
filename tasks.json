@@ -560,7 +560,7 @@
       "C1"
     ],
     "milestone": null,
-    "details": "Per D1: built-in evaluators (evaluator/poker.rs, keep.rs, basic.rs, lexi.rs, argsort.rs, comparison.rs), map/map_tools, explode/Again, to_pool, expand and formatting become generic over the design's trait, with Value's Python behaviour as one implementation. Remove poker-evaluator boilerplate (one shared default-method trait or generic count-shape evaluator). Typed evaluator states (SmallVec<i64>) where the outcome type allows. Move khepri.rs out of the core crate (into icepool-wasm or a khepri feature/crate per D1). Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Per D1: built-in evaluators (evaluator/poker.rs, keep.rs, basic.rs, lexi.rs, argsort.rs, comparison.rs), map/map_tools, explode/Again, to_pool, expand and formatting become generic over the design's trait, with Value's Python behaviour as one implementation. Remove poker-evaluator boilerplate (one shared default-method trait or generic count-shape evaluator). Move khepri.rs out of the core crate (into icepool-wasm or a khepri feature/crate per D1). Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C3",
