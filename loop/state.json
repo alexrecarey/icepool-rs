@@ -168,6 +168,9 @@
     },
     "R1": {
       "status": "done"
+    },
+    "R2": {
+      "status": "done"
     }
   },
   "merges": 56,
