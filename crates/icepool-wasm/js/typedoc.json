@@ -1,0 +1,14 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "icepool-wasm",
+  "entryPoints": ["src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "readme": "README.md",
+  "projectDocuments": ["docs/guide.md"],
+  "out": "docs/api",
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "sort": ["source-order"],
+  "validation": { "notExported": true, "invalidLink": true, "notDocumented": true }
+}

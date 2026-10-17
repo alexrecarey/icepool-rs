@@ -964,7 +964,15 @@ export function die(outcomes: DieOutcomes, times?: Int | readonly Int[] | AgainO
   return new Die(outcomes, times, options);
 }
 
-/** A fair die numbered 1..sides. */
+/** `icepool.d(sides)`: a fair die numbered 1 to `sides`. `d(0)` is an error.
+ *
+ * @example
+ * ```ts
+ * d(6).outcomes(); //=> [1, 2, 3, 4, 5, 6]
+ * d(6).denominator(); //=> 6n
+ * d(0); //=> throws ValueError
+ * ```
+ */
 export function d(sides: Int): Die<number> {
   return Die.wrap(wasm((w) => w.WasmDie.d(sides))) as Die<number>;
 }

@@ -9,6 +9,8 @@
 #                          which the package leaves out), then the JS tests (js/test/: the fixture suite, the API
 #                          tests, the types)
 #   js/build.sh --pack     the optimised build, then `npm pack` in js/
+#   js/build.sh --docs     the --dev build, then the API reference with TypeDoc into js/docs/api (`npm run docs`;
+#                          TypeDoc is a devDependency: `npm install` first)
 #
 # tsc (TypeScript >= 5.2) comes from js/node_modules (`npm install`), else from PATH or the usual global installs.
 set -euo pipefail
@@ -33,7 +35,7 @@ TSC="$(tsc_path)"
 
 OPT=()
 FEATURES=()
-case "${1:-}" in --dev | --test) OPT=(--no-opt) ;; esac
+case "${1:-}" in --dev | --test | --docs) OPT=(--no-opt) ;; esac
 case "${1:-}" in --test) FEATURES=(-- --features runner,khepri) ;; esac
 for target in nodejs web; do
   dir="$HERE/pkg-${target%js}"
@@ -50,6 +52,14 @@ case "${1:-}" in
     cd "$HERE"
     node --test "test/*.test.mjs"
     "$TSC" -p test/tsconfig.json
+    # The documentation's examples type-check against the declarations (doc-examples.test.mjs has run them).
+    node test/doc-examples.mjs emit test/.doc-examples
+    "$TSC" -p test/.doc-examples
+    ;;
+  --docs)
+    cd "$HERE"
+    [ -x node_modules/.bin/typedoc ] || { echo "js/build.sh: typedoc not found: run 'npm install' in $HERE" >&2; exit 1; }
+    exec node_modules/.bin/typedoc
     ;;
   --pack) cd "$HERE" && exec npm pack ;;
 esac

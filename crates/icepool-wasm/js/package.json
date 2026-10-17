@@ -19,16 +19,19 @@
     "pkg-node/icepool_wasm*",
     "pkg-node/package.json",
     "pkg-web/icepool_wasm*",
-    "README.md"
+    "README.md",
+    "docs/*.md"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "./build.sh",
-    "test": "./build.sh --test"
+    "test": "./build.sh --test",
+    "docs": "./build.sh --docs"
   },
   "devDependencies": {
-    "typescript": ">=5.2"
+    "typedoc": "^0.28.20",
+    "typescript": "~5.9"
   }
 }
