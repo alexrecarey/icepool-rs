@@ -9,10 +9,11 @@
 //! - `//`, `%`, the bitwise operators and `<` etc. raise `TypeError`, as do `~`, `math.trunc/floor/ceil`, `round`.
 //!
 //! CPython's x86_64 build has no FMA contractions, and neither does Rust, so the plain expressions agree. The C
-//! library functions are glibc's, natively and (ported, `libm.rs`, `pow.rs`, `trig.rs`) on wasm32.
+//! library functions (`hypot`, `pow`, `atan2`, `exp`, `log`, `cos`, `sin`) are Rust's `f64` methods: natively
+//! they call the platform libm, as CPython does; under WASM they are another libm, within 2 ULP (DIVERGENCES.md).
 
 use super::ops::{BinOp, N};
-use super::{pow, trig, Value};
+use super::Value;
 use crate::error::{Error, Result};
 
 /// CPython's `Py_complex`.
@@ -147,15 +148,15 @@ fn c_pow(a: C, b: C) -> (C, Errno) {
         };
         return (C { re: 0.0, im: 0.0 }, errno);
     }
-    let vabs = super::libm::hypot(a.re, a.im);
-    let mut len = pow::pow(vabs, b.re);
-    let at = trig::atan2(a.im, a.re);
+    let vabs = a.re.hypot(a.im);
+    let mut len = vabs.powf(b.re);
+    let at = a.im.atan2(a.re);
     let mut phase = at * b.re;
     if b.im != 0.0 {
         // `len *= exp(-at * b.imag)`, as the oracle's CPython 3.13 binary computes it (read off the disassembly of
         // `_Py_c_pow`): not `len /= exp(at * b.imag)`, which rounds differently.
-        len *= trig::exp(-at * b.im);
-        phase += b.im * super::libm::log(vabs);
+        len *= (-at * b.im).exp();
+        phase += b.im * vabs.ln();
     }
     let errno = if phase.is_infinite() {
         Errno::Dom
@@ -164,8 +165,8 @@ fn c_pow(a: C, b: C) -> (C, Errno) {
     };
     (
         C {
-            re: len * trig::cos(phase),
-            im: len * trig::sin(phase),
+            re: len * phase.cos(),
+            im: len * phase.sin(),
         },
         errno,
     )
@@ -244,7 +245,7 @@ pub(super) fn abs(re: f64, im: f64) -> Result<Value> {
         // Either the real or imaginary part is a NaN, and neither is infinite. Result should be NaN.
         return Ok(Value::Float(f64::NAN));
     }
-    let result = super::libm::hypot(re, im);
+    let result = re.hypot(im);
     if result.is_finite() {
         Ok(Value::Float(result))
     } else {

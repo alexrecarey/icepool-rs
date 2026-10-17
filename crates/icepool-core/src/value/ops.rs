@@ -16,7 +16,7 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 use super::recursion::level;
-use super::{float_repr, int_to_f64, pow, ratio_to_f64, Value};
+use super::{float_repr, int_to_f64, ratio_to_f64, Value};
 use crate::error::{type_error, Error, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -595,7 +595,7 @@ fn float_pow(iv: f64, iw: f64) -> Result<Value> {
     }
     // Now iv and iw are finite, iw is nonzero, and iv is positive and not equal to 1.0. We finally allow the
     // platform pow to step in and do the rest. Overflow raises; underflow to 0 is fine.
-    let ix = pow::pow(base, iw);
+    let ix = base.powf(iw);
     if ix.is_infinite() {
         return Err(Error::Overflow("Numerical result out of range".into()));
     }

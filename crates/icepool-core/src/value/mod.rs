@@ -11,16 +11,12 @@
 pub mod builtins;
 mod complex;
 mod host;
-pub mod libm;
 mod number;
 pub mod ops;
-pub mod pow;
 pub mod pystr;
 pub mod recursion;
 mod repr;
 mod symbols;
-pub mod trig;
-mod trig_tables;
 mod vector;
 
 use crate::ownership::{Owners, Traverse};

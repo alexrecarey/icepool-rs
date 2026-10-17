@@ -138,7 +138,7 @@ fn math_1(x: &Value, func: fn(f64) -> f64) -> Result<f64> {
     Ok(r)
 }
 
-/// `math.sqrt(x)`. `sqrt` is correctly rounded everywhere (IEEE 754), so no libm port is needed.
+/// `math.sqrt(x)`. `sqrt` is correctly rounded everywhere (IEEE 754), so it is bit-exact even under WASM.
 pub fn math_sqrt(x: &Value) -> Result<Value> {
     math_1(x, f64::sqrt).map(Value::Float)
 }
@@ -147,7 +147,7 @@ pub fn math_sqrt(x: &Value) -> Result<Value> {
 fn m_log(x: f64) -> f64 {
     if x.is_finite() {
         if x > 0.0 {
-            super::libm::log(x)
+            x.ln()
         } else if x == 0.0 {
             f64::NEG_INFINITY
         } else {
@@ -160,9 +160,7 @@ fn m_log(x: f64) -> f64 {
     }
 }
 
-/// CPython's `m_log10`: `log10` for positive finite arguments, the special values as `m_log`. Natively this is
-/// glibc's `log10`, as in CPython; under WASM it is another libm (no port yet, see NOTES.md), which only matters
-/// in the last bit.
+/// CPython's `m_log10`: `log10` for positive finite arguments, the special values as `m_log`.
 fn m_log10(x: f64) -> f64 {
     if x.is_finite() {
         if x > 0.0 {
