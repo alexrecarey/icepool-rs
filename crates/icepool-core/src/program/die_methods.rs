@@ -194,7 +194,10 @@ pub fn if_else(
 pub fn repr(die: PValue) -> Result<PValue, PErr> {
     let name = match &die {
         PValue::DieWithTruth(..) => "DieWithTruth",
-        _ => "Die",
+        PValue::Die(_) => "Die",
+        // `repr()` takes anything: a "die" node may give a value (`d1.sequence(0)` is `()`).
+        PValue::Value(v) => return Ok(PValue::Value(Value::str(&crate::value::pystr::py_repr(v)?))),
+        _ => return Err(PErr::Unimplemented("repr() of this kind of object".into())),
     };
     let die = the_die(die)?;
     let items = die

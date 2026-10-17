@@ -1,0 +1,1 @@
+{"program":{"op":"die_repr","die":{"op":"die_sequence","die":{"op":"d","sides":1},"rolls":0}},"expected":{"ok":true,"value":{"str":"()"}}}

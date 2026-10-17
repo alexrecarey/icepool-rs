@@ -5,6 +5,39 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Huge sizes and panics (R2).** `memory.rs`: every allocation sized by user input goes through `check_len` /
+  `try_with_capacity` / `try_repeat` / `try_collect` (refused past `MAX_ALLOC_BYTES`: 64 GiB native, 256 MiB on
+  wasm32, then `try_reserve_exact`) or, for a big-int power, `check_pow`; both give the new `Error::Memory`
+  (Python's `MemoryError`; PyMemoryError in the facade). Sites: `d` / `z`, `die_sequence` (the `rolls` copies),
+  `cartesian_product_items` / program `iter_cartesian_product` (`expand::product_size` up front: the result grows
+  one item at a time and would abort when growing fails), `d_pool`'s `[k] * v`, `one_hot_items`' `[False] * len`,
+  explode_to_pool's depth, the evaluation driver's joint pops (`len * len`), `str * n` / `tuple * n` (only bites
+  on wasm32, under `MAX_REPEAT`), `highest/lowest_single`, finite `reroll` depth, `matmul_terms`. argsort's
+  `limit` pad goes through `list_len`. `MAX_INT_BITS` is 2**30 on wasm32. The audit of the other
+  `with_capacity` / `vec![x; n]` / `repeat_n` sites: they are sized by data that already exists, by `list_len`, or
+  by the pool / deal size limits. Not covered: results that grow step by step from huge *work* (`d(10**6) *
+  d(10**6)`), and `Pool::denominator` (`den ** count`, up to 2**24 dice), on wasm32 only a risk with 129+-bit
+  denominators. `die.highest/lowest(rolls)` lost its 2**16-rolls OverflowError (Python answers `d1` for any
+  rolls); `check_pow` skips bases 0 and 1. Fixtures: fixtures/r2 (huge-sizes, large-but-answered).
+- **Panics.** icepool-run: `catch_unwind` (as before). Python: PyO3 wraps every `#[pyfunction]` / `#[pymethods]`
+  in `catch_unwind` and raises `pyo3_runtime.PanicException` (a BaseException; exported as
+  `icepool_rs.PanicException`). A Python callback raising PanicException makes PyO3 *resume* the panic in Rust,
+  which is how crates/icepool-py/tests `test_a_panic_raises_panic_exception_and_leaves_no_state` gets a real
+  unwinding panic through the core. Unwinding gives back `recursion::Level` / `Frames` and now `VARS` too
+  (`multiset_function::VarsFrame`, popped on drop). WASM (panic = trap, no unwinding, no destructors): the panic
+  hook (`#[wasm_bindgen(start)]`) keeps the message; js/core.js `wasm()` wraps every `W.*` call, `callback`
+  rethrows a `WebAssembly.RuntimeError` instead of handing it to the core, and once the outermost call is left it
+  restores the shadow stack pointer (`__stack_pointer`, exported by crates/icepool-wasm/build.rs, reached through
+  `stack_pointer()` = `wasm_bindgen::exports()`: without this every trap leaks the abandoned frames' stack and a
+  few hundred traps hit "memory access out of bounds"), calls `recover()` (`program::reset_after_trap`: VARS
+  cleared, recursion levels 0; returns the hook's message) and throws `IcepoolError("PanicException")`. Handles
+  stay valid (HANDLES is only borrowed around code that cannot panic; `release` drops the value after the
+  borrow). JS functions an abandoned call registered leak. A trap inside a die's `OnceLock` initialisation would
+  leave it running (each later use of that die panics again: an error, not a crash). `run` / `calculate` called
+  directly (run-wasm.mjs, khepri's worker) are not wrapped: run-wasm.mjs reloads the instance after a trap. The JS
+  API test simulates a trap by throwing `WebAssembly.RuntimeError` from a callback (no reachable panic is left to
+  trigger one); a deliberate `assert!` in `d()` was used once by hand to check the hook's message reaches JS.
+
 - **A deck beside a multiset expression, and mx_str of a non-expression (M202610160934a).** `deck <op> expr` is
   `Deck.__op__`, which takes any iterable: `Counter(expr)` iterates the expression by `__getitem__` (`expr[0]`,
   `expr[1]`, ...: `keep(i)` evaluated into a die) until an index raises IndexError, so the keys are dice. No die is

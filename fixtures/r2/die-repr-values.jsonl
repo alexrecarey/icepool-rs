@@ -1,0 +1,3 @@
+{"program":{"op":"die_repr","die":{"op":"die_sequence","die":{"op":"d","sides":3},"rolls":-2}},"expected":{"ok":true,"value":{"str":"()"}}}
+{"program":{"op":"die_repr","die":{"op":"die_sequence","die":{"op":"d","sides":2},"rolls":2}},"expected":{"ok":true,"value":{"str":"Die({(1, 1): 1, (1, 2): 1, (2, 1): 1, (2, 2): 1})"}}}
+{"program":{"op":"die_repr","die":{"op":"die_sequence","die":{"op":"d","sides":2},"rolls":{"bool":false}}},"expected":{"ok":true,"value":{"str":"()"}}}
