@@ -77,6 +77,7 @@ integer_outcome!(i8, i16, i32, i64, i128, isize);
 /// The truth value of what a wild selector returns: Python only asks for it where it branches on it, and for some
 /// values (a `Vector`) asking raises.
 pub trait Truth {
+    /// The truth value (Python's `bool(x)`), or why there is none.
     fn truth(&self) -> Result<bool>;
 }
 
@@ -422,6 +423,7 @@ pub struct LargestCountWithWildEvaluator<S, T = bool> {
 }
 
 impl<S, T> LargestCountWithWildEvaluator<S, T> {
+    /// The evaluator with these selectors (wild cards, and the wild ones that count low or high).
     pub fn new(wild: S, wild_low: S, wild_high: S) -> Self {
         LargestCountWithWildEvaluator {
             wild,
@@ -504,6 +506,7 @@ pub struct AllStraightsReduceCountsEvaluator<R, S = Int> {
 }
 
 impl<R, S> AllStraightsReduceCountsEvaluator<R, S> {
+    /// The evaluator with this reducer of the straights' counts.
     pub fn new(reducer: R) -> Self {
         AllStraightsReduceCountsEvaluator {
             reducer,

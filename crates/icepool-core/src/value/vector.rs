@@ -22,6 +22,7 @@ use super::recursion::frames;
 use super::{BinOp, UnOp, Value};
 use crate::error::{Error, Result};
 
+/// icepool's `Vector`: a tuple-like outcome with elementwise operators.
 #[derive(Clone, Debug)]
 pub struct Vector {
     /// `None` for a `VectorWithTruthOnly`, whose `_data` property raises.
@@ -34,6 +35,7 @@ pub struct Vector {
 /// keeps apart from `BinOp`, as they never raise between native values).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VecOp {
+    /// A binary operator or comparison.
     Bin(BinOp),
     /// `operator.ne` if true, else `operator.eq`.
     Eq(bool),
@@ -57,6 +59,7 @@ impl VecOp {
 }
 
 impl Vector {
+    /// The vector of `items`.
     pub fn new(items: Vec<Value>) -> Self {
         Vector {
             data: Some(Arc::from(items)),
@@ -79,6 +82,7 @@ impl Vector {
         }
     }
 
+    /// Whether this is a `VectorWithTruthOnly`: the result of a comparison, which has a truth value but no data.
     pub fn is_truth_only(&self) -> bool {
         self.data.is_none()
     }

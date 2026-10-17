@@ -12,6 +12,8 @@ use crate::error::{value_error, Error, Result};
 use crate::outcome::{infallible, ErrInto, Outcome, OutcomeArith, OutcomeOrder};
 use crate::Quantity;
 
+/// A die: a finite distribution of outcomes, each with an integer quantity (Python's `Die`).
+///
 /// Dice are immutable; methods return new dice. Cloning is cheap (the items are shared).
 ///
 /// It's also possible to have "empty" dice with no outcomes at all, though these have little use other than being
@@ -19,6 +21,13 @@ use crate::Quantity;
 ///
 /// Equality and hashing are structural, as icepool's `Die.equals` / `hash_key`: the same outcomes (by `==`) with
 /// the same quantities. A 2:2 coin is not equal to a 1:1 coin.
+///
+/// ```
+/// use icepool_core::{d, Die};
+/// let coin = Die::from_iter([false, true]);
+/// assert_ne!(coin, Die::from_iter([false, false, true, true]));
+/// assert_eq!(d(6) + 1, Die::from(2..=7));
+/// ```
 #[derive(Clone, Debug)]
 pub struct Die<O> {
     data: Arc<DieData<O>>,
@@ -122,6 +131,12 @@ impl<O: OutcomeOrder> Die<O> {
         self.data.counts.items()
     }
 
+    /// The outcomes in ascending order, zero-quantity ones included.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(3).outcomes().copied().collect::<Vec<_>>(), [1, 2, 3]);
+    /// ```
     pub fn outcomes(&self) -> impl ExactSizeIterator<Item = &O> {
         self.data.counts.items().iter().map(|(o, _)| o)
     }
@@ -131,6 +146,13 @@ impl<O: OutcomeOrder> Die<O> {
         self.data.counts.len()
     }
 
+    /// Whether the die has no outcomes at all (Python's `Die([])`, a sentinel).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert!(Die::<i64>::from_iter([]).is_empty());
+    /// assert!(!d(6).is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.data.counts.is_empty()
     }

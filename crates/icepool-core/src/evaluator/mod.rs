@@ -30,9 +30,14 @@ use rustc_hash::FxHashMap;
 use crate::error::{Error, Result};
 use crate::expression::{self, CallTree, CountTree, Flat, Statelets};
 use crate::function::sorted_union;
-use crate::order::{merge_order_preferences, Order, OrderReason};
+use crate::order::merge_order_preferences;
 use crate::outcome::OutcomeOrder;
-use crate::pool::{Count, MultisetSource};
+
+// What the driver pops outcomes from, and the order it pops them in: part of the evaluator's interface.
+pub use crate::deal::DealSource;
+pub use crate::multi_deal::{HandGroup, MultiDealSource};
+pub use crate::order::{Order, OrderReason};
+pub use crate::pool::{Count, MultisetSource, PoolSource, Popped, SourcePopped};
 use crate::Int;
 use crate::Quantity;
 use crate::Value;
@@ -40,8 +45,11 @@ use crate::Value;
 /// What `final_outcome` produced: an outcome for the result `Die`, `icepool.Reroll` (dropped), or `None` (which
 /// `finalize_evaluation` refuses with `TypeError`).
 pub enum Final<F> {
+    /// An outcome of the result die.
     Outcome(F),
+    /// `icepool.Reroll`: the final state is dropped from the result.
     Reroll,
+    /// Python's `None`, which the result die refuses.
     None,
 }
 
@@ -248,6 +256,7 @@ impl<K, V> Default for OrderedMap<K, V> {
 }
 
 impl<K, V> OrderedMap<K, V> {
+    /// Every `(key, value)` in insertion order.
     pub fn items(&self) -> &[(K, V)] {
         &self.items
     }

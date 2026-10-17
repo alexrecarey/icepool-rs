@@ -168,6 +168,7 @@ fn add_to_sum(state: &Value, outcome: Value, count: &Value) -> Result<Value> {
 /// (every outcome the evaluation sees, zero counts included); for a mapping, unmapped outcomes are left as-is
 /// (`map_dict.get(outcome, outcome)`). The caller builds `map` accordingly.
 pub struct MappedSumEvaluator<F> {
+    /// The function applied to each outcome before it is summed.
     pub map: F,
 }
 
@@ -318,6 +319,7 @@ impl MultisetEvaluator<Value> for ProductOfCountsEvaluator {
 
 /// Returns `True` iff the multiset contains only zero counts (`EmptyEvaluator`); with `any=True`, the opposite.
 pub struct EmptyEvaluator {
+    /// Whether the result is `any` (some count is positive) rather than `empty` (no count is).
     pub any: bool,
 }
 

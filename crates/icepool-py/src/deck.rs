@@ -11,9 +11,9 @@ use std::sync::Arc;
 
 use dashu_int::IBig;
 use icepool_core::creation_args::DieArg;
-use icepool_core::deal::DealSource;
-use icepool_core::deck::{Counter, CounterOp};
-use icepool_core::order::{Order, OrderReason};
+use icepool_core::evaluator::DealSource;
+use icepool_core::value::{Counter, CounterOp};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::{Deal, Deck, Int, Quantity, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;

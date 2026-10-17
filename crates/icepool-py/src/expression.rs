@@ -16,9 +16,9 @@ use icepool_core::operator::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
     OutcomeFilter, OutcomePredicate,
 };
-use icepool_core::order::{Order, OrderReason};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::ownership::{Owners, Traverse};
-use icepool_core::pool::{Count, MultisetSource};
+use icepool_core::evaluator::{Count, MultisetSource};
 use icepool_core::value::builtins::Index;
 use icepool_core::value::recursion::level;
 use icepool_core::{Error, Int, Value};

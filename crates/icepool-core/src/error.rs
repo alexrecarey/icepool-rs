@@ -3,6 +3,8 @@
 
 use std::fmt;
 
+/// Why an operation failed. Each variant is the Python exception icepool raises in the same place (task C4
+/// replaces them with domain variants).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     /// Python `TypeError`: e.g. comparing an `int` with a `str`, an unhashable outcome, `None` as an outcome.
@@ -64,6 +66,12 @@ impl Error {
         }
     }
 
+    /// The message, without the exception name.
+    ///
+    /// ```
+    /// use icepool_core::Error;
+    /// assert_eq!(Error::Value("sides must be at least 1.".into()).message(), "sides must be at least 1.");
+    /// ```
     pub fn message(&self) -> &str {
         match self {
             Error::Type(m)
@@ -91,6 +99,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// The result of a fallible operation of the core.
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub(crate) fn type_error<T>(msg: impl Into<String>) -> Result<T> {

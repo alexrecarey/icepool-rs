@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use dashu_int::IBig;
-use icepool_core::multi_deal::{HandGroup, MultiDealSource};
-use icepool_core::order::{Order, OrderReason};
+use icepool_core::evaluator::{HandGroup, MultiDealSource};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::{Int, MultiDeal, Value};
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::*;

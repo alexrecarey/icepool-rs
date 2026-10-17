@@ -90,6 +90,7 @@ pub enum LenKind {
 pub struct HostRef(pub Arc<dyn HostObject>);
 
 impl HostRef {
+    /// Shares `obj`.
     pub fn new(obj: impl HostObject + 'static) -> Self {
         HostRef(Arc::new(obj))
     }

@@ -18,7 +18,7 @@ use crate::Int;
 use crate::Value;
 
 /// A host callable passed where Python takes one (`map`, `reroll(which)`, `group_by(key)`, ...): it becomes a
-/// [`super::catalogue::Func::Host`], called exactly where the catalogue's Python closures would be.
+/// `catalogue::Func::Host`, called exactly where the catalogue's Python closures would be.
 pub trait HostFunction: Send + Sync + fmt::Debug {
     /// `count_positional_parameters`: (required, total), total `None` for any number (`*args`). `map` infers
     /// `star` from it.

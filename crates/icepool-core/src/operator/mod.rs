@@ -14,7 +14,7 @@
 //! sizes. Python has no special case for them: its arithmetic just runs on tuples, which mostly raises
 //! `TypeError` (`max(count, 0)`, `left - right`) but sometimes answers (`min` / `max` of two tuples, `+`
 //! concatenates, `tuple * n` repeats, `count == n` is `False`, and a count passed through untouched stays a tuple).
-//! The port does the same: [`int`] is the `TypeError` where Python computes with a count, and the operators below
+//! The port does the same: `int` is the `TypeError` where Python computes with a count, and the operators below
 //! copy each case where a tuple gets through.
 
 pub mod adjust_counts;

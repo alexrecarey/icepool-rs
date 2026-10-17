@@ -40,6 +40,7 @@ fn below(len: usize, limit: Option<i64>) -> bool {
 
 /// `ArgsortEvaluatorDrop` / `ArgsortEvaluatorLeft` / `ArgsortEvaluatorRight`.
 pub struct ArgsortEvaluator {
+    /// How tied elements are ordered.
     pub tie: Tie,
     /// Which order the ranks are to be emitted in (`order=`, default `Order.Descending`).
     pub order: Value,

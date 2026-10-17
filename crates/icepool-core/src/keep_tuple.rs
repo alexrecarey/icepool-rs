@@ -229,7 +229,7 @@ fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
 }
 
 /// The length of a list of `n` elements Python builds (`[0] * n`, `(x,) * n`), within the limits of
-/// [`keep_size_as_len`]: empty for `n <= 0`, but `OverflowError` for any `n` beyond 64 bits, negative too.
+/// `keep_size_as_len`: empty for `n <= 0`, but `OverflowError` for any `n` beyond 64 bits, negative too.
 pub fn list_len(n: &Int) -> Result<usize> {
     match n.to_len("a list repeated")? {
         n if n <= MAX_KEEP_SIZE as u64 => Ok(n as usize),

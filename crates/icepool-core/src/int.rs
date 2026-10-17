@@ -17,6 +17,14 @@ use dashu_int::IBig;
 
 use crate::error::{Error, Result};
 
+/// An unbounded integer count: an `i64` until arithmetic overflows it (see the module documentation).
+///
+/// ```
+/// use icepool_core::Int;
+/// let big = Int::from(i64::MAX) + Int::ONE;
+/// assert_eq!(big.to_i64(), None);
+/// assert_eq!(big.to_string(), "9223372036854775808");
+/// ```
 #[derive(Clone, PartialEq, Eq)]
 pub struct Int(Repr);
 
@@ -28,9 +36,12 @@ enum Repr {
 }
 
 impl Int {
+    /// Zero.
     pub const ZERO: Int = Int(Repr::Small(0));
+    /// One.
     pub const ONE: Int = Int(Repr::Small(1));
 
+    /// `i` as an `Int`, in a `const` context.
     pub const fn small(i: i64) -> Int {
         Int(Repr::Small(i))
     }
@@ -71,6 +82,7 @@ impl Int {
         }
     }
 
+    /// The value as a big integer.
     pub fn to_ibig(&self) -> IBig {
         match &self.0 {
             Repr::Small(i) => IBig::from(*i),
@@ -78,10 +90,12 @@ impl Int {
         }
     }
 
+    /// Whether this is zero.
     pub fn is_zero(&self) -> bool {
         matches!(self.0, Repr::Small(0))
     }
 
+    /// Whether this is less than zero.
     pub fn is_negative(&self) -> bool {
         match &self.0 {
             Repr::Small(i) => *i < 0,
@@ -89,6 +103,7 @@ impl Int {
         }
     }
 
+    /// Whether this is greater than zero.
     pub fn is_positive(&self) -> bool {
         match &self.0 {
             Repr::Small(i) => *i > 0,
@@ -96,6 +111,7 @@ impl Int {
         }
     }
 
+    /// The absolute value.
     pub fn abs(&self) -> Int {
         if self.is_negative() {
             -self

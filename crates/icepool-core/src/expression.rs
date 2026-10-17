@@ -36,17 +36,26 @@ pub enum Dungeonlet<O> {
     /// A `BodyDungeonlet` / `BodyQuestlet` pair: an operator over the counts of earlier nodes of the same flat,
     /// given by position (Python's relative `child_indexes`, made absolute).
     Operator {
+        /// The operator.
         operator: Operator<O>,
+        /// The positions of its operands.
         children: Vec<usize>,
     },
     /// `MultisetParameterDungeonlet` / `MultisetParameterQuestlet`: the count (size) of argument `arg_index` of
     /// the enclosing `@multiset_function` call, subscripted by `star_index` if the argument was starred.
     Parameter {
+        /// Which argument of the call.
         arg_index: usize,
+        /// The element of a starred argument, if it was starred.
         star_index: Option<usize>,
     },
     /// `MultisetTupleIndex` (an `int` index) and `MultisetTupleSlice` (a slice): `child[index]` of a tuple count.
-    TupleItem { child: usize, index: Index },
+    TupleItem {
+        /// The position of the tuple's node.
+        child: usize,
+        /// The index or slice.
+        index: Index,
+    },
 }
 
 /// The prepared nodes of one evaluation input, in postfix order.
@@ -58,7 +67,9 @@ pub type Statelets = Arc<[Statelet]>;
 /// `DungeonletCallTree` and `QuestletCallTree` in one: the flats of one call and the calls inside it.
 #[derive(Clone)]
 pub struct CallTree<O> {
+    /// The flats of this call's inputs.
     pub flats: Vec<Flat<O>>,
+    /// The calls inside this one.
     pub calls: Vec<CallTree<O>>,
 }
 
@@ -76,7 +87,9 @@ impl<O> CallTree<O> {
 /// subtree per call (Python's nested tuples).
 #[derive(Clone, Debug)]
 pub enum CountTree<C> {
+    /// One count per flat of a call without calls.
     Leaf(Vec<C>),
+    /// One subtree per call.
     Calls(Vec<CountTree<C>>),
 }
 
@@ -227,7 +240,7 @@ fn initial_tree<O: PartialEq>(
     Ok(CountTree::Calls(calls))
 }
 
-/// The initial statelets and size tree of a call tree (see [`initial_tree`]). `outcomes` are all the outcomes
+/// The initial statelets and size tree of a call tree (see `initial_tree`). `outcomes` are all the outcomes
 /// the evaluation will see, ascending (a host operator's `_initial_state` gets them).
 pub fn initial_state<O: PartialEq>(
     tree: &CallTree<O>,

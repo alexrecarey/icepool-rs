@@ -10,12 +10,19 @@ use crate::Value;
 /// Which comparison a `ComparisonEvaluator` makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Comparison {
+    /// `<`: a proper subset.
     IsProperSubset,
+    /// `<=`: a subset.
     IsSubset,
+    /// `>`: a proper superset.
     IsProperSuperset,
+    /// `>=`: a superset.
     IsSuperset,
+    /// `==`: the same multiset.
     IsEqualSet,
+    /// `!=`: different multisets.
     IsNotEqualSet,
+    /// `isdisjoint`: no element in common.
     IsDisjointSet,
 }
 

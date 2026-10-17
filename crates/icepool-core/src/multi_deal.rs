@@ -119,6 +119,7 @@ impl<O: OutcomeOrder> MultiDeal<O> {
         &self.deck
     }
 
+    /// The `(hand size, number of hands)` groups, in order.
     pub fn hand_groups(&self) -> &[HandGroup] {
         &self.hand_groups
     }
@@ -138,10 +139,12 @@ impl<O: OutcomeOrder> MultiDeal<O> {
         hand_count(&self.hand_groups)
     }
 
+    /// Whether the deck has no cards.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// The total number of ways the hands can be dealt.
     pub fn denominator(&self) -> Quantity {
         denominator(&self.deck, &self.hand_groups)
     }
@@ -199,10 +202,12 @@ impl<O: Hash> Hash for MultiDealSource<O> {
 }
 
 impl<O: OutcomeOrder> MultiDealSource<O> {
+    /// The deck still to deal from.
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
+    /// The `(hand size, number of hands)` groups still to deal.
     pub fn hand_groups(&self) -> &[HandGroup] {
         &self.hand_groups
     }
@@ -224,10 +229,12 @@ impl<O: OutcomeOrder> MultiDealSource<O> {
             .collect()
     }
 
+    /// Whether the deal can be evaluated: there are enough cards in the deck for every hand.
     pub fn is_resolvable(&self) -> bool {
         !self.outcomes().is_empty()
     }
 
+    /// The total number of ways the remaining hands can be dealt.
     pub fn denominator(&self) -> Quantity {
         denominator(&self.deck, &self.hand_groups)
     }

@@ -38,9 +38,9 @@ use icepool_core::evaluator::poker::{
 };
 use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, MultisetEvaluator};
 use icepool_core::expression::{free_variable, CallTree};
-use icepool_core::order::Order;
+use icepool_core::evaluator::Order;
 use icepool_core::value::evaluators::PyEvaluator;
-use icepool_core::pool::{Count, MultisetSource};
+use icepool_core::evaluator::{Count, MultisetSource};
 use icepool_core::{Error, Int, Quantity, Value};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

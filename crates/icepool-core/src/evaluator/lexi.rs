@@ -10,6 +10,7 @@ use crate::Value;
 /// `LexiComparisonEvaluator` with its `evaluate()` keyword arguments `sort_order` and `lexi_tuple`
 /// (`compute_lexi_tuple_with_extra`).
 pub struct LexiComparisonEvaluator {
+    /// The order in which the outcomes are compared.
     pub sort_order: Order,
     /// `(left_first, left_extra, tie, right_extra, right_first)`.
     pub lexi_tuple: (i64, i64, i64, i64, i64),

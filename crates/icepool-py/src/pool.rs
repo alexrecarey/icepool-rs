@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use dashu_int::IBig;
 use icepool_core::keep_tuple::{self, KeepIndex, Slice};
-use icepool_core::order::{Order, OrderReason};
-use icepool_core::pool::PoolSource;
+use icepool_core::evaluator::{Order, OrderReason};
+use icepool_core::evaluator::PoolSource;
 use icepool_core::{Int, Pool, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
 use pyo3::prelude::*;

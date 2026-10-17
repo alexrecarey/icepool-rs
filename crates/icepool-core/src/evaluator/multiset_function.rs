@@ -80,12 +80,14 @@ impl AnyState {
 
 /// A [`MultisetEvaluator`] with its state type erased and its final outcomes converted to `F`.
 pub trait DynEvaluator<O, F> {
+    /// [`MultisetEvaluator::initial_state_counts`].
     fn initial_state(
         &self,
         order: Order,
         outcomes: &[O],
         sizes: &[Option<Count>],
     ) -> Result<AnyState>;
+    /// [`MultisetEvaluator::next_state_counts`].
     fn next_state(
         &self,
         state: &AnyState,
@@ -93,7 +95,9 @@ pub trait DynEvaluator<O, F> {
         outcome: &O,
         counts: &[Count],
     ) -> Result<Option<AnyState>>;
+    /// [`MultisetEvaluator::extra_outcomes`].
     fn extra_outcomes(&self, outcomes: &[O]) -> Result<Vec<O>>;
+    /// [`MultisetEvaluator::final_outcome_counts`], converted to `F`.
     fn final_outcome(
         &self,
         state: &AnyState,
@@ -141,7 +145,9 @@ impl<O, F, T: DynEvaluator<O, F> + ?Sized> DynEvaluator<O, F> for Arc<T> {
 
 /// `evaluator` as a [`DynEvaluator`], its final outcomes converted by `map_final`.
 pub struct Erased<E, M> {
+    /// The evaluator.
     pub evaluator: E,
+    /// Converts its final outcomes.
     pub map_final: M,
 }
 
@@ -214,7 +220,9 @@ pub enum Call<'a, O, F> {
 /// The main state of a call: an evaluator's own, or the tuple of a joint call's inner states.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum CallState {
+    /// An evaluator's own state.
     Leaf(AnyState),
+    /// A joint call's inner states, one per call.
     Joint(Arc<[CallState]>),
 }
 
@@ -224,7 +232,9 @@ pub type Tupleize<'a, F> = dyn Fn(Vec<Final<F>>) -> Result<Final<F>> + 'a;
 /// A `@multiset_function` evaluation's main side: its outermost [`Call`] (always a `Function` or `Joint`) and how
 /// to tupleize joint results.
 pub struct MultisetFunction<'a, O, F> {
+    /// The outermost call.
     pub call: Call<'a, O, F>,
+    /// How to tupleize the results of a joint call.
     pub tupleize: Box<Tupleize<'a, F>>,
 }
 

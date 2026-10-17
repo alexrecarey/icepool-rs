@@ -1,6 +1,7 @@
 //! Python's `repr(float)`: the shortest string that round-trips, switching to exponent notation when the decimal
 //! exponent is below -4 or at least 16 (CPython `Python/pystrtod.c`, `format_float_short` with mode `'r'`).
 
+/// Python's `repr(x)` of a `float`: the shortest text that reads back as `x`.
 pub fn float_repr(x: f64) -> String {
     if x.is_nan() {
         return "nan".into();

@@ -34,9 +34,9 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use icepool_core::error::{Error, Result as CoreResult};
+use icepool_core::{Error, Result as CoreResult};
 use icepool_core::evaluator::Final;
-use icepool_core::order::Order;
+use icepool_core::evaluator::Order;
 use icepool_core::program::host::{HostEvaluator, HostFunction};
 use icepool_core::program::{self, PErr, PValue};
 use icepool_core::value::recursion::{level, Level};

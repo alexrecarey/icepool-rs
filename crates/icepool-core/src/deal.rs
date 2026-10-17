@@ -74,6 +74,7 @@ impl<O: OutcomeOrder> Deal<O> {
         &self.deck
     }
 
+    /// The tuple indicating which cards of the hand will be counted (in sorted order).
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
@@ -88,6 +89,7 @@ impl<O: OutcomeOrder> Deal<O> {
         sum_counts(&self.keep_tuple)
     }
 
+    /// Whether any element of the keep tuple is negative.
     pub fn has_negative_keeps(&self) -> bool {
         self.keep_tuple.iter().any(Int::is_negative)
     }
@@ -164,10 +166,12 @@ impl<O: Hash> Hash for DealSource<O> {
 }
 
 impl<O: OutcomeOrder> DealSource<O> {
+    /// The deck still to deal from.
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
+    /// The keep tuple of the cards still to deal.
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
@@ -185,6 +189,7 @@ impl<O: OutcomeOrder> DealSource<O> {
         Some(sum_counts(&self.keep_tuple))
     }
 
+    /// Whether the deal can be evaluated: there are enough cards in the deck to deal the hand.
     pub fn is_resolvable(&self) -> bool {
         !self.deck.is_empty()
     }

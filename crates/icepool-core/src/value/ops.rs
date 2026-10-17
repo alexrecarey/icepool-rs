@@ -19,27 +19,45 @@ use super::recursion::level;
 use super::{float_repr, int_to_f64, ratio_to_f64, Value};
 use crate::error::{type_error, Error, Result};
 
+/// Python's binary operators and order comparisons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinOp {
+    /// `+`.
     Add,
+    /// `-`.
     Sub,
+    /// `*`.
     Mul,
+    /// `/`.
     TrueDiv,
+    /// `//`.
     FloorDiv,
+    /// `%`.
     Mod,
+    /// `**`.
     Pow,
+    /// `<<`.
     LShift,
+    /// `>>`.
     RShift,
+    /// `&`.
     And,
+    /// `|`.
     Or,
+    /// `^`.
     Xor,
+    /// `<`.
     Lt,
+    /// `<=`.
     Le,
+    /// `>`.
     Gt,
+    /// `>=`.
     Ge,
 }
 
 impl BinOp {
+    /// The operator as Python writes it (`+`, `//`, `<=`, ...).
     pub fn symbol(self) -> &'static str {
         use BinOp::*;
         match self {
@@ -83,14 +101,22 @@ impl BinOp {
     }
 }
 
+/// Python's unary operators and the `math` / built-in functions that take one number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnOp {
+    /// `-x`.
     Neg,
+    /// `+x`.
     Pos,
+    /// `~x`.
     Invert,
+    /// `abs(x)`.
     Abs,
+    /// `math.trunc(x)`.
     Trunc,
+    /// `math.floor(x)`.
     Floor,
+    /// `math.ceil(x)`.
     Ceil,
 }
 

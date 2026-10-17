@@ -78,6 +78,16 @@ fn denominator<O: OutcomeOrder>(dice: &[(Die<O>, usize)]) -> Result<Quantity> {
 }
 
 /// A pool of dice with a keep tuple (Python `Pool`, a `KeepGenerator`). Cloning is cheap.
+///
+/// The keep tuple says how many times each die counts, in ascending order of the rolls: `[0, 1, 1, 1]` keeps the
+/// highest three of four.
+///
+/// ```
+/// use icepool_core::{d, Int, Pool};
+/// let pool = Pool::new(vec![(d(6), 2), (d(8), 1)]).unwrap();
+/// assert_eq!(pool.raw_size(), 3);
+/// assert_eq!(pool.lowest(1).keep_tuple(), [1, 0, 0].map(Int::from));
+/// ```
 #[derive(Clone, Debug)]
 pub struct Pool<O> {
     /// Dice put in the pool zero times are not here.
@@ -168,6 +178,7 @@ impl<O: OutcomeOrder> Pool<O> {
         self.dice.iter().map(|(_, c)| c).sum()
     }
 
+    /// The number of ways the dice can roll: the product of each die's denominator to the power of its count.
     pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
@@ -303,10 +314,15 @@ impl<O: Outcome> Pool<O> {
 /// (`MultisetGenerator.weightless()`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
+    /// A [`Pool`].
     Pool(PoolSource<O>),
+    /// A [`crate::Deal`].
     Deal(DealSource<O>),
+    /// A [`crate::MultiDeal`], which produces a tuple of counts.
     MultiDeal(MultiDealSource<O>),
+    /// The additive union of keep generators.
     CompoundKeep(CompoundKeepSource<O>),
+    /// Another source with all weights 1.
     Weightless(WeightlessSource<O>),
     /// A source the host implements (`crate::host_source`): the facade's user-defined sources.
     Host(crate::host_source::HostSource<O>),
@@ -319,7 +335,9 @@ pub type Popped<S> = (S, Int, Quantity);
 /// (multiset tuple generators). The evaluator's `next_state` receives it as is.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Count {
+    /// One count.
     Int(Int),
+    /// One count per hand (a `MultiDeal`).
     Tuple(Arc<[Int]>),
 }
 
@@ -462,18 +480,22 @@ impl<O: Hash> Hash for PoolSource<O> {
 }
 
 impl<O: OutcomeOrder> PoolSource<O> {
+    /// The `(die, count)` pairs still to pop.
     pub fn dice(&self) -> &[(Die<O>, usize)] {
         &self.dice
     }
 
+    /// The outcomes still to pop, in ascending order.
     pub fn outcomes(&self) -> &[O] {
         &self.outcomes[self.lo..self.hi]
     }
 
+    /// The keep tuple of the dice still to pop.
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
+    /// The number of ways the remaining dice can roll.
     pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
@@ -486,6 +508,7 @@ impl<O: OutcomeOrder> PoolSource<O> {
         Some(sum_counts(&self.keep_tuple))
     }
 
+    /// Whether the pool can be evaluated: every die has some outcome.
     pub fn is_resolvable(&self) -> bool {
         self.dice.iter().all(|(die, _)| !die.is_empty())
     }

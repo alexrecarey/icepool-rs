@@ -25,6 +25,7 @@ use crate::Int;
 
 /// A typed value as Python spells it.
 pub trait IntoValue {
+    /// The value as Python spells it.
     fn into_value(self) -> Value;
 }
 
@@ -122,7 +123,9 @@ impl IntegerOutcome for Value {
 /// A [`PyEvaluator`]'s state: the evaluator's own typed state until the first tuple count, then Python's.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PyState<S> {
+    /// The evaluator's own typed state.
     Typed(S),
+    /// Python's state, once a tuple count arrived.
     Python(Value),
 }
 

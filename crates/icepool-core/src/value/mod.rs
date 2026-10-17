@@ -33,6 +33,8 @@ use dashu_ratio::RBig;
 
 use crate::error::Result;
 
+/// Python's `collections.Counter`, as `Deck` arithmetic uses it.
+pub use crate::deck::{Counter, CounterOp};
 pub use host::{HostError, HostObject, HostRef, LenKind};
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
@@ -40,16 +42,28 @@ pub use repr::float_repr;
 pub use symbols::Symbols;
 pub use vector::{VecOp, Vector};
 
+/// An outcome with Python's semantics: the dynamic outcome type of the language bindings. Its comparisons and
+/// operators are Python's and may raise.
+///
+/// ```
+/// use icepool_core::Value;
+/// assert_eq!(Value::from(1), Value::Bool(true)); // `1 == True`, as dict keys
+/// ```
 #[derive(Clone, Debug)]
 pub enum Value {
     /// Python's `None`. Not a valid outcome by itself (`Counts` rejects it), but it may sit inside a tuple.
     None,
+    /// Python's `bool`.
     Bool(bool),
+    /// Python's `int`.
     Int(IBig),
+    /// Python's `float`.
     Float(f64),
     /// Always normalised (dashu keeps it in lowest terms with a positive denominator), like Python's `Fraction`.
     Fraction(RBig),
+    /// Python's `str`.
     Str(Arc<str>),
+    /// Python's `tuple`.
     Tuple(Arc<[Value]>),
     /// Python's `complex`, which arises from `**` (a negative number to a fractional power) and then from
     /// arithmetic on it (`complex.rs`). It is not orderable, so a die with a complex outcome raises when it sorts
@@ -93,10 +107,12 @@ impl Value {
         }
     }
 
+    /// The `str` `s`.
     pub fn str(s: &str) -> Value {
         Value::Str(Arc::from(s))
     }
 
+    /// The `tuple` of `items`.
     pub fn tuple(items: Vec<Value>) -> Value {
         Value::Tuple(Arc::from(items))
     }

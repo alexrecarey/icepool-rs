@@ -77,6 +77,7 @@ impl<O: OutcomeOrder> Deck<O> {
         self.cards.items()
     }
 
+    /// The distinct cards in ascending order.
     pub fn outcomes(&self) -> impl ExactSizeIterator<Item = &O> {
         self.cards.outcomes()
     }
@@ -86,6 +87,7 @@ impl<O: OutcomeOrder> Deck<O> {
         self.cards.len()
     }
 
+    /// Whether the deck has no cards at all.
     pub fn is_empty(&self) -> bool {
         self.cards.is_empty()
     }
@@ -252,6 +254,7 @@ impl<O: OutcomeOrder> Counter<O> {
         Self::from_mapping(items.iter().map(|(o, q)| (o.clone(), q.clone().into())))
     }
 
+    /// Every `(outcome, count)` in insertion order.
     pub fn items(&self) -> &[(O, IBig)] {
         &self.items
     }

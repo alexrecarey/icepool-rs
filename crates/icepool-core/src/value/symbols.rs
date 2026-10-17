@@ -31,6 +31,7 @@ use std::sync::Arc;
 use super::{BinOp, UnOp, Value};
 use crate::error::{type_error, Error, Result};
 
+/// icepool's `Symbols`: a multiset of single-character symbols, with its arithmetic.
 #[derive(Clone, Debug)]
 pub struct Symbols {
     /// `self._data`, in the dict's insertion order.
@@ -171,6 +172,7 @@ impl Symbols {
         }
     }
 
+    /// Every `(symbol, count)` in insertion order.
     pub fn items(&self) -> &[(char, Value)] {
         &self.data
     }
@@ -180,6 +182,7 @@ impl Symbols {
         self.data.len()
     }
 
+    /// Whether there are no symbols.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }

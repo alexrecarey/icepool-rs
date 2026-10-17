@@ -244,6 +244,7 @@ pub fn float_ceil(x: f64) -> Result<IBig> {
 /// The key of `x[key]` (`operator.getitem`): any object, or a slice.
 #[derive(Clone, Debug)]
 pub enum Index {
+    /// Any object.
     Item(Value),
     /// `slice(start, stop, step)`; `Value::None` where omitted.
     Slice(Value, Value, Value),

@@ -10,8 +10,11 @@ use dashu_ratio::RBig;
 /// A borrowed number. `bool` is viewed as the `int` 0 or 1.
 #[derive(Clone, Debug)]
 pub enum Num<'a> {
+    /// An `int` (or a `bool`).
     Int(Cow<'a, IBig>),
+    /// A `float`.
     Float(f64),
+    /// A `Fraction`.
     Fraction(&'a RBig),
 }
 

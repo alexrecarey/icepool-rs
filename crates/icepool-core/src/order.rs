@@ -13,8 +13,11 @@ use crate::Int;
 /// the max), so `Any` pops like `Descending`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
+    /// Smallest outcome first.
     Ascending = 1,
+    /// Largest outcome first.
     Descending = -1,
+    /// Either order will do.
     Any = 0,
 }
 
@@ -39,6 +42,7 @@ impl Order {
         self as i64
     }
 
+    /// The name, as Python's `Order.name`.
     pub fn name(self) -> &'static str {
         match self {
             Order::Ascending => "Ascending",
@@ -98,6 +102,7 @@ impl OrderReason {
         }
     }
 
+    /// The name, as Python's `OrderReason.name`.
     pub fn name(self) -> &'static str {
         match self {
             OrderReason::NoPreference => "NoPreference",
