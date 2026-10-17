@@ -8,7 +8,7 @@
 use super::catalogue::{truthy, Func};
 use super::expression::as_expression;
 use super::map::{arg_items, call, die_of, expand_arg, star_arg, the_die};
-use super::ops::{new_die, type_error};
+use super::ops::{new_die, unhashable_list, wrong_type};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::expand::iter_cartesian_product;
@@ -28,7 +28,7 @@ fn next(result: PValue) -> Result<Next, PErr> {
         // `Break(Reroll)`, `Break(Restart)`: `(BREAK, Reroll)` cannot be expanded by `Die()`.
         PValue::Reroll | PValue::Restart => Ok(Target::Reroll),
         // A list is unhashable: `curr_state in self._self_loop_cache` raises.
-        PValue::List(_) => type_error("unhashable type: 'list'"),
+        PValue::List(_) => unhashable_list(),
         // Tuples holding dice stay tuples here (not tupleized), Again expressions are not evaluated: Python makes
         // odd outcomes of them.
         _ => Err(PErr::Unimplemented(
@@ -66,13 +66,13 @@ fn transition_cache<'a>(
             },
         ),
         PValue::Func(_) if !extra_args.is_empty() => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "If a mapping is provided for repl, len(args) must be 1.".into(),
             ))
         }
         PValue::Func(f) => (&**f, false),
         PValue::Die(_) => return Err(PErr::Unimplemented("a Die as repl".into())),
-        _ => return type_error("repl must be a callable or a mapping."),
+        _ => return wrong_type("repl must be a callable or a mapping."),
     };
     if extra_args.iter().any(|a| as_expression(a).is_some()) {
         // Only `mean_time_to_absorb` gets here with one (`map` and `map_and_time` expanded it): it is passed to
@@ -132,7 +132,7 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
         ));
     };
     if args.is_empty() {
-        return raise(Error::Value(
+        return raise(Error::InvalidArgument(
             "If no arguments are given, repeat cannot be used.".into(),
         ));
     }
@@ -157,7 +157,7 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
         return Err(PErr::Unimplemented("a repeat that is not a value".into()));
     };
     if r.binary(BinOp::Lt, &int(0))?.truthy()? {
-        return raise(Error::Value("repeat cannot be negative.".into()));
+        return raise(Error::InvalidArgument("repeat cannot be negative.".into()));
     }
     if *r == int(0) {
         return new_die(vec![first_arg], &[int(1)]);
@@ -214,7 +214,7 @@ pub fn mean_time_to_absorb(
     })?;
     match time {
         Some(time) => Ok(PValue::Value(Value::Fraction(time))),
-        None => raise(Error::NotImplemented(
+        None => raise(Error::NotImplementedUpstream(
             "Restart not implemented for mean_time_to_absorb.".into(),
         )),
     }
@@ -253,7 +253,7 @@ pub fn time_to_sum(
         PValue::Value(Value::None) => {
             let min = die.min_outcome()?;
             if min.binary(BinOp::Le, &int(0))?.truthy()? {
-                return raise(Error::Value(
+                return raise(Error::InvalidArgument(
                     "max_time must be provided if not all outcomes are positive.".into(),
                 ));
             }

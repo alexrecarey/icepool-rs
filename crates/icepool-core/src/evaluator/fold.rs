@@ -33,7 +33,13 @@ pub trait CountFold<O> {
 
     /// `next_state`: the next state given the previous state, an outcome, and the count of that outcome produced
     /// by each input.
-    fn fold(&self, state: &Self::State, order: Order, outcome: &O, counts: &[Int]) -> Result<Self::State>;
+    fn fold(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &O,
+        counts: &[Int],
+    ) -> Result<Self::State>;
 
     /// `final_outcome`.
     fn finish(&self, state: &Self::State) -> Result<Final<Self::Final>>;

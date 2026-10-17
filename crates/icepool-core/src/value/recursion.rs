@@ -62,7 +62,7 @@ static FRAME_BUDGET: OnceLock<fn() -> usize> = OnceLock::new();
 
 /// Python's `RecursionError`.
 pub fn recursion_error() -> Error {
-    Error::Recursion("maximum recursion depth exceeded".into())
+    Error::RecursionLimit("maximum recursion depth exceeded".into())
 }
 
 /// One level of recursion on a nested value, given back when dropped.

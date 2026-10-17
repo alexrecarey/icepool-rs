@@ -118,7 +118,7 @@ impl OrderReason {
 ///
 /// Greater priorities strictly outrank lower priorities. Conflicting orders of the same priority are equal to an
 /// `Order.Any` of the next-higher priority, except for conflicting `Mandatory` orders, which produces an exception
-/// (`ConflictingOrderError`, an `Error::Order` here).
+/// (`ConflictingOrderError`, an `Error::ConflictingOrder` here).
 pub fn merge_order_preferences(
     preferences: impl IntoIterator<Item = (Order, OrderReason)>,
 ) -> Result<(Order, OrderReason)> {
@@ -139,7 +139,7 @@ pub fn merge_order_preferences(
                 result_order = Order::Any;
                 result_reason = result_reason.next();
             } else {
-                return Err(Error::Order(
+                return Err(Error::ConflictingOrder(
                     "Conflicting order preferences.\nTip: If you are using highest(keep=k), try using \
                      lowest(drop=n-k) instead, or vice versa."
                         .into(),

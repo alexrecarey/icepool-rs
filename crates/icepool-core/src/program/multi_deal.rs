@@ -5,7 +5,7 @@
 use dashu_int::IBig;
 
 use super::deck::the_deck;
-use super::ops::{py_iter, type_error};
+use super::ops::{missing_attribute, py_iter, wrong_type};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::order::Order;
@@ -14,7 +14,7 @@ use crate::{Deck, MultiDeal, Value};
 fn the_multi_deal(x: PValue) -> Result<MultiDeal<Value>, PErr> {
     match x {
         PValue::MultiDeal(d) => Ok(d),
-        _ => type_error("AttributeError: only multi-deals have this method"),
+        _ => missing_attribute("only multi-deals have this method"),
     }
 }
 
@@ -42,7 +42,7 @@ pub fn deal(deck: Deck<Value>, hand_sizes: PValue) -> Result<PValue, PErr> {
             .map(|h| match h {
                 // `sum(hand_size * group_size ...)` starts from 0: `0 + 'a'` is a TypeError.
                 PValue::Value(Value::Str(_)) => {
-                    type_error("unsupported operand type(s) for +: 'int' and 'str'")
+                    wrong_type("unsupported operand type(s) for +: 'int' and 'str'")
                 }
                 h => Ok((hand_int(h)?, IBig::ONE)),
             })
@@ -65,7 +65,7 @@ pub fn deal_groups(deck: PValue, hand_groups: PValue) -> Result<PValue, PErr> {
             let g = py_iter(g)?;
             // `for hand_size, group_size in self._hand_groups`: unpacking anything but a pair is a ValueError.
             let [h, n]: [PValue; 2] = g.try_into().map_err(|g: Vec<PValue>| {
-                PErr::Raise(Error::Value(format!(
+                PErr::Raise(Error::InvalidArgument(format!(
                     "expected 2 values to unpack, got {}",
                     g.len()
                 )))
@@ -119,7 +119,7 @@ pub fn multi_deal_pop(md: PValue, order: PValue, outcome: PValue) -> Result<PVal
         _ => None,
     };
     let Some(order) = order else {
-        return raise(Error::Value("not a valid Order".into()));
+        return raise(Error::InvalidArgument("not a valid Order".into()));
     };
     let PValue::Value(outcome) = outcome else {
         return Err(PErr::Unimplemented("popping a non-value outcome".into()));

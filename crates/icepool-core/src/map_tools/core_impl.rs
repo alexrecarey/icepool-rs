@@ -74,7 +74,7 @@ pub(crate) fn check_nan(v: &Value) -> Result<()> {
         }
     }
     if has_nan(v) {
-        return Err(Error::Unsupported(
+        return Err(Error::Unported(
             "NaN in map(repeat) states (Python finds the same NaN object again by identity)".into(),
         ));
     }
@@ -130,7 +130,7 @@ where
                 // `next_state.probability(curr_state) == 1`: `Fraction(quantity, denominator)`.
                 Target::Die(die) => {
                     if die.is_empty() {
-                        return Err(Error::ZeroDivision("Fraction(0, 0)".into()).into());
+                        return Err(Error::DivisionByZero("Fraction(0, 0)".into()).into());
                     }
                     let quantity = die
                         .items()
@@ -207,8 +207,8 @@ where
                     die.items().to_vec(),
                 ])?),
                 Next::Break(Some(Target::Reroll)) => {
-                    return Err(Error::Type(
-                        "AttributeError: 'RerollType' object has no attribute 'values'".into(),
+                    return Err(Error::MissingAttribute(
+                        "'RerollType' object has no attribute 'values'".into(),
                     )
                     .into())
                 }

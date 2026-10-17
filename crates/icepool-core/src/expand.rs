@@ -49,7 +49,8 @@ pub fn product_size<T>(args: &[Vec<T>]) -> Option<usize> {
     if args.iter().any(Vec::is_empty) {
         return Some(0);
     }
-    args.iter().try_fold(1usize, |n, arg| n.checked_mul(arg.len()))
+    args.iter()
+        .try_fold(1usize, |n, arg| n.checked_mul(arg.len()))
 }
 
 /// `cartesian_product(*args, outcome_type=tuple)` when the population type is `Die`: a die of tuples, one per

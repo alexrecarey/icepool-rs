@@ -52,9 +52,10 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
         let size = match &sizes[0] {
             Some(Count::Int(size)) => Some(size.clone()),
             Some(Count::Tuple(_)) => {
-                if matches!(&self.index, Some(index) if (order.value() > 0) != !index.is_negative()) {
+                if matches!(&self.index, Some(index) if (order.value() > 0) != !index.is_negative())
+                {
                     let op = if order.value() > 0 { "+" } else { "-" };
-                    return Err(Error::Type(format!(
+                    return Err(Error::WrongType(format!(
                         "unsupported operand type(s) for {op}: 'tuple' and 'int'"
                     )));
                 }
@@ -106,7 +107,7 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
         _: &[Option<Int>],
     ) -> Result<Final<Value>> {
         match final_state {
-            (Value::None, remaining) => Err(Error::Index(format!(
+            (Value::None, remaining) => Err(Error::IndexOutOfRange(format!(
                 "Evaluation ended {} element(s) short of reaching the kept index.",
                 int(remaining)
             ))),

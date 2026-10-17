@@ -34,7 +34,6 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use icepool_core::{Error, Result as CoreResult};
 use icepool_core::evaluator::Final;
 use icepool_core::evaluator::Order;
 use icepool_core::program::host::{HostEvaluator, HostFunction};
@@ -42,6 +41,7 @@ use icepool_core::program::{self, PErr, PValue};
 use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{float_repr, HostError, HostObject, HostRef, Symbols, Vector};
 use icepool_core::Value;
+use icepool_core::{Error, Result as CoreResult};
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
 
@@ -88,7 +88,11 @@ fn put(v: PValue) -> u32 {
 fn get(id: u32) -> Result<PValue, PErr> {
     HANDLES
         .with(|h| h.borrow().0.get(id as usize).cloned().flatten())
-        .ok_or_else(|| PErr::Raise(Error::Value(format!("released or unknown handle {id}"))))
+        .ok_or_else(|| {
+            PErr::Raise(Error::InvalidArgument(format!(
+                "released or unknown handle {id}"
+            )))
+        })
 }
 
 /// Frees a handle (the JS object holding it was garbage-collected).
@@ -252,14 +256,14 @@ pub fn wire_result(id: u32) -> String {
 
 fn parse(text: &str) -> Result<Json, PErr> {
     serde_json::from_str(text)
-        .map_err(|e| PErr::Raise(Error::Value(format!("bad JSON from JS: {e}"))))
+        .map_err(|e| PErr::Raise(Error::InvalidArgument(format!("bad JSON from JS: {e}"))))
 }
 
 fn envelope(result: Result<Json, PErr>) -> String {
     match result {
         Ok(v) => json!({ "ok": v }),
-        Err(PErr::Raise(Error::Host(_))) => json!({"host": true}),
-        Err(PErr::Raise(e)) => json!({"error": e.python_type(), "message": e.message()}),
+        Err(PErr::Raise(Error::Callback(_))) => json!({"host": true}),
+        Err(PErr::Raise(e)) => json!({"error": program::wire::python_exception(&e), "message": e.to_string()}),
         Err(PErr::Unimplemented(what)) => {
             json!({"error": "NotImplementedError", "message": format!("not ported yet: {what}"), "unimplemented": true})
         }
@@ -380,7 +384,7 @@ fn to_js(v: &PValue) -> Result<Json, PErr> {
 // --- JS -> Rust ---------------------------------------------------------------------------------------------------
 
 fn bad(what: &str) -> PErr {
-    PErr::Raise(Error::Type(format!("not a JS-JSON value: {what}")))
+    PErr::Raise(Error::WrongType(format!("not a JS-JSON value: {what}")))
 }
 
 /// JS-JSON as a program value.
@@ -501,7 +505,7 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
 fn value_of(p: PValue) -> CoreResult<Value> {
     match p {
         PValue::Value(v) => Ok(v),
-        _ => Err(Error::Type(
+        _ => Err(Error::WrongType(
             "expected a value (an outcome or state), got a die or another object".into(),
         )),
     }
@@ -511,7 +515,7 @@ fn value_of(p: PValue) -> CoreResult<Value> {
 
 /// The token of a JS exception: the JS side keeps the exception itself and rethrows it when the call returns.
 fn host_error() -> Error {
-    Error::Host(HostError(Arc::new("a JS exception")))
+    Error::Callback(HostError(Arc::new("a JS exception")))
 }
 
 /// A JS callback's result envelope: `{"ok": x}`, `{"throw": true}` (JS keeps the exception) or `{"error":
@@ -535,7 +539,7 @@ fn js_args(args: &[PValue]) -> Result<String, PErr> {
 fn core_error(e: PErr) -> Error {
     match e {
         PErr::Raise(e) => e,
-        PErr::Unimplemented(what) => Error::Unsupported(what),
+        PErr::Unimplemented(what) => Error::Unported(what),
     }
 }
 
@@ -640,7 +644,7 @@ impl HostEvaluator for JsEvaluator {
         match self.method("extraOutcomes", vec![values(outcomes)])? {
             PValue::Value(Value::Tuple(xs)) => Ok(xs.to_vec()),
             PValue::List(xs) => xs.into_iter().map(value_of).collect(),
-            _ => Err(Error::Type(
+            _ => Err(Error::WrongType(
                 "extraOutcomes must return an array of outcomes".into(),
             )),
         }
@@ -696,13 +700,17 @@ impl HostObject for JsonKey {
         matches!((JsonKey::of(a), JsonKey::of(b)), (Some(x), Some(y)) if x.0 == y.0)
     }
     fn compare(&self, _: icepool_core::value::BinOp, _: &Value, _: &Value) -> CoreResult<bool> {
-        Err(Error::Type("JS object states have no order".into()))
+        Err(Error::WrongType("JS object states have no order".into()))
     }
     fn binary(&self, _: icepool_core::value::BinOp, _: &Value, _: &Value) -> CoreResult<Value> {
-        Err(Error::Type("JS object states have no operators".into()))
+        Err(Error::WrongType(
+            "JS object states have no operators".into(),
+        ))
     }
     fn unary(&self, _: icepool_core::value::UnOp) -> CoreResult<Value> {
-        Err(Error::Type("JS object states have no operators".into()))
+        Err(Error::WrongType(
+            "JS object states have no operators".into(),
+        ))
     }
     fn truthy(&self) -> CoreResult<bool> {
         Ok(&*self.0 != "{}")

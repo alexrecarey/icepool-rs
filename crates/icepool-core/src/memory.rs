@@ -25,7 +25,7 @@ pub const MAX_ALLOC_BYTES: usize = 1 << 36;
 
 /// Python's `MemoryError`, for `n` elements of what is being built.
 pub fn memory_error(what: &str, n: impl std::fmt::Display) -> Error {
-    Error::Memory(format!("{what} of {n} elements"))
+    Error::TooLarge(format!("{what} of {n} elements"))
 }
 
 /// `n` (any integer type, or a `checked_mul` that overflowed as `None`) as a length of `T`s the port may allocate:
@@ -34,13 +34,16 @@ pub fn check_len<T, N>(n: Option<N>, what: &str) -> Result<usize>
 where
     N: TryInto<usize> + Copy + std::fmt::Display,
 {
-    let fits = |n: usize| n.checked_mul(size_of::<T>().max(1)).is_some_and(|b| b <= MAX_ALLOC_BYTES);
+    let fits = |n: usize| {
+        n.checked_mul(size_of::<T>().max(1))
+            .is_some_and(|b| b <= MAX_ALLOC_BYTES)
+    };
     match n {
         Some(k) => match k.try_into() {
             Ok(len) if fits(len) => Ok(len),
             _ => Err(memory_error(what, k)),
         },
-        None => Err(Error::Memory(format!("{what}: too many elements"))),
+        None => Err(Error::TooLarge(format!("{what}: too many elements"))),
     }
 }
 
@@ -68,7 +71,11 @@ where
 }
 
 /// `iter` collected into a `Vec` of exactly `n` elements reserved up front, or `MemoryError`.
-pub fn try_collect<T, N>(n: Option<N>, iter: impl IntoIterator<Item = T>, what: &str) -> Result<Vec<T>>
+pub fn try_collect<T, N>(
+    n: Option<N>,
+    iter: impl IntoIterator<Item = T>,
+    what: &str,
+) -> Result<Vec<T>>
 where
     N: TryInto<usize> + Copy + std::fmt::Display,
 {
@@ -89,9 +96,12 @@ pub fn check_pow(base: &crate::Quantity, exp: usize, what: &str) -> Result<()> {
 /// A big integer of `bits` bits (`None`: the count overflowed): `MemoryError` past the cap.
 pub fn check_bits(bits: Option<u64>, what: &str) -> Result<()> {
     let bytes = bits.map(|bits| bits / 8);
-    check_len::<u8, u64>(bytes, what)
-        .map(drop)
-        .map_err(|_| Error::Memory(format!("{what}: a result of {} bytes", bytes.map_or("too many".into(), |b| b.to_string()))))
+    check_len::<u8, u64>(bytes, what).map(drop).map_err(|_| {
+        Error::TooLarge(format!(
+            "{what}: a result of {} bytes",
+            bytes.map_or("too many".into(), |b| b.to_string())
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -103,17 +113,38 @@ mod tests {
         // Past the cap, a size that overflows usize or isize, a negative size: MemoryError, never an abort.
         let huge = MAX_ALLOC_BYTES / 8 + 1;
         for n in [Some(huge as u64), Some(u64::MAX), None] {
-            assert!(matches!(try_with_capacity::<u64, u64>(n, "x"), Err(Error::Memory(_))), "{n:?}");
+            assert!(
+                matches!(
+                    try_with_capacity::<u64, u64>(n, "x"),
+                    Err(Error::TooLarge(_))
+                ),
+                "{n:?}"
+            );
         }
-        assert!(matches!(try_repeat(0u8, Some(-1i64), "x"), Err(Error::Memory(_))));
-        assert!(matches!(check_len::<(), i64>(Some(i64::MAX), "x"), Err(Error::Memory(_))));
+        assert!(matches!(
+            try_repeat(0u8, Some(-1i64), "x"),
+            Err(Error::TooLarge(_))
+        ));
+        assert!(matches!(
+            check_len::<(), i64>(Some(i64::MAX), "x"),
+            Err(Error::TooLarge(_))
+        ));
         assert_eq!(try_repeat(7u8, Some(3usize), "x").unwrap(), vec![7, 7, 7]);
         assert_eq!(try_collect(Some(2u32), [1, 2], "x").unwrap(), vec![1, 2]);
-        assert_eq!(check_len::<u64, usize>(Some(MAX_ALLOC_BYTES / 8), "x").unwrap(), MAX_ALLOC_BYTES / 8);
+        assert_eq!(
+            check_len::<u64, usize>(Some(MAX_ALLOC_BYTES / 8), "x").unwrap(),
+            MAX_ALLOC_BYTES / 8
+        );
         let q = |x: u32| crate::Quantity::from(x);
         assert!(check_pow(&q(1), usize::MAX, "x").is_ok());
         assert!(check_pow(&q(255), MAX_ALLOC_BYTES, "x").is_ok());
-        assert!(matches!(check_pow(&q(256), MAX_ALLOC_BYTES, "x"), Err(Error::Memory(_))));
-        assert!(matches!(check_pow(&q(2), usize::MAX, "x"), Err(Error::Memory(_))));
+        assert!(matches!(
+            check_pow(&q(256), MAX_ALLOC_BYTES, "x"),
+            Err(Error::TooLarge(_))
+        ));
+        assert!(matches!(
+            check_pow(&q(2), usize::MAX, "x"),
+            Err(Error::TooLarge(_))
+        ));
     }
 }

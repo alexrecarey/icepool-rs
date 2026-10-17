@@ -187,7 +187,11 @@ impl<F: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for MappedSumEvalu
         outcome: &Value,
         counts: &[Int],
     ) -> Result<Option<Value>> {
-        Ok(Some(add_to_sum(state, (self.map)(outcome)?, &int(&counts[0]))?))
+        Ok(Some(add_to_sum(
+            state,
+            (self.map)(outcome)?,
+            &int(&counts[0]),
+        )?))
     }
 
     /// A tuple count, as for [`SumEvaluator`].

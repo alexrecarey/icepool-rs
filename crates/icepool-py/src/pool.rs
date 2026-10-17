@@ -9,9 +9,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use dashu_int::IBig;
-use icepool_core::keep_tuple::{self, KeepIndex, Slice};
-use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::evaluator::PoolSource;
+use icepool_core::evaluator::{Order, OrderReason};
+use icepool_core::keep_tuple::{self, KeepIndex, Slice};
 use icepool_core::{Int, Pool, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
 use pyo3::prelude::*;
@@ -71,7 +71,9 @@ pub fn pool_new(dice: Vec<Bound<'_, RsDie>>, times: Vec<Bound<'_, PyAny>>) -> Py
 }
 
 fn core_dice(dice: &[(Py<RsDie>, usize)]) -> Vec<(icepool_core::Die<Value>, usize)> {
-    dice.iter().map(|(d, c)| (d.get().die.clone(), *c)).collect()
+    dice.iter()
+        .map(|(d, c)| (d.get().die.clone(), *c))
+        .collect()
 }
 
 impl RsPool {
@@ -83,7 +85,11 @@ impl RsPool {
     /// A pool of the same dice with another keep tuple.
     fn with_keep_tuple(&self, py: Python<'_>, keep_tuple: Vec<Int>) -> RsPool {
         RsPool {
-            dice: self.dice.iter().map(|(d, c)| (d.clone_ref(py), *c)).collect(),
+            dice: self
+                .dice
+                .iter()
+                .map(|(d, c)| (d.clone_ref(py), *c))
+                .collect(),
             keep_tuple: keep_tuple.into(),
         }
     }
@@ -228,7 +234,8 @@ impl RsPool {
     /// `KeepGenerator.keep` for a keep tuple without negative counts (the facade checks), short of evaluating
     /// the result for an `int` index (the facade does that).
     fn keep(&self, index: &Bound<'_, PyAny>) -> PyResult<RsPool> {
-        let keep_tuple = keep_tuple::keep(&self.keep_tuple, &keep_index(index)?).map_err(to_py_err)?;
+        let keep_tuple =
+            keep_tuple::keep(&self.keep_tuple, &keep_index(index)?).map_err(to_py_err)?;
         Ok(self.with_keep_tuple(index.py(), keep_tuple))
     }
 

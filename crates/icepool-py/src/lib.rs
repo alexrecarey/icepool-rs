@@ -164,7 +164,9 @@ fn expand_args_for_die(
         .map(|(a, t)| weight(a, t))
         .collect::<PyResult<Vec<_>>>()?;
     if args.len() != weights.len() {
-        return Err(to_py_err(Error::Value("one weight per argument".into())));
+        return Err(to_py_err(Error::InvalidArgument(
+            "one weight per argument".into(),
+        )));
     }
     // `Die::new` returns a single die with weight 1 as-is; `Die.__new__` handled that case already (comparing
     // `times[0] == 1` as Python does), so only the merge is left.
@@ -231,7 +233,7 @@ fn binary_operator(
     if let Some(native) = op.native() {
         if !die.outcomes().chain(other.outcomes()).any(ops::has_host) {
             match py.detach(|| die.binary_operator(other, |a, b| native.apply(a, b))) {
-                Err(Error::Unsupported(_)) => {}
+                Err(Error::Unported(_)) => {}
                 result => return RsDie::wrap(py, result),
             }
         }
@@ -534,7 +536,10 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's
     // thread-local state is given back on the way: `recursion::Level`, `program::multiset_function::VarsFrame`).
     // Exported so that callers and the tests can name it.
-    m.add("PanicException", m.py().get_type::<pyo3::panic::PanicException>())?;
+    m.add(
+        "PanicException",
+        m.py().get_type::<pyo3::panic::PanicException>(),
+    )?;
     m.add_class::<RsDie>()?;
     m.add_class::<pool::RsPool>()?;
     m.add_class::<pool::RsPoolSource>()?;

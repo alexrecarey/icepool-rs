@@ -11,7 +11,7 @@ use super::expression::{
 };
 use super::map::the_die;
 use super::multiset_function::{in_function, raw_result};
-use super::ops::{die_arg, new_die, py_iter, type_error, Key};
+use super::ops::{die_arg, missing_attribute, new_die, py_iter, unhashable_list, wrong_type, Key};
 use super::pool::pool;
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -44,7 +44,7 @@ pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
     }
     match arg {
         // A deck is a mapping, but `Pool(deck)` refuses it.
-        PValue::Deck(_) => raise(Error::Value(
+        PValue::Deck(_) => raise(Error::InvalidArgument(
             "A Pool cannot be constructed with a Deck argument.".into(),
         )),
         arg @ (PValue::List(_)
@@ -53,13 +53,13 @@ pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
         | PValue::Value(Value::Tuple(_) | Value::Str(_))) => {
             the_expression(pool(arg, PValue::Value(Value::from(1)))?)
         }
-        PValue::Value(v) => type_error(format!(
+        PValue::Value(v) => wrong_type(format!(
             "Argument of type {} cannot be implicitly converted to a Pool.",
             v.type_name()
         )),
         // An `AgainExpression` is neither a mapping nor a sequence.
         PValue::Again(_) => {
-            type_error("Argument of type AgainExpression cannot be implicitly converted to a Pool.")
+            wrong_type("Argument of type AgainExpression cannot be implicitly converted to a Pool.")
         }
         _ => Err(PErr::Unimplemented("this evaluator argument".into())),
     }
@@ -69,7 +69,7 @@ pub fn implicit_convert(arg: PValue) -> Result<MExpr, PErr> {
 /// parameter) has none of them.
 fn method_self(p: PValue) -> Result<MExpr, PErr> {
     if as_tuple_expression(&p).is_some() {
-        return type_error("AttributeError: a multiset tuple expression has no evaluation methods");
+        return missing_attribute("a multiset tuple expression has no evaluation methods");
     }
     the_expression(p)
 }
@@ -84,12 +84,12 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
     const SAFE_RECURSION: usize = 930;
     const SURE_RECURSION_ERROR: usize = 990;
     if outcomes >= SURE_RECURSION_ERROR {
-        return Err(Error::Recursion(
-                "maximum recursion depth exceeded in evaluate_backward".into(),
+        return Err(Error::RecursionLimit(
+            "maximum recursion depth exceeded in evaluate_backward".into(),
         ));
     }
     if outcomes > SAFE_RECURSION {
-        return Err(Error::Unsupported(
+        return Err(Error::Unported(
             "a multiset evaluation close to Python's recursion limit".into(),
         ));
     }
@@ -156,9 +156,13 @@ pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
         "pool_empty" => die(EmptyEvaluator { any: false }, &pools),
         "pool_any" => die(EmptyEvaluator { any: true }, &pools),
         "pool_product_of_counts" => die(ProductOfCountsEvaluator, &pools),
-        "pool_highest_outcome_and_count" => die(PyEvaluator(HighestOutcomeAndCountEvaluator), &pools),
+        "pool_highest_outcome_and_count" => {
+            die(PyEvaluator(HighestOutcomeAndCountEvaluator), &pools)
+        }
         "pool_largest_count" => die(PyEvaluator(LargestCountEvaluator), &pools),
-        "pool_largest_count_and_outcome" => die(PyEvaluator(LargestCountAndOutcomeEvaluator), &pools),
+        "pool_largest_count_and_outcome" => {
+            die(PyEvaluator(LargestCountAndOutcomeEvaluator), &pools)
+        }
         "pool_largest_straight" => die(PyEvaluator(LargestStraightEvaluator), &pools),
         "pool_all_straights" => die(PyEvaluator(AllStraightsEvaluator), &pools),
         _ => Err(PErr::Unimplemented(op.into())),
@@ -215,7 +219,11 @@ fn straight_and_outcome_evaluator(
     let prioritize_highest = match value(priority)? {
         v if v == Value::str("high") => true,
         v if v == Value::str("low") => false,
-        _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
+        _ => {
+            return raise(Error::InvalidArgument(
+                "priority must be 'low' or 'high'.".into(),
+            ))
+        }
     };
     Ok(LargestStraightAndOutcomeEvaluator { prioritize_highest })
 }
@@ -280,7 +288,7 @@ pub fn catalogue(
     kwargs: Vec<(String, PValue)>,
 ) -> Result<PValue, PErr> {
     let PValue::Value(Value::Str(name)) = name else {
-        return raise(Error::Key("catalogue names are strs".into()));
+        return raise(Error::MissingKey("catalogue names are strs".into()));
     };
     let evaluator = CatalogueEvaluator::new(&name, py_iter(params)?)?.with_kwargs(kwargs)?;
     let exprs = py_iter(args)?
@@ -319,7 +327,7 @@ pub fn method_evaluation(method: &str, e: PValue) -> Result<PValue, PErr> {
 fn core_error(e: PErr) -> Error {
     match e {
         PErr::Raise(e) => e,
-        PErr::Unimplemented(what) => Error::Unsupported(what),
+        PErr::Unimplemented(what) => Error::Unported(what),
     }
 }
 
@@ -328,7 +336,7 @@ fn core_error(e: PErr) -> Error {
 fn plain(x: PValue) -> crate::error::Result<Value> {
     match x {
         PValue::Value(v) => Ok(v),
-        _ => Err(Error::Unsupported(
+        _ => Err(Error::Unported(
             "a callable returning a die or Reroll inside an evaluation".into(),
         )),
     }
@@ -337,7 +345,7 @@ fn plain(x: PValue) -> crate::error::Result<Value> {
 /// Calls a catalogue function with values. A mapping (a dict) is not callable.
 fn call_values(f: &Func, args: &[Value]) -> crate::error::Result<Value> {
     if matches!(f, Func::Mapping(_)) {
-        return Err(Error::Type("'dict' object is not callable".into()));
+        return Err(Error::WrongType("'dict' object is not callable".into()));
     }
     plain(
         f.call(args.iter().cloned().map(PValue::Value).collect())
@@ -360,8 +368,8 @@ pub fn sum_map(p: PValue, map: PValue) -> Result<PValue, PErr> {
             &pools,
         ),
         // `{k: v for k, v in map.items()}`
-        PValue::Value(v) => type_error(format!(
-            "AttributeError: '{}' object has no attribute 'items'",
+        PValue::Value(v) => missing_attribute(format!(
+            "'{}' object has no attribute 'items'",
             v.type_name()
         )),
         _ => Err(PErr::Unimplemented("this sum map".into())),
@@ -393,7 +401,7 @@ fn make_select_function(which: PValue) -> Result<Select, PErr> {
             .map(|x| match x {
                 PValue::Value(v) => Ok(Key::Value(v)),
                 PValue::Die(d) => Ok(Key::Die(d)),
-                PValue::List(_) => type_error("unhashable type: 'list'"),
+                PValue::List(_) => unhashable_list(),
                 _ => Err(PErr::Unimplemented("this wild collection element".into())),
             })
             .collect::<Result<_, _>>()?,
@@ -406,7 +414,7 @@ fn make_select_function(which: PValue) -> Result<Select, PErr> {
         PValue::Value(
             v @ (Value::Int(_) | Value::Bool(_) | Value::Float(_) | Value::Fraction(_)),
         ) => {
-            return type_error(format!("'{}' object is not iterable", v.type_name()));
+            return wrong_type(format!("'{}' object is not iterable", v.type_name()));
         }
         _ => return Err(PErr::Unimplemented("this wild selector".into())),
     };
@@ -483,7 +491,7 @@ pub fn argsort(
         v if v == Value::str("left") => Tie::Left,
         v if v == Value::str("right") => Tie::Right,
         _ => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "tie must be \"drop\", \"left\", or \"right\".".into(),
             ))
         }
@@ -515,7 +523,7 @@ pub fn argsort_grouped(args: PValue, order: PValue, limit: PValue) -> Result<PVa
 fn argsort_args(args: PValue) -> Result<Vec<MExpr>, PErr> {
     let args = py_iter(args)?;
     if args.is_empty() {
-        return type_error("argsort() missing 1 required positional argument: 'self'");
+        return wrong_type("argsort() missing 1 required positional argument: 'self'");
     }
     args.into_iter().map(implicit_convert).collect()
 }
@@ -554,7 +562,7 @@ pub fn lexi(
 
 /// Whether Python's `except TypeError` catches this error.
 fn is_type_error(e: &PErr) -> bool {
-    matches!(e, PErr::Raise(Error::Type(_)))
+    matches!(e, PErr::Raise(e) if e.is_wrong_kind())
 }
 
 /// The comparison evaluator of `<`, `<=`, `>`, `>=`, and the reflected operator (`a < b` falls back on
@@ -585,7 +593,7 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
     match (as_expression(&a), as_expression(&b)) {
         // `Die.__op__` converts the expression into a one-outcome die, whose `Counts` checks that its outcome is
         // sortable with `bool(pool < pool)`: a die has no truth value (or the comparison raises), so TypeError.
-        (None, Some(_)) if is_die(&a) => type_error("Items do not appear to be sortable."),
+        (None, Some(_)) if is_die(&a) => wrong_type("Items do not appear to be sortable."),
         (Some(left), _) => match (op, order_comparison(op)) {
             (_, Some((comparison, reflected))) => {
                 // `self._compare(other, ...)`, NotImplemented on TypeError.
@@ -604,7 +612,7 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
                                 result => return result,
                             }
                         }
-                        type_error(format!("'{op}' not supported between these instances"))
+                        wrong_type(format!("'{op}' not supported between these instances"))
                     }
                     result => result,
                 }
@@ -617,7 +625,7 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
                         // NotImplemented: the other operand's own `__eq__`. A die converts the expression (see
                         // above); for the others it is NotImplemented too, then identity.
                         if is_die(&b) {
-                            return type_error("Items do not appear to be sortable.");
+                            return wrong_type("Items do not appear to be sortable.");
                         }
                         return Ok(PValue::Value(Value::Bool(ne)));
                     }
@@ -638,7 +646,7 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
                 if in_function(&exprs) {
                     // The data callback refuses a raw result.
                     return Ok(PValue::DieWithTruthError(
-                        Error::Type("Did not resolve to a die.".into()),
+                        Error::WrongType("Did not resolve to a die.".into()),
                         truth,
                     ));
                 }
@@ -674,7 +682,7 @@ pub fn rfloordiv(other: PValue, p: PValue) -> Result<PValue, PErr> {
     let left = match other {
         // `Die.__floordiv__` converts the pool into a one-outcome die (see `compare_operator`).
         PValue::Die(_) | PValue::DieWithTruth(..) => {
-            return type_error("Items do not appear to be sortable.")
+            return wrong_type("Items do not appear to be sortable.")
         }
         PValue::Value(Value::Vector(_) | Value::Symbols(_) | Value::Host(_)) => {
             return Err(PErr::Unimplemented(
@@ -705,7 +713,9 @@ pub fn builtin_evaluate(
     args: PValue,
 ) -> Result<PValue, PErr> {
     let PValue::Value(Value::Str(name)) = evaluator else {
-        return raise(Error::Key("builtin_evaluate names an evaluator class".into()));
+        return raise(Error::MissingKey(
+            "builtin_evaluate names an evaluator class".into(),
+        ));
     };
     let mut params = py_iter(params)?.into_iter();
     let ctor_kwargs = super::map::kwargs(ctor_kwargs)?;
@@ -732,7 +742,9 @@ pub fn builtin_evaluate(
             .map(implicit_convert)
             .collect()
     };
-    let simple = |kwargs: &[(String, PValue)]| ctor_kwargs.is_empty() && kwargs.is_empty() && positional == 0;
+    let simple = |kwargs: &[(String, PValue)]| {
+        ctor_kwargs.is_empty() && kwargs.is_empty() && positional == 0
+    };
     let comparison = match &*name {
         "IsProperSubsetEvaluator" => Some(Comparison::IsProperSubset),
         "IsSubsetEvaluator" => Some(Comparison::IsSubset),
@@ -756,17 +768,23 @@ pub fn builtin_evaluate(
         "HighestOutcomeAndCountEvaluator" if simple(&kwargs) => {
             die(PyEvaluator(HighestOutcomeAndCountEvaluator), &exprs()?)
         }
-        "LargestCountEvaluator" if simple(&kwargs) => die(PyEvaluator(LargestCountEvaluator), &exprs()?),
+        "LargestCountEvaluator" if simple(&kwargs) => {
+            die(PyEvaluator(LargestCountEvaluator), &exprs()?)
+        }
         "LargestCountAndOutcomeEvaluator" if simple(&kwargs) => {
             die(PyEvaluator(LargestCountAndOutcomeEvaluator), &exprs()?)
         }
-        "LargestStraightEvaluator" if simple(&kwargs) => die(PyEvaluator(LargestStraightEvaluator), &exprs()?),
-        "AllStraightsEvaluator" if simple(&kwargs) => die(PyEvaluator(AllStraightsEvaluator), &exprs()?),
+        "LargestStraightEvaluator" if simple(&kwargs) => {
+            die(PyEvaluator(LargestStraightEvaluator), &exprs()?)
+        }
+        "AllStraightsEvaluator" if simple(&kwargs) => {
+            die(PyEvaluator(AllStraightsEvaluator), &exprs()?)
+        }
         "AllStraightsReduceCountsEvaluator" if simple(&kwargs) => die(
             // The default reducer, `operator.mul`.
-            PyEvaluator(AllStraightsReduceCountsEvaluator::new(|score: &Value, count: &Int| {
-                score.binary(crate::value::BinOp::Mul, &count.into())
-            })),
+            PyEvaluator(AllStraightsReduceCountsEvaluator::new(
+                |score: &Value, count: &Int| score.binary(crate::value::BinOp::Mul, &count.into()),
+            )),
             &exprs()?,
         ),
         "EmptyEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
@@ -809,7 +827,10 @@ pub fn builtin_evaluate(
                 None => None,
                 Some(d) => optional(value(d)?),
             };
-            die(PyEvaluator(CountSubsetEvaluator { empty_divisor }), &exprs()?)
+            die(
+                PyEvaluator(CountSubsetEvaluator { empty_divisor }),
+                &exprs()?,
+            )
         }
         "LargestStraightAndOutcomeEvaluator"
             if positional == 1 && ctor_kwargs.is_empty() && kwargs.is_empty() =>
@@ -824,12 +845,16 @@ pub fn builtin_evaluate(
             let evaluator = LargestCountWithWildEvaluator::new(select()?, select()?, select()?);
             die(PyEvaluator(evaluator), &exprs()?)
         }
-        "ArgsortEvaluatorDrop" | "ArgsortEvaluatorLeft" | "ArgsortEvaluatorRight" | "ArgsortGroupedEvaluator"
+        "ArgsortEvaluatorDrop"
+        | "ArgsortEvaluatorLeft"
+        | "ArgsortEvaluatorRight"
+        | "ArgsortGroupedEvaluator"
             if positional == 0 && kwargs.is_empty() =>
         {
             // Keyword-only constructor arguments, defaults `order=Order.Descending, limit=None, limit_pad=None`.
             let grouped = &*name == "ArgsortGroupedEvaluator";
-            let (mut order, mut limit, mut limit_pad) = (Value::from(Order::Descending.value()), None, None);
+            let (mut order, mut limit, mut limit_pad) =
+                (Value::from(Order::Descending.value()), None, None);
             for (key, v) in ctor_kwargs.iter().cloned() {
                 match &*key {
                     "order" => order = value(v)?,
@@ -863,8 +888,14 @@ pub fn builtin_evaluate(
         }
         "LexiComparisonEvaluator" if simple(&[]) && kwargs.len() == 2 => {
             // `leximin` / `leximax` pass `sort_order` and `lexi_tuple` to `evaluate`.
-            let get = |key: &str| kwargs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
-            let (Some(sort_order), Some(lexi_tuple)) = (get("sort_order"), get("lexi_tuple")) else {
+            let get = |key: &str| {
+                kwargs
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v.clone())
+            };
+            let (Some(sort_order), Some(lexi_tuple)) = (get("sort_order"), get("lexi_tuple"))
+            else {
                 return unsupported();
             };
             let Value::Int(sort_order) = value(sort_order)? else {

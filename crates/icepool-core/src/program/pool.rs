@@ -11,7 +11,10 @@ use super::expression::{
     map_mixture, multiset_keep, multiset_keep_seq, the_expression, tuple_slice, KeepIndexArg,
     MExpr,
 };
-use super::ops::{binary, itemize, itemize_mapping, new_die, py_iter, to_die, type_error, unary};
+use super::ops::{
+    binary, itemize, itemize_mapping, missing_attribute, new_die, py_iter, to_die, unary,
+    unhashable_list, wrong_type,
+};
 use super::{raise, PErr, PValue};
 use crate::compound_keep::CompoundKeep;
 use crate::error::Error;
@@ -68,7 +71,7 @@ pub(super) fn the_pool(x: PValue) -> Result<Pool<Value>, PErr> {
         PValue::Pool(p) => Ok(p),
         // Anything else lacks the pool's methods: AttributeError in Python.
         PValue::Value(_) | PValue::Die(_) | PValue::Reroll | PValue::Ellipsis => {
-            type_error("not a pool")
+            wrong_type("not a pool")
         }
         _ => Err(PErr::Unimplemented("this multiset expression".into())),
     }
@@ -162,7 +165,7 @@ fn keep_slice(e: MExpr, slice: Slice) -> Result<PValue, PErr> {
 /// `implicit_convert_to_die`, which refuses an `Again` expression (ImplicitConversionError).
 fn convert_to_die(x: PValue) -> Result<Die<Value>, PErr> {
     match x {
-        PValue::Again(_) => type_error("Again expression cannot be implicitly converted to a Die."),
+        PValue::Again(_) => wrong_type("Again expression cannot be implicitly converted to a Die."),
         x => to_die(x),
     }
 }
@@ -175,7 +178,7 @@ fn die_count(t: &Value) -> Result<usize, PErr> {
         }
         Value::Bool(b) => Ok(*b as usize),
         // `(1, ) * sum(times)` with a float or Fraction in the sum.
-        _ => type_error("can't multiply sequence by non-int"),
+        _ => wrong_type("can't multiply sequence by non-int"),
     }
 }
 
@@ -197,7 +200,7 @@ pub fn pool(dice: PValue, times: PValue) -> Result<PValue, PErr> {
             itemize_mapping(keys, values, times)?
         }
         PValue::Die(_) => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "A Pool cannot be constructed with a Die argument.".into(),
             ))
         }
@@ -230,7 +233,7 @@ pub(super) fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
     for item in py_iter(items)? {
         let pair = py_iter(item)?;
         let [key, value]: [PValue; 2] = pair.try_into().map_err(|p: Vec<_>| {
-            PErr::Raise(Error::Value(format!(
+            PErr::Raise(Error::InvalidArgument(format!(
                 "dictionary update sequence element has length {}; 2 is required",
                 p.len()
             )))
@@ -241,7 +244,7 @@ pub(super) fn dict(items: PValue) -> Result<Vec<(PValue, PValue)>, PErr> {
             // ever uses the die's data.
             PValue::DieWithTruth(d, _) => PValue::Die(d),
             PValue::DieWithTruthError(e, _) => return raise(e),
-            PValue::List(_) => return type_error("unhashable type: 'list'"),
+            PValue::List(_) => return unhashable_list(),
             _ => return Err(PErr::Unimplemented("this dict key".into())),
         };
         let same = |k: &PValue| match (k, &key) {
@@ -279,7 +282,7 @@ pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue
             let n = match int_value(&v) {
                 Some(n) if n < IBig::ZERO => 0,
                 Some(n) => u64::try_from(&n).unwrap_or(u64::MAX),
-                None => return type_error("can't multiply sequence by non-int"),
+                None => return wrong_type("can't multiply sequence by non-int"),
             };
             // Python's `MemoryError` for a list no memory holds (the pool size limit comes after).
             let n = crate::memory::check_len::<PValue, _>(
@@ -342,7 +345,7 @@ pub fn die_pool(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
         // A `DieWithTruth` (the result of `==`) is a die too.
         PValue::Die(die) | PValue::DieWithTruth(die, _) => die,
         PValue::DieWithTruthError(e, _) => return raise(e),
-        _ => return type_error("pool() needs a Die"),
+        _ => return wrong_type("pool() needs a Die"),
     };
     if let Some(rolls) = int_value(&rolls) {
         return Ok(PValue::Pool(new_die_pool(&die, rolls)?));
@@ -358,7 +361,9 @@ pub fn die_pool(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
 /// `Pool({die: rolls})`: `itemize` multiplies the count by 1 and refuses a negative one.
 fn new_die_pool(die: &Die<Value>, rolls: IBig) -> Result<Pool<Value>, PErr> {
     if rolls < IBig::ZERO {
-        return raise(Error::Value("times cannot have negative values.".into()));
+        return raise(Error::InvalidArgument(
+            "times cannot have negative values.".into(),
+        ));
     }
     Ok(Pool::new(vec![(
         die.clone(),
@@ -398,7 +403,7 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
         if inners.is_empty() {
             return Ok(PValue::Die(Die::new(Vec::new(), Vec::new())?));
         }
-        return type_error("AttributeError: 'Die' object has no attribute '_has_parameter'");
+        return missing_attribute("'Die' object has no attribute '_has_parameter'");
     }
     match (&e, int_value(&index)) {
         (MExpr::Gen(g), Some(i)) if !g.has_negative_keeps() => {
@@ -472,7 +477,7 @@ pub fn pool_slice(pool: PValue, start: PValue, stop: PValue, step: PValue) -> Re
         (Ok(start), Ok(stop)) => Slice::new(start, stop),
         _ if step => Slice::new(None, None),
         _ => {
-            return type_error("slice indices must be integers or None or have an __index__ method")
+            return wrong_type("slice indices must be integers or None or have an __index__ method")
         }
     };
     Ok(into_pvalue(MExpr::Gen(
@@ -502,7 +507,7 @@ pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PE
     // Only keep generators have `middle`.
     let pool = match the_expression(pool)? {
         MExpr::Gen(g) => g,
-        _ => return type_error("AttributeError: object has no attribute 'middle'"),
+        _ => return missing_attribute("object has no attribute 'middle'"),
     };
     let keep = exact_int(&keep, "keep")?;
     let tie = match &tie {
@@ -529,12 +534,12 @@ pub fn die_middle(die: PValue, rolls: PValue, keep: PValue, tie: PValue) -> Resu
 /// an index, `rolls` is itself the sequence of counts: `self.pool(len(rolls)).keep(rolls).sum()`.
 pub fn die_keep(die: PValue, rolls: PValue, index: PValue) -> Result<PValue, PErr> {
     if !matches!(die, PValue::Die(_)) {
-        return type_error("AttributeError: object has no attribute 'keep'");
+        return missing_attribute("object has no attribute 'keep'");
     }
     let no_index = matches!(index, PValue::Value(Value::None));
     if int_value(&rolls).is_some() {
         if no_index {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "If the number of rolls is an integer, an index argument must be provided.".into(),
             ));
         }
@@ -545,7 +550,9 @@ pub fn die_keep(die: PValue, rolls: PValue, index: PValue) -> Result<PValue, PEr
         return super::evaluate::evaluation("pool_sum", pool_keep(pool, index)?);
     }
     if !no_index {
-        return raise(Error::Value("Only one index sequence can be given.".into()));
+        return raise(Error::InvalidArgument(
+            "Only one index sequence can be given.".into(),
+        ));
     }
     let len = py_iter(rolls.clone())?.len();
     let pool = die_pool(die, PValue::Value(int(len)))?;
@@ -562,10 +569,12 @@ pub fn die_keep_slice(
     step: PValue,
 ) -> Result<PValue, PErr> {
     if !matches!(die, PValue::Die(_)) {
-        return type_error("AttributeError: object has no attribute 'keep'");
+        return missing_attribute("object has no attribute 'keep'");
     }
     if int_value(&rolls).is_none() {
-        return raise(Error::Value("Only one index sequence can be given.".into()));
+        return raise(Error::InvalidArgument(
+            "Only one index sequence can be given.".into(),
+        ));
     }
     let pool = die_pool(die, rolls)?;
     super::evaluate::evaluation("pool_sum", pool_slice(pool, start, stop, step)?)
@@ -580,7 +589,7 @@ pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Resul
     };
     if empty {
         return match default {
-            PValue::Value(Value::None) => raise(Error::Value(
+            PValue::Value(Value::None) => raise(Error::InvalidArgument(
                 "middle() arg is an empty sequence and no default was provided.".into(),
             )),
             default => new_die(vec![default], &[int(1)]),
@@ -596,7 +605,7 @@ pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Resul
 pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {
     // A multiset tuple expression has no `*`, and an int none for it.
     if as_tuple_expression(&pool).is_some() || as_tuple_expression(&n).is_some() {
-        return type_error("unsupported operand type(s) for *");
+        return wrong_type("unsupported operand type(s) for *");
     }
     match (as_expression(&pool).is_some(), as_expression(&n).is_some()) {
         (true, _) => counts(pool, "mul", PValue::Value(Value::None), n),
@@ -609,7 +618,7 @@ pub fn pool_mul(pool: PValue, n: PValue) -> Result<PValue, PErr> {
 /// `-pool` (without a pool, the plain operator).
 pub fn pool_neg(pool: PValue) -> Result<PValue, PErr> {
     if as_tuple_expression(&pool).is_some() {
-        return type_error("bad operand type for unary -");
+        return wrong_type("bad operand type for unary -");
     }
     if as_expression(&pool).is_none() {
         return unary(UnOp::Neg, pool);
@@ -672,7 +681,7 @@ pub fn pool_pop(pool: PValue, order: PValue, outcome: PValue) -> Result<PValue, 
             .find(|o| *v == int(*o as i64)),
         _ => None,
     }
-    .ok_or_else(|| PErr::Raise(Error::Value("not a valid Order".into())))?;
+    .ok_or_else(|| PErr::Raise(Error::InvalidArgument("not a valid Order".into())))?;
     let PValue::Value(outcome) = outcome else {
         return Err(PErr::Unimplemented("popping a non-value outcome".into()));
     };
@@ -702,7 +711,7 @@ pub fn die_highest_lowest(
     drop: PValue,
 ) -> Result<PValue, PErr> {
     let PValue::Die(die) = die else {
-        return type_error("highest() / lowest() need a Die");
+        return wrong_type("highest() / lowest() need a Die");
     };
     let rolls_int = int_value(&rolls).ok_or_else(|| PErr::Unimplemented("non-int rolls".into()))?;
     let (keep, drop) = (opt_int(&keep, "keep")?, opt_int(&drop, "drop")?);
@@ -753,13 +762,13 @@ pub fn highest_lowest(
         | PValue::Die(_)
         | PValue::Value(Value::Str(_) | Value::Tuple(_))) => py_iter(args)?,
         PValue::Value(v) => {
-            return type_error(format!("object of type '{}' has no len()", v.type_name()))
+            return wrong_type(format!("object of type '{}' has no len()", v.type_name()))
         }
         _ => return Err(PErr::Unimplemented("highest() of this argument".into())),
     };
     if args.is_empty() {
         return match default {
-            PValue::Value(Value::None) => raise(Error::Value(
+            PValue::Value(Value::None) => raise(Error::InvalidArgument(
                 "highest() / lowest() arg is an empty sequence and no default was provided.".into(),
             )),
             default => new_die(vec![default], &[int(1)]),

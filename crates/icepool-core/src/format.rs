@@ -85,17 +85,19 @@ fn cmp_values(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
 /// the spec unparsable (`'<.-2e'`), a `ValueError` in Python.
 fn format_value(x: &Value, kind: FloatFormat, precision: &IBig) -> Result<String> {
     let Value::Float(x) = x else {
-        return Err(Error::Unsupported(format!(
+        return Err(Error::Unported(format!(
             "format() of a {} in format_probability_inverse",
             x.type_name()
         )));
     };
     if *precision < IBig::ZERO {
-        return Err(Error::Value("Format specifier missing precision".into()));
+        return Err(Error::InvalidArgument(
+            "Format specifier missing precision".into(),
+        ));
     }
     match usize::try_from(precision) {
         Ok(p) if p <= 10_000 => Ok(format_float(*x, kind, p)),
-        _ => Err(Error::Unsupported("a huge format precision".into())),
+        _ => Err(Error::Unported("a huge format precision".into())),
     }
 }
 
@@ -128,7 +130,9 @@ pub fn split_format_spec(col_spec: &str) -> Result<Vec<Token>> {
         }
     }
     if result.iter().map(|t| t.len()).sum::<usize>() != chars.len() {
-        return Err(Error::Value(format!("Invalid col_spec '{col_spec}'")));
+        return Err(Error::InvalidArgument(format!(
+            "Invalid col_spec '{col_spec}'"
+        )));
     }
     Ok(result)
 }
@@ -277,9 +281,7 @@ fn compute_col_widths(headers: &[String], rows: &[Vec<String>]) -> Vec<usize> {
 fn is_numeric_cell(cell: &str) -> Result<bool> {
     let chars: Vec<char> = cell.chars().collect();
     if chars.iter().any(|c| !c.is_ascii() && c.is_numeric()) {
-        return Err(Error::Unsupported(
-            "a non-ASCII digit in a table cell".into(),
-        ));
+        return Err(Error::Unported("a non-ASCII digit in a table cell".into()));
     }
     let mut i = 0;
     let digits = |i: &mut usize| {
@@ -309,7 +311,7 @@ fn is_numeric_cell(cell: &str) -> Result<bool> {
 /// least one row (`rows[0]`).
 fn compute_alignments(rows: &[Vec<String>]) -> Result<Vec<bool>> {
     let Some(first) = rows.first() else {
-        return Err(Error::Index("list index out of range".into()));
+        return Err(Error::IndexOutOfRange("list index out of range".into()));
     };
     let mut result = vec![true; first.len()];
     for row in rows {
@@ -539,7 +541,11 @@ pub fn format(
     let (output_format, col_spec) = match parts[..] {
         [output_format] => (output_format, default_column_spec),
         [output_format, col_spec] => (output_format, col_spec),
-        _ => return Err(Error::Value("format_spec has too many colons.".into())),
+        _ => {
+            return Err(Error::InvalidArgument(
+                "format_spec has too many colons.".into(),
+            ))
+        }
     };
     Ok(Formatted::Text(match output_format {
         "md" => markdown(population, type_name, col_spec)?,
@@ -551,7 +557,7 @@ pub fn format(
         "csv" => csv(population, col_spec)?,
         "html" => html(population, type_name, col_spec)?,
         _ => {
-            return Err(Error::Value(format!(
+            return Err(Error::InvalidArgument(format!(
                 "Unsupported output format '{output_format}'"
             )))
         }

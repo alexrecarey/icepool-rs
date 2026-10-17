@@ -192,7 +192,7 @@ pub fn symbols_op<'py>(
             None => return Err(PyTypeError::new_err("icepool_rs: not a Symbols")),
         },
         "isdisjoint" => bool_value(core(s.isdisjoint(&bv))?),
-        _ => return Err(to_py_err(Error::Unsupported(format!("Symbols.{name}")))),
+        _ => return Err(to_py_err(Error::Unported(format!("Symbols.{name}")))),
     };
     to_py(py, &result)
 }
@@ -211,7 +211,7 @@ pub fn symbols_unary<'py>(
         "has_negative_counts" => Value::Bool(core(s.has_negative_counts())?),
         "size" => core(s.size())?,
         "str" => Value::str(&core(s.py_str())?),
-        _ => return Err(to_py_err(Error::Unsupported(format!("Symbols.{name}")))),
+        _ => return Err(to_py_err(Error::Unported(format!("Symbols.{name}")))),
     };
     to_py(py, &result)
 }

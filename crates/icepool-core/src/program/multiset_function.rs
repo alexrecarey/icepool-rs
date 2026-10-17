@@ -18,7 +18,7 @@ use serde_json::{Map, Value as Json};
 
 use super::expression::{prepare, product, MExpr};
 use super::host::HostFunction;
-use super::ops::{new_die, py_iter, type_error};
+use super::ops::{new_die, py_iter, wrong_type};
 use super::{eval, raise, PErr, PValue};
 use crate::error::Error;
 use crate::evaluator::multiset_function::{Call, DynEvaluator, Erased, MultisetFunction};
@@ -148,7 +148,7 @@ pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
         m.get("body"),
         m.len() == 4 + usize::from(kwonly.is_some()),
     ) else {
-        return raise(Error::Type(format!(
+        return raise(Error::WrongType(format!(
             "expected arguments [\"params\", \"var\", \"body\", \"kwonly\"], got {keys:?}"
         )));
     };
@@ -216,7 +216,7 @@ pub fn mf_var(i: PValue) -> Result<PValue, PErr> {
             .ok()
             .and_then(|i| args.get(i))
             .cloned()
-            .ok_or_else(|| PErr::Raise(Error::Index("tuple index out of range".into())))
+            .ok_or_else(|| PErr::Raise(Error::IndexOutOfRange("tuple index out of range".into())))
     })
 }
 
@@ -235,7 +235,7 @@ pub fn mf_kwarg(name: PValue) -> Result<PValue, PErr> {
             .iter()
             .find(|(k, _)| **k == *name)
             .map(|(_, x)| x.clone())
-            .ok_or_else(|| PErr::Raise(Error::Key(format!("{name:?}"))))
+            .ok_or_else(|| PErr::Raise(Error::MissingKey(format!("{name:?}"))))
     })
 }
 
@@ -309,7 +309,7 @@ fn tupleize(finals: Vec<Final<PValue>>) -> crate::Result<Final<PValue>> {
         });
     }
     if items.iter().any(|x| matches!(x, PValue::Deck(_))) {
-        return Err(Error::Unsupported("tupleizing decks".into()));
+        return Err(Error::Unported("tupleizing decks".into()));
     }
     let items = items
         .into_iter()
@@ -322,7 +322,7 @@ fn tupleize(finals: Vec<Final<PValue>>) -> crate::Result<Final<PValue>> {
         let die = super::map::tupleize(items).map_err(core_error)?;
         return match die {
             crate::DieArg::Die(d) => Ok(Final::Outcome(PValue::Die(d))),
-            _ => Err(Error::Unsupported("tupleize".into())),
+            _ => Err(Error::Unported("tupleize".into())),
         };
     }
     Ok(Final::Outcome(PValue::tuple(items)))
@@ -331,7 +331,7 @@ fn tupleize(finals: Vec<Final<PValue>>) -> crate::Result<Final<PValue>> {
 fn core_error(e: PErr) -> Error {
     match e {
         PErr::Raise(e) => e,
-        PErr::Unimplemented(what) => Error::Unsupported(what),
+        PErr::Unimplemented(what) => Error::Unported(what),
     }
 }
 
@@ -392,7 +392,7 @@ fn prepare_raw(raw: &RawResult) -> Result<Vec<Prepared>, PErr> {
 fn convert(x: PValue) -> Result<RawResult, PErr> {
     match x {
         PValue::RawResult(r) => Ok((*r).clone()),
-        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => type_error(
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => wrong_type(
             "The result of a @multiset_function cannot contain expressions without a terminating evaluation.",
         ),
         x => {
@@ -451,10 +451,10 @@ fn prepare_function(
     let mut vars = Vec::new();
     let rest = if star {
         let Some(first) = inputs.first() else {
-            return raise(Error::Index("tuple index out of range".into()));
+            return raise(Error::IndexOutOfRange("tuple index out of range".into()));
         };
         let Some(len) = first.tuple_len()? else {
-            return type_error("object of this type has no len()");
+            return wrong_type("object of this type has no len()");
         };
         for i in 0..len {
             vars.push(PValue::Expr(MExpr::Param {
@@ -472,14 +472,14 @@ fn prepare_function(
     }
     // `self._wrapped(*multiset_variables, **kwargs)`: Python binds the arguments to the signature.
     if vars.len() < f.params || (!f.var && vars.len() > f.params) {
-        return type_error(format!(
+        return wrong_type(format!(
             "wrapped() takes {} positional arguments but {} were given",
             f.params,
             vars.len()
         ));
     }
     if let Some((k, _)) = kwargs.iter().find(|(k, _)| !f.kwonly.contains(k)) {
-        return type_error(format!(
+        return wrong_type(format!(
             "wrapped() got an unexpected keyword argument '{k}'"
         ));
     }
@@ -488,7 +488,7 @@ fn prepare_function(
         .iter()
         .find(|k| kwargs.iter().all(|(n, _)| n != *k))
     {
-        return type_error(format!(
+        return wrong_type(format!(
             "wrapped() missing 1 required keyword-only argument: '{k}'"
         ));
     }
@@ -549,7 +549,7 @@ fn prepare_joint(outer: &[MExpr], raws: Vec<RawResult>) -> Result<Vec<Prepared>,
         for combination in product(&inners) {
             if combination.is_empty() {
                 // `zip(*inner)` over the one empty product: nothing to unpack into four names.
-                return raise(Error::Value(
+                return raise(Error::InvalidArgument(
                     "not enough values to unpack (expected 4, got 0)".into(),
                 ));
             }
@@ -593,7 +593,7 @@ pub fn mf_call_kw(f: PValue, args: PValue, kwargs: PValue) -> Result<PValue, PEr
 /// `f.evaluate(*args, **kwargs)` for a multiset function `f`.
 fn call(f: PValue, args: PValue, kwargs: Vec<(String, PValue)>) -> Result<PValue, PErr> {
     let PValue::MultisetFunction(f) = f else {
-        return type_error("not a multiset function");
+        return wrong_type("not a multiset function");
     };
     let exprs = py_iter(args)?
         .into_iter()

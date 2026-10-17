@@ -204,7 +204,7 @@ pub(crate) fn int(c: &Count) -> Result<Int> {
 
 /// What Python raises computing with a tuple count, e.g. `max((1, 0), 0)` or `(1, 0) - 1`.
 pub(crate) fn tuple_error() -> Error {
-    Error::Type("unsupported operand type(s) for a tuple count and an int".into())
+    Error::WrongType("unsupported operand type(s) for a tuple count and an int".into())
 }
 
 /// Python's `count * n` for a tuple count: the tuple repeated `n` times (empty if `n <= 0`).
@@ -213,7 +213,7 @@ pub(crate) fn repeat(t: &[Int], n: &Int) -> Result<Count> {
     // 64 bits Python cannot either (OverflowError, even for an empty tuple or a negative `n`).
     let n = n.to_len("a tuple count repeated")?;
     if (t.len() as u64).saturating_mul(n) > 1 << 24 {
-        return Err(Error::Unsupported("a tuple count of this length".into()));
+        return Err(Error::Unported("a tuple count of this length".into()));
     }
     // Within 2**24 (or an empty tuple), so a `usize` on every target.
     let n = if t.is_empty() { 0 } else { n as usize };
@@ -260,7 +260,7 @@ impl<O: PartialEq> Operator<O> {
         if !matches!(self, Operator::Binary(_) | Operator::MapCounts(_))
             && child_sizes.len() < self.arity()
         {
-            return Err(Error::Index("list index out of range".into()));
+            return Err(Error::IndexOutOfRange("list index out of range".into()));
         }
         // Each operator reads the sizes it computes with (`int`: a tuple size is a TypeError there); the pairing
         // operators may store one in their state instead.
@@ -323,7 +323,9 @@ impl<O: PartialEq> Operator<O> {
         if let Operator::Host(op) = self {
             // A host operator's state is always a host one: `initial_state` made it.
             let Statelet::Host(state) = state else {
-                return Err(Error::Value("a host operator without its state".into()));
+                return Err(Error::InvalidArgument(
+                    "a host operator without its state".into(),
+                ));
             };
             let (next, count) = op.next_state(state, order, outcome, child_counts)?;
             return Ok((Statelet::Host(next), count));
@@ -333,7 +335,7 @@ impl<O: PartialEq> Operator<O> {
         if !matches!(self, Operator::Binary(_) | Operator::MapCounts(_))
             && child_counts.len() < self.arity()
         {
-            return Err(Error::Index("list index out of range".into()));
+            return Err(Error::IndexOutOfRange("list index out of range".into()));
         }
         if let Statelet::TupleSize(_) = state {
             return Err(tuple_error());
@@ -467,7 +469,7 @@ mod tests {
         }
         assert!(matches!(
             repeat(&t, &Int::from((1i64 << 23) + 1)),
-            Err(Error::Unsupported(_))
+            Err(Error::Unported(_))
         ));
         // Past 64 bits Python raises OverflowError.
         assert!(matches!(
@@ -486,7 +488,7 @@ mod tests {
         let unique = Operator::<i64>::Unique(Int::ONE);
         let next =
             |counts: &[Count]| unique.next_state(&Statelet::None, Order::Ascending, &1, counts);
-        assert!(matches!(next(&[]), Err(Error::Index(_))));
+        assert!(matches!(next(&[]), Err(Error::IndexOutOfRange(_))));
         // Extra children are not read (Python's `child_counts[0]`).
         assert_eq!(
             next(&[Count::Int(3.into()), Count::Int(5.into())]).unwrap(),

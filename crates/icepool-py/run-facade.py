@@ -4,7 +4,7 @@ fuzz run through the facade: programs are evaluated by the harness's own grammar
 direct calls into icepool), but `icepool` is the facade instead of the oracle.
 
 A NotImplementedError raised by icepool_rs (a case the core does not cover yet) is reported as unimplemented, as
-icepool-run reports `Error::Unsupported`; every other exception is a raise, encoded as the oracle encodes it.
+icepool-run reports `Error::Unported`; every other exception is a raise, encoded as the oracle encodes it.
 """
 import json
 import os

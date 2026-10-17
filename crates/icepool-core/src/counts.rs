@@ -40,7 +40,9 @@ impl<O: OutcomeOrder> Counts<O> {
 
     /// Items already sorted and merged (e.g. by construction, as in `d(n)`). Checked in debug builds.
     pub fn from_sorted(items: Vec<(O, Quantity)>) -> Self {
-        debug_assert!(items.windows(2).all(|w| outcome::lt(&w[0].0, &w[1].0) == Ok(true)));
+        debug_assert!(items
+            .windows(2)
+            .all(|w| outcome::lt(&w[0].0, &w[1].0) == Ok(true)));
         Counts { items }
     }
 
@@ -112,7 +114,8 @@ mod tests {
         let keys: Vec<String> = c.items().iter().map(|(k, _)| k.to_string()).collect();
         assert_eq!(keys, ["True", "1.5", "3"]);
         assert!(Counts::new(vec![(Value::from(3), q(1)), (Value::str("a"), q(1))]).is_err());
-        let sorted = crate::value::sort::timsort((0..50).rev().collect(), |a: &i32, b| Ok(a < b)).unwrap();
+        let sorted =
+            crate::value::sort::timsort((0..50).rev().collect(), |a: &i32, b| Ok(a < b)).unwrap();
         assert_eq!(sorted, (0..50).collect::<Vec<_>>());
     }
 }

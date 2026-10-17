@@ -145,7 +145,10 @@ pub fn evaluate_agains_using_depth<F, L: Clone, E: From<Error>>(
 ) -> std::result::Result<L, E> {
     // Python's frames below the facade's call: each level after the innermost is a `Die(...)` call (`Die.__new__`
     // and `evaluate_agains_using_depth` again), then `replace_again` and `_evaluate`.
-    let replace = |end: Option<&L>, frames_above: usize, call_frames: usize| -> std::result::Result<Vec<L>, E> {
+    let replace = |end: Option<&L>,
+                   frames_above: usize,
+                   call_frames: usize|
+     -> std::result::Result<Vec<L>, E> {
         outcomes
             .iter()
             .map(|outcome| match (outcome, end) {
@@ -193,7 +196,7 @@ pub fn step_outcomes<F, L: Clone, E: From<Error>>(
         .map(|outcome| match outcome {
             AgainArg::Again(a) => {
                 if !a.is_additive() {
-                    return Err(Error::Value(
+                    return Err(Error::InvalidArgument(
                         "again_count mode cannot be used with a non-additive AgainExpression."
                             .into(),
                     )
@@ -224,7 +227,7 @@ fn int(i: i64) -> Value {
 fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<Step> {
     let unpack = |v: &Value, n: usize| match v {
         Value::Tuple(items) if items.len() == n => Ok(items.clone()),
-        _ => Err(Error::Type(format!(
+        _ => Err(Error::WrongType(format!(
             "cannot unpack {} into {n} values",
             v.type_name()
         ))),

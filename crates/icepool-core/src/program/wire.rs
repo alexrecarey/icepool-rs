@@ -21,8 +21,37 @@ pub fn json_int(n: &Number) -> Option<IBig> {
     }
 }
 
-fn value_error(msg: &str) -> PErr {
-    PErr::Raise(Error::Value(msg.into()))
+/// The Python exception icepool raises where the core returns `e`, by name: the `error` field of a wire result.
+/// Fixtures only check that both sides raised, so the name is informational; it is total over the variants, so a
+/// new variant must be named here. (The Python facade maps variants to exception types itself, in icepool-py.)
+pub fn python_exception(e: &Error) -> &'static str {
+    match e {
+        Error::InvalidArgument(_) => "ValueError",
+        Error::WrongType(_) | Error::Incomparable { .. } | Error::Unhashable { .. } => "TypeError",
+        Error::MissingAttribute(_) => "AttributeError",
+        Error::IndexOutOfRange(_) => "IndexError",
+        Error::MissingKey(_) => "KeyError",
+        Error::DivisionByZero(_) => "ZeroDivisionError",
+        Error::ConflictingOrder(_) => "ConflictingOrderError",
+        Error::UninferrableSize(_) => "OrderError",
+        Error::UnsupportedOrder(_) => "UnsupportedOrder",
+        Error::RecursionLimit(_) => "RecursionError",
+        Error::Overflow(_) => "OverflowError",
+        Error::TooLarge(_) => "MemoryError",
+        Error::NotImplementedUpstream(_) => "NotImplementedError",
+        // Not raises: the runner reports these before asking (`PErr::Unimplemented`, the host's own exception).
+        Error::Unported(_) => "unimplemented",
+        Error::Callback(_) => "host exception",
+    }
+}
+
+/// The wire result of a raise: `{"ok": false, "error": <Python exception>, "message": <its message>}`.
+pub fn raised(e: &Error) -> Json {
+    json!({"ok": false, "error": python_exception(e), "message": e.to_string()})
+}
+
+fn invalid_argument(msg: &str) -> PErr {
+    PErr::Raise(Error::InvalidArgument(msg.into()))
 }
 
 /// `encode.dec`: typed JSON -> value, for literals inside programs. Lists are handled by the evaluator; inside a
@@ -32,11 +61,13 @@ pub fn dec(j: &Json) -> Result<PValue, PErr> {
         Json::Null => Ok(PValue::Value(Value::None)),
         Json::Number(n) => match json_int(n) {
             Some(i) => Ok(PValue::Value(Value::Int(i))),
-            None => Err(value_error("bare JSON floats are not allowed")),
+            None => Err(invalid_argument("bare JSON floats are not allowed")),
         },
-        Json::Bool(_) => Err(value_error("bare JSON booleans are not allowed")),
-        Json::String(_) => Err(value_error("bare JSON strings are not allowed")),
-        Json::Array(_) => Err(value_error("bare JSON lists are not allowed as values")),
+        Json::Bool(_) => Err(invalid_argument("bare JSON booleans are not allowed")),
+        Json::String(_) => Err(invalid_argument("bare JSON strings are not allowed")),
+        Json::Array(_) => Err(invalid_argument(
+            "bare JSON lists are not allowed as values",
+        )),
         Json::Object(m) if m.len() == 1 => {
             let (k, v) = m.iter().next().expect("one entry");
             match k.as_str() {
@@ -52,15 +83,15 @@ pub fn dec(j: &Json) -> Result<PValue, PErr> {
                         Json::String(s) if s.is_empty() => &[],
                         Json::Object(o) if o.is_empty() => &[],
                         Json::String(_) | Json::Object(_) => {
-                            return Err(value_error("not a typed value"))
+                            return Err(invalid_argument("not a typed value"))
                         }
-                        _ => return raise(Error::Type("object is not iterable".into())),
+                        _ => return raise(Error::WrongType("object is not iterable".into())),
                     };
                     let mut out = Vec::with_capacity(elems.len());
                     for e in elems {
                         match dec(e)? {
                             PValue::Value(x) => out.push(x),
-                            _ => return Err(value_error("not a typed value")),
+                            _ => return Err(invalid_argument("not a typed value")),
                         }
                     }
                     Ok(PValue::Value(Value::tuple(out)))
@@ -73,10 +104,10 @@ pub fn dec(j: &Json) -> Result<PValue, PErr> {
                     _ => unreachable!("a tuple literal decodes to a tuple"),
                 },
                 "symbols" => symbols(v).map(|s| PValue::Value(Value::Symbols(s))),
-                _ => Err(value_error("not a typed value")),
+                _ => Err(invalid_argument("not a typed value")),
             }
         }
-        Json::Object(_) => Err(value_error("not a typed value")),
+        Json::Object(_) => Err(invalid_argument("not a typed value")),
     }
 }
 
@@ -94,7 +125,8 @@ fn symbols(v: &Json) -> Result<Symbols, PErr> {
                 None => Value::Float(parse_float(&n.to_string())?),
             },
             // A list or dict is unhashable: `data[s] += 1` raises.
-            _ => return raise(Error::Type("unhashable type".into())),
+            Json::Array(_) => return raise(Error::Unhashable { type_name: "list" }),
+            Json::Object(_) => return raise(Error::Unhashable { type_name: "dict" }),
         })
     };
     match v {
@@ -124,7 +156,7 @@ fn symbols(v: &Json) -> Result<Symbols, PErr> {
                 Json::Number(n) if json_int(n).is_some() => "int",
                 _ => "float",
             };
-            return raise(Error::Type(format!("'{name}' object is not iterable")));
+            return raise(Error::WrongType(format!("'{name}' object is not iterable")));
         }
     }
     .map_err(PErr::Raise)
@@ -173,7 +205,7 @@ fn py_float(v: &Json) -> Result<f64, PErr> {
                 Ok(f)
             }
         }
-        _ => raise(Error::Type(
+        _ => raise(Error::WrongType(
             "float() argument must be a string or a real number".into(),
         )),
     }
@@ -190,7 +222,7 @@ fn parse_float(s: &str) -> Result<f64, PErr> {
     let cleaned = s.replace('_', "");
     match cleaned.parse::<f64>() {
         Ok(f) if underscores_ok => Ok(f),
-        _ => raise(Error::Value(format!(
+        _ => raise(Error::InvalidArgument(format!(
             "could not convert string to float: {s:?}"
         ))),
     }
@@ -204,12 +236,12 @@ fn fraction(v: &Json) -> Result<RBig, PErr> {
         _ => None,
     };
     let (Some(n), Some(d)) = (v.get(0).and_then(int), v.get(1).and_then(int)) else {
-        return raise(Error::Type(
+        return raise(Error::WrongType(
             "both arguments should be Rational instances".into(),
         ));
     };
     if d == IBig::ZERO {
-        return raise(Error::ZeroDivision("Fraction(n, 0)".into()));
+        return raise(Error::DivisionByZero("Fraction(n, 0)".into()));
     }
     Ok(RBig::from_parts_signed(n, d))
 }
@@ -338,9 +370,9 @@ pub fn result_of(v: &PValue) -> Json {
     match encoded {
         Ok(Some(j)) => j,
         Ok(None) => json!({"ok": false, "error": "unimplemented: this kind of program result"}),
-        Err(Error::Unsupported(what)) => {
+        Err(Error::Unported(what)) => {
             json!({"ok": false, "error": format!("unimplemented: {what}")})
         }
-        Err(e) => json!({"ok": false, "error": e.python_type(), "message": e.message()}),
+        Err(e) => raised(&e),
     }
 }

@@ -262,7 +262,7 @@ pub fn statistic<'py>(
             "standard_deviation" => die.standard_deviation(),
             "skewness" => die.skewness(),
             "excess_kurtosis" => die.excess_kurtosis(),
-            _ => Err(Error::Unsupported(format!("statistic {name}"))),
+            _ => Err(Error::Unported(format!("statistic {name}"))),
         },
     )
 }
@@ -351,7 +351,7 @@ pub fn quantities_op<'py>(
             "multiply" => die.multiply_quantities(&x),
             "divide" => die.divide_quantities(&x),
             "modulo" => die.modulo_quantities(&x).map(Some),
-            _ => Err(Error::Unsupported(format!("{method}_quantities"))),
+            _ => Err(Error::Unported(format!("{method}_quantities"))),
         },
     )
 }

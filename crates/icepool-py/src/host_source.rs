@@ -11,10 +11,10 @@
 
 use std::sync::Arc;
 
+use icepool_core::evaluator::{Count, MultisetSource, SourcePopped};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::expression::value_count;
 use icepool_core::host_source::{HostSource, HostSourceObject};
-use icepool_core::evaluator::{Order, OrderReason};
-use icepool_core::evaluator::{Count, MultisetSource, SourcePopped};
 use icepool_core::{Error, Value};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
@@ -36,14 +36,19 @@ pub(crate) fn facade_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Val
 /// A Python source object as a host source (its hash taken now: an unhashable source raises here).
 pub(crate) fn host_source(s: &Bound<'_, PyAny>) -> PyResult<MultisetSource<Value>> {
     let hash = s.hash()? as u64;
-    Ok(MultisetSource::Host(HostSource::new(Arc::new(PyHostSource {
-        object: s.clone().unbind(),
-        hash,
-    }))))
+    Ok(MultisetSource::Host(HostSource::new(Arc::new(
+        PyHostSource {
+            object: s.clone().unbind(),
+            hash,
+        },
+    ))))
 }
 
 /// The Python object of a host source, for `source_object`.
-pub(crate) fn host_object<'py>(py: Python<'py>, s: &HostSource<Value>) -> Option<Bound<'py, PyAny>> {
+pub(crate) fn host_object<'py>(
+    py: Python<'py>,
+    s: &HostSource<Value>,
+) -> Option<Bound<'py, PyAny>> {
     s.object()
         .as_any()
         .downcast_ref::<PyHostSource>()
@@ -58,7 +63,7 @@ pub(crate) struct PyHostSource {
 /// A count or size as Python gave it: `int` or a tuple of `int`s (a `bool` is not modelled).
 fn count(x: &Bound<'_, PyAny>) -> icepool_core::Result<Count> {
     value_count(&from_py(x).map_err(host_error)?).map_err(|e| match e {
-        Error::Unsupported(m) => Error::Unsupported(format!("a user source: {m}")),
+        Error::Unported(m) => Error::Unported(format!("a user source: {m}")),
         e => e,
     })
 }
@@ -110,7 +115,7 @@ impl HostSourceObject<Value> for PyHostSource {
                 .and_then(OrderReason::from_int);
             match (order, reason) {
                 (Some(o), Some(r)) => Ok((o, r)),
-                _ => Err(Error::Unsupported(
+                _ => Err(Error::Unported(
                     "a user source's order_preference that is not (Order, OrderReason)".into(),
                 )),
             }
@@ -132,9 +137,9 @@ impl HostSourceObject<Value> for PyHostSource {
                 .map_err(|e| callback_error(py, e))?;
             let mut result = Vec::new();
             for item in popped {
-                let (source, c, weight): (Bound<'_, PyAny>, Bound<'_, PyAny>, Bound<'_, PyAny>) = item
-                    .and_then(|i| i.extract())
-                    .map_err(|e| callback_error(py, e))?;
+                let (source, c, weight): (Bound<'_, PyAny>, Bound<'_, PyAny>, Bound<'_, PyAny>) =
+                    item.and_then(|i| i.extract())
+                        .map_err(|e| callback_error(py, e))?;
                 result.push((
                     facade_source(&source).map_err(host_error)?,
                     count(&c)?,

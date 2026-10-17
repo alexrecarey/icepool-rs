@@ -4,7 +4,7 @@
 
 use super::deck::{deck_from_data, the_deck};
 use super::map::{contains, select, the_die};
-use super::ops::{py_iter, type_error, weights_die};
+use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die};
 use super::{PErr, PValue};
 use crate::population::Data;
 use crate::value::builtins::py_len;
@@ -38,7 +38,7 @@ fn key(outcome: PValue) -> Result<Value, PErr> {
             v.check_hashable()?;
             Ok(v)
         }
-        PValue::List(_) => type_error("unhashable type: 'list'"),
+        PValue::List(_) => unhashable_list(),
         _ => Err(PErr::Unimplemented(
             "append / remove of an outcome that is not a plain value".into(),
         )),
@@ -98,7 +98,7 @@ fn index_of(outcomes: &PValue, x: &Value) -> Result<Option<i64>, PErr> {
             _ => None,
         },
         PValue::Die(_) | PValue::DieWithTruth(..) => {
-            return type_error("AttributeError: 'Die' object has no attribute 'index'")
+            return missing_attribute("'Die' object has no attribute 'index'")
         }
         _ => {
             return Err(PErr::Unimplemented(

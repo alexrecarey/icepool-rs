@@ -8,7 +8,7 @@ use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
-use crate::error::{value_error, Error, Result};
+use crate::error::{invalid_argument, Error, Result};
 use crate::outcome::{infallible, ErrInto, Outcome, OutcomeArith, OutcomeOrder};
 use crate::Quantity;
 
@@ -96,7 +96,7 @@ impl<O: OutcomeOrder> Die<O> {
     /// `weighted_lcm` so that the overall denominator is minimised while preserving the relative weighting.
     pub fn new(outcomes: Vec<DieArg<O>>, times: Vec<Quantity>) -> Result<Self> {
         if outcomes.len() != times.len() {
-            return value_error(format!(
+            return invalid_argument(format!(
                 "The number of times ({}) must equal the number of keys ({}).",
                 times.len(),
                 outcomes.len()
@@ -198,7 +198,9 @@ impl<O: OutcomeOrder> Die<O> {
     /// `Die(data)` for a dict of outcome -> quantity (`self._new_type(data)` in icepool). `itemize` and
     /// `merge_weights_lcm` see denominator 1 for every outcome, so `weighted_lcm` passes the quantities through
     /// unchanged except that zero ones drop out; then `Counts` sorts what is left.
-    pub(crate) fn from_mapping(data: OrderedMerge<O>) -> std::result::Result<Self, O::Incomparable> {
+    pub(crate) fn from_mapping(
+        data: OrderedMerge<O>,
+    ) -> std::result::Result<Self, O::Incomparable> {
         Self::from_dict(data.into_items())
     }
 
@@ -226,7 +228,7 @@ impl<O: OutcomeOrder> Die<O> {
     pub fn min_outcome(&self) -> Result<&O> {
         match self.items().first() {
             Some((o, _)) => Ok(o),
-            None => Err(Error::Index("tuple index out of range".into())),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
         }
     }
 
@@ -234,7 +236,7 @@ impl<O: OutcomeOrder> Die<O> {
     pub fn max_outcome(&self) -> Result<&O> {
         match self.items().last() {
             Some((o, _)) => Ok(o),
-            None => Err(Error::Index("tuple index out of range".into())),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
         }
     }
 
@@ -252,7 +254,7 @@ impl<O: OutcomeOrder> Die<O> {
                     )
                 })
                 .clone()),
-            None => Err(Error::Index("tuple index out of range".into())),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
         }
     }
 
@@ -269,7 +271,7 @@ impl<O: OutcomeOrder> Die<O> {
                     )
                 })
                 .clone()),
-            None => Err(Error::Index("tuple index out of range".into())),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
         }
     }
 
@@ -366,7 +368,7 @@ impl<O: OutcomeOrder> Die<O> {
                 let denominator = self.denominator();
                 let total_stop_quantity = &denominator - &total_reroll_quantity;
                 if total_stop_quantity.is_zero() {
-                    return Err(Error::ZeroDivision(
+                    return Err(Error::DivisionByZero(
                         "integer division or modulo by zero".into(),
                     ));
                 }
@@ -516,7 +518,11 @@ impl<O: Outcome> Die<O> {
     /// assert_eq!(highest.quantity_le(&1).to_string(), "1");
     /// assert_eq!(highest.denominator().to_string(), "36");
     /// ```
-    pub fn binary<Q: Outcome, P: Outcome>(&self, other: &Die<Q>, mut f: impl FnMut(&O, &Q) -> P) -> Die<P> {
+    pub fn binary<Q: Outcome, P: Outcome>(
+        &self,
+        other: &Die<Q>,
+        mut f: impl FnMut(&O, &Q) -> P,
+    ) -> Die<P> {
         infallible(self.try_binary(other, |a, b| Ok(f(a, b))))
     }
 
@@ -535,7 +541,10 @@ impl<O: Outcome> Die<O> {
         let mut data = OrderedMerge::default();
         for (outcome_self, quantity_self) in self.items() {
             for (outcome_other, quantity_other) in other.items() {
-                data.add(f(outcome_self, outcome_other)?, quantity_self * quantity_other);
+                data.add(
+                    f(outcome_self, outcome_other)?,
+                    quantity_self * quantity_other,
+                );
             }
         }
         Ok(infallible(Die::from_mapping(data)))
@@ -570,7 +579,7 @@ impl<O: OutcomeArith> Die<O> {
     pub fn zero(&self) -> Result<Self> {
         let result = self.unary_operator(O::try_zero)?;
         if result.len() != 1 {
-            return value_error("zero() did not resolve to a single outcome.");
+            return invalid_argument("zero() did not resolve to a single outcome.");
         }
         Ok(result)
     }
@@ -631,7 +640,7 @@ impl<O: OutcomeArith> Die<O> {
         let max_abs_die_count = match counts.iter().map(|(c, _)| c.unsigned_abs()).max() {
             Some(m) => m,
             // `max(abs(self.min_outcome()), ...)` of an empty die.
-            None => return Err(Error::Index("tuple index out of range".into())),
+            None => return Err(Error::IndexOutOfRange("tuple index out of range".into())),
         };
         let max_abs = usize::try_from(max_abs_die_count)
             .map_err(|_| Error::Overflow("die count too large".into()))?;
@@ -745,7 +754,10 @@ pub fn from_cumulative<O: OutcomeOrder>(
 
 /// Python's `bisect` loop over sorted items: the first index whose outcome does not satisfy `go_right` (which must
 /// hold for a prefix of the items). `lo` moves right while `go_right(a[mid])`.
-fn bisect<O, E>(items: &[(O, Quantity)], go_right: impl Fn(&O) -> std::result::Result<bool, E>) -> std::result::Result<usize, E> {
+fn bisect<O, E>(
+    items: &[(O, Quantity)],
+    go_right: impl Fn(&O) -> std::result::Result<bool, E>,
+) -> std::result::Result<usize, E> {
     let (mut lo, mut hi) = (0, items.len());
     while lo < hi {
         let mid = (lo + hi) / 2;
@@ -816,7 +828,7 @@ impl Die<crate::Value> {
             }
             match list_index(target) {
                 Some(i) => Ok(Some(cache[i].clone())),
-                None => Err(Error::Type(format!(
+                None => Err(Error::WrongType(format!(
                     "list indices must be integers or slices, not {}",
                     target.type_name()
                 ))),
@@ -826,12 +838,12 @@ impl Die<crate::Value> {
             return Ok(result);
         }
         if self.min_outcome()?.py_lt(&zero)? {
-            return value_error("mean_time_to_sum does not handle negative outcomes.");
+            return invalid_argument("mean_time_to_sum does not handle negative outcomes.");
         }
         let denominator = self.denominator();
         let effect = &denominator - &self.try_quantity(crate::population::Comparison::Eq, &zero)?;
         if effect.is_zero() {
-            return Err(Error::ZeroDivision(format!("Fraction({denominator}, 0)")));
+            return Err(Error::DivisionByZero(format!("Fraction({denominator}, 0)")));
         }
         let time_per_effect = dashu_ratio::RBig::from_parts(denominator.into(), effect);
         // `range(len(cache), target + 1)`.
@@ -840,12 +852,10 @@ impl Die<crate::Value> {
             (_, Some(stop)) => stop,
             // Python would loop over every target up to this one, for hours.
             (Value::Int(_), None) => {
-                return Err(Error::Unsupported(
-                    "mean_time_to_sum of a huge target".into(),
-                ))
+                return Err(Error::Unported("mean_time_to_sum of a huge target".into()))
             }
             _ => {
-                return Err(Error::Type(format!(
+                return Err(Error::WrongType(format!(
                     "'{}' object cannot be interpreted as an integer",
                     stop.type_name()
                 )))
@@ -877,7 +887,7 @@ impl Die<crate::Value> {
                 let time = match cached(cache, &next)? {
                     Some(Value::Fraction(f)) => f,
                     _ => {
-                        return Err(Error::Type(format!(
+                        return Err(Error::WrongType(format!(
                             "'{}' object cannot be interpreted as an integer",
                             next.type_name()
                         )))
@@ -892,7 +902,7 @@ impl Die<crate::Value> {
             result = Some(value);
         }
         // `target >= len(cache)` here, so the loop ran at least once.
-        result.ok_or_else(|| Error::Value("mean_time_to_sum: empty range".into()))
+        result.ok_or_else(|| Error::InvalidArgument("mean_time_to_sum: empty range".into()))
     }
 
     /// Outcomes become 1 if greater than `zero()`, -1 if less than `zero()`, and 0 otherwise (`Die.sign`).
@@ -938,7 +948,10 @@ mod tests {
         assert_eq!(d6.quantity(Comparison::Lt, &4), q(3));
         assert_eq!(d6.quantity(Comparison::Ne, &7), q(6));
         let clipped = d6.clip(Some(&2), Some(&5));
-        assert_eq!(clipped.items(), [(2, q(2)), (3, q(1)), (4, q(1)), (5, q(2))]);
+        assert_eq!(
+            clipped.items(),
+            [(2, q(2)), (3, q(1)), (4, q(1)), (5, q(2))]
+        );
         let truncated = d6.truncate(Some(&5), None);
         assert_eq!(truncated.items(), [(5, q(1)), (6, q(1))]);
         assert_eq!(d6.try_clip(Some(&2), Some(&5)), Ok(clipped));

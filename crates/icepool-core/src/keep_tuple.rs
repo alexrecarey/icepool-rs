@@ -67,7 +67,7 @@ pub fn sum_counts(counts: &[Int]) -> Int {
 /// Raises `IndexError` if more than one `Ellipsis` is used, if a sequence without `...` does not have `pool_size`
 /// elements, for an `int` out of range, or for a slice with a step.
 pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<Int>> {
-    let index_error = |msg: &str| Err(Error::Index(msg.into()));
+    let index_error = |msg: &str| Err(Error::IndexOutOfRange(msg.into()));
     match index {
         KeepIndex::Int(i) => {
             let mut result = vec![Int::ZERO; pool_size];
@@ -147,7 +147,7 @@ pub fn make_keep_tuple(pool_size: usize, index: &KeepIndex) -> Result<Vec<Int>> 
                 let mut i = -1;
                 while i > stop {
                     let Some(x) = &index[(len as i64 + i) as usize] else {
-                        return Err(Error::Type(
+                        return Err(Error::WrongType(
                             "unsupported operand type(s) for +=: 'int' and 'ellipsis'".into(),
                         ));
                     };
@@ -203,7 +203,7 @@ pub fn compose_keep_tuples(base: &[Int], apply: &[Int]) -> Vec<Int> {
 /// less-capable `MultisetExpression` version and the result is not a keep generator: not ported yet.
 pub fn keep(keep_tuple: &[Int], index: &KeepIndex) -> Result<Vec<Int>> {
     if keep_tuple.iter().any(Int::is_negative) {
-        return Err(Error::Unsupported(
+        return Err(Error::Unported(
             "keep on a generator with negative counts (a MultisetKeep expression)".into(),
         ));
     }
@@ -220,7 +220,7 @@ pub fn keep(keep_tuple: &[Int], index: &KeepIndex) -> Result<Vec<Int>> {
 fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
     if let KeepIndex::Seq(index) = index {
         if index.iter().all(Option::is_some) && Int::from(index.len()) != *keep_size {
-            return Err(Error::Index(
+            return Err(Error::IndexOutOfRange(
                 "Length of index does not match pool size".into(),
             ));
         }
@@ -233,9 +233,7 @@ fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
 pub fn list_len(n: &Int) -> Result<usize> {
     match n.to_len("a list repeated")? {
         n if n <= MAX_KEEP_SIZE as u64 => Ok(n as usize),
-        n if n < MEMORY_ERROR_SIZE => {
-            Err(Error::Unsupported(format!("a keep tuple of size {n}")))
-        }
+        n if n < MEMORY_ERROR_SIZE => Err(Error::Unported(format!("a keep tuple of size {n}"))),
         n => Err(Error::Overflow(format!(
             "a keep tuple of size {n} (Python: MemoryError or OverflowError)"
         ))),
@@ -256,7 +254,9 @@ pub fn multiply_counts(keep_tuple: &[Int], constant: &Int) -> Vec<Int> {
 
 fn check_non_negative(name: &str, x: Option<i64>) -> Result<()> {
     match x {
-        Some(x) if x < 0 => Err(Error::Value(format!("{name}={x} cannot be negative."))),
+        Some(x) if x < 0 => Err(Error::InvalidArgument(format!(
+            "{name}={x} cannot be negative."
+        ))),
         _ => Ok(()),
     }
 }
@@ -313,7 +313,9 @@ pub enum Tie {
 /// the end (so not everything is kept, despite the docstring). Copied as is.
 pub fn middle_slice(keep_size: &Int, keep: &Int, tie: Tie) -> Result<Slice> {
     if keep.is_negative() {
-        return Err(Error::Value(format!("keep={keep} cannot be negative.")));
+        return Err(Error::InvalidArgument(format!(
+            "keep={keep} cannot be negative."
+        )));
     }
     let half = |x: Int| x.floor_divmod(&Int::small(2));
     let parity = |x: &Int| half(x.clone()).map(|(_, r)| r);
@@ -324,14 +326,14 @@ pub fn middle_slice(keep_size: &Int, keep: &Int, tie: Tie) -> Result<Slice> {
         // Need to consult the tiebreaker.
         match tie {
             Tie::Error => {
-                return Err(Error::Index(format!(
+                return Err(Error::IndexOutOfRange(format!(
                     "The middle {keep} of {keep_size} elements is ambiguous."
                 )))
             }
             Tie::High => half(keep_size + 1 - keep)?.0,
             Tie::Low => half(keep_size - 1 - keep)?.0,
             Tie::Invalid => {
-                return Err(Error::Value(
+                return Err(Error::InvalidArgument(
                     "Invalid value for tie. Expected 'error', 'low', or 'high'.".into(),
                 ))
             }
@@ -387,7 +389,7 @@ mod tests {
         // Center `...`, too many counts, enough dice to reach the `...` itself: Python adds it to an int.
         assert!(matches!(
             make_keep_tuple(3, &seq(&[o(1), o(1), o(1), e, o(1)])),
-            Err(Error::Type(_))
+            Err(Error::WrongType(_))
         ));
     }
 
@@ -430,7 +432,7 @@ mod tests {
         ));
         assert!(matches!(
             keep(&tuple, &seq(&[Some(1)])),
-            Err(Error::Index(_))
+            Err(Error::IndexOutOfRange(_))
         ));
         // Composing takes everything left past a huge base count.
         assert_eq!(
@@ -454,11 +456,20 @@ mod tests {
         assert_eq!(list_len(&Int::from(-3)).unwrap(), 0);
         assert_eq!(list_len(&Int::from(MAX_KEEP_SIZE)).unwrap(), MAX_KEEP_SIZE);
         for n in [MAX_KEEP_SIZE as u64 + 1, MEMORY_ERROR_SIZE - 1] {
-            assert!(matches!(list_len(&Int::from(n as i64)), Err(Error::Unsupported(_))), "{n}");
+            assert!(
+                matches!(list_len(&Int::from(n as i64)), Err(Error::Unported(_))),
+                "{n}"
+            );
         }
         for n in [MEMORY_ERROR_SIZE, MEMORY_ERROR_SIZE + 1] {
-            assert!(matches!(list_len(&Int::from(n as i64)), Err(Error::Overflow(_))), "{n}");
+            assert!(
+                matches!(list_len(&Int::from(n as i64)), Err(Error::Overflow(_))),
+                "{n}"
+            );
         }
-        assert!(matches!(list_len(&(Int::from(i64::MAX) + 1)), Err(Error::Overflow(_))));
+        assert!(matches!(
+            list_len(&(Int::from(i64::MAX) + 1)),
+            Err(Error::Overflow(_))
+        ));
     }
 }

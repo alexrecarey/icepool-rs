@@ -26,7 +26,7 @@ fn vector(depth: usize, leaf: i64) -> Value {
 
 fn is_recursion_error<T: std::fmt::Debug>(r: icepool_core::Result<T>) -> bool {
     match r {
-        Err(Error::Recursion(_)) => true,
+        Err(Error::RecursionLimit(_)) => true,
         other => panic!("expected RecursionError, got {other:?}"),
     }
 }
@@ -44,18 +44,20 @@ fn all_ops(x: &Value, y: &Value) -> Vec<(&'static str, icepool_core::Result<()>)
         ("py_lt", |x, y| ordering(x, y, |x, y| x.py_lt(y))),
         ("py_le", |x, y| ordering(x, y, |x, y| x.py_le(y))),
         ("py_eq", |x, y| x.py_eq(y).map(drop)),
-        ("binary <", |x, y| ordering(x, y, |x, y| x.binary(BinOp::Lt, y))),
+        ("binary <", |x, y| {
+            ordering(x, y, |x, y| x.binary(BinOp::Lt, y))
+        }),
         ("binary +", |x, y| x.binary(BinOp::Add, y).map(drop)),
-        ("binary 1 +", |x, _| Value::from(1).binary(BinOp::Add, x).map(drop)),
+        ("binary 1 +", |x, _| {
+            Value::from(1).binary(BinOp::Add, x).map(drop)
+        }),
         ("eq_op", |x, y| x.eq_op(y, false).map(drop)),
         ("unary -", |x, _| x.unary(UnOp::Neg).map(drop)),
         ("round", |x, _| x.round(&Value::None).map(drop)),
         ("repr", |x, _| py_repr(x).map(drop)),
         ("die", |x, _| die(x.clone()).map(drop)),
     ];
-    ops.into_iter()
-        .map(|(name, op)| (name, op(x, y)))
-        .collect()
+    ops.into_iter().map(|(name, op)| (name, op(x, y))).collect()
 }
 
 /// An ordering, skipped for vectors not nested too deep (exponential time), which give a `TypeError` instead.
@@ -65,7 +67,7 @@ fn ordering<T>(
     f: fn(&Value, &Value) -> icepool_core::Result<T>,
 ) -> icepool_core::Result<()> {
     match x {
-        Value::Vector(_) if x.py_check_key().is_ok() => Err(Error::Type("skipped".into())),
+        Value::Vector(_) if x.py_check_key().is_ok() => Err(Error::WrongType("skipped".into())),
         _ => f(x, y).map(drop),
     }
 }
@@ -88,7 +90,12 @@ fn deep_values_raise_and_shallower_ones_do_not_overflow() {
             let (x, y) = (make(MAX_DEPTH + 1, 1), make(MAX_DEPTH + 1, 2));
             for (name, r) in all_ops(&x, &y) {
                 // Tuples: `+` concatenates without recursing, and there is no `1 + t`, `-t` or `round(t)`.
-                if matches!(&r, Ok(()) | Err(Error::Type(_))) && is_tuple {
+                if is_tuple
+                    && matches!(
+                        &r,
+                        Ok(()) | Err(Error::WrongType(_) | Error::Incomparable { .. })
+                    )
+                {
                     continue;
                 }
                 assert!(is_recursion_error(r), "{name}");
@@ -103,7 +110,7 @@ fn deep_values_raise_and_shallower_ones_do_not_overflow() {
             // depth, in Python too: each level orders the elements for the truth value, then again elementwise.)
             let (x, y) = (make(2000, 1), make(2000, 2));
             for (name, r) in all_ops(&x, &y) {
-                assert!(!matches!(r, Err(Error::Recursion(_))), "{name}: {r:?}");
+                assert!(!matches!(r, Err(Error::RecursionLimit(_))), "{name}: {r:?}");
             }
         }
     });

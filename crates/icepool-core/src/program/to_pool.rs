@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::catalogue::Func;
 use super::expression::{add_inner, as_expression, binary_op, MExpr};
 use super::map::{arg_items, call, select, star_arg, the_die};
-use super::ops::{matmul_dice, type_error};
+use super::ops::{matmul_dice, wrong_type};
 use super::pool::{die_pool, pool, pool_highest_lowest, KeepGen};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -41,12 +41,12 @@ pub fn map_to_pool(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr
             (func, star)
         }
         PValue::Func(_) if args.len() != 1 => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "If a mapping is provided for repl, len(args) must be 1.".into(),
             ))
         }
         PValue::Func(mapping) => (mapping, false),
-        _ => return type_error("repl must be a callable or a mapping."),
+        _ => return wrong_type("repl must be a callable or a mapping."),
     };
     // Unlike `map`, multiset expressions among the args are not expanded: `iter_cartesian_product` passes them
     // as they are.
@@ -82,7 +82,7 @@ fn mixture_of_pools(
     for (outcomes, quantity) in iter_cartesian_product(items) {
         if star && outcomes.is_empty() {
             // `transition_function(*outcomes[0], ...)` with no args at all.
-            return raise(Error::Index("tuple index out of range".into()));
+            return raise(Error::IndexOutOfRange("tuple index out of range".into()));
         }
         if let Some(pool) = as_pool(call(f, star, outcomes, &[])?)? {
             add_inner(&mut data, pool, quantity)?;
@@ -146,7 +146,7 @@ fn pool_of(dice: Vec<(Die<Value>, &Value)>) -> Result<MExpr, PErr> {
     let mut counts = Vec::with_capacity(dice.len());
     for (die, count) in dice {
         let Value::Int(n) = count else {
-            return type_error("can't multiply sequence by non-int");
+            return wrong_type("can't multiply sequence by non-int");
         };
         // A die put in zero times would still add its outcomes to the pool's: `[die] * 0` leaves it out.
         if *n > dashu_int::IBig::ZERO {
@@ -184,7 +184,7 @@ pub fn explode_to_pool(
         Value::Int(i) => i64::try_from(i)
             .map_err(|_| PErr::Unimplemented("a huge explode_to_pool depth".into()))?,
         v => {
-            return type_error(format!(
+            return wrong_type(format!(
                 "'{}' object cannot be interpreted as an integer",
                 v.type_name()
             ))
@@ -293,7 +293,7 @@ pub fn reroll_to_pool(
             }
             "drop" => die_pool_of(&not_rerollable_die, &not_rerollable)?,
             _ => {
-                return raise(Error::Value(format!(
+                return raise(Error::InvalidArgument(format!(
                     "Invalid reroll_priority '{mode}'. Allowed values are 'random', 'low', 'high', 'drop'."
                 )))
             }

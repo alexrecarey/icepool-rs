@@ -164,7 +164,12 @@ pub trait MultisetEvaluator<O> {
         outcomes: &[O],
         sizes: &[Option<Count>],
     ) -> Result<Final<Self::Final>> {
-        self.final_outcome(final_state, order, outcomes, &int_sizes(sizes, self.reads_sizes())?)
+        self.final_outcome(
+            final_state,
+            order,
+            outcomes,
+            &int_sizes(sizes, self.reads_sizes())?,
+        )
     }
 
     /// What the driver calls: [`Self::initial_state_counts`] with the size tree of the evaluation's call tree. Only
@@ -202,16 +207,18 @@ pub trait MultisetEvaluator<O> {
 }
 
 pub(crate) fn tuple_unsupported() -> Error {
-    Error::Unsupported("a multiset tuple input (MultiDeal) to this evaluator".into())
+    Error::Unported("a multiset tuple input (MultiDeal) to this evaluator".into())
 }
 
 /// The `TypeError` Python raises comparing a tuple count with an `int` (`count >= 1`; `max(count, 0)` compares
 /// `0 > count`). A one-input evaluator whose `next_state` starts by such a comparison raises it for any tuple count
 /// (its one count is the tuple whenever [`MultisetEvaluator::next_state_values`] is called).
-pub(crate) fn tuple_compared_with_int(op: &str) -> Error {
-    Error::Type(format!(
-        "'{op}' not supported between instances of 'tuple' and 'int'"
-    ))
+pub(crate) fn tuple_compared_with_int(op: &'static str) -> Error {
+    Error::Incomparable {
+        op,
+        left: "tuple",
+        right: "int",
+    }
 }
 
 /// The sizes as `int`s; a tuple size is `None` if the evaluator does not read sizes, else `Unsupported`.
@@ -632,14 +639,16 @@ pub fn evaluate_call_tree<O: OutcomeOrder, E: MultisetEvaluator<O>>(
                 attempt(Algorithm::Forward, pop_order)
             };
             match retry {
-                Err(Error::UnsupportedOrder(forwards_unsupported)) => Err(Error::Order(format!(
+                Err(Error::UnsupportedOrder(forwards_unsupported)) => {
+                    Err(Error::ConflictingOrder(format!(
                     "Neither ascending nor descending order is compatable with the evaluation.\n\
                      Preferred input order was {} with reason {}.\n\
                      Backwards evaluation could not be done because: {backwards_unsupported}\n\
                      Forwards evaluation could not be done because: {forwards_unsupported}",
                     pop_order.name(),
                     pop_order_reason.name()
-                ))),
+                )))
+                }
                 result => result,
             }
         }
@@ -660,7 +669,7 @@ fn finalize_evaluation<O, E: MultisetEvaluator<O>>(
         for (state, weight) in main_states.items() {
             match evaluator.final_outcome_tree(state, order, outcomes, sizes)? {
                 Final::None => {
-                    return Err(Error::Type(
+                    return Err(Error::WrongType(
                         "None is not a valid final outcome.\nThis may have been a result of not supplying \
                          any input with an outcome."
                             .into(),

@@ -84,7 +84,7 @@ impl<O: OutcomeOrder> MultiDeal<O> {
     pub fn new(deck: Deck<O>, hand_groups: &[(IBig, IBig)]) -> Result<Self> {
         let total: IBig = hand_groups.iter().map(|(h, g)| h * g).sum();
         if total > IBig::from(deck.size()) {
-            return Err(Error::Value(
+            return Err(Error::InvalidArgument(
                 "The total number of cards dealt cannot exceed the size of the deck.".into(),
             ));
         }
@@ -92,14 +92,14 @@ impl<O: OutcomeOrder> MultiDeal<O> {
             .iter()
             .map(|(h, g)| Some((usize::try_from(h).ok()?, usize::try_from(g).ok()?)))
             .collect::<Option<Vec<HandGroup>>>()
-            .ok_or_else(|| Error::Unsupported("a negative or huge MultiDeal hand size".into()))?;
+            .ok_or_else(|| Error::Unported("a negative or huge MultiDeal hand size".into()))?;
         // `hand_sizes()` is a tuple with one element per hand: Python would run out of memory beyond this.
         if groups
             .iter()
             .try_fold(0usize, |n, &(_, g)| n.checked_add(g))
             .is_none_or(|n| n > MAX_POOL_SIZE)
         {
-            return Err(Error::Unsupported("too many hands in a MultiDeal".into()));
+            return Err(Error::Unported("too many hands in a MultiDeal".into()));
         }
         Ok(MultiDeal {
             deck,

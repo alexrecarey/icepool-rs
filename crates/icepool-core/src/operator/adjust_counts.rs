@@ -33,7 +33,11 @@ impl KeepCountsComparison {
             "<" => KeepCountsComparison::Lt,
             ">=" => KeepCountsComparison::Ge,
             ">" => KeepCountsComparison::Gt,
-            _ => return Err(Error::Value(format!("Invalid comparison {comparison}"))),
+            _ => {
+                return Err(Error::InvalidArgument(format!(
+                    "Invalid comparison {comparison}"
+                )))
+            }
         })
     }
 

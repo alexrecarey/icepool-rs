@@ -501,7 +501,7 @@ pub fn call(op: &str, args: Args) -> Result<PValue, PErr> {
         "pool_compare" => {
             let [p, other, cmp] = args.exactly(["pool", "other", "cmp"])?;
             let PValue::Value(Value::Str(cmp)) = cmp else {
-                return raise(Error::Key("pool_compare names a comparison".into()));
+                return raise(Error::MissingKey("pool_compare names a comparison".into()));
             };
             evaluate::compare(&cmp, p, other)
         }
@@ -934,7 +934,7 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
                     "str % Again with conversion specifiers".into(),
                 ))
             } else {
-                type_error("not all arguments converted during string formatting")
+                wrong_type("not all arguments converted during string formatting")
             }
         }
         (a, b @ PValue::Again(_)) => match op.reflected_comparison() {
@@ -979,7 +979,7 @@ pub(super) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
         }
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
         PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
-        _ => type_error("bad operand type for a unary operator"),
+        _ => wrong_type("bad operand type for a unary operator"),
     }
 }
 
@@ -1003,8 +1003,8 @@ fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<(), PErr> {
         if k > cached {
             let depth = k - cached + u64::from(*count < 0);
             if depth >= SURE_RECURSION_ERROR {
-                return raise(Error::Recursion(
-                "maximum recursion depth exceeded in _sum_all".into(),
+                return raise(Error::RecursionLimit(
+                    "maximum recursion depth exceeded in _sum_all".into(),
                 ));
             }
             if depth > SAFE_RECURSION {
@@ -1028,7 +1028,7 @@ pub(super) fn matmul(n: PValue, die: PValue) -> Result<PValue, PErr> {
         }
         (PValue::Die(n), die) => (n, to_die(die)?),
         (n, PValue::Die(die)) => (to_die(n)?, die),
-        _ => return type_error("unsupported operand type(s) for @"),
+        _ => return wrong_type("unsupported operand type(s) for @"),
     };
     matmul_dice(&n, &die).map(PValue::Die)
 }
@@ -1096,7 +1096,7 @@ pub fn matmul_dice(n: &Die<Value>, die: &Die<Value>) -> Result<Die<Value>, PErr>
     let mut items = Vec::with_capacity(data.len());
     for (outcome, quantity, float) in data {
         if float && !quantity.is_zero() {
-            return type_error("'float' object cannot be interpreted as an integer");
+            return wrong_type("'float' object cannot be interpreted as an integer");
         }
         items.push((outcome, quantity));
     }
@@ -1123,7 +1123,7 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
         ),
         Value::Fraction(r) if r.denominator().is_one() => (r.numerator().clone(), CountKind::Int),
         Value::Float(_) | Value::Fraction(_) => {
-            return raise(Error::Recursion(
+            return raise(Error::RecursionLimit(
                 "maximum recursion depth exceeded in _sum_all".into(),
             ))
         }
@@ -1133,12 +1133,12 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
                 "a count of a host type in n @ die".into(),
             ))
         }
-        v => return type_error(format!("bad operand type for abs(): '{}'", v.type_name())),
+        v => return wrong_type(format!("bad operand type for abs(): '{}'", v.type_name())),
     };
     // Beyond i64, `_sum_all` recurses past Python's limit.
     let count = i64::try_from(int).map_err(|_| {
-        PErr::Raise(Error::Recursion(
-                "maximum recursion depth exceeded in _sum_all".into(),
+        PErr::Raise(Error::RecursionLimit(
+            "maximum recursion depth exceeded in _sum_all".into(),
         ))
     })?;
     Ok((count, kind))
@@ -1156,7 +1156,7 @@ fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
     match a {
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.round(&nd))?)),
         PValue::Value(v) => Ok(PValue::Value(v.round(&nd)?)),
-        _ => type_error("type doesn't define __round__ method"),
+        _ => wrong_type("type doesn't define __round__ method"),
     }
 }
 
@@ -1164,7 +1164,9 @@ fn round(a: PValue, ndigits: PValue) -> Result<PValue, PErr> {
 fn str_arg(x: &PValue) -> Result<String, PErr> {
     match x {
         PValue::Value(Value::Str(s)) => Ok(s.to_string()),
-        _ => raise(Error::Key("expected a str naming an operation".into())),
+        _ => raise(Error::MissingKey(
+            "expected a str naming an operation".into(),
+        )),
     }
 }
 
@@ -1172,16 +1174,28 @@ fn str_arg(x: &PValue) -> Result<String, PErr> {
 fn bool_arg(x: &PValue) -> Result<bool, PErr> {
     match x {
         PValue::Value(Value::Bool(b)) => Ok(*b),
-        _ => raise(Error::Type("expected a bool flag".into())),
+        _ => raise(Error::WrongType("expected a bool flag".into())),
     }
 }
 
-pub(super) fn type_error<T>(msg: impl Into<String>) -> Result<T, PErr> {
-    raise(Error::Type(msg.into()))
+pub(super) fn wrong_type<T>(msg: impl Into<String>) -> Result<T, PErr> {
+    raise(Error::WrongType(msg.into()))
+}
+
+/// Python's `AttributeError`: the object lacks the method or attribute a program calls.
+pub(super) fn missing_attribute<T>(msg: impl Into<String>) -> Result<T, PErr> {
+    raise(Error::MissingAttribute(msg.into()))
+}
+
+/// A list used where Python hashes (a dict key, a set member, an outcome).
+pub(super) fn unhashable_list<T>() -> Result<T, PErr> {
+    raise(Error::Unhashable { type_name: "list" })
 }
 
 fn negative_times<T>() -> Result<T, PErr> {
-    raise(Error::Value("times cannot have negative values.".into()))
+    raise(Error::InvalidArgument(
+        "times cannot have negative values.".into(),
+    ))
 }
 
 fn zero() -> Num<'static> {
@@ -1193,7 +1207,7 @@ pub(super) fn d(sides: PValue) -> Result<PValue, PErr> {
     let sides = match sides {
         PValue::Value(Value::Int(i)) => i,
         PValue::Value(Value::Bool(b)) => IBig::from(b as u8),
-        _ => return type_error("sides must be an int."),
+        _ => return wrong_type("sides must be an int."),
     };
     // Beyond i64 Python would run out of memory long before finishing.
     let sides =
@@ -1222,15 +1236,15 @@ pub(super) fn py_iter(x: PValue) -> Result<Vec<PValue>, PErr> {
             .map(|(c, _)| PValue::Value(Value::str(c.encode_utf8(&mut [0; 4]))))
             .collect(),
         PValue::Value(v) => {
-            return type_error(format!("'{}' object is not iterable", v.type_name()))
+            return wrong_type(format!("'{}' object is not iterable", v.type_name()))
         }
         PValue::Reroll | PValue::Restart => {
-            return type_error("'RerollType' object is not iterable")
+            return wrong_type("'RerollType' object is not iterable")
         }
-        PValue::Break(_) => return type_error("'Break' object is not iterable"),
+        PValue::Break(_) => return wrong_type("'Break' object is not iterable"),
         PValue::Func(_) => return Err(PErr::Unimplemented("iterating a function".into())),
-        PValue::Again(_) => return type_error("'AgainExpression' object is not iterable"),
-        PValue::Ellipsis => return type_error("'ellipsis' object is not iterable"),
+        PValue::Again(_) => return wrong_type("'AgainExpression' object is not iterable"),
+        PValue::Ellipsis => return wrong_type("'ellipsis' object is not iterable"),
         // A deck is a mapping: iterating it gives its outcomes.
         PValue::Deck(d) => d.outcomes().cloned().map(PValue::Value).collect(),
         PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
@@ -1258,7 +1272,7 @@ pub(super) fn die_arg(x: PValue) -> Result<DieArg<Value>, PErr> {
         // `map` unwraps a `Break`; nothing else returns one.
         PValue::Break(_) => Err(PErr::Unimplemented("a Break as an outcome".into())),
         PValue::Tuple(items) => map::tupleize(items),
-        PValue::List(_) => type_error("unhashable type: 'list'"),
+        PValue::List(_) => unhashable_list(),
         PValue::Func(_) => Err(PErr::Unimplemented("a function as an outcome".into())),
         // `Die(...)` replaces top-level expressions first (`die_with_agains`); one nested in a tuple is not handled.
         PValue::Again(_) => Err(PErr::Unimplemented(
@@ -1295,7 +1309,7 @@ pub(super) fn die_with_agains(
     if objects.iter().any(|x| matches!(x, PValue::Again(_))) {
         if let Some(count) = again_count {
             if again_depth.is_some() {
-                return raise(Error::Value(
+                return raise(Error::InvalidArgument(
                     "At most one of again_count and again_depth may be used.".into(),
                 ));
             }
@@ -1354,7 +1368,7 @@ pub(super) fn itemize(
         | PValue::Tuple(_)
         | PValue::Value(Value::Str(_) | Value::Tuple(_))) => (py_iter(x)?, None),
         PValue::Func(_) => return Err(PErr::Unimplemented("Die(mapping)".into())),
-        _ => return type_error("Argument appears not to be a mapping or sequence."),
+        _ => return wrong_type("Argument appears not to be a mapping or sequence."),
     };
     itemize_times(args, base, times)
 }
@@ -1382,7 +1396,7 @@ fn itemize_times(
         Some(t) => {
             let ts = py_iter(t)?;
             if ts.len() != args.len() {
-                return raise(Error::Value(format!(
+                return raise(Error::InvalidArgument(format!(
                     "The number of times ({}) must equal the number of keys ({}).",
                     ts.len(),
                     args.len()
@@ -1391,7 +1405,7 @@ fn itemize_times(
             ts.into_iter()
                 .map(|t| match t {
                     PValue::Value(v) => Ok(v),
-                    _ => type_error("'<' not supported between a quantity and 'int'"),
+                    _ => wrong_type("'<' not supported between a quantity and 'int'"),
                 })
                 .collect::<Result<_, _>>()?
         }
@@ -1416,10 +1430,11 @@ fn itemize_times(
             Some(n) if n < zero() => return negative_times(),
             Some(_) => {}
             None => {
-                return type_error(format!(
-                    "'<' not supported between instances of '{}' and 'int'",
-                    t.type_name()
-                ))
+                return raise(Error::Incomparable {
+                    op: "<",
+                    left: t.type_name(),
+                    right: "int",
+                })
             }
         }
     }
@@ -1443,7 +1458,7 @@ fn int_times(q: &Quantity, t: &Value) -> Result<Value, PErr> {
             Value::Float(qf * f)
         }
         _ => {
-            return type_error(format!(
+            return wrong_type(format!(
                 "can't multiply an int quantity by '{}'",
                 t.type_name()
             ))
@@ -1464,7 +1479,7 @@ fn weight(arg: &DieArg<Value>, t: &Value) -> Result<Quantity, PErr> {
             if t.as_num().is_some_and(|n| n == zero()) || empty_die {
                 Ok(Quantity::ZERO)
             } else {
-                type_error(format!(
+                wrong_type(format!(
                     "'{}' object cannot be interpreted as an integer",
                     t.type_name()
                 ))
@@ -1487,14 +1502,14 @@ pub(super) fn dict_items(items: PValue) -> Result<Vec<(Key, PValue)>, PErr> {
     let mut index: FxHashMap<Key, usize> = FxHashMap::default();
     for item in py_iter(items)? {
         let Ok([k, v]) = <[PValue; 2]>::try_from(py_iter(item)?) else {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "not enough or too many values to unpack (expected 2)".into(),
             ));
         };
         let k = match k {
             PValue::Value(v) => Key::Value(v),
             PValue::Die(d) => Key::Die(d),
-            PValue::List(_) => return type_error("unhashable type: 'list'"),
+            PValue::List(_) => return unhashable_list(),
             _ => return Err(PErr::Unimplemented("this dict key".into())),
         };
         match index.get(&k) {
@@ -1540,7 +1555,7 @@ pub(super) fn weights_die(args: Vec<PValue>, values: Vec<PValue>) -> Result<PVal
         match v {
             PValue::Value(t) if t.as_num().is_some_and(|n| n < zero()) => return negative_times(),
             PValue::Value(t) if t.as_num().is_some() => times.push(t),
-            _ => return type_error("'<' not supported between a quantity and 'int'"),
+            _ => return wrong_type("'<' not supported between a quantity and 'int'"),
         }
     }
     if args.iter().any(|x| matches!(x, PValue::Again(_))) {

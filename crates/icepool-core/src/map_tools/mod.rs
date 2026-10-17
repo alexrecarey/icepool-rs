@@ -43,7 +43,7 @@ where
 }
 
 fn not_an_int() -> Error {
-    Error::Type("'repeat' object cannot be interpreted as an integer".into())
+    Error::WrongType("'repeat' object cannot be interpreted as an integer".into())
 }
 
 /// `transition_die.map(final_map, star=True)`: each `(transition_type, state)` becomes its state, except that

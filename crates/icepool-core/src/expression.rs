@@ -98,7 +98,7 @@ impl<C> CountTree<C> {
     pub fn leaf(&self) -> Result<&[C]> {
         match self {
             CountTree::Leaf(c) => Ok(c),
-            CountTree::Calls(_) => Err(Error::Unsupported(
+            CountTree::Calls(_) => Err(Error::Unported(
                 "multiset function calls given to a plain evaluator".into(),
             )),
         }
@@ -123,7 +123,7 @@ fn child_values<T: Clone>(values: &[T], children: &[usize]) -> Vec<T> {
 }
 
 fn no_source() -> Error {
-    Error::Unsupported("an expression with more free variables than sources".into())
+    Error::Unported("an expression with more free variables than sources".into())
 }
 
 /// A count as the Python value it is: an `int` or a tuple of them.
@@ -146,8 +146,8 @@ pub fn value_count(v: &Value) -> Result<Count> {
             })
             .collect::<Option<Vec<Int>>>()
             .map(|t| Count::Tuple(t.into()))
-            .ok_or_else(|| Error::Unsupported("a tuple count that is not ints".into())),
-        _ => Err(Error::Unsupported("a count that is not an int".into())),
+            .ok_or_else(|| Error::Unported("a tuple count that is not ints".into())),
+        _ => Err(Error::Unported("a count that is not an int".into())),
     }
 }
 
@@ -168,7 +168,7 @@ fn parameter<C: Clone>(
 ) -> Result<C> {
     let arg = args
         .get(arg_index)
-        .ok_or_else(|| Error::Index("tuple index out of range".into()))?;
+        .ok_or_else(|| Error::IndexOutOfRange("tuple index out of range".into()))?;
     match star_index {
         None => Ok(arg.clone()),
         Some(i) => Ok(from_count(subscript(
@@ -209,7 +209,7 @@ fn initial_tree<O: PartialEq>(
                     // `MultisetTupleIndex._initial_state` returns a bare `None` here, which the caller fails to
                     // unpack.
                     None => {
-                        return Err(Error::Type(
+                        return Err(Error::WrongType(
                             "cannot unpack non-iterable NoneType object".into(),
                         ))
                     }

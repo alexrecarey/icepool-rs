@@ -26,7 +26,7 @@ type LexiState = (bool, i64, i64, Int);
 fn two<T: Clone>(xs: &[T], method: &str) -> Result<(T, T)> {
     match xs {
         [a, b] => Ok((a.clone(), b.clone())),
-        _ => Err(Error::Type(format!(
+        _ => Err(Error::WrongType(format!(
             "LexiComparisonEvaluator.{method}() takes two multisets, {} given",
             xs.len()
         ))),
@@ -110,14 +110,14 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
             }
             _ if order == self.sort_order => Ok((true, 0, 0, Int::ZERO)),
             (Ok(None), _) | (_, Ok(None)) => self.initial_state(order, outcomes, &[None, None]),
-            (Err(()), Err(())) => Err(Error::Type(
+            (Err(()), Err(())) => Err(Error::WrongType(
                 "unsupported operand type(s) for -: 'tuple' and 'tuple'".into(),
             )),
-            (left, _) => Err(Error::Type(format!(
-                "'<' not supported between instances of '{}' and '{}'",
-                if left.is_ok() { "int" } else { "tuple" },
-                if left.is_ok() { "tuple" } else { "int" },
-            ))),
+            (left, _) => Err(Error::Incomparable {
+                op: "<",
+                left: if left.is_ok() { "int" } else { "tuple" },
+                right: if left.is_ok() { "tuple" } else { "int" },
+            }),
         }
     }
 
@@ -135,9 +135,11 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
         counts: &[Value],
     ) -> Result<Option<LexiState>> {
         two(counts, "next_state")?;
-        Err(Error::Type(
-            "'>' not supported between instances of 'int' and 'tuple'".into(),
-        ))
+        Err(Error::Incomparable {
+            op: ">",
+            left: "int",
+            right: "tuple",
+        })
     }
 
     fn final_outcome(

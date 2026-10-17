@@ -10,7 +10,7 @@ use std::sync::Arc;
 use dashu_int::IBig;
 
 use super::map::{select, the_die};
-use super::ops::{self, new_die, type_error};
+use super::ops::{self, new_die, wrong_type};
 use super::{raise, PErr, PValue};
 use crate::again::{Again, AgainArg, StepOutcome};
 use crate::error::Error;
@@ -120,7 +120,7 @@ pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
             function: AgainOp::Eq { truth, .. },
             ..
         } => Ok(*truth),
-        _ => raise(Error::Value(
+        _ => raise(Error::InvalidArgument(
             "An `Again` only has a truth value if it is the result of == or !=.".into(),
         )),
     }
@@ -205,10 +205,12 @@ fn depth_arg(depth: &PValue, name: &str) -> Result<u64, PErr> {
         PValue::Value(Value::Float(_) | Value::Fraction(_)) => {
             return Err(PErr::Unimplemented(format!("non-int {name}")))
         }
-        _ => return type_error(format!("'<' not supported between {name} and 'int'")),
+        _ => return wrong_type(format!("'<' not supported between {name} and 'int'")),
     };
     if depth < IBig::ZERO {
-        return raise(Error::Value(format!("{name} cannot be negative.")));
+        return raise(Error::InvalidArgument(format!(
+            "{name} cannot be negative."
+        )));
     }
     match u64::try_from(depth) {
         Ok(d) if d <= 10_000 => Ok(d),
@@ -232,7 +234,7 @@ fn not_again_die(objects: &[PValue], times: &[Value]) -> Result<Die<Value>, PErr
         .unzip();
     if outcomes.is_empty() {
         // `icepool.Die(*zip(*filtered))` with nothing left calls `Die()`.
-        return type_error("Die.__new__() missing 1 required positional argument: 'outcomes'");
+        return wrong_type("Die.__new__() missing 1 required positional argument: 'outcomes'");
     }
     the_die(new_die(outcomes, &times)?)
 }
@@ -257,7 +259,7 @@ pub fn evaluate_agains_using_depth(
         PValue::Reroll => None,
         // Every outcome that is an expression raises this, so the first one does.
         PValue::Restart => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "Restart is not compatible with again_depth.".into(),
             ))
         }

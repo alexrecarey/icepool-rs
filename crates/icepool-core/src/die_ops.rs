@@ -51,7 +51,7 @@ impl<O: Clone> IntoDie<O> for &Die<O> {
 /// The checked arithmetic of [`OutcomeArith`], panicking on overflow as Rust's integer operators do in a debug
 /// build ("attempt to add with overflow"), in release builds too: a wrong probability is worse than a panic.
 fn checked<O>(result: crate::Result<O>) -> O {
-    result.unwrap_or_else(|e| panic!("{}", e.message()))
+    result.unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// `impl Trait<R: IntoDie<O>>` for `Die<O>` and `&Die<O>`, combining outcomes pairwise with the given expression.
@@ -233,7 +233,7 @@ impl<O: Outcome> Die<O> {
     /// assert_eq!(pool.raw_size(), 4);
     /// ```
     pub fn pool(&self, rolls: usize) -> Pool<O> {
-        Pool::new(vec![(self.clone(), rolls)]).unwrap_or_else(|e| panic!("{}", e.message()))
+        Pool::new(vec![(self.clone(), rolls)]).unwrap_or_else(|e| panic!("{e}"))
     }
 }
 
@@ -333,7 +333,10 @@ where
 impl<O: Outcome + IntoValue> fmt::Display for Die<O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Converting keeps the order: the integers, `bool` and their tuples sort alike as Python values.
-        let items = self.items().iter().map(|(o, q)| (o.clone().into_value(), q.clone()));
+        let items = self
+            .items()
+            .iter()
+            .map(|(o, q)| (o.clone().into_value(), q.clone()));
         let die = Die::from_counts(Counts::from_sorted(items.collect()));
         match format(&die, "Die", "", false) {
             Ok(Formatted::Text(text)) => f.write_str(&text),
@@ -351,7 +354,10 @@ mod tests {
     fn operators_take_dice_and_outcomes_on_either_side() {
         let two = &d(6) + &d(6);
         assert_eq!(two.denominator().to_string(), "36");
-        assert_eq!(two.outcomes().copied().collect::<Vec<_>>(), (2..=12).collect::<Vec<_>>());
+        assert_eq!(
+            two.outcomes().copied().collect::<Vec<_>>(),
+            (2..=12).collect::<Vec<_>>()
+        );
         assert_eq!(d(6) - 1, Die::from(0..=5));
         assert_eq!(7 - d(6), Die::from(1..=6));
         assert_eq!(2 * &d(3), Die::from_iter([2, 4, 6]));

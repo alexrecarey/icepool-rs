@@ -248,7 +248,10 @@ mod tests {
     fn ord_types_compare_and_sort_without_failing() {
         assert!(infallible(1i64.try_lt(&2)));
         assert!(!infallible([1i64, 2].try_gt(&[1, 3])));
-        let sorted = infallible(i64::try_sort_by(vec![(3, 'a'), (1, 'b'), (3, 'c')], |a, b| Ok(a.0 < b.0)));
+        let sorted = infallible(i64::try_sort_by(
+            vec![(3, 'a'), (1, 'b'), (3, 'c')],
+            |a, b| Ok(a.0 < b.0),
+        ));
         assert_eq!(sorted, [(1, 'b'), (3, 'a'), (3, 'c')]);
     }
 

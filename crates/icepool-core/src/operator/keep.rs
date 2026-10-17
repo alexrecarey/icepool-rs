@@ -61,7 +61,7 @@ pub(super) fn initial_state(
 ) -> Result<(Statelet, Option<Count>)> {
     let (keep_tuple, keep_more, required_order) = match index {
         MultisetKeepIndex::Slice { step: true, .. } => {
-            return Err(Error::Value("step is not supported.".into()))
+            return Err(Error::InvalidArgument("step is not supported.".into()))
         }
         &MultisetKeepIndex::Slice {
             start,
@@ -91,7 +91,7 @@ pub(super) fn initial_state(
             }
             (Some(start), Some(stop)) => {
                 let Some(child_size) = &child_size else {
-                    return Err(Error::Value(
+                    return Err(Error::InvalidArgument(
                         "If both start and stop are provided, they must be both negative or both \
                          non-negative, or the size must be an inferrable constant."
                             .into(),
@@ -111,7 +111,9 @@ pub(super) fn initial_state(
                     // `ascending_keep[i] = 1`, negative indexes counting from the end.
                     let j = if i < 0 { i + len } else { i };
                     if !(0..len).contains(&j) {
-                        return Err(Error::Index("list assignment index out of range".into()));
+                        return Err(Error::IndexOutOfRange(
+                            "list assignment index out of range".into(),
+                        ));
                     }
                     ascending_keep[j as usize] = Int::ONE;
                 }
@@ -125,7 +127,7 @@ pub(super) fn initial_state(
         },
         MultisetKeepIndex::Seq(index) => {
             let invalid = || {
-                Error::Value(
+                Error::InvalidArgument(
                     "If a sequence is provided, either the first or last element (but not both) must be an \
                      Ellipsis (...)"
                         .into(),
@@ -133,7 +135,7 @@ pub(super) fn initial_state(
             };
             let (keep_tuple, required_order) = match (index.first(), index.last()) {
                 (None, _) | (_, None) => {
-                    return Err(Error::Index("tuple index out of range".into()))
+                    return Err(Error::IndexOutOfRange("tuple index out of range".into()))
                 }
                 (Some(None), _) => (
                     index[1..].iter().rev().cloned().collect::<Vec<_>>(),
@@ -152,7 +154,7 @@ pub(super) fn initial_state(
             )
         }
         MultisetKeepIndex::Invalid(type_name) => {
-            return Err(Error::Type(format!(
+            return Err(Error::WrongType(format!(
                 "Invalid type <class '{type_name}'> for index."
             )))
         }

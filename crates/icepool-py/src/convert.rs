@@ -18,8 +18,8 @@ use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
 use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{
-    PyAttributeError, PyIndexError, PyKeyError, PyMemoryError, PyNotImplementedError, PyOverflowError,
-    PyRecursionError, PyTypeError, PyValueError, PyZeroDivisionError,
+    PyAttributeError, PyIndexError, PyKeyError, PyMemoryError, PyNotImplementedError,
+    PyOverflowError, PyRecursionError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
@@ -98,7 +98,10 @@ pub struct PyHost {
 /// shared with another core value are not reported (`icepool_core::ownership`: reporting a shared one could free
 /// it while in use). The classes are frozen, and immutable references need no `__clear__`: every cycle passes
 /// through a mutable Python object, which Python clears.
-pub fn traverse(root: &(impl Traverse + ?Sized), visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+pub fn traverse(
+    root: &(impl Traverse + ?Sized),
+    visit: &PyVisit<'_>,
+) -> Result<(), PyTraverseError> {
     for host in owned_hosts(root) {
         if let Some(h) = host.downcast_ref::<PyHost>() {
             visit.call(&h.obj)?;
@@ -439,33 +442,39 @@ pub fn quantity_to_py<'py>(py: Python<'py>, q: &UBig) -> PyResult<Bound<'py, PyA
 
 /// A Python exception raised inside a callback, carried through the core.
 pub fn host_error(e: PyErr) -> Error {
-    Error::Host(HostError(Arc::new(e)))
+    Error::Callback(HostError(Arc::new(e)))
 }
 
 /// A core error as the Python exception icepool raises; a host exception is re-raised as it was.
+///
+/// One variant, one exception type: the match is total (a new core variant fails to compile here until it is
+/// mapped) and never reads the message.
 pub fn to_py_err(e: Error) -> PyErr {
+    let msg = e.to_string();
     match e {
-        Error::Host(h) => match h.0.downcast_ref::<PyErr>() {
+        Error::Callback(h) => match h.0.downcast_ref::<PyErr>() {
             Some(err) => Python::attach(|py| err.clone_ref(py)),
             None => PyTypeError::new_err("a host error from another host"),
         },
-        // Where Python raises AttributeError (`Reroll` expanded as a mapping), the core raises this.
-        Error::Type(m) if m.starts_with("AttributeError:") => PyAttributeError::new_err(m),
-        Error::Type(m) => PyTypeError::new_err(m),
-        Error::Recursion(m) => PyRecursionError::new_err(m),
-        Error::Value(m) => PyValueError::new_err(m),
-        Error::Index(m) => PyIndexError::new_err(m),
-        Error::Key(m) => PyKeyError::new_err(m),
-        Error::ZeroDivision(m) => PyZeroDivisionError::new_err(m),
-        Error::Overflow(m) => PyOverflowError::new_err(m),
-        Error::Memory(m) => PyMemoryError::new_err(m),
-        // Where icepool raises a plain `OrderError` (`sort_pair` without an inferrable size), the core says so.
-        Error::Order(m) if m.starts_with("OrderError:") => icepool_error("OrderError", m),
-        Error::Order(m) => icepool_error("ConflictingOrderError", m),
-        Error::UnsupportedOrder(m) => icepool_error("UnsupportedOrder", m),
-        Error::NotImplemented(m) => PyNotImplementedError::new_err(m),
+        Error::InvalidArgument(_) => PyValueError::new_err(msg),
+        Error::WrongType(_) | Error::Incomparable { .. } | Error::Unhashable { .. } => {
+            PyTypeError::new_err(msg)
+        }
+        // Where Python raises AttributeError (`Reroll` expanded as a mapping, a private attribute name).
+        Error::MissingAttribute(_) => PyAttributeError::new_err(msg),
+        Error::IndexOutOfRange(_) => PyIndexError::new_err(msg),
+        Error::MissingKey(_) => PyKeyError::new_err(msg),
+        Error::DivisionByZero(_) => PyZeroDivisionError::new_err(msg),
+        Error::ConflictingOrder(_) => icepool_error("ConflictingOrderError", msg),
+        // Where icepool raises a plain `OrderError` (`sort_pair` without an inferrable size).
+        Error::UninferrableSize(_) => icepool_error("OrderError", msg),
+        Error::UnsupportedOrder(_) => icepool_error("UnsupportedOrder", msg),
+        Error::RecursionLimit(_) => PyRecursionError::new_err(msg),
+        Error::Overflow(_) => PyOverflowError::new_err(msg),
+        Error::TooLarge(_) => PyMemoryError::new_err(msg),
+        Error::NotImplementedUpstream(_) => PyNotImplementedError::new_err(msg),
         // Python would answer, the core cannot yet: say so loudly rather than guess.
-        Error::Unsupported(m) => PyNotImplementedError::new_err(format!("icepool_rs: {m}")),
+        Error::Unported(_) => PyNotImplementedError::new_err(format!("icepool_rs: {msg}")),
     }
 }
 

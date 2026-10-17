@@ -46,7 +46,9 @@ pub trait IntegerOutcome: OutcomeOrder {
 pub(crate) fn consecutive_span(lo: IBig, hi: IBig) -> Result<usize> {
     let span = usize::try_from(hi - lo + IBig::ONE).unwrap_or(0);
     if span > MAX_CONSECUTIVE {
-        return Err(Error::Unsupported("consecutive outcomes over a huge range".into()));
+        return Err(Error::Unported(
+            "consecutive outcomes over a huge range".into(),
+        ));
     }
     Ok(span)
 }
@@ -116,7 +118,13 @@ impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
     type State = Option<(O, Int)>;
     type Final = (O, Int);
 
-    fn fold(&self, state: &Self::State, _: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+    fn fold(
+        &self,
+        state: &Self::State,
+        _: Order,
+        outcome: &O,
+        counts: &[Int],
+    ) -> Result<Self::State> {
         let count = counts[0].clone().max(Int::ZERO);
         let Some((best, best_count)) = state else {
             return Ok(Some((outcome.clone(), count)));
@@ -218,7 +226,13 @@ impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
     type State = Option<(Int, O)>;
     type Final = (Int, O);
 
-    fn fold(&self, state: &Self::State, _: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+    fn fold(
+        &self,
+        state: &Self::State,
+        _: Order,
+        outcome: &O,
+        counts: &[Int],
+    ) -> Result<Self::State> {
         // `max(state or (count, outcome), (count, outcome))`
         let pair = (counts[0].clone(), outcome.clone());
         let first = state.clone().unwrap_or_else(|| pair.clone());
@@ -245,7 +259,7 @@ impl<D> CountSubsetEvaluator<D> {
     {
         match state.or_else(|| self.empty_divisor.clone()) {
             Some(outcome) => Ok(Final::Outcome(outcome)),
-            None => Err(Error::ZeroDivision(
+            None => Err(Error::DivisionByZero(
                 "Empty divisor. Set empty_divisor_outcome if you want a particular value in this case.".into(),
             )),
         }
@@ -322,13 +336,21 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightAndOutcomeEvaluator {
         } else {
             outcomes.first()
         };
-        let end = end.ok_or_else(|| Error::Index("tuple index out of range".into()))?;
+        let end = end.ok_or_else(|| Error::IndexOutOfRange("tuple index out of range".into()))?;
         Ok(Some((Int::ZERO, end.clone(), Int::ZERO)))
     }
 
-    fn fold(&self, state: &Self::State, order: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+    fn fold(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &O,
+        counts: &[Int],
+    ) -> Result<Self::State> {
         let Some((best_run, best_outcome, run)) = state else {
-            return Err(Error::Type("cannot unpack non-iterable NoneType object".into()));
+            return Err(Error::WrongType(
+                "cannot unpack non-iterable NoneType object".into(),
+            ));
         };
         let run = if counts[0] >= 1 { run + 1 } else { Int::ZERO };
         if self.prioritize_highest == (order.value() > 0) {
@@ -352,7 +374,9 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightAndOutcomeEvaluator {
 
     fn finish(&self, state: &Self::State) -> Result<Final<(Int, O)>> {
         Ok(match state {
-            Some((best_run, best_outcome, _)) => Final::Outcome((best_run.clone(), best_outcome.clone())),
+            Some((best_run, best_outcome, _)) => {
+                Final::Outcome((best_run.clone(), best_outcome.clone()))
+            }
             None => Final::None,
         })
     }
@@ -458,12 +482,20 @@ impl<S, T> LargestCountWithWildEvaluator<S, T> {
     }
 }
 
-impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O> for LargestCountWithWildEvaluator<S, T> {
+impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O>
+    for LargestCountWithWildEvaluator<S, T>
+{
     /// `None` before the first outcome, then `(best, total_wild_early)`.
     type State = Option<(Int, Int)>;
     type Final = Int;
 
-    fn fold(&self, state: &Self::State, order: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+    fn fold(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcome: &O,
+        counts: &[Int],
+    ) -> Result<Self::State> {
         let count = &counts[0];
         let (is_wild_early, is_wild_late) = self.wilds(order, outcome)?;
         let Some((best, total_wild_early)) = state else {
@@ -488,7 +520,9 @@ impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O> for LargestCountW
         match state {
             // `final_state[0]`
             Some((best, _)) => Ok(Final::Outcome(best.clone())),
-            None => Err(Error::Type("'NoneType' object is not subscriptable".into())),
+            None => Err(Error::WrongType(
+                "'NoneType' object is not subscriptable".into(),
+            )),
         }
     }
 }
@@ -518,7 +552,10 @@ impl<R, S> AllStraightsReduceCountsEvaluator<R, S> {
 /// `tuple(sorted(ended_runs + (current_run, ), reverse=True))` for `(length, score)` runs: Python compares the
 /// tuples by length, then (where the lengths are equal and the scores differ by `==`) by score. A reverse sort
 /// reverses, sorts stably and reverses back, so equal runs keep their order.
-fn end_run<S: OutcomeOrder>(ended_runs: &[(Int, S)], current_run: (Int, S)) -> Result<Vec<(Int, S)>> {
+fn end_run<S: OutcomeOrder>(
+    ended_runs: &[(Int, S)],
+    current_run: (Int, S),
+) -> Result<Vec<(Int, S)>> {
     let mut runs = ended_runs.to_vec();
     runs.push(current_run);
     runs.reverse();

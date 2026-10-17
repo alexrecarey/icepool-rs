@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 
-use super::ops::{binary, d, dict_items, py_iter, type_error, Key};
+use super::ops::{binary, d, dict_items, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::value::builtins::{getitem, Index};
@@ -108,7 +108,7 @@ impl Func {
     pub fn new(name: PValue, params: Vec<PValue>) -> Result<Func, PErr> {
         use Func::*;
         let PValue::Value(Value::Str(name)) = name else {
-            return raise(Error::Key("catalogue names are strs".into()));
+            return raise(Error::MissingKey("catalogue names are strs".into()));
         };
         // The factory's own signature (`add_k(k)`, `clamp(lo, hi)`, ...).
         let want = match &*name {
@@ -119,10 +119,10 @@ impl Func {
             | "reroll_in_tuple" | "tuple_d" | "const" | "mapping" | "restart_below" | "cap_sum"
             | "pair_walk" | "count_if_gt_k" | "n_of" | "pool_d" | "reroll_or_pair" => 1,
             "clamp" | "die_if_k" | "break_k" | "break_at" | "restart_on" | "walk" | "walk_die" => 2,
-            _ => return raise(Error::Key(format!("no catalogue function {name:?}"))),
+            _ => return raise(Error::MissingKey(format!("no catalogue function {name:?}"))),
         };
         if params.len() != want {
-            return type_error(format!(
+            return wrong_type(format!(
                 "{name}() takes {want} parameters, {} given",
                 params.len()
             ));
@@ -198,7 +198,7 @@ impl Func {
     /// counted.
     pub fn infer_star(&self, arg_count: usize) -> Result<bool, PErr> {
         if let Func::BuiltinMax = self {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "Could not determine the number of arguments taken by the function. You will need to specify \
                  star explicitly."
                     .into(),
@@ -238,7 +238,7 @@ impl Func {
                         "a keyword argument naming a positional parameter".into(),
                     ))
                 }
-                _ => return type_error(format!("got an unexpected keyword argument '{name}'")),
+                _ => return wrong_type(format!("got an unexpected keyword argument '{name}'")),
             }
         }
         if let Mapping(m) = self {
@@ -252,7 +252,7 @@ impl Func {
         }
         let (required, total) = self.positional().expect("not a mapping");
         if args.len() < required || total.is_some_and(|t| args.len() > t) {
-            return type_error(format!(
+            return wrong_type(format!(
                 "takes {required} positional arguments but {} were given",
                 args.len()
             ));
@@ -267,7 +267,7 @@ impl Func {
         match self {
             CountDiff => {
                 let Some(first) = args.get(1) else {
-                    return raise(Error::Index("tuple index out of range".into()));
+                    return raise(Error::IndexOutOfRange("tuple index out of range".into()));
                 };
                 return binary(BinOp::Sub, first.clone(), sum(&args[2..])?);
             }
@@ -275,7 +275,9 @@ impl Func {
                 // `max(counts)`: the first of the largest.
                 let mut counts = args.into_iter().skip(1);
                 let Some(first) = counts.next() else {
-                    return raise(Error::Value("max() iterable argument is empty".into()));
+                    return raise(Error::InvalidArgument(
+                        "max() iterable argument is empty".into(),
+                    ));
                 };
                 return counts.try_fold(first, py_max);
             }
@@ -287,7 +289,9 @@ impl Func {
                     args
                 };
                 if items.is_empty() {
-                    return raise(Error::Value("max() iterable argument is empty".into()));
+                    return raise(Error::InvalidArgument(
+                        "max() iterable argument is empty".into(),
+                    ));
                 }
                 let first = items.remove(0);
                 return items.into_iter().try_fold(first, py_max);
@@ -396,7 +400,7 @@ impl Func {
             }
             AddKw => match k {
                 Some(k) => binary(BinOp::Add, x(), k)?,
-                None => return type_error("missing 1 required keyword-only argument: 'k'"),
+                None => return wrong_type("missing 1 required keyword-only argument: 'k'"),
             },
             CapSum(cap) => {
                 let sum = binary(BinOp::Add, x(), x())?;
@@ -531,7 +535,7 @@ pub fn truthy(x: &PValue) -> Result<bool, PErr> {
         PValue::Value(v) => v.truthy()?,
         PValue::DieWithTruth(_, truth) | PValue::DieWithTruthError(_, truth) => *truth,
         PValue::Die(_) => {
-            return type_error("A `Die` only has a truth value if it is the result of == or !=")
+            return wrong_type("A `Die` only has a truth value if it is the result of == or !=")
         }
         PValue::List(xs) | PValue::Tuple(xs) => !xs.is_empty(),
         PValue::Reroll
@@ -570,7 +574,7 @@ fn list_times(items: Vec<PValue>, n: &PValue) -> Result<Vec<PValue>, PErr> {
         PValue::Value(Value::Int(n)) => n.clone(),
         PValue::Value(Value::Bool(b)) => dashu_int::IBig::from(*b as u8),
         PValue::Value(v) => {
-            return type_error(format!(
+            return wrong_type(format!(
                 "can't multiply sequence by non-int of type '{}'",
                 v.type_name()
             ))

@@ -189,7 +189,7 @@ impl<O: crate::outcome::OutcomeArith> Deck<O> {
         let zeros = self.cards.unary_operator(O::try_zero)?;
         let result = Self::from_dict(zeros.items().to_vec()).err_into()?;
         if result.len() != 1 {
-            return crate::error::value_error("zero() did not resolve to a single outcome.");
+            return crate::error::invalid_argument("zero() did not resolve to a single outcome.");
         }
         Ok(result)
     }

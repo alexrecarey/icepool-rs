@@ -52,7 +52,7 @@ fn unsupported_order<T>() -> Result<T> {
 fn one_count(counts: &[Value]) -> Result<&Value> {
     match counts {
         [count] => Ok(count),
-        _ => Err(Error::Type(format!(
+        _ => Err(Error::WrongType(format!(
             "next_state() takes 5 positional arguments but {} were given",
             counts.len() + 4
         ))),
@@ -70,10 +70,14 @@ impl CatalogueEvaluator {
         let want = match name {
             "count_diff" | "zero_runs" | "scaled_size" | "hand_sums" | "record" => 0,
             "count_eq" | "reroll_at_least" | "final_die" | "seen" => 1,
-            _ => return raise(Error::Key(format!("no catalogue evaluator {name:?}"))),
+            _ => {
+                return raise(Error::MissingKey(format!(
+                    "no catalogue evaluator {name:?}"
+                )))
+            }
         };
         if params.len() != want {
-            return raise(Error::Type(format!(
+            return raise(Error::WrongType(format!(
                 "{name}() takes {want} parameters, {} given",
                 params.len()
             )));
@@ -165,7 +169,7 @@ fn int_sizes(sizes: &[Option<Int>]) -> Vec<Option<Count>> {
 fn tuple_items(x: &Value) -> Result<&[Value]> {
     match x {
         Value::Tuple(items) => Ok(items),
-        x => Err(Error::Type(format!(
+        x => Err(Error::WrongType(format!(
             "'{}' object is not iterable",
             x.type_name()
         ))),
@@ -221,7 +225,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 start, unexpected, ..
             } => {
                 if let Some(name) = unexpected {
-                    return Err(Error::Type(format!(
+                    return Err(Error::WrongType(format!(
                         "ScaledSize.initial_state() got an unexpected keyword argument '{name}'"
                     )));
                 }
@@ -239,7 +243,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 let first = size_values(sizes)
                     .into_iter()
                     .next()
-                    .ok_or_else(|| Error::Index("tuple index out of range".into()))?;
+                    .ok_or_else(|| Error::IndexOutOfRange("tuple index out of range".into()))?;
                 Value::tuple(vec![int(0); tuple_items(&first)?.len()])
             }
         })
@@ -304,7 +308,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                 // `state + outcome * (counts[0] - sum(counts[1:]))`
                 let first = counts
                     .first()
-                    .ok_or_else(|| Error::Index("tuple index out of range".into()))?;
+                    .ok_or_else(|| Error::IndexOutOfRange("tuple index out of range".into()))?;
                 let rest = py_sum(counts[1..].iter().cloned().map(Ok), int(0))?;
                 add(
                     state,
@@ -369,7 +373,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
                     match d(PValue::Value(final_state.clone())) {
                         Ok(die) => Final::Outcome(die),
                         Err(PErr::Raise(e)) => return Err(e),
-                        Err(PErr::Unimplemented(what)) => return Err(Error::Unsupported(what)),
+                        Err(PErr::Unimplemented(what)) => return Err(Error::Unported(what)),
                     }
                 } else {
                     outcome(final_state)

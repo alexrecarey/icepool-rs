@@ -29,7 +29,7 @@
 use std::sync::Arc;
 
 use super::{BinOp, UnOp, Value};
-use crate::error::{type_error, Error, Result};
+use crate::error::{wrong_type, Error, Result};
 
 /// icepool's `Symbols`: a multiset of single-character symbols, with its arithmetic.
 #[derive(Clone, Debug)]
@@ -99,7 +99,9 @@ impl Symbols {
             data.update(c, |x| x.binary(BinOp::Add, &int(1)))?;
         }
         if n > 2 {
-            return Err(Error::Value("Multiple dashes not allowed.".into()));
+            return Err(Error::InvalidArgument(
+                "Multiple dashes not allowed.".into(),
+            ));
         }
         if n == 2 {
             for c in parts[1].chars() {
@@ -113,7 +115,7 @@ impl Symbols {
     fn validated_sorted(mut items: Vec<(char, Value)>) -> Result<Symbols> {
         for (c, _) in &items {
             if py_isspace(*c) || *c == '_' || *c == '-' {
-                return Err(Error::Value(format!(
+                return Err(Error::InvalidArgument(format!(
                     "{c} (U+{:04X}) is not a legal symbol.",
                     *c as u32
                 )));
@@ -133,8 +135,8 @@ impl Symbols {
             Value::Symbols(s) => Self::validated_sorted(s.data.to_vec()),
             Value::Tuple(items) => Self::from_elements(items),
             Value::Vector(v) => Self::from_elements(v.data()?),
-            Value::Host(_) => Err(Error::Unsupported("Symbols() of a host object".into())),
-            _ => type_error(format!("'{}' object is not iterable", x.type_name())),
+            Value::Host(_) => Err(Error::Unported("Symbols() of a host object".into())),
+            _ => wrong_type(format!("'{}' object is not iterable", x.type_name())),
         }
     }
 
@@ -152,13 +154,13 @@ impl Symbols {
             let c = match k {
                 Value::Str(s) if len == 1 => s.chars().next().expect("one character"),
                 _ if len != 1 => {
-                    return Err(Error::Value(format!(
+                    return Err(Error::InvalidArgument(format!(
                         "Symbol {} is not a single character.",
                         super::pystr::py_str(&k).unwrap_or_default()
                     )))
                 }
                 // `re.match` of a non-string.
-                _ => return type_error("expected string or bytes-like object"),
+                _ => return wrong_type("expected string or bytes-like object"),
             };
             data.push((c, n));
         }
@@ -252,7 +254,7 @@ impl Symbols {
                 Value::Str(_) | Value::Tuple(_) | Value::Vector(_) | Value::Symbols(_) => {
                     self.count_subset(other, None)
                 }
-                Value::Host(_) => Err(Error::Unsupported("Symbols // a host object".into())),
+                Value::Host(_) => Err(Error::Unported("Symbols // a host object".into())),
                 _ => return None,
             },
             BinOp::Lt | BinOp::Gt => {
@@ -342,7 +344,7 @@ impl Symbols {
     pub fn eq_op(&self, other: &Value, ne: bool) -> Option<Result<bool>> {
         let o = match Symbols::convert(other) {
             Ok(o) => o,
-            Err(Error::Type(_) | Error::Value(_)) => return None,
+            Err(e) if e.is_wrong_kind() || matches!(e, Error::InvalidArgument(_)) => return None,
             Err(e) => return Some(Err(e)),
         };
         // `all(self[s] == other[s] ...)` for `==`, `any(self[s] != other[s] ...)` for `!=`.
@@ -366,10 +368,8 @@ impl Symbols {
             Value::Str(s) => counter(s.chars().map(|c| Value::str(&c.to_string())))?,
             Value::Tuple(t) => counter(t.iter().cloned())?,
             Value::Vector(v) => counter(v.data()?.iter().cloned())?,
-            Value::Host(_) => {
-                return Err(Error::Unsupported("count_subset of a host object".into()))
-            }
-            _ => return type_error(format!("'{}' object is not iterable", divisor.type_name())),
+            Value::Host(_) => return Err(Error::Unported("count_subset of a host object".into())),
+            _ => return wrong_type(format!("'{}' object is not iterable", divisor.type_name())),
         };
         self.count_subset_items(counted, empty_divisor)
     }
@@ -398,7 +398,7 @@ impl Symbols {
         match (result, empty_divisor) {
             (Some(r), _) => Ok(r),
             (None, Some(e)) if !matches!(e, Value::None) => Ok(e.clone()),
-            (None, _) => Err(Error::ZeroDivision("Divisor is empty.".into())),
+            (None, _) => Err(Error::DivisionByZero("Divisor is empty.".into())),
         }
     }
 

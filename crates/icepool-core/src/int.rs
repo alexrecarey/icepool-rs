@@ -124,7 +124,7 @@ impl Int {
     /// divisor's sign. `ZeroDivisionError` for 0.
     pub fn floor_divmod(&self, other: &Int) -> Result<(Int, Int)> {
         if other.is_zero() {
-            return Err(Error::ZeroDivision(
+            return Err(Error::DivisionByZero(
                 "integer division or modulo by zero".into(),
             ));
         }

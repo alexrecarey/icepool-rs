@@ -27,7 +27,7 @@ thread_local! {
     static NEXT_CHECK: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
-/// The host's check for an interrupt: the error it returns (e.g. `Error::Host` holding a `KeyboardInterrupt`) stops
+/// The host's check for an interrupt: the error it returns (e.g. `Error::Callback` holding a `KeyboardInterrupt`) stops
 /// the computation. Set once, by the Python facade.
 pub fn set_check(check: fn() -> Result<()>) {
     let _ = CHECK.set(check);
@@ -58,7 +58,7 @@ mod tests {
     /// Interrupts only the test thread that asked for it (tests run in parallel and the check is global).
     fn check() -> Result<()> {
         if INTERRUPTED.with(Cell::get) {
-            Err(Error::Value("interrupted".into()))
+            Err(Error::InvalidArgument("interrupted".into()))
         } else {
             Ok(())
         }
@@ -67,7 +67,11 @@ mod tests {
     #[test]
     fn an_interrupt_stops_an_evaluation() {
         set_check(check);
-        let pool = crate::Pool::new(vec![(crate::function::try_d::<crate::Value>(20).unwrap(), 30)]).unwrap();
+        let pool = crate::Pool::new(vec![(
+            crate::function::try_d::<crate::Value>(20).unwrap(),
+            30,
+        )])
+        .unwrap();
         let sum = || {
             let sources = [crate::pool::MultisetSource::Pool(pool.source())];
             crate::evaluator::evaluate(&crate::evaluator::basic::SumEvaluator, &sources)
@@ -77,7 +81,10 @@ mod tests {
         // ...and stops with the check's error once there is one.
         INTERRUPTED.with(|i| i.set(true));
         NEXT_CHECK.with(|n| n.set(None));
-        assert_eq!(sum().err(), Some(Error::Value("interrupted".into())));
+        assert_eq!(
+            sum().err(),
+            Some(Error::InvalidArgument("interrupted".into()))
+        );
         INTERRUPTED.with(|i| i.set(false));
     }
 }

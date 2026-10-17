@@ -39,25 +39,25 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     fn as_any(&self) -> &dyn Any;
     /// Python's `PyFloat_AsDouble(self)`, as `math` functions convert their arguments.
     fn to_float(&self) -> Result<f64> {
-        Err(Error::Unsupported("float() of a host object".into()))
+        Err(Error::Unported("float() of a host object".into()))
     }
     /// `Fraction(self.numerator, self.denominator)` if `self` is a `numbers.Rational`, else `None`: what
     /// `Fraction(self, d)` needs.
     fn as_rational(&self) -> Result<Option<RBig>> {
-        Err(Error::Unsupported("Fraction() of a host object".into()))
+        Err(Error::Unported("Fraction() of a host object".into()))
     }
     /// `operator.index(self)` if `self` has `__index__` (`PyIndex_Check`), else `None`: how a native sequence
     /// takes it as an index.
     fn as_index(&self) -> Result<Option<dashu_int::IBig>> {
-        Err(Error::Unsupported("a host object as an index".into()))
+        Err(Error::Unported("a host object as an index".into()))
     }
     /// Python's `self[key]`.
     fn getitem(&self, _key: &Index) -> Result<Value> {
-        Err(Error::Unsupported("indexing a host object".into()))
+        Err(Error::Unported("indexing a host object".into()))
     }
     /// Python's `len(self)`.
     fn py_len(&self) -> Result<usize> {
-        Err(Error::Unsupported("len() of a host object".into()))
+        Err(Error::Unported("len() of a host object".into()))
     }
     /// Python's `repr(self)`, which may raise (`repr` above is for messages and cannot).
     fn py_repr(&self) -> Result<String> {
@@ -65,12 +65,12 @@ pub trait HostObject: Send + Sync + fmt::Debug {
     }
     /// Python's `str(self)`.
     fn py_str(&self) -> Result<String> {
-        Err(Error::Unsupported("str() of a host object".into()))
+        Err(Error::Unported("str() of a host object".into()))
     }
     /// What `Population.common_outcome_length` asks of an outcome: `isinstance(self, Mapping)` first, then
     /// `isinstance(self, Sized)` and `len(self)`.
     fn len_kind(&self) -> Result<LenKind> {
-        Err(Error::Unsupported("the length of a host object".into()))
+        Err(Error::Unported("the length of a host object".into()))
     }
 }
 
@@ -149,7 +149,7 @@ mod tests {
         }
         fn compare(&self, op: BinOp, a: &Value, b: &Value) -> Result<bool> {
             let (Some(x), Some(y)) = (rev(a), rev(b)) else {
-                return Err(Error::Type("not comparable".into()));
+                return Err(Error::WrongType("not comparable".into()));
             };
             Ok(match op {
                 BinOp::Lt => x > y,
@@ -161,11 +161,11 @@ mod tests {
         fn binary(&self, op: BinOp, a: &Value, b: &Value) -> Result<Value> {
             match (op, rev(a), rev(b)) {
                 (BinOp::Add, Some(x), Some(y)) => Ok(host(x + y)),
-                _ => Err(Error::Type("unsupported".into())),
+                _ => Err(Error::WrongType("unsupported".into())),
             }
         }
         fn unary(&self, _op: UnOp) -> Result<Value> {
-            Err(Error::Host(HostError(Arc::new("raised by the host"))))
+            Err(Error::Callback(HostError(Arc::new("raised by the host"))))
         }
         fn truthy(&self) -> Result<bool> {
             Ok(self.0 != 0)
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(t(5).py_lt(&t(4)), Ok(true));
         // A host exception passes through unchanged.
         let err = d.unary_operator(|o| o.unary(UnOp::Neg)).unwrap_err();
-        assert!(matches!(err, Error::Host(_)));
+        assert!(matches!(err, Error::Callback(_)));
         assert!(!host(0).truthy().unwrap() && host(2).truthy().unwrap());
     }
 

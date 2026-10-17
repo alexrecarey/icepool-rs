@@ -41,16 +41,25 @@ pub fn explode_counts<E: From<Error>>(
     let top = match depth.checked_add(1).map(u32::try_from) {
         Some(Ok(top)) => top,
         Some(Err(_)) if depth < -1 => {
-            return Err(Error::Type("'float' object cannot be interpreted as an integer".into()).into())
+            return Err(Error::WrongType(
+                "'float' object cannot be interpreted as an integer".into(),
+            )
+            .into())
         }
-        _ => return Err(Error::Unsupported("a huge explode_to_pool depth".into()).into()),
+        _ => return Err(Error::Unported("a huge explode_to_pool depth".into()).into()),
     };
     let vector = |i: u32, n: i64| Value::Vector(Vector::new(vec![int(i), int(n)]));
-    let mut single_data = crate::memory::try_with_capacity(Some(top as u64 + 1), "explode_to_pool(depth)")?;
+    let mut single_data =
+        crate::memory::try_with_capacity(Some(top as u64 + 1), "explode_to_pool(depth)")?;
     // Each weight is a product of `top` denominators.
-    crate::memory::check_pow(&(explode_den * die_den), top as usize, "explode_to_pool(depth)")?;
+    crate::memory::check_pow(
+        &(explode_den * die_den),
+        top as usize,
+        "explode_to_pool(depth)",
+    )?;
     for i in 0..top {
-        let weight = explode_den.pow(i as usize) * die_den.pow((top - 1 - i) as usize) * not_explode_den;
+        let weight =
+            explode_den.pow(i as usize) * die_den.pow((top - 1 - i) as usize) * not_explode_den;
         single_data.push((vector(i, 1), weight));
     }
     single_data.push((vector(top, 0), explode_den.pow(top as usize)));
@@ -90,7 +99,10 @@ pub fn reroll_composition<E: From<Error>>(
     let step = |state: &Value, _: usize| -> Result<Next, E> {
         let [rerollable, rerolls_left] = pair(state);
         if rerollable.eq_op(&int(0), false)?.truthy()? {
-            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![int(0), int(0)]))));
+            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
+                int(0),
+                int(0),
+            ]))));
         }
         if rerolls_left.binary(BinOp::Lt, rerollable)?.truthy()? {
             return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
@@ -114,7 +126,7 @@ pub fn reroll_composition<E: From<Error>>(
     // `icepool.map(step, initial_state, star=True, repeat=depth - 1)`.
     let repeat = depth.binary(BinOp::Sub, &int(1))?;
     let mid_pool_composition = if repeat.binary(BinOp::Lt, &int(0))?.truthy()? {
-        return Err(Error::Value("repeat cannot be negative.".into()).into());
+        return Err(Error::InvalidArgument("repeat cannot be negative.".into()).into());
     } else if repeat.eq_op(&int(0), false)?.truthy()? {
         // `Die([first_arg])` of a die is the die.
         initial_state
@@ -158,7 +170,7 @@ pub fn reroll_composition<E: From<Error>>(
         .into_iter()
         .map(|(o, q)| match q {
             Value::Int(q) => Ok((o, Quantity::try_from(q).map_err(|_| negative())?)),
-            q => Err(Error::Type(format!(
+            q => Err(Error::WrongType(format!(
                 "'{}' object cannot be interpreted as an integer",
                 q.type_name()
             ))),
@@ -168,7 +180,7 @@ pub fn reroll_composition<E: From<Error>>(
 }
 
 fn negative() -> Error {
-    Error::Value("times cannot have negative values.".into())
+    Error::InvalidArgument("times cannot have negative values.".into())
 }
 
 /// The two parts of a `(rerollable, rerolls_left)` state (`step(*state)`).
@@ -187,15 +199,20 @@ mod tests {
     fn explode_counts_depth_limits() {
         let q = Quantity::from(2u8);
         let count = |depth: i64| {
-            explode_counts(&q, &Quantity::ONE, &Quantity::ONE, &Value::from(1), depth, |_, d| {
-                Ok::<_, Error>(d.clone())
-            })
+            explode_counts(
+                &q,
+                &Quantity::ONE,
+                &Quantity::ONE,
+                &Value::from(1),
+                depth,
+                |_, d| Ok::<_, Error>(d.clone()),
+            )
         };
         // Below -1 Python's own TypeError; a depth past `u32` is one the port does not cover (Python would
         // build that many outcomes).
-        assert!(matches!(count(-2), Err(Error::Type(_))));
-        assert!(matches!(count(1 << 32), Err(Error::Unsupported(_))));
-        assert!(matches!(count(i64::MAX), Err(Error::Unsupported(_))));
+        assert!(matches!(count(-2), Err(Error::WrongType(_))));
+        assert!(matches!(count(1 << 32), Err(Error::Unported(_))));
+        assert!(matches!(count(i64::MAX), Err(Error::Unported(_))));
         assert_eq!(count(1).unwrap().len(), 3);
     }
 

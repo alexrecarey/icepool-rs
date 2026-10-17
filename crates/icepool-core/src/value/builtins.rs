@@ -7,7 +7,7 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 use super::{int_to_f64, ratio_to_f64, BinOp, Value};
-use crate::error::{type_error, Error, Result};
+use crate::error::{wrong_type, Error, Result};
 
 /// `sum(items, start)` (CPython 3.13 `builtin_sum_impl`), with its two fast paths, because they round differently
 /// from adding one item at a time.
@@ -98,7 +98,7 @@ pub fn to_float(x: &Value) -> Result<f64> {
         Value::Int(i) => int_to_f64(i),
         Value::Fraction(r) => ratio_to_f64(r.numerator(), &IBig::from(r.denominator().clone())),
         Value::Host(h) => h.to_float(),
-        _ => type_error(format!("must be real number, not {}", x.type_name())),
+        _ => wrong_type(format!("must be real number, not {}", x.type_name())),
     }
 }
 
@@ -116,7 +116,7 @@ pub fn try_fraction(numerator: &Value, denominator: &IBig) -> Result<Value> {
     };
     match rational {
         Some(_) if *denominator == IBig::ZERO => {
-            Err(Error::ZeroDivision(format!("Fraction({numerator}, 0)")))
+            Err(Error::DivisionByZero(format!("Fraction({numerator}, 0)")))
         }
         Some(r) => Ok(Value::Fraction(r / RBig::from(denominator.clone()))),
         None => numerator.binary(BinOp::TrueDiv, &Value::Int(denominator.clone())),
@@ -124,7 +124,7 @@ pub fn try_fraction(numerator: &Value, denominator: &IBig) -> Result<Value> {
 }
 
 fn domain_error<T>() -> Result<T> {
-    Err(Error::Value("math domain error".into()))
+    Err(Error::InvalidArgument("math domain error".into()))
 }
 
 /// CPython's `math_1(x, func, can_overflow=0)`: a NaN from a non-NaN argument, or an infinity from a finite
@@ -259,14 +259,14 @@ fn ssize(v: &Value, clamp: bool, what: &str) -> Result<i64> {
         Value::Bool(b) => IBig::from(*b as u8),
         Value::Host(h) => match h.as_index()? {
             Some(i) => i,
-            None => return type_error(what.to_string()),
+            None => return wrong_type(what.to_string()),
         },
-        _ => return type_error(what.to_string()),
+        _ => return wrong_type(what.to_string()),
     };
     match i64::try_from(&i) {
         Ok(x) => Ok(x),
         Err(_) if clamp => Ok(if i < IBig::ZERO { i64::MIN } else { i64::MAX }),
-        Err(_) => Err(Error::Index(
+        Err(_) => Err(Error::IndexOutOfRange(
             "cannot fit 'int' into an index-sized integer".into(),
         )),
     }
@@ -280,7 +280,7 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
         s => ssize(s, true, MSG)?,
     };
     if step == 0 {
-        return Err(Error::Value("slice step cannot be zero".into()));
+        return Err(Error::InvalidArgument("slice step cannot be zero".into()));
     }
     // Ensure step can be negated without overflow.
     let step = step.max(-i64::MAX) as i128;
@@ -334,13 +334,13 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
 /// (`conjugate`, `count`, ...), a bound method that is no outcome: the port does not model those.
 pub fn getattr(x: &Value, name: &str) -> Result<Value> {
     let missing = || {
-        Err(Error::Type(format!(
-            "AttributeError: '{}' object has no attribute '{name}'",
+        Err(Error::MissingAttribute(format!(
+            "'{}' object has no attribute '{name}'",
             x.type_name()
         )))
     };
     if !matches!(name, "real" | "imag" | "numerator" | "denominator") {
-        return Err(Error::Unsupported(format!("getattr(x, {name:?})")));
+        return Err(Error::Unported(format!("getattr(x, {name:?})")));
     }
     Ok(match (x, name) {
         // `bool` is an `int`: its attributes are ints (`True.real` is `1`).
@@ -358,7 +358,7 @@ pub fn getattr(x: &Value, name: &str) -> Result<Value> {
         (Value::Complex(re, _), "real") => Value::Float(*re),
         (Value::Complex(_, im), "imag") => Value::Float(*im),
         (Value::Symbols(s), _) => s.getitem(name),
-        (Value::Host(_), _) => return Err(Error::Unsupported("getattr of a host object".into())),
+        (Value::Host(_), _) => return Err(Error::Unported("getattr of a host object".into())),
         _ => return missing(),
     })
 }
@@ -380,9 +380,9 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
         (Value::Vector(v), Index::Item(i)) => {
             // A non-int index: the tuple raises, unless it has `__index__` (a host object).
             return match getitem(&Value::Tuple(v.data()?.clone()), key)? {
-                _ if matches!(i, Value::Host(_)) => Err(Error::Unsupported(
-                    "a Vector indexed by a host object".into(),
-                )),
+                _ if matches!(i, Value::Host(_)) => {
+                    Err(Error::Unported("a Vector indexed by a host object".into()))
+                }
                 _ => unreachable!("the tuple raised"),
             };
         }
@@ -394,16 +394,16 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
                 k @ (Value::Tuple(_) | Value::Vector(_) | Value::Symbols(_) | Value::Host(_)),
             ),
         ) => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unported(format!(
                 "Symbols indexed by a {}",
                 k.type_name()
             )))
         }
         (Value::Symbols(_), Index::Item(k)) => {
-            return type_error(format!("object of type '{}' has no len()", k.type_name()))
+            return wrong_type(format!("object of type '{}' has no len()", k.type_name()))
         }
         (Value::Symbols(_), Index::Slice(..)) => {
-            return type_error("object of type 'slice' has no len()")
+            return wrong_type("object of type 'slice' has no len()")
         }
         _ => {}
     }
@@ -411,7 +411,7 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
         Value::Tuple(t) => ("tuple", t.len()),
         Value::Str(s) => ("string", s.chars().count()),
         Value::Host(h) => return h.getitem(key),
-        _ => return type_error(format!("'{}' object is not subscriptable", x.type_name())),
+        _ => return wrong_type(format!("'{}' object is not subscriptable", x.type_name())),
     };
     let positions = match key {
         Index::Item(i) => {
@@ -425,7 +425,7 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
             let i = ssize(i, false, &msg)?;
             let i = if i < 0 { i + len as i64 } else { i };
             if i < 0 || i >= len as i64 {
-                return Err(Error::Index(format!("{kind} index out of range")));
+                return Err(Error::IndexOutOfRange(format!("{kind} index out of range")));
             }
             let i = i as usize;
             return Ok(match x {
@@ -454,7 +454,7 @@ pub fn py_len(x: &Value) -> Result<usize> {
         Value::Vector(v) => Ok(v.data()?.len()),
         Value::Symbols(s) => Ok(s.len()),
         Value::Host(h) => h.py_len(),
-        _ => type_error(format!("object of type '{}' has no len()", x.type_name())),
+        _ => wrong_type(format!("object of type '{}' has no len()", x.type_name())),
     }
 }
 
@@ -466,19 +466,19 @@ pub fn fraction(x: &Value) -> Result<RBig> {
         Value::Int(i) => Ok(RBig::from(i.clone())),
         Value::Bool(b) => Ok(RBig::from(*b as u8)),
         Value::Fraction(r) => Ok(r.clone()),
-        Value::Float(f) if f.is_nan() => {
-            Err(Error::Value("cannot convert NaN to integer ratio".into()))
-        }
+        Value::Float(f) if f.is_nan() => Err(Error::InvalidArgument(
+            "cannot convert NaN to integer ratio".into(),
+        )),
         Value::Float(f) if f.is_infinite() => Err(Error::Overflow(
             "cannot convert Infinity to integer ratio".into(),
         )),
         Value::Float(f) => Ok(RBig::try_from(*f).expect("finite")),
-        Value::Str(_) => Err(Error::Unsupported("Fraction(str)".into())),
+        Value::Str(_) => Err(Error::Unported("Fraction(str)".into())),
         Value::Host(h) => match h.as_rational()? {
             Some(r) => Ok(r),
-            None => type_error("argument should be a string or a Rational instance"),
+            None => wrong_type("argument should be a string or a Rational instance"),
         },
-        _ => type_error("argument should be a string or a Rational instance"),
+        _ => wrong_type("argument should be a string or a Rational instance"),
     }
 }
 
@@ -497,7 +497,9 @@ pub fn fraction(x: &Value) -> Result<RBig> {
 /// self is midway between two integers) the lower bound---i.e., the floor of self, is taken.
 pub fn limit_denominator(x: &RBig, max_denominator: &IBig) -> Result<RBig> {
     if *max_denominator < IBig::ONE {
-        return Err(Error::Value("max_denominator should be at least 1".into()));
+        return Err(Error::InvalidArgument(
+            "max_denominator should be at least 1".into(),
+        ));
     }
     let denominator = IBig::from(x.denominator().clone());
     if denominator <= *max_denominator {

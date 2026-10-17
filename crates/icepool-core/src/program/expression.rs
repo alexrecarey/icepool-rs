@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use super::catalogue::{truthy, Func};
 use super::evaluate::implicit_convert;
-use super::ops::{py_iter, type_error};
+use super::ops::{missing_attribute, py_iter, unhashable_list, wrong_type};
 use super::pool::KeepGen;
 use super::{raise, PErr, PValue};
 use crate::compound_keep::CompoundKeep;
@@ -344,7 +344,7 @@ pub fn tuple_index(x: PValue, index: PValue) -> Result<PValue, PErr> {
         return match &x {
             // `MultisetExpression.__getitem__` is `keep`.
             x if as_expression(x).is_some() => super::pool::pool_keep(x.clone(), index),
-            PValue::Value(Value::None) => type_error("'NoneType' object is not subscriptable"),
+            PValue::Value(Value::None) => wrong_type("'NoneType' object is not subscriptable"),
             _ => Err(PErr::Unimplemented("indexing this object".into())),
         };
     };
@@ -368,7 +368,7 @@ pub fn tuple_slice(x: PValue, start: PValue, stop: PValue, step: PValue) -> Resu
             x if as_expression(x).is_some() => {
                 super::pool::pool_slice(x.clone(), start, stop, step)
             }
-            PValue::Value(Value::None) => type_error("'NoneType' object is not subscriptable"),
+            PValue::Value(Value::None) => wrong_type("'NoneType' object is not subscriptable"),
             _ => Err(PErr::Unimplemented("slicing this object".into())),
         };
     };
@@ -388,10 +388,10 @@ pub fn the_expression(x: PValue) -> Result<MExpr, PErr> {
         Some(e) => Ok(e),
         None => match x {
             // `MultisetTupleExpression` has none of them (and no `*`, `//`, `-x`...).
-            PValue::MultiDeal(_) | PValue::Expr(_) => type_error(
-                "AttributeError: a multiset tuple expression has no multiset expression methods",
-            ),
-            _ => type_error("AttributeError: not a multiset expression"),
+            PValue::MultiDeal(_) | PValue::Expr(_) => {
+                missing_attribute("a multiset tuple expression has no multiset expression methods")
+            }
+            _ => missing_attribute("not a multiset expression"),
         },
     }
 }
@@ -502,7 +502,7 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
                 // `Die.__op__` converts the other operand first: `Die([expr])`, whose outcome cannot be sorted
                 // (an expression's `<` makes a die without a truth value).
                 PValue::Die(_) | PValue::DieWithTruth(..) => {
-                    return type_error("Items do not appear to be sortable.")
+                    return wrong_type("Items do not appear to be sortable.")
                 }
                 // A number's own `__op__` returns `NotImplemented`, and so does the expression's `__rop__`
                 // (`ImplicitConversionError` from `implicit_convert_to_expression`): TypeError.
@@ -513,7 +513,7 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
                     | Value::Fraction(_)
                     | Value::Complex(..)
                     | Value::None,
-                ) => return type_error(format!("unsupported operand type(s) for {op}")),
+                ) => return wrong_type(format!("unsupported operand type(s) for {op}")),
                 _ => {
                     return Err(PErr::Unimplemented(
                         "a reflected multiset operator with this left operand".into(),
@@ -538,7 +538,7 @@ pub fn binary_op(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> {
         }
         // A multiset tuple expression has no operators, and the other operand none for it.
         (None, None) if as_tuple_expression(&a).is_some() || as_tuple_expression(&b).is_some() => {
-            return type_error(format!("unsupported operand type(s) for {op}"))
+            return wrong_type(format!("unsupported operand type(s) for {op}"))
         }
         (None, None) => return Err(PErr::Unimplemented("no multiset operand".into())),
     };
@@ -619,10 +619,10 @@ fn not_int(e: MExpr, op: BinOp, n: PValue, reflected: bool) -> Result<PValue, PE
         // `Die.__op__` / `__rop__` convert the expression first: `Die([expr])` cannot sort its outcome (an
         // expression's `<` makes a die without a truth value).
         PValue::Die(_) | PValue::DieWithTruth(..) => {
-            type_error("Items do not appear to be sortable.")
+            wrong_type("Items do not appear to be sortable.")
         }
         // Numbers return NotImplemented too; a sequence's repeat needs an int.
-        _ => type_error(format!("unsupported operand type(s) for {}", op.symbol())),
+        _ => wrong_type(format!("unsupported operand type(s) for {}", op.symbol())),
     }
 }
 
@@ -659,7 +659,7 @@ pub fn counts(e: PValue, op: &str, comparison: PValue, n: PValue) -> Result<PVal
         "unique" => MExpr::op(Operator::Unique(int_constant(&n)?), vec![e]),
         "keep_counts" => {
             let PValue::Value(Value::Str(c)) = &comparison else {
-                return raise(Error::Value("Invalid comparison".into()));
+                return raise(Error::InvalidArgument("Invalid comparison".into()));
             };
             let comparison = KeepCountsComparison::parse(c)?;
             MExpr::op(Operator::KeepCounts(comparison, constant(&n)?), vec![e])
@@ -677,7 +677,7 @@ struct CatalogueCount(Arc<Func>);
 fn core_error(e: PErr) -> Error {
     match e {
         PErr::Raise(e) => e,
-        PErr::Unimplemented(what) => Error::Unsupported(what),
+        PErr::Unimplemented(what) => Error::Unported(what),
     }
 }
 
@@ -687,7 +687,7 @@ impl CountFunction<Value> for CatalogueCount {
         args.extend(counts.iter().map(|c| PValue::Value(count_value(c))));
         match self.0.call(args).map_err(core_error)? {
             PValue::Value(v) => value_count(&v),
-            _ => Err(Error::Unsupported(
+            _ => Err(Error::Unported(
                 "a map_counts result that is not an int".into(),
             )),
         }
@@ -756,7 +756,7 @@ pub fn filter_outcomes(e: PValue, invert: bool, target: PValue) -> Result<PValue
                     .into_iter()
                     .map(|x| match x {
                         PValue::Value(v) => Ok(v),
-                        PValue::List(_) => type_error("unhashable type: 'list'"),
+                        PValue::List(_) => unhashable_list(),
                         _ => Err(PErr::Unimplemented(
                             "a non-value in keep_outcomes' collection".into(),
                         )),
@@ -965,7 +965,7 @@ pub fn weightless(g: PValue) -> Result<PValue, PErr> {
     match as_expression(&g) {
         Some(MExpr::Gen(g)) => Ok(PValue::Expr(MExpr::Weightless(g))),
         Some(e @ MExpr::Weightless(_)) => Ok(PValue::Expr(e)),
-        _ => type_error("AttributeError: object has no attribute 'weightless'"),
+        _ => missing_attribute("object has no attribute 'weightless'"),
     }
 }
 
@@ -976,7 +976,7 @@ pub(super) fn add_inner(
     weight: Quantity,
 ) -> Result<(), PErr> {
     if !hashable(&inner) {
-        return type_error("unhashable type: 'list'");
+        return unhashable_list();
     }
     for (key, w) in data.iter_mut() {
         if same_expression(key, &inner)? {
@@ -1148,7 +1148,7 @@ pub fn max_pair(
     if &*comparison == "==" {
         if keep && tuple_other {
             // `+other`: a multiset tuple expression has no unary `+`.
-            return type_error("bad operand type for unary +");
+            return wrong_type("bad operand type for unary +");
         }
         let result = if keep {
             // `+self & +other`
@@ -1175,7 +1175,11 @@ pub fn max_pair(
             let (left_first, _, _) = compute_lexi_tuple(&comparison, order)?;
             (order, left_first != 0)
         }
-        _ => return raise(Error::Value("priority must be 'low' or 'high'.".into())),
+        _ => {
+            return raise(Error::InvalidArgument(
+                "priority must be 'low' or 'high'.".into(),
+            ))
+        }
     };
     let (_, tie, _) = compute_lexi_tuple(&comparison, order)?;
     let pair_equal = tie != 0;

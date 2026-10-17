@@ -32,7 +32,9 @@ thread_local! {
 /// console the caller may not see, and the trap itself only says "unreachable").
 #[wasm_bindgen(start)]
 fn start() {
-    std::panic::set_hook(Box::new(|info| PANIC.with(|p| p.set(Some(info.to_string())))));
+    std::panic::set_hook(Box::new(|info| {
+        PANIC.with(|p| p.set(Some(info.to_string())))
+    }));
 }
 
 /// The last panic's message, if any, forgotten once taken.
@@ -61,7 +63,10 @@ extern "C" {
 /// popping them, so the JS facade saves its value before each outermost call and puts it back after a trap.
 #[wasm_bindgen]
 pub fn stack_pointer() -> JsValue {
-    reflect_get(&wasm_bindgen::exports(), &JsValue::from_str("__stack_pointer"))
+    reflect_get(
+        &wasm_bindgen::exports(),
+        &JsValue::from_str("__stack_pointer"),
+    )
 }
 
 /// One program (JSON text) in, its result (JSON text) out: the icepool-run protocol for one line.

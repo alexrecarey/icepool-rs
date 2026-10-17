@@ -87,7 +87,8 @@ impl ArgsortEvaluator {
                 }
             }
             Tie::Left | Tie::Right => {
-                let mut indexed: Vec<(usize, Result<Int>)> = counts.into_iter().enumerate().collect();
+                let mut indexed: Vec<(usize, Result<Int>)> =
+                    counts.into_iter().enumerate().collect();
                 if self.tie == Tie::Right {
                     indexed.reverse();
                 }
@@ -144,9 +145,11 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
             .map(|count| match count {
                 Value::Int(c) => Ok(Int::from(c)),
                 // `min(count, limit - len(state))` compares `limit - len(state) < count`.
-                _ if limit.is_some() => Err(Error::Type(
-                    "'<' not supported between instances of 'int' and 'tuple'".into(),
-                )),
+                _ if limit.is_some() => Err(Error::Incomparable {
+                    op: "<",
+                    left: "int",
+                    right: "tuple",
+                }),
                 _ => Err(tuple_compared_with_int(">")),
             })
             .collect();
@@ -232,7 +235,7 @@ impl MultisetEvaluator<Value> for ArgsortGroupedEvaluator {
             .take_while(|count| matches!(count, Value::Int(_)))
             .any(|count| matches!(count, Value::Int(c) if Int::from(c).is_positive()));
         Err(if positive_before_tuple {
-            Error::Type("can't multiply sequence by non-int of type 'tuple'".into())
+            Error::WrongType("can't multiply sequence by non-int of type 'tuple'".into())
         } else {
             tuple_compared_with_int(">")
         })

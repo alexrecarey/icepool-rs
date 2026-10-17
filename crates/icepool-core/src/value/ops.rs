@@ -17,7 +17,7 @@ use dashu_ratio::RBig;
 
 use super::recursion::level;
 use super::{float_repr, int_to_f64, ratio_to_f64, Value};
-use crate::error::{type_error, Error, Result};
+use crate::error::{wrong_type, Error, Result};
 
 /// Python's binary operators and order comparisons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,7 +167,7 @@ const MAX_INT_BITS: u64 = if cfg!(target_pointer_width = "32") {
 const MAX_REPEAT: usize = 1 << 28;
 
 fn unsupported_operands<T>(op: BinOp, a: &Value, b: &Value) -> Result<T> {
-    type_error(format!(
+    wrong_type(format!(
         "unsupported operand type(s) for {}: '{}' and '{}'",
         op.symbol(),
         a.type_name(),
@@ -176,7 +176,7 @@ fn unsupported_operands<T>(op: BinOp, a: &Value, b: &Value) -> Result<T> {
 }
 
 fn zero_division<T>(msg: &str) -> Result<T> {
-    Err(Error::ZeroDivision(msg.into()))
+    Err(Error::DivisionByZero(msg.into()))
 }
 
 fn too_large<T>() -> Result<T> {
@@ -251,7 +251,7 @@ impl Value {
                 Trunc => "type doesn't define __trunc__ method",
                 Floor | Ceil => "must be real number",
             };
-            type_error(format!("{what}: '{}'", self.type_name()))
+            wrong_type(format!("{what}: '{}'", self.type_name()))
         };
         match self {
             Value::Host(h) => return h.unary(op),
@@ -304,7 +304,7 @@ impl Value {
             Value::Int(i) => Some(i.clone()),
             Value::Bool(b) => Some(IBig::from(*b as u8)),
             other => {
-                return type_error(format!(
+                return wrong_type(format!(
                     "'{}' object cannot be interpreted as an integer",
                     other.type_name()
                 ))
@@ -318,7 +318,7 @@ impl Value {
             return v.map(|x| x.round(ndigits));
         }
         let Some(n) = N::of(self) else {
-            return type_error(format!(
+            return wrong_type(format!(
                 "type {} doesn't define __round__ method",
                 self.type_name()
             ));
@@ -392,7 +392,9 @@ pub(crate) fn floor_divmod(a: &IBig, b: &IBig) -> (IBig, IBig) {
 /// `int(f)` for an integral float: `OverflowError` for infinities, `ValueError` for NaN.
 pub(crate) fn float_to_int(f: f64) -> Result<IBig> {
     if f.is_nan() {
-        return Err(Error::Value("cannot convert float NaN to integer".into()));
+        return Err(Error::InvalidArgument(
+            "cannot convert float NaN to integer".into(),
+        ));
     }
     if f.is_infinite() {
         return Err(Error::Overflow(
@@ -481,7 +483,9 @@ fn int_op(op: BinOp, a: &IBig, b: &IBig) -> Result<Value> {
         // A negative exponent makes it a float operation (`long_pow` hands it to `float_pow`).
         Pow if *b < zero => return float_pow(int_to_f64(a)?, int_to_f64(b)?),
         Pow => int_pow(a, b)?,
-        LShift | RShift if *b < zero => return Err(Error::Value("negative shift count".into())),
+        LShift | RShift if *b < zero => {
+            return Err(Error::InvalidArgument("negative shift count".into()))
+        }
         LShift if *a == zero => zero,
         LShift => match usize::try_from(b.clone()) {
             Ok(s)
@@ -732,13 +736,13 @@ fn repeat(seq: &Value, n: &Value) -> Result<Value> {
 /// arguments: anything else is "not all arguments converted". Specifiers themselves are not ported yet.
 fn str_format(s: &str, args: &Value) -> Result<Value> {
     if s.contains('%') {
-        return Err(Error::Unsupported(
+        return Err(Error::Unported(
             "str % formatting with conversion specifiers".into(),
         ));
     }
     match args {
         Value::Tuple(t) if t.is_empty() => Ok(Value::str(s)),
-        _ => type_error("not all arguments converted during string formatting"),
+        _ => wrong_type("not all arguments converted during string formatting"),
     }
 }
 
@@ -746,7 +750,7 @@ fn str_format(s: &str, args: &Value) -> Result<Value> {
 /// is the string itself. (A die is a mapping.)
 pub fn str_format_mapping(s: &str) -> Result<Value> {
     if s.contains('%') {
-        return Err(Error::Unsupported(
+        return Err(Error::Unported(
             "str % formatting with conversion specifiers".into(),
         ));
     }
@@ -783,12 +787,11 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
         _ => match (a.as_num(), b.as_num()) {
             // NaN compares false with everything.
             (Some(x), Some(y)) => Ok(x.partial_cmp(&y).is_some_and(by_ord)),
-            _ => type_error(format!(
-                "'{}' not supported between instances of '{}' and '{}'",
-                op.symbol(),
-                a.type_name(),
-                b.type_name()
-            )),
+            _ => Err(Error::Incomparable {
+                op: op.symbol(),
+                left: a.type_name(),
+                right: b.type_name(),
+            }),
         },
     }
 }
@@ -836,12 +839,11 @@ fn collection_binary(op: BinOp, a: &Value, b: &Value) -> Result<Value> {
         _ => {}
     }
     if reflected.is_some() {
-        type_error(format!(
-            "'{}' not supported between instances of '{}' and '{}'",
-            op.symbol(),
-            a.type_name(),
-            b.type_name()
-        ))
+        Err(Error::Incomparable {
+            op: op.symbol(),
+            left: a.type_name(),
+            right: b.type_name(),
+        })
     } else {
         unsupported_operands(op, a, b)
     }

@@ -45,10 +45,12 @@ impl<O: OutcomeOrder> Deal<O> {
     /// issue.
     pub fn new(deck: Deck<O>, hand_size: &IBig) -> Result<Self> {
         if *hand_size < IBig::ZERO {
-            return Err(Error::Value("hand_size cannot be negative.".into()));
+            return Err(Error::InvalidArgument(
+                "hand_size cannot be negative.".into(),
+            ));
         }
         if *hand_size > IBig::from(deck.size()) {
-            return Err(Error::Value(
+            return Err(Error::InvalidArgument(
                 "The number of cards dealt cannot exceed the size of the deck.".into(),
             ));
         }

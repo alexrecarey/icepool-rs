@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 use super::die_methods::from_cumulative;
 use super::expression::{add_inner, as_expression, MExpr};
 use super::map::{die_of, the_die};
-use super::ops::{binary, d, py_iter, to_die, type_error, weights_die};
+use super::ops::{binary, d, py_iter, to_die, unhashable_list, weights_die, wrong_type};
 use super::statistics::new_or_self;
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -41,7 +41,7 @@ pub fn z(sides: PValue) -> Result<PValue, PErr> {
     let sides = match sides {
         PValue::Value(Value::Int(i)) => i,
         PValue::Value(Value::Bool(b)) => IBig::from(b as u8),
-        _ => return type_error("sides must be an int."),
+        _ => return wrong_type("sides must be an int."),
     };
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
@@ -79,13 +79,13 @@ fn parse_int(s: &str) -> Result<Option<IBig>, PErr> {
 /// into `AttributeError`. An empty name fails on `key[0]` with IndexError.
 pub fn dz_attr(name: PValue) -> Result<PValue, PErr> {
     let Value::Str(name) = value(name)? else {
-        return type_error("attribute name must be string");
+        return wrong_type("attribute name must be string");
     };
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
-        return raise(Error::Index("string index out of range".into()));
+        return raise(Error::IndexOutOfRange("string index out of range".into()));
     };
-    let attribute_error = || raise(Error::Type(format!("AttributeError: {name}")));
+    let attribute_error = || raise(Error::MissingAttribute(name.to_string()));
     if first != 'd' && first != 'z' {
         return attribute_error();
     }
@@ -111,7 +111,7 @@ pub fn coin(n: PValue, d: PValue, max_denominator: PValue) -> Result<PValue, PEr
     let (mut n, mut d) = (value(n)?, value(d)?);
     if !matches!(n, Value::Int(_) | Value::Bool(_)) {
         if d.eq_op(&Value::from(1), true)?.truthy()? {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "If a non-int numerator is provided, a denominator must not be provided.".into(),
             ));
         }
@@ -211,7 +211,7 @@ pub fn pointwise(args: PValue, max: PValue, spread: PValue) -> Result<PValue, PE
         let mut args = py_iter(args)?;
         match args.len() {
             0 => {
-                return type_error("pointwise_max() missing 1 required positional argument: 'arg0'")
+                return wrong_type("pointwise_max() missing 1 required positional argument: 'arg0'")
             }
             1 => args.pop().expect("one"),
             _ => PValue::List(args),
@@ -277,7 +277,7 @@ pub fn sorted_union(args: PValue) -> Result<PValue, PErr> {
         let mut set = Vec::new();
         for x in py_iter(arg)? {
             match x {
-                PValue::List(_) => return type_error("unhashable type: 'list'"),
+                PValue::List(_) => return unhashable_list(),
                 x => {
                     let x = value(x)?;
                     x.check_hashable()?;
@@ -318,7 +318,7 @@ fn reduce_step(f: &PValue, result: Die<Value>, die: PValue) -> Result<Die<Value>
 pub fn reduce(f: PValue, dice: PValue, initial: PValue) -> Result<PValue, PErr> {
     let (start, rest) = reduce_start(dice, initial)?;
     let Some(mut result) = start else {
-        return raise(Error::Value("StopIteration".into()));
+        return raise(Error::InvalidArgument("StopIteration".into()));
     };
     for die in rest {
         result = reduce_step(&f, result, die)?;
@@ -352,7 +352,7 @@ enum Rv {
 impl Rv {
     fn new(name: PValue, params: PValue) -> Result<Rv, PErr> {
         let Ok([lo, hi]) = <[Value; 2]>::try_from(values(py_iter(params)?)?) else {
-            return type_error("expected two parameters");
+            return wrong_type("expected two parameters");
         };
         match &value(name)? {
             Value::Str(s) if &**s == "discrete_uniform" => Ok(Rv::Discrete(lo, hi)),
@@ -490,7 +490,7 @@ impl Wallenius {
             let mut pairs = Vec::new();
             for item in py_iter(data)? {
                 let Ok([o, w]) = <[PValue; 2]>::try_from(py_iter(item)?) else {
-                    return raise(Error::Value(
+                    return raise(Error::InvalidArgument(
                         "not enough or too many values to unpack (expected 2)".into(),
                     ));
                 };
@@ -501,7 +501,7 @@ impl Wallenius {
         for (outcome, v) in pairs {
             // A weight is a dict key: a list is unhashable.
             let weight_value = |w: PValue| match w {
-                PValue::List(_) => type_error("unhashable type: 'list'"),
+                PValue::List(_) => unhashable_list(),
                 w => value(w),
             };
             let (weight, quantity) = match (v, mapping) {
@@ -510,7 +510,7 @@ impl Wallenius {
                 (PValue::Value(v @ (Value::Int(_) | Value::Bool(_))), true) => (v, Value::from(1)),
                 (v, true) => {
                     let Ok([w, q]) = <[PValue; 2]>::try_from(py_iter(v)?) else {
-                        return raise(Error::Value(
+                        return raise(Error::InvalidArgument(
                             "not enough or too many values to unpack (expected 2)".into(),
                         ));
                     };
@@ -578,7 +578,7 @@ impl Wallenius {
                     .weight_decks
                     .iter()
                     .find(|(w, _)| w == weight)
-                    .ok_or_else(|| PErr::Raise(Error::Key(format!("{weight}"))))?
+                    .ok_or_else(|| PErr::Raise(Error::MissingKey(format!("{weight}"))))?
                     .1;
                 let deal = PValue::Deal(crate::Deal::new(deck.clone(), &IBig::from(count))?);
                 result = Some(match result {
@@ -693,7 +693,7 @@ pub fn wallenius_deal(
 ) -> Result<PValue, PErr> {
     let expr = wallenius_deal_expr(data, mapping, hand_size)?;
     let Value::Str(method) = value(method)? else {
-        return type_error("attribute name must be string");
+        return wrong_type("attribute name must be string");
     };
     super::evaluate::method_evaluation(&method, expr)
 }

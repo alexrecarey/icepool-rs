@@ -95,12 +95,12 @@ impl Vector {
     /// `bool(self)`.
     pub fn truthy(&self) -> Result<bool> {
         match self.truth.as_deref() {
-            None => Err(Error::Type(
+            None => Err(Error::WrongType(
                 "Vector only has a truth value if it is the result of a comparison operator."
                     .into(),
             )),
             Some(Value::Bool(b)) => Ok(*b),
-            Some(other) => Err(Error::Type(format!(
+            Some(other) => Err(Error::WrongType(format!(
                 "__bool__ should return bool, returned {}",
                 other.type_name()
             ))),
@@ -192,7 +192,7 @@ impl Vector {
         } else if let Some(truth) = truth {
             Ok(Value::Vector(Vector::truth_only(truth)))
         } else {
-            Err(Error::Index(format!(
+            Err(Error::IndexOutOfRange(format!(
                 "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",
                 data.len(),
                 odata.len()
@@ -212,7 +212,7 @@ impl Vector {
         if let Value::Vector(o) = other {
             let odata = o.data()?;
             if data.len() != odata.len() {
-                return Err(Error::Index(format!(
+                return Err(Error::IndexOutOfRange(format!(
                     "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",
                     odata.len(),
                     data.len()
@@ -272,7 +272,7 @@ impl Vector {
 
 /// What reading `VectorWithTruthOnly._data` raises.
 pub fn truth_only_error() -> Error {
-    Error::Value(
+    Error::InvalidArgument(
         "The result of a comparison between vectors of different lengths can only be used as a truth value."
             .into(),
     )

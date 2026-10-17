@@ -14,7 +14,7 @@ const INT_MAX_STR_DIGITS: usize = 4300;
 fn int_str(i: &IBig) -> Result<String> {
     let s = i.to_string();
     if s.trim_start_matches('-').len() > INT_MAX_STR_DIGITS {
-        return Err(Error::Value(format!(
+        return Err(Error::InvalidArgument(format!(
             "Exceeds the limit ({INT_MAX_STR_DIGITS} digits) for integer string conversion; use \
              sys.set_int_max_str_digits() to increase the limit"
         )));
@@ -44,7 +44,7 @@ fn str_repr(s: &str) -> Result<String> {
             '\r' => out.push_str("\\r"),
             _ if c < ' ' || c == '\x7f' => out.push_str(&format!("\\x{:02x}", c as u32)),
             _ if c.is_ascii() => out.push(c),
-            _ => return Err(Error::Unsupported("repr() of a non-ASCII str".into())),
+            _ => return Err(Error::Unported("repr() of a non-ASCII str".into())),
         }
     }
     out.push(quote);

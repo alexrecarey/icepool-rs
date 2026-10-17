@@ -24,7 +24,7 @@ use crate::counts::Counts;
 use crate::evaluator::{evaluate, Final, MultisetEvaluator};
 use crate::keep_tuple::{highest_slice, KeepIndex};
 use crate::order::Order;
-use crate::outcome::{OutcomeOrder, OutcomeArith};
+use crate::outcome::{OutcomeArith, OutcomeOrder};
 use crate::pool::MultisetSource;
 use crate::value::ratio_to_f64;
 use crate::Int;
@@ -98,7 +98,7 @@ impl Player {
 /// An input f2f.py might read differently (a missing key, a float, a bool where an int goes): the port only
 /// models the plain ints, bools and `None` that khepri's JavaScript sends.
 fn unsupported<T>(what: String) -> Result<T> {
-    Err(Error::Unsupported(format!("khepri input: {what}")))
+    Err(Error::Unported(format!("khepri input: {what}")))
 }
 
 fn field<'a>(p: &'a Map<String, Json>, key: &str) -> Result<&'a Json> {
@@ -412,7 +412,7 @@ fn template_roll(hits: i64, dodger: &Side) -> Result<Die<[i64; 2]>> {
 /// The roll: a die of `(a_crit, a_hit, b_crit, b_hit)`.
 pub fn roll(p: &Input) -> Result<Die<Roll>> {
     if p.a.template && p.b.template {
-        return Err(Error::Value(
+        return Err(Error::InvalidArgument(
             "two Direct Templates are two separate rolls".into(),
         ));
     }
@@ -446,7 +446,9 @@ fn add_args(a: &DieArg<i64>, b: &DieArg<i64>) -> Result<DieArg<i64>> {
         DieArg::Reroll => unreachable!("explode here always has an end outcome"),
     };
     match (a, b) {
-        (DieArg::Outcome(a), DieArg::Outcome(b)) => Ok(DieArg::Outcome(OutcomeArith::try_add(a, b)?)),
+        (DieArg::Outcome(a), DieArg::Outcome(b)) => {
+            Ok(DieArg::Outcome(OutcomeArith::try_add(a, b)?))
+        }
         _ => Ok(DieArg::Die(add(&as_die(a)?, &as_die(b)?)?)),
     }
 }

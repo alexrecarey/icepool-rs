@@ -4,7 +4,7 @@
 
 use super::catalogue::truthy;
 use super::collection::attribute_error;
-use super::ops::{py_iter, to_die, type_error};
+use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
 use crate::format::{
     common_outcome_length as outcome_length, format as format_population, Formatted,
@@ -30,7 +30,7 @@ pub fn format(die: PValue, spec: PValue) -> Result<PValue, PErr> {
     let spec = match spec {
         PValue::Value(Value::None) => String::new(),
         PValue::Value(Value::Str(s)) => s.to_string(),
-        _ => return type_error("format() argument 2 must be str"),
+        _ => return wrong_type("format() argument 2 must be str"),
     };
     if let (PValue::Value(v), "") = (&die, spec.as_str()) {
         return Ok(PValue::Value(Value::str(&crate::value::pystr::py_str(v)?)));
@@ -54,7 +54,7 @@ pub fn format_probability_inverse(probability: PValue, args: PValue) -> Result<P
         [PValue::Value(v)] => v.clone(),
         [_] => return Err(PErr::Unimplemented("a non-value int_start".into())),
         _ => {
-            return type_error(
+            return wrong_type(
                 "format_probability_inverse() takes from 1 to 2 positional arguments",
             )
         }
@@ -93,7 +93,7 @@ pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
             return Ok(PValue::Value(Value::tuple(Vec::new())));
         }
         if let Value::Symbols(_) = v {
-            return type_error("'Symbols' object is not callable");
+            return wrong_type("'Symbols' object is not callable");
         }
         return attribute_error(&die, "sample");
     }
@@ -135,7 +135,7 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
     let other = to_die(other)?;
     Ok(match die.binary_operator(&other, |x, y| x.eq_op(y, ne)) {
         Ok(data) => PValue::DieWithTruth(data, equals != ne),
-        Err(Error::Unsupported(what)) => return Err(PErr::Unimplemented(what)),
+        Err(Error::Unported(what)) => return Err(PErr::Unimplemented(what)),
         Err(e) => PValue::DieWithTruthError(e, equals != ne),
     })
 }
@@ -150,7 +150,10 @@ pub fn equals(a: PValue, b: PValue, simplify: PValue) -> Result<PValue, PErr> {
     // `if not isinstance(other, Die): return False` comes before any data is computed: a `DieWithTruth` whose data
     // raises only raises once both are dice (their `hash_key`s).
     let is_die = |x: &PValue| {
-        matches!(x, PValue::Die(_) | PValue::DieWithTruth(..) | PValue::DieWithTruthError(..))
+        matches!(
+            x,
+            PValue::Die(_) | PValue::DieWithTruth(..) | PValue::DieWithTruthError(..)
+        )
     };
     if let PValue::DieWithTruthError(e, _) = &a {
         return if is_die(&b) {
@@ -163,7 +166,7 @@ pub fn equals(a: PValue, b: PValue, simplify: PValue) -> Result<PValue, PErr> {
         return Err(e.clone().into());
     }
     let Ok((a, _)) = named_die(&a) else {
-        return type_error("AttributeError: 'equals'");
+        return missing_attribute("'equals'");
     };
     let simplify = truthy(&simplify)?;
     Ok(PValue::Value(Value::Bool(match &b {
@@ -196,7 +199,7 @@ pub fn equals_self(x: PValue) -> Result<PValue, PErr> {
 /// `a.hash_key <cmp> b.hash_key` for two dice.
 pub fn hash_key_compare(a: PValue, b: PValue, cmp: PValue) -> Result<PValue, PErr> {
     let (Ok((a, _)), Ok((b, _))) = (named_die(&a), named_die(&b)) else {
-        return type_error("AttributeError: 'hash_key'");
+        return missing_attribute("'hash_key'");
     };
     let PValue::Value(Value::Str(cmp)) = cmp else {
         return Err(PErr::Unimplemented("a hash_key comparison by name".into()));

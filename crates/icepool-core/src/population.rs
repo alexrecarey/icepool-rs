@@ -16,7 +16,7 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 use rustc_hash::FxHashMap;
 
-use crate::error::{value_error, Error, Result};
+use crate::error::{invalid_argument, Error, Result};
 use crate::function::sorted_union;
 use crate::outcome::{infallible, ErrInto, Outcome, OutcomeOrder};
 use crate::value::builtins::{
@@ -55,12 +55,15 @@ impl Comparison {
 }
 
 fn invalid<T>(c: &Value) -> Result<T> {
-    value_error(format!("Invalid comparison {c}"))
+    invalid_argument(format!("Invalid comparison {c}"))
 }
 
 /// `bisect`'s binary search: the first index whose element does not `go_right`, probing midpoints as CPython's
 /// `_bisect` does (the comparisons may raise, and may not be a consistent order).
-fn bisect<T, E>(a: &[T], go_right: impl Fn(&T) -> std::result::Result<bool, E>) -> std::result::Result<usize, E> {
+fn bisect<T, E>(
+    a: &[T],
+    go_right: impl Fn(&T) -> std::result::Result<bool, E>,
+) -> std::result::Result<usize, E> {
     let (mut lo, mut hi) = (0, a.len());
     while lo < hi {
         let mid = (lo + hi) / 2;
@@ -115,7 +118,11 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// The index of the nearest outcome on the given side (`nearest`), or `None`; `Ok(Some((i, true)))` if
     /// `outcome in self` answered (Python then returns `outcome` itself).
-    fn nearest_index(&self, nearest: Nearest, outcome: &O) -> std::result::Result<Option<(usize, bool)>, O::Incomparable> {
+    fn nearest_index(
+        &self,
+        nearest: Nearest,
+        outcome: &O,
+    ) -> std::result::Result<Option<(usize, bool)>, O::Incomparable> {
         let items = self.items();
         // bisect_left compares `a[mid] < x`, bisect_right `x < a[mid]`.
         let left = || bisect(items, |(o, _)| o.try_lt(outcome));
@@ -145,7 +152,7 @@ impl<O: OutcomeOrder> Die<O> {
             Comparison::Lt => Nearest::Lt,
             Comparison::Ge => Nearest::Ge,
             Comparison::Gt => Nearest::Gt,
-            Comparison::Eq | Comparison::Ne => return value_error("Invalid comparison"),
+            Comparison::Eq | Comparison::Ne => return invalid_argument("Invalid comparison"),
         };
         Ok(match self.nearest_index(nearest, outcome).err_into()? {
             None => None,
@@ -155,7 +162,11 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The total quantity fitting a comparison to a single outcome.
-    pub fn try_quantity(&self, comparison: Comparison, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
+    pub fn try_quantity(
+        &self,
+        comparison: Comparison,
+        outcome: &O,
+    ) -> std::result::Result<Quantity, O::Incomparable> {
         let get = || {
             self.position(outcome)
                 .map_or(Quantity::ZERO, |i| self.items()[i].1.clone())
@@ -194,7 +205,7 @@ impl<O: OutcomeOrder> Die<O> {
             .map(|(_, q)| q)
             .max()
             .cloned()
-            .ok_or_else(|| Error::Value("max() iterable argument is empty".into()))
+            .ok_or_else(|| Error::InvalidArgument("max() iterable argument is empty".into()))
     }
 
     /// The most common outcome(s), lowest to highest. An empty die has none (and never asks `modal_quantity`).
@@ -432,7 +443,7 @@ impl Die<Value> {
                 _ => Some(d),
             };
         }
-        max.ok_or_else(|| Error::Value("max() iterable argument is empty".into()))
+        max.ok_or_else(|| Error::InvalidArgument("max() iterable argument is empty".into()))
     }
 
     /// Cramér-von Mises statistic. The sum-of-squares difference between CDFs.
@@ -474,7 +485,7 @@ impl Die<Value> {
             let n = py_len(o)?;
             min = Some(min.map_or(n, |m| m.min(n)));
         }
-        min.ok_or_else(|| Error::Value("min() iterable argument is empty".into()))
+        min.ok_or_else(|| Error::InvalidArgument("min() iterable argument is empty".into()))
     }
 
     /// `try_fraction(sum((outcome[i] - mean_i) * (outcome[j] - mean_j) * quantity ...), denominator)`, the means
@@ -559,10 +570,10 @@ impl Die<Value> {
                 Some(i) => {
                     data.remove(i);
                 }
-                None => return Err(Error::Key(format!("{outcome}"))),
+                None => return Err(Error::MissingKey(format!("{outcome}"))),
             }
         } else {
-            return value_error(format!(
+            return invalid_argument(format!(
                 "Padding to denominator of {denominator} would require a negative quantity of \
                  {new_quantity} for {outcome}"
             ));
@@ -618,12 +629,17 @@ impl Die<Value> {
         let mut index: FxHashMap<Value, usize> = FxHashMap::default();
         for ((_, quantity), position) in self.items().iter().zip(positions) {
             // `[False] * len(outcomes)`: `len` may be that of a huge sequence (`range(2**40)`).
-            let mut value = crate::memory::try_repeat(Value::Bool(false), Some(len), "[False] * len")?;
+            let mut value =
+                crate::memory::try_repeat(Value::Bool(false), Some(len), "[False] * len")?;
             if let Some(i) = *position {
                 let i = if i < 0 { i + len as i64 } else { i };
                 match usize::try_from(i).ok().filter(|&i| i < len) {
                     Some(i) => value[i] = Value::Bool(true),
-                    None => return Err(Error::Index("list assignment index out of range".into())),
+                    None => {
+                        return Err(Error::IndexOutOfRange(
+                            "list assignment index out of range".into(),
+                        ))
+                    }
                 }
             }
             let key = Value::Vector(crate::value::Vector::new(value));
@@ -643,7 +659,7 @@ impl Die<Value> {
     pub fn multiply_to_denominator(&self, denominator: &Value) -> Result<Option<Data>> {
         let den = Value::Int(self.den());
         if denominator.binary(BinOp::Mod, &den)?.truthy()? {
-            return value_error(
+            return invalid_argument(
                 "Target denominator is not an integer factor of the current denominator.",
             );
         }
@@ -656,7 +672,7 @@ impl Die<Value> {
         let index = self.quantities_le().partition_point(|q| q <= r);
         match self.items().get(index) {
             Some((outcome, _)) => Ok(outcome.clone()),
-            None => Err(Error::Index("tuple index out of range".into())),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
         }
     }
 
@@ -692,8 +708,8 @@ impl Die<Value> {
 /// (and `key[0]` of an empty name raises IndexError).
 pub fn check_public_attr(name: &str) -> Result<()> {
     match name.chars().next() {
-        None => Err(Error::Index("string index out of range".into())),
-        Some('_') => Err(Error::Type(format!("AttributeError: {name}"))),
+        None => Err(Error::IndexOutOfRange("string index out of range".into())),
+        Some('_') => Err(Error::MissingAttribute(name.to_string())),
         Some(_) => Ok(()),
     }
 }
@@ -739,7 +755,7 @@ mod tests {
         for out_of_range in [3, -4] {
             assert!(matches!(
                 one_hot(&[Some(out_of_range)]),
-                Err(Error::Index(_))
+                Err(Error::IndexOutOfRange(_))
             ));
         }
     }

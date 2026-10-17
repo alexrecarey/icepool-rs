@@ -8,7 +8,9 @@ use std::borrow::Cow;
 use dashu_int::IBig;
 
 use super::map::{call, star_arg};
-use super::ops::{die_arg, itemize, itemize_mapping, py_iter, type_error};
+use super::ops::{
+    die_arg, itemize, itemize_mapping, missing_attribute, py_iter, unhashable_list, wrong_type,
+};
 use super::statistics;
 use super::{raise, PErr, PValue};
 use crate::creation_args::DieArg;
@@ -23,14 +25,14 @@ use crate::{Deal, Deck, Die, Int, Quantity, Value};
 pub(super) fn the_deck(x: PValue) -> Result<Deck<Value>, PErr> {
     match x {
         PValue::Deck(d) => Ok(d),
-        _ => type_error("AttributeError: only decks have this method"),
+        _ => missing_attribute("only decks have this method"),
     }
 }
 
 fn the_deal(x: PValue) -> Result<Deal<Value>, PErr> {
     match x {
         PValue::Deal(d) => Ok(d),
-        _ => type_error("AttributeError: only deals have this method"),
+        _ => missing_attribute("only deals have this method"),
     }
 }
 
@@ -48,7 +50,9 @@ pub fn deck(outcomes: PValue, times: PValue) -> Result<PValue, PErr> {
     let (objects, times) = itemize(outcomes, Some(times))?;
     // `contains_again(outcomes)`.
     if objects.iter().any(|x| matches!(x, PValue::Again(_))) {
-        return raise(Error::Value("Again cannot be used with Decks.".into()));
+        return raise(Error::InvalidArgument(
+            "Again cannot be used with Decks.".into(),
+        ));
     }
     new_deck(objects, &times)
 }
@@ -89,7 +93,7 @@ fn new_deck(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, PErr> {
             .as_num()
             .is_some_and(|n| n == Num::Int(Cow::Owned(IBig::ZERO)))
     }) {
-        return type_error("AttributeError: 'RerollType' object has no attribute 'items'");
+        return missing_attribute("'RerollType' object has no attribute 'items'");
     }
     Ok(PValue::Deck(Deck::new(&args, &duplicates)?))
 }
@@ -114,7 +118,7 @@ fn duplicate(arg: &DieArg<Value>, t: &Value) -> Result<Quantity, PErr> {
                 DieArg::Reroll => false,
             };
             if contributes {
-                raise(Error::Value(format!(
+                raise(Error::InvalidArgument(format!(
                     "Values must be ints, got {}",
                     t.type_name()
                 )))
@@ -147,13 +151,13 @@ fn counter(other: PValue) -> Result<Counter<Value>, PErr> {
                 .into_iter()
                 .map(|e| match e {
                     PValue::Value(v) => Ok(v),
-                    PValue::List(_) => type_error("unhashable type: 'list'"),
+                    PValue::List(_) => unhashable_list(),
                     _ => Err(PErr::Unimplemented("counting dice or other objects".into())),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Counter::from_elements(elements))
         }
-        PValue::Value(v) => type_error(format!("'{}' object is not iterable", v.type_name())),
+        PValue::Value(v) => wrong_type(format!("'{}' object is not iterable", v.type_name())),
         _ => Err(PErr::Unimplemented("Counter() of this object".into())),
     }
 }
@@ -184,7 +188,7 @@ pub fn deck_op(op: PValue, a: PValue, b: PValue) -> Result<PValue, PErr> {
         ("&", _) => CounterOp::And,
         ("|", _) => CounterOp::Or,
         ("^", false) => CounterOp::Xor,
-        ("^", true) => return type_error("unsupported operand type(s) for ^: 'Deck'"),
+        ("^", true) => return wrong_type("unsupported operand type(s) for ^: 'Deck'"),
         _ => return Err(PErr::Unimplemented(format!("deck operator {op}"))),
     };
     if super::expression::as_expression(&other).is_some() {
@@ -225,7 +229,7 @@ fn deck_op_expression(deck: &Deck<Value>, op: CounterOp, expr: PValue) -> Result
                     "iterating an expression whose items are not dice".into(),
                 ))
             }
-            Err(PErr::Raise(Error::Index(_))) => break,
+            Err(PErr::Raise(Error::IndexOutOfRange(_))) => break,
             Err(e) => return Err(e),
         }
     }
@@ -254,7 +258,7 @@ pub fn deck_mul(deck: PValue, op: PValue, n: PValue) -> Result<PValue, PErr> {
     let n = match n {
         PValue::Value(n @ (Value::Int(_) | Value::Bool(_))) => n,
         PValue::Value(_) | PValue::List(_) | PValue::Tuple(_) => {
-            return type_error("unsupported operand type(s) for Deck")
+            return wrong_type("unsupported operand type(s) for Deck")
         }
         _ => return Err(PErr::Unimplemented("this deck operand".into())),
     };
@@ -318,12 +322,12 @@ pub fn deck_sequence(deck: PValue, deals: PValue) -> Result<PValue, PErr> {
         _ => return Err(PErr::Unimplemented("non-int deals".into())),
     };
     if deals < IBig::ZERO {
-        return raise(Error::Value(
+        return raise(Error::InvalidArgument(
             "The number of cards dealt cannot be negative.".into(),
         ));
     }
     if deals == IBig::ZERO {
-        return raise(Error::Value(
+        return raise(Error::InvalidArgument(
             "UnboundLocalError: cannot access local variable 'result'".into(),
         ));
     }
@@ -452,7 +456,7 @@ pub fn deal_pop(deal: PValue, order: PValue, outcome: PValue) -> Result<PValue, 
             .find(|o| *v == int(o.value())),
         _ => None,
     }
-    .ok_or_else(|| PErr::Raise(Error::Value("not a valid Order".into())))?;
+    .ok_or_else(|| PErr::Raise(Error::InvalidArgument("not a valid Order".into())))?;
     let PValue::Value(outcome) = outcome else {
         return Err(PErr::Unimplemented("popping a non-value outcome".into()));
     };
@@ -484,18 +488,18 @@ pub fn deck_method(deck: PValue, name: PValue, arg: PValue) -> Result<PValue, PE
     match &*name {
         // `functools.reduce(operator.add, args, initial=self)`: `reduce` takes no keyword arguments before
         // Python 3.14, so these always raise there, even without arguments (DIVERGENCES.md).
-        "additive_union" | "difference" | "intersection" | "union" => {
-            raise(Error::Type("reduce() takes no keyword arguments".into()))
-        }
+        "additive_union" | "difference" | "intersection" | "union" => raise(Error::WrongType(
+            "reduce() takes no keyword arguments".into(),
+        )),
         // `return self ^ other`.
         "symmetric_difference" => deck_op(PValue::Value(Value::str("^")), PValue::Deck(deck), arg),
         // `self._data[outcome]`: a dict lookup.
         "getitem" => match arg {
             PValue::Value(key) => match deck.population().position(&key) {
                 Some(i) => Ok(PValue::Value(int(deck.items()[i].1.clone()))),
-                None => raise(Error::Key(format!("{key}"))),
+                None => raise(Error::MissingKey(format!("{key}"))),
             },
-            PValue::List(_) => type_error("unhashable type: 'list'"),
+            PValue::List(_) => unhashable_list(),
             _ => Err(PErr::Unimplemented("deck[] of this object".into())),
         },
         "keys" | "iter" => Ok(PValue::Value(Value::tuple(
@@ -540,7 +544,7 @@ pub(super) fn deal_repr_and_str(deal: &PValue) -> Result<(String, String), PErr>
                 format!("{header} from deck:\n{}", deck_str(md.deck())?),
             ))
         }
-        _ => type_error("AttributeError: only deals have this method"),
+        _ => missing_attribute("only deals have this method"),
     }
 }
 

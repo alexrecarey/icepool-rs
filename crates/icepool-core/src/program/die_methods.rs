@@ -4,7 +4,7 @@
 
 use super::function::harmonize;
 use super::map::{contains, the_die};
-use super::ops::{die_with_agains, matmul, py_iter, to_die, type_error};
+use super::ops::{die_with_agains, matmul, py_iter, to_die, unhashable_list, wrong_type};
 use super::{PErr, PValue};
 use crate::counts::OrderedMerge;
 use crate::population::Comparison;
@@ -67,7 +67,7 @@ pub fn from_cumulative(
     }
     let cumulative: Vec<PValue> = match cumulative.first() {
         None => {
-            return Err(PErr::Raise(crate::Error::Index(
+            return Err(PErr::Raise(crate::Error::IndexOutOfRange(
                 "list index out of range".into(),
             )))
         }
@@ -83,7 +83,7 @@ pub fn from_cumulative(
                 })
                 .collect::<Result<_, crate::Error>>()?
         }
-        Some(_) => return type_error("Unsupported type <class 'list'> for cumulative values."),
+        Some(_) => return wrong_type("Unsupported type <class 'list'> for cumulative values."),
     };
     let mut keys: Vec<PValue> = Vec::new();
     let mut values: Vec<PValue> = Vec::new();
@@ -95,7 +95,7 @@ pub fn from_cumulative(
             // `times < 0` (after any earlier negative difference, which raises ValueError), and a die has no truth
             // value. Either way it raises.
             PValue::Die(_) | PValue::DieWithTruth(..) => {
-                return type_error(
+                return wrong_type(
                     "A `Die` only has a truth value if it is the result of == or !=.",
                 )
             }
@@ -196,7 +196,9 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
         PValue::DieWithTruth(..) => "DieWithTruth",
         PValue::Die(_) => "Die",
         // `repr()` takes anything: a "die" node may give a value (`d1.sequence(0)` is `()`).
-        PValue::Value(v) => return Ok(PValue::Value(Value::str(&crate::value::pystr::py_repr(v)?))),
+        PValue::Value(v) => {
+            return Ok(PValue::Value(Value::str(&crate::value::pystr::py_repr(v)?)))
+        }
         _ => return Err(PErr::Unimplemented("repr() of this kind of object".into())),
     };
     let die = the_die(die)?;
@@ -241,7 +243,7 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
                 key.check_hashable()?;
                 Ok(die.position(&key))
             }
-            PValue::List(_) => type_error("unhashable type: 'list'"),
+            PValue::List(_) => unhashable_list(),
             _ => Err(PErr::Unimplemented("die[] of this object".into())),
         }
     };
@@ -249,7 +251,7 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
     match &*name {
         "getitem" => match lookup(arg.clone())? {
             Some(i) => value(int(&die.items()[i].1)),
-            None => super::raise(crate::error::Error::Key(match arg {
+            None => super::raise(crate::error::Error::MissingKey(match arg {
                 PValue::Value(key) => format!("{key}"),
                 _ => String::new(),
             })),
@@ -294,7 +296,7 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
             };
             match outcome {
                 Some((o, _)) => value(o.clone()),
-                None => super::raise(crate::error::Error::Index(
+                None => super::raise(crate::error::Error::IndexOutOfRange(
                     "tuple index out of range".into(),
                 )),
             }

@@ -224,7 +224,7 @@ impl Binary<'_> {
             Binary::Op(op, f) => match a.binary(*op, b) {
                 // The core does not model this case for native values yet (printf-style `str %` with conversion
                 // specifiers): the outcome operation is Python's, as for host objects.
-                Err(Error::Unsupported(_)) => call(f, &[a, b], args, kwargs),
+                Err(Error::Unported(_)) => call(f, &[a, b], args, kwargs),
                 r => r,
             },
             // `==` on host objects is Python's own (it need not be an equivalence, nor return a bool).
@@ -256,7 +256,7 @@ impl Unary<'_> {
         };
         match r {
             // As in `Binary::apply`: a case the core does not model yet is Python's own.
-            Err(Error::Unsupported(_)) => call(self.function(), &[a], args, kwargs),
+            Err(Error::Unported(_)) => call(self.function(), &[a], args, kwargs),
             r => r,
         }
     }

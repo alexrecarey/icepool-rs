@@ -129,7 +129,7 @@ impl Random {
     /// is below `stop`. `ValueError` for an empty range.
     pub fn randrange(&mut self, stop: &UBig) -> Result<UBig> {
         if *stop == UBig::ZERO {
-            return Err(Error::Value("empty range in randrange(0)".into()));
+            return Err(Error::InvalidArgument("empty range in randrange(0)".into()));
         }
         let k = stop.bit_len();
         loop {

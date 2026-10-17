@@ -5,7 +5,7 @@ use dashu_int::IBig;
 
 use crate::counts::Counts;
 use crate::die::Die;
-use crate::error::{value_error, Error, Result};
+use crate::error::{invalid_argument, Error, Result};
 use crate::memory::try_collect;
 use crate::outcome::{ErrInto, OutcomeOrder};
 use crate::value::{BinOp, Vector};
@@ -51,14 +51,18 @@ pub fn z(sides: i64) -> Die<i64> {
 /// use icepool_core::{function::try_d, Die, Value};
 /// let d6: Die<Value> = try_d(6).unwrap();
 /// assert_eq!(d6.len(), 6);
-/// assert_eq!(try_d::<i64>(0).unwrap_err().message(), "sides must be at least 1.");
+/// assert_eq!(try_d::<i64>(0).unwrap_err().to_string(), "sides must be at least 1.");
 /// ```
 pub fn try_d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
-        return value_error("sides must be at least 1.");
+        return invalid_argument("sides must be at least 1.");
     }
     // `range(1, sides + 1)` as a list: Python's `MemoryError` where no machine holds it (`memory`).
-    let items = try_collect(Some(sides), (1..=sides).map(|i| (O::from(i), Quantity::ONE)), "d(sides)")?;
+    let items = try_collect(
+        Some(sides),
+        (1..=sides).map(|i| (O::from(i), Quantity::ONE)),
+        "d(sides)",
+    )?;
     Ok(Die::from_counts(Counts::from_sorted(items)))
 }
 
@@ -93,9 +97,13 @@ where
 /// ```
 pub fn try_z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
-        return value_error("sides must be at least 1.");
+        return invalid_argument("sides must be at least 1.");
     }
-    let items = try_collect(Some(sides), (0..sides).map(|i| (O::from(i), Quantity::ONE)), "z(sides)")?;
+    let items = try_collect(
+        Some(sides),
+        (0..sides).map(|i| (O::from(i), Quantity::ONE)),
+        "z(sides)",
+    )?;
     Ok(Die::from_counts(Counts::from_sorted(items)))
 }
 
@@ -135,7 +143,7 @@ fn index_arg(x: &Value) -> Result<IBig> {
         _ => None,
     };
     i.ok_or_else(|| {
-        Error::Type(format!(
+        Error::WrongType(format!(
             "'{}' object cannot be interpreted as an integer",
             x.type_name()
         ))
@@ -204,7 +212,7 @@ pub fn py_min_max(items: Vec<Value>, max: bool) -> Result<Value> {
     let mut items = items.into_iter();
     let Some(mut best) = items.next() else {
         let f = if max { "max" } else { "min" };
-        return value_error(format!("{f}() iterable argument is empty"));
+        return invalid_argument(format!("{f}() iterable argument is empty"));
     };
     for item in items {
         best = if max {
@@ -241,7 +249,7 @@ pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
             ));
         }
         if len > IBig::from(MAX_RANGE) {
-            return Err(Error::Unsupported("consecutive() over a huge range".into()));
+            return Err(Error::Unported("consecutive() over a huge range".into()));
         }
     }
     let mut out = Vec::new();
@@ -260,7 +268,7 @@ pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
 pub fn one_hot(sides: &Value) -> Result<Die<Value>> {
     let sides = index_arg(sides)?;
     if sides > IBig::from(4096) {
-        return Err(Error::Unsupported("one_hot() with this many sides".into()));
+        return Err(Error::Unported("one_hot() with this many sides".into()));
     }
     let sides = usize::try_from(sides).unwrap_or(0);
     let data = (0..sides)
@@ -288,8 +296,14 @@ mod tests {
     fn huge_standard_dice_are_memory_errors() {
         // Fixtures only see that both sides raise: Python's type here is MemoryError, not an abort or a panic.
         for sides in [i64::MAX, 1 << 40] {
-            assert!(matches!(try_d::<Value>(sides), Err(Error::Memory(_))), "{sides}");
-            assert!(matches!(try_z::<Value>(sides), Err(Error::Memory(_))), "{sides}");
+            assert!(
+                matches!(try_d::<Value>(sides), Err(Error::TooLarge(_))),
+                "{sides}"
+            );
+            assert!(
+                matches!(try_z::<Value>(sides), Err(Error::TooLarge(_))),
+                "{sides}"
+            );
         }
         assert_eq!(try_d::<Value>(3).unwrap().len(), 3);
     }
@@ -304,16 +318,16 @@ mod tests {
         }
         assert!(matches!(
             consecutive_of(&[-1, max - 1]),
-            Err(Error::Unsupported(_))
+            Err(Error::Unported(_))
         ));
         assert!(matches!(
             consecutive_of(&[0, 1 << 40]),
-            Err(Error::Unsupported(_))
+            Err(Error::Unported(_))
         ));
         // Longer than `sys.maxsize`: `len()` of the range overflows.
         assert!(matches!(
             consecutive_of(&[0, i64::MAX - 1]),
-            Err(Error::Unsupported(_))
+            Err(Error::Unported(_))
         ));
         assert!(matches!(
             consecutive_of(&[-1, i64::MAX - 1]),
@@ -330,7 +344,7 @@ mod tests {
     fn one_hot_refuses_huge_sides() {
         assert!(matches!(
             one_hot(&Value::from(4097)),
-            Err(Error::Unsupported(_))
+            Err(Error::Unported(_))
         ));
         assert_eq!(one_hot(&Value::from(3)).unwrap().len(), 3);
     }

@@ -54,7 +54,7 @@ struct Spellings(FxHashMap<Value, Value>);
 impl Spellings {
     fn check(&mut self, v: &Value) -> crate::Result<()> {
         match self.0.get(v) {
-            Some(first) if !same_spelling(first, v) => Err(Error::Unsupported(
+            Some(first) if !same_spelling(first, v) => Err(Error::Unported(
                 "equal states spelled differently in an absorbing Markov chain (Python's answer depends on set order)"
                     .into(),
             )),
@@ -256,7 +256,7 @@ where
     for pivot_index in 0..t {
         let Some(i) = (pivot_index..t).find(|&i| fundamental_solve[i].contains_key(&pivot_index))
         else {
-            return Err(Error::Value(
+            return Err(Error::InvalidArgument(
                 "Matrix has deficient rank. This likely indicates that the Markov process has a chance of not terminating."
                     .into(),
             )
@@ -326,7 +326,7 @@ where
         .map(|(o, q)| {
             Quantity::try_from(q)
                 .map(|q| (o, q))
-                .map_err(|_| Error::Value("negative weight".into()))
+                .map_err(|_| Error::InvalidArgument("negative weight".into()))
         })
         .collect::<crate::Result<Vec<_>>>()?;
 

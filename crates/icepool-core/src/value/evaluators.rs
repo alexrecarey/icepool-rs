@@ -75,7 +75,11 @@ impl<A: IntoValue, B: IntoValue> IntoValue for (A, B) {
 
 impl<A: IntoValue, B: IntoValue, C: IntoValue> IntoValue for (A, B, C) {
     fn into_value(self) -> Value {
-        Value::tuple(vec![self.0.into_value(), self.1.into_value(), self.2.into_value()])
+        Value::tuple(vec![
+            self.0.into_value(),
+            self.1.into_value(),
+            self.2.into_value(),
+        ])
     }
 }
 
@@ -106,11 +110,14 @@ impl IntegerOutcome for Value {
             _ => None,
         };
         if outcomes.iter().any(|x| as_int(x).is_none()) {
-            return Err(Error::Type(
+            return Err(Error::WrongType(
                 "consecutive cannot be used with outcomes of type other than 'int'.".into(),
             ));
         }
-        let (lo, hi) = (as_int(first).expect("checked"), as_int(last).expect("checked"));
+        let (lo, hi) = (
+            as_int(first).expect("checked"),
+            as_int(last).expect("checked"),
+        );
         let span = consecutive_span(lo.clone(), hi)?;
         Ok((0..span).map(|i| Value::Int(&lo + IBig::from(i))).collect())
     }
@@ -171,8 +178,15 @@ where
     type State = PyState<E::State>;
     type Final = Value;
 
-    fn initial_state(&self, order: Order, outcomes: &[Value], sizes: &[Option<Int>]) -> Result<Self::State> {
-        Ok(PyState::Typed(self.0.initial_state(order, outcomes, sizes)?))
+    fn initial_state(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Int>],
+    ) -> Result<Self::State> {
+        Ok(PyState::Typed(
+            self.0.initial_state(order, outcomes, sizes)?,
+        ))
     }
 
     fn next_state(
@@ -183,7 +197,10 @@ where
         counts: &[Int],
     ) -> Result<Option<Self::State>> {
         match state {
-            PyState::Typed(s) => Ok(self.0.next_state(s, order, outcome, counts)?.map(PyState::Typed)),
+            PyState::Typed(s) => Ok(self
+                .0
+                .next_state(s, order, outcome, counts)?
+                .map(PyState::Typed)),
             // Once the state is Python's, it stays Python's.
             PyState::Python(_) => {
                 let counts: Vec<Value> = counts.iter().map(Value::from).collect();
@@ -199,7 +216,10 @@ where
         outcome: &Value,
         counts: &[Value],
     ) -> Result<Option<Self::State>> {
-        Ok(self.0.next_state_tuples(state, order, outcome, counts)?.map(PyState::Python))
+        Ok(self
+            .0
+            .next_state_tuples(state, order, outcome, counts)?
+            .map(PyState::Python))
     }
 
     fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
@@ -246,7 +266,13 @@ fn state_as_outcome(state: &Value) -> Final<Value> {
 
 /// `max(count, 0)` of a tuple count: `TypeError`.
 impl TupleCounts for HighestOutcomeAndCountEvaluator {
-    fn next_state_tuples(&self, _: &PyState<Self::State>, _: Order, _: &Value, _: &[Value]) -> Result<Option<Value>> {
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
         Err(tuple_compared_with_int(">"))
     }
 }
@@ -292,7 +318,11 @@ impl TupleCounts for LargestCountEvaluator {
     ) -> Result<Option<Value>> {
         // `max(state or count, count)`
         let (state, count) = (state.value(), counts[0].clone());
-        let first = if state.truthy()? { state } else { count.clone() };
+        let first = if state.truthy()? {
+            state
+        } else {
+            count.clone()
+        };
         Ok(Some(Value::py_max(first, count)?))
     }
 
@@ -354,28 +384,54 @@ impl TupleCounts for CountSubsetEvaluator<Value> {
 
 /// `count >= 1` of a tuple count: `TypeError`.
 impl TupleCounts for LargestStraightEvaluator {
-    fn next_state_tuples(&self, _: &PyState<Self::State>, _: Order, _: &Value, _: &[Value]) -> Result<Option<Value>> {
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
         Err(tuple_compared_with_int(">="))
     }
 }
 
 /// `count >= 1` of a tuple count: `TypeError`.
 impl TupleCounts for LargestStraightAndOutcomeEvaluator {
-    fn next_state_tuples(&self, _: &PyState<Self::State>, _: Order, _: &Value, _: &[Value]) -> Result<Option<Value>> {
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
         Err(tuple_compared_with_int(">="))
     }
 }
 
 /// `count < len(current_runs)` of a tuple count: `TypeError`.
 impl TupleCounts for AllStraightsEvaluator {
-    fn next_state_tuples(&self, _: &PyState<Self::State>, _: Order, _: &Value, _: &[Value]) -> Result<Option<Value>> {
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
         Err(tuple_compared_with_int("<"))
     }
 }
 
 /// `count > 0` of a tuple count: `TypeError`.
-impl<R: Fn(&Value, &Int) -> Result<Value>> TupleCounts for AllStraightsReduceCountsEvaluator<R, Value> {
-    fn next_state_tuples(&self, _: &PyState<Self::State>, _: Order, _: &Value, _: &[Value]) -> Result<Option<Value>> {
+impl<R: Fn(&Value, &Int) -> Result<Value>> TupleCounts
+    for AllStraightsReduceCountsEvaluator<R, Value>
+{
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
         Err(tuple_compared_with_int(">"))
     }
 }
@@ -394,7 +450,11 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
         let state = state.value();
         let [best, total_wild_early] = items(&state) else {
             // `state is None`
-            let total_wild_early = if is_wild_early.truthy()? { count.clone() } else { Value::from(0) };
+            let total_wild_early = if is_wild_early.truthy()? {
+                count.clone()
+            } else {
+                Value::from(0)
+            };
             return Ok(Some(Value::tuple(vec![count.clone(), total_wild_early])));
         };
         let (mut best, mut total_wild_early) = (best.clone(), total_wild_early.clone());
@@ -412,27 +472,39 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
         match items(state) {
             // `final_state[0]`
             [best, _] => Ok(Final::Outcome(best.clone())),
-            _ => Err(Error::Type("'NoneType' object is not subscriptable".into())),
+            _ => Err(Error::WrongType(
+                "'NoneType' object is not subscriptable".into(),
+            )),
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::evaluator::{evaluate, MultisetEvaluator};
-    use crate::pool::MultisetSource;
     use crate::function::try_d;
+    use crate::pool::MultisetSource;
     use crate::{Pool, Quantity};
 
-    fn pool<O: crate::outcome::OutcomeOrder + From<i64>>(sides: i64, n: usize) -> MultisetSource<O> {
-        MultisetSource::Pool(Pool::new(vec![(try_d(sides).unwrap(), n)]).unwrap().source())
+    fn pool<O: crate::outcome::OutcomeOrder + From<i64>>(
+        sides: i64,
+        n: usize,
+    ) -> MultisetSource<O> {
+        MultisetSource::Pool(
+            Pool::new(vec![(try_d(sides).unwrap(), n)])
+                .unwrap()
+                .source(),
+        )
     }
 
     /// Evaluates `evaluator` on `n`d`sides` typed (`i64` outcomes) and as Python does (`Value` outcomes): the
     /// typed finals, as Python spells them, are exactly Python's finals.
-    fn typed_matches_python<E>(evaluator: E, sides: i64, n: usize) -> Vec<(<E as MultisetEvaluator<i64>>::Final, Quantity)>
+    fn typed_matches_python<E>(
+        evaluator: E,
+        sides: i64,
+        n: usize,
+    ) -> Vec<(<E as MultisetEvaluator<i64>>::Final, Quantity)>
     where
         E: MultisetEvaluator<i64> + TupleCounts,
         <E as MultisetEvaluator<i64>>::Final: IntoValue + Clone,
@@ -440,7 +512,10 @@ mod tests {
     {
         let typed = evaluate(&evaluator, &[pool::<i64>(sides, n)]).unwrap();
         let python = evaluate(&PyEvaluator(evaluator), &[pool::<Value>(sides, n)]).unwrap();
-        let spelled: Vec<_> = typed.iter().map(|(f, q)| (f.clone().into_value(), q.clone())).collect();
+        let spelled: Vec<_> = typed
+            .iter()
+            .map(|(f, q)| (f.clone().into_value(), q.clone()))
+            .collect();
         assert_eq!(spelled, python);
         typed
     }
@@ -449,12 +524,19 @@ mod tests {
     fn typed_poker_evaluators_agree_with_python() {
         let mut largest: Vec<(Int, Quantity)> = typed_matches_python(LargestCountEvaluator, 6, 3);
         largest.sort_by(|a, b| a.0.cmp(&b.0));
-        let expected = [(1, 120u32), (2, 90), (3, 6)].map(|(c, q)| (Int::from(c as i64), Quantity::from(q)));
+        let expected =
+            [(1, 120u32), (2, 90), (3, 6)].map(|(c, q)| (Int::from(c as i64), Quantity::from(q)));
         assert_eq!(largest, expected);
         typed_matches_python(HighestOutcomeAndCountEvaluator, 4, 3);
         typed_matches_python(LargestCountAndOutcomeEvaluator, 4, 3);
         typed_matches_python(LargestStraightEvaluator, 6, 4);
-        typed_matches_python(LargestStraightAndOutcomeEvaluator { prioritize_highest: false }, 6, 3);
+        typed_matches_python(
+            LargestStraightAndOutcomeEvaluator {
+                prioritize_highest: false,
+            },
+            6,
+            3,
+        );
         typed_matches_python(AllStraightsEvaluator, 5, 3);
     }
 }

@@ -6,7 +6,7 @@
 
 use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die, the_population};
-use super::ops::{py_iter, type_error, weights_die, Key};
+use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type, Key};
 use super::{PErr, PValue};
 use crate::population::{check_public_attr, Comparison, Data};
 use crate::value::builtins::{getattr, getitem, Index};
@@ -60,7 +60,7 @@ fn query(args: PValue) -> Result<(Comparison, Value), PErr> {
     let mut args = py_iter(args)?.into_iter().map(value);
     let (first, second) = match (args.next(), args.next(), args.next()) {
         (Some(a), b, None) => (a?, b.transpose()?),
-        _ => return type_error("quantity() takes 1 or 2 positional arguments"),
+        _ => return wrong_type("quantity() takes 1 or 2 positional arguments"),
     };
     Ok(match second {
         None | Some(Value::None) => (Comparison::Eq, first),
@@ -98,7 +98,7 @@ pub fn nearest(die: PValue, comparison: PValue, outcome: PValue) -> Result<PValu
 pub fn die_stat(die: PValue, stat: PValue) -> Result<PValue, PErr> {
     let die = the_population(die)?;
     let Value::Str(stat) = value(stat)? else {
-        return type_error("attribute name must be string");
+        return wrong_type("attribute name must be string");
     };
     let half = (Value::from(1), Value::from(2));
     Ok(PValue::Value(match &*stat {
@@ -132,7 +132,7 @@ pub fn entropy(die: PValue, base: PValue) -> Result<PValue, PErr> {
     let base = match <[PValue; 1]>::try_from(py_iter(base)?) {
         Ok([b]) => value(b)?,
         Err(v) if v.is_empty() => Value::Float(2.0),
-        Err(_) => return type_error("entropy() takes at most 1 argument"),
+        Err(_) => return wrong_type("entropy() takes at most 1 argument"),
     };
     Ok(PValue::Value(die.entropy(&base)?))
 }
@@ -144,7 +144,7 @@ pub fn quantile(die: PValue, method: PValue, args: PValue) -> Result<PValue, PEr
     let mut args = py_iter(args)?.into_iter().map(value);
     let (n, d) = match (args.next(), args.next(), args.next()) {
         (Some(n), d, None) => (n?, d.transpose()?.unwrap_or(Value::from(100))),
-        _ => return type_error("quantile() takes 1 or 2 positional arguments"),
+        _ => return wrong_type("quantile() takes 1 or 2 positional arguments"),
     };
     Ok(PValue::Value(match &value(method)? {
         Value::Str(m) if &**m == "quantile" => die.quantile(&n, &d)?,
@@ -192,7 +192,7 @@ pub fn marginal_attr(die: PValue, name: PValue) -> Result<PValue, PErr> {
 fn attr_name(name: PValue) -> Result<String, PErr> {
     match value(name)? {
         Value::Str(s) => Ok(s.to_string()),
-        _ => type_error("attribute name must be string"),
+        _ => wrong_type("attribute name must be string"),
     }
 }
 
@@ -223,7 +223,7 @@ impl GroupKey {
             PValue::Value(v) => GroupKey::Key(Key::Value(v)),
             PValue::Die(d) => GroupKey::Key(Key::Die(d)),
             PValue::Reroll => GroupKey::Reroll,
-            PValue::List(_) => return type_error("unhashable type: 'list'"),
+            PValue::List(_) => return unhashable_list(),
             _ => return Err(PErr::Unimplemented("this group_by key".into())),
         })
     }
@@ -252,7 +252,7 @@ fn groups(die: &Die<Value>, keys: Vec<GroupKey>) -> Result<PValue, PErr> {
 pub fn group_by(die: PValue, key_map: PValue, star: PValue) -> Result<PValue, PErr> {
     let die = the_die(die)?;
     let PValue::Func(f) = &key_map else {
-        return type_error("AttributeError: key_map has no attribute 'get'");
+        return missing_attribute("key_map has no attribute 'get'");
     };
     let star = match f.positional() {
         Some(_) => match star_arg(&star)? {
@@ -358,7 +358,7 @@ pub fn multiply_to_denominator(die: PValue, denominator: PValue) -> Result<PValu
 fn selected(die: &Die<Value>, which: &PValue, star: &PValue) -> Result<Vec<bool>, PErr> {
     match which {
         PValue::Func(f) if f.positional().is_some() => select(die, which, star),
-        _ => type_error("'which' object is not callable"),
+        _ => wrong_type("'which' object is not callable"),
     }
 }
 

@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 
 use super::{host, ops, recursion, sort, BinOp, UnOp, Value};
-use crate::error::{type_error, Error, Result};
+use crate::error::{wrong_type, Error, Result};
 use crate::outcome::{OutcomeArith, OutcomeOrder};
 use crate::Int;
 
@@ -13,7 +13,7 @@ impl Value {
     /// `Counts` rejects `None` (and, through `check_hashable`, unhashable values) as a key with `TypeError`.
     pub fn py_check_key(&self) -> Result<()> {
         match self {
-            Value::None => type_error("None is not a valid key."),
+            Value::None => wrong_type("None is not a valid key."),
             _ => self.check_hashable(),
         }
     }
@@ -64,11 +64,11 @@ impl Value {
             }
             _ => match (self.as_num(), other.as_num()) {
                 (Some(a), Some(b)) => Ok(a.partial_cmp(&b) == Some(Ordering::Less)),
-                _ => type_error(format!(
-                    "'<' not supported between instances of '{}' and '{}'",
-                    self.type_name(),
-                    other.type_name()
-                )),
+                _ => Err(Error::Incomparable {
+                    op: "<",
+                    left: self.type_name(),
+                    right: other.type_name(),
+                }),
             },
         }
     }

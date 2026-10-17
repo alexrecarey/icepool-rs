@@ -9,7 +9,7 @@ use dashu_int::IBig;
 
 use super::catalogue::{py_eq, truthy, Func};
 use super::expression::as_expression;
-use super::ops::{die_arg, py_iter, type_error, Key};
+use super::ops::{die_arg, missing_attribute, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
 use crate::creation_args::DieArg;
 use crate::error::Error;
@@ -28,7 +28,7 @@ fn repl(f: &PValue) -> Result<Repl<'_>, PErr> {
         PValue::Func(f) => Ok(Repl::Mapping(f)),
         // A die is a Mapping too (outcome -> quantity); nobody maps with one.
         PValue::Die(_) => Err(PErr::Unimplemented("a Die as repl".into())),
-        _ => type_error("repl must be a callable or a mapping."),
+        _ => wrong_type("repl must be a callable or a mapping."),
     }
 }
 
@@ -67,7 +67,7 @@ pub fn kwargs(pairs: PValue) -> Result<Vec<(String, PValue)>, PErr> {
         let [name, value] = <[PValue; 2]>::try_from(py_iter(pair)?)
             .map_err(|_| PErr::Unimplemented("a keyword argument that is not a pair".into()))?;
         let PValue::Value(Value::Str(name)) = name else {
-            return type_error("keywords must be strings");
+            return wrong_type("keywords must be strings");
         };
         match out.iter_mut().find(|(n, _)| **n == *name) {
             Some(slot) => slot.1 = value,
@@ -146,7 +146,7 @@ pub fn map(
     if args.is_empty() {
         let result = match repl {
             Repl::Mapping(_) => {
-                return raise(Error::Value(
+                return raise(Error::InvalidArgument(
                     "If no arguments are given, repl must be a callable.".into(),
                 ))
             }
@@ -169,7 +169,7 @@ pub fn map(
             (f, star)
         }
         Repl::Mapping(_) if args.len() != 1 => {
-            return raise(Error::Value(
+            return raise(Error::InvalidArgument(
                 "If a mapping is provided for repl, len(args) must be 1.".into(),
             ))
         }
@@ -214,7 +214,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
         .iter()
         .any(|x| matches!(x, PValue::Reroll | PValue::Restart))
     {
-        return type_error("AttributeError: 'RerollType' object has no attribute 'values'");
+        return missing_attribute("'RerollType' object has no attribute 'values'");
     }
     if !items.iter().any(|x| matches!(x, PValue::Die(_))) {
         // A tuple holding a list or a nested tuple of dice: an unhashable or die-valued outcome.
@@ -240,7 +240,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
     match die {
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d),
-        _ => type_error("AttributeError: only dice have this method"),
+        _ => missing_attribute("only dice have this method"),
     }
 }
 
@@ -279,23 +279,23 @@ pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
         }
         PValue::Value(Value::Str(s)) => match x {
             Value::Str(sub) => Ok(s.contains(&**sub)),
-            _ => type_error("'in <string>' requires string as left operand"),
+            _ => wrong_type("'in <string>' requires string as left operand"),
         },
-        PValue::Value(v) => type_error(format!(
+        PValue::Value(v) => wrong_type(format!(
             "argument of type '{}' is not iterable",
             v.type_name()
         )),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d.outcomes().any(|o| o == x)),
         PValue::Func(f) => match &**f {
             Func::Mapping(m) => Ok(m.contains_key(&Key::Value(x.clone()))),
-            _ => type_error("argument of type 'function' is not iterable"),
+            _ => wrong_type("argument of type 'function' is not iterable"),
         },
         PValue::Reroll | PValue::Restart => {
-            type_error("argument of type 'RerollType' is not iterable")
+            wrong_type("argument of type 'RerollType' is not iterable")
         }
-        PValue::Break(_) => type_error("argument of type 'Break' is not iterable"),
-        PValue::Again(_) => type_error("argument of type 'AgainExpression' is not iterable"),
-        PValue::Ellipsis => type_error("argument of type 'ellipsis' is not iterable"),
+        PValue::Break(_) => wrong_type("argument of type 'Break' is not iterable"),
+        PValue::Again(_) => wrong_type("argument of type 'AgainExpression' is not iterable"),
+        PValue::Ellipsis => wrong_type("argument of type 'ellipsis' is not iterable"),
         // A mapping: its keys.
         PValue::Deck(d) => Ok(d.outcomes().any(|o| o == x)),
         PValue::Pool(_)
@@ -337,10 +337,12 @@ fn depth_arg(depth: &PValue) -> Result<Option<u32>, PErr> {
         PValue::Value(Value::Float(_) | Value::Fraction(_)) => {
             return Err(PErr::Unimplemented("non-int reroll depth".into()))
         }
-        _ => return type_error("'<' not supported between depth and 'int'"),
+        _ => return wrong_type("'<' not supported between depth and 'int'"),
     };
     if int < IBig::ZERO {
-        return raise(Error::Value("reroll depth cannot be negative.".into()));
+        return raise(Error::InvalidArgument(
+            "reroll depth cannot be negative.".into(),
+        ));
     }
     // Python would compute for a very long time (or run out of memory) with a depth this large.
     u32::try_from(int)

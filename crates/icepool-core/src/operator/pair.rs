@@ -22,8 +22,8 @@ fn stored(size: &Count, statelet: impl FnOnce(Int) -> Statelet) -> Statelet {
 }
 
 fn order_error(comparison: &str, extra: &str) -> Error {
-    Error::Order(format!(
-        "OrderError: The size of the right operand must be inferrable to sort_pair({comparison}, \
+    Error::UninferrableSize(format!(
+        "The size of the right operand must be inferrable to sort_pair({comparison}, \
          extra={extra})."
     ))
 }

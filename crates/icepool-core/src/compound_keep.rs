@@ -199,9 +199,7 @@ impl<O: OutcomeOrder> CompoundKeepSource<O> {
             let mut total_weight = Quantity::ONE;
             for (source, count, weight) in t {
                 let Count::Int(count) = count else {
-                    return Err(Error::Unsupported(
-                        "a compound keep of tuple sources".into(),
-                    ));
+                    return Err(Error::Unported("a compound keep of tuple sources".into()));
                 };
                 sources.push(source.clone());
                 total_count += count;
@@ -209,7 +207,7 @@ impl<O: OutcomeOrder> CompoundKeepSource<O> {
             }
             // The inner generators never have negative keeps (`additive_union` checks).
             if total_count.is_negative() {
-                return Err(Error::Unsupported(
+                return Err(Error::Unported(
                     "a negative count in a compound keep".into(),
                 ));
             }

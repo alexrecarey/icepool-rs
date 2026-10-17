@@ -49,7 +49,7 @@ impl BinaryOperator {
     /// `reduce(self.merge_counts, child_counts)`.
     pub(super) fn next_state(self, child_counts: &[Int]) -> Result<Int> {
         let Some((first, rest)) = child_counts.split_first() else {
-            return Err(Error::Type(
+            return Err(Error::WrongType(
                 "reduce() of empty iterable with no initial value".into(),
             ));
         };
@@ -80,7 +80,7 @@ impl BinaryOperator {
     /// as it is).
     pub(super) fn reduce(self, child_counts: &[Count]) -> Result<Count> {
         let Some((first, rest)) = child_counts.split_first() else {
-            return Err(Error::Type(
+            return Err(Error::WrongType(
                 "reduce() of empty iterable with no initial value".into(),
             ));
         };

@@ -19,7 +19,11 @@ pub fn compute_lexi_tuple(comparison: &str, order: i64) -> Result<(i64, i64, i64
         ">=" => (0, 1, 1),
         ">" => (0, 0, 1),
         "cmp" => (-1, 0, 1),
-        _ => return Err(Error::Value(format!("Invalid comparison {comparison}"))),
+        _ => {
+            return Err(Error::InvalidArgument(format!(
+                "Invalid comparison {comparison}"
+            )))
+        }
     };
     if order < 0 {
         std::mem::swap(&mut left_first, &mut right_first);
@@ -65,7 +69,7 @@ pub fn compute_lexi_tuple_with_extra(
         "equal" => (tie, tie),
         "keep" | "continue" => (1, 1),
         "drop" | "break" => (0, 0),
-        _ => return Err(Error::Value(format!("Invalid extra {extra}"))),
+        _ => return Err(Error::InvalidArgument(format!("Invalid extra {extra}"))),
     };
     Ok((left_first, left_extra, tie, right_extra, right_first))
 }

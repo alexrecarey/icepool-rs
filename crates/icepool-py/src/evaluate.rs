@@ -36,11 +36,11 @@ use icepool_core::evaluator::poker::{
     HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
-use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, MultisetEvaluator};
-use icepool_core::expression::{free_variable, CallTree};
 use icepool_core::evaluator::Order;
-use icepool_core::value::evaluators::PyEvaluator;
+use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, MultisetEvaluator};
 use icepool_core::evaluator::{Count, MultisetSource};
+use icepool_core::expression::{free_variable, CallTree};
+use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::{Error, Int, Quantity, Value};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -58,7 +58,7 @@ use crate::expression::{core_source, flat};
 fn depth_check(depth_budget: isize) -> impl Fn(usize) -> icepool_core::Result<()> {
     move |n| {
         if n as isize > depth_budget {
-            Err(Error::Recursion(
+            Err(Error::RecursionLimit(
                 "maximum recursion depth exceeded".into(),
             ))
         } else {
@@ -160,9 +160,11 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
             },
         })),
         "largest_straight" => v.visit(PyEvaluator(LargestStraightEvaluator)),
-        "largest_straight_and_outcome" => v.visit(PyEvaluator(LargestStraightAndOutcomeEvaluator {
-            prioritize_highest: param(0)?.extract()?,
-        })),
+        "largest_straight_and_outcome" => {
+            v.visit(PyEvaluator(LargestStraightAndOutcomeEvaluator {
+                prioritize_highest: param(0)?.extract()?,
+            }))
+        }
         "all_straights" => v.visit(PyEvaluator(AllStraightsEvaluator)),
         "is_proper_subset" => v.visit(ComparisonEvaluator(Comparison::IsProperSubset)),
         "is_subset" => v.visit(ComparisonEvaluator(Comparison::IsSubset)),

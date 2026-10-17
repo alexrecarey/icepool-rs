@@ -189,7 +189,7 @@ fn complex_pow(a: C, b: C) -> Result<C> {
         errno = Errno::Ok;
     }
     match errno {
-        Errno::Dom => Err(Error::ZeroDivision(
+        Errno::Dom => Err(Error::DivisionByZero(
             "0.0 to a negative or complex power".into(),
         )),
         Errno::Range => Err(Error::Overflow("complex exponentiation".into())),
@@ -222,7 +222,7 @@ pub(super) fn binary(op: BinOp, a: &Value, b: &Value) -> Option<Result<Value>> {
             Sub => Ok(diff(x, y)),
             Mul => Ok(prod(x, y)),
             TrueDiv => match quot(x, y) {
-                (_, Errno::Dom) => Err(Error::ZeroDivision("complex division by zero".into())),
+                (_, Errno::Dom) => Err(Error::DivisionByZero("complex division by zero".into())),
                 (q, _) => Ok(q),
             },
             Pow => complex_pow(x, y),
@@ -276,12 +276,12 @@ mod tests {
         );
         assert!(matches!(
             complex_pow(c(1e-200, 0.0), c(-2.0, 0.0)),
-            Err(Error::ZeroDivision(_))
+            Err(Error::DivisionByZero(_))
         ));
         // An infinite phase: cos(inf) sets EDOM.
         assert!(matches!(
             complex_pow(c(-1.0, 1.0), c(1e308, 0.0)),
-            Err(Error::ZeroDivision(_))
+            Err(Error::DivisionByZero(_))
         ));
         assert_eq!(complex_pow(c(0.0, 0.0), c(0.0, 0.0)), Ok(C1));
     }

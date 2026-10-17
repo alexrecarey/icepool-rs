@@ -11,14 +11,14 @@
 use std::sync::Arc;
 
 use icepool_core::compound_keep::{CompoundKeep, CompoundKeepSource};
+use icepool_core::evaluator::{Count, MultisetSource};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::expression::{Dungeonlet, Flat};
 use icepool_core::operator::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
     OutcomeFilter, OutcomePredicate,
 };
-use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::ownership::{Owners, Traverse};
-use icepool_core::evaluator::{Count, MultisetSource};
 use icepool_core::value::builtins::Index;
 use icepool_core::value::recursion::level;
 use icepool_core::{Error, Int, Value};
@@ -375,7 +375,7 @@ impl CountFunction<Value> for HostCountFunction {
                 .map_err(|e| callback_error(py, e))?;
             let int = |x: &Bound<'_, PyAny>| -> icepool_core::Result<Int> {
                 if x.is_instance_of::<PyBool>() || !x.is_instance_of::<PyInt>() {
-                    return Err(Error::Unsupported(
+                    return Err(Error::Unported(
                         "a map_counts function returning something other than an int".into(),
                     ));
                 }

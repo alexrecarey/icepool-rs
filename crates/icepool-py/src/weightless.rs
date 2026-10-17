@@ -2,8 +2,8 @@
 //! an evaluation over `g.weightless()` runs on the core driver. The facade keeps `WeightlessGenerator`, which only
 //! wraps a generator and makes this source from the wrapped one's.
 
-use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::evaluator::{Count, MultisetSource};
+use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::weightless::WeightlessSource;
 use icepool_core::Value;
 use pyo3::prelude::*;

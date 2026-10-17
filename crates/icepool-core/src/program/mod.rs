@@ -116,7 +116,7 @@ pub enum PErr {
 impl From<Error> for PErr {
     fn from(e: Error) -> Self {
         match e {
-            Error::Unsupported(what) => PErr::Unimplemented(what),
+            Error::Unported(what) => PErr::Unimplemented(what),
             e => PErr::Raise(e),
         }
     }
@@ -146,7 +146,9 @@ pub fn check_nesting(v: &PValue) -> Result<(), PErr> {
     fn source(s: &crate::pool::MultisetSource<Value>) -> Result<(), PErr> {
         let _level = level()?;
         match s {
-            crate::pool::MultisetSource::CompoundKeep(c) => c.inner_sources().iter().try_for_each(source),
+            crate::pool::MultisetSource::CompoundKeep(c) => {
+                c.inner_sources().iter().try_for_each(source)
+            }
             _ => Ok(()),
         }
     }
@@ -197,9 +199,7 @@ pub fn reset_after_trap() {
 pub fn run(program: &Json) -> Json {
     match eval(program) {
         Ok(v) => wire::result_of(&v),
-        Err(PErr::Raise(e)) => {
-            json!({"ok": false, "error": e.python_type(), "message": e.message()})
-        }
+        Err(PErr::Raise(e)) => wire::raised(&e),
         Err(PErr::Unimplemented(what)) => {
             json!({"ok": false, "error": format!("unimplemented: {what}")})
         }
@@ -273,7 +273,7 @@ fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
         (2, Some(input)) => Ok(PValue::Die(crate::khepri::engine_values(
             &crate::khepri::Input::from_json(input)?,
         )?)),
-        _ => raise(Error::Type("expected arguments [\"input\"]".into())),
+        _ => raise(Error::WrongType("expected arguments [\"input\"]".into())),
     }
 }
 
@@ -292,7 +292,7 @@ impl Args<'_> {
     /// Python calls `run(**args)`: exactly the expected names, or `TypeError`.
     fn exactly<const N: usize>(self, names: [&str; N]) -> Result<[PValue; N], PErr> {
         if self.0.len() != N || self.0.iter().any(|(k, _)| !names.contains(k)) {
-            return raise(Error::Type(format!("expected arguments {names:?}")));
+            return raise(Error::WrongType(format!("expected arguments {names:?}")));
         }
         let mut vals = self.0;
         Ok(names.map(|n| {
@@ -321,20 +321,16 @@ mod tests {
     #[test]
     fn attribute_errors_name_the_type_and_the_attribute() {
         // `getattr(3, 'values')`: the attribute asked for, not "getattr".
-        let (_, msg) = raised(
+        let (ty, msg) = raised(
             r#"{"op":"symbols_method","s":3,"name":{"str":"getattr"},"arg":{"str":"values"}}"#,
         );
-        assert_eq!(
-            msg,
-            "AttributeError: 'int' object has no attribute 'values'"
-        );
-        let (_, msg) = raised(
+        assert_eq!(ty, "AttributeError");
+        assert_eq!(msg, "'int' object has no attribute 'values'");
+        let (ty, msg) = raised(
             r#"{"op":"symbols_method","s":{"float":"1.5"},"name":{"str":"size"},"arg":null}"#,
         );
-        assert_eq!(
-            msg,
-            "AttributeError: 'float' object has no attribute 'size'"
-        );
+        assert_eq!(ty, "AttributeError");
+        assert_eq!(msg, "'float' object has no attribute 'size'");
     }
 
     #[test]
@@ -374,7 +370,10 @@ mod tests {
         let program = r#"{"op":"mean_time_to_sum","die":{"op":"d","sides":3},"targets":[100000000000000000000]}"#;
         let r = run(&serde_json::from_str(program).unwrap());
         assert_eq!(r["ok"], json!(false));
-        assert_eq!(r["error"], json!("unimplemented: mean_time_to_sum of a huge target"));
+        assert_eq!(
+            r["error"],
+            json!("unimplemented: mean_time_to_sum of a huge target")
+        );
     }
 
     #[test]
@@ -397,9 +396,8 @@ mod tests {
 
     #[test]
     fn type_error_messages_of_die_sequence_and_multiset_counts() {
-        let (ty, msg) = raised(
-            r#"{"op":"die_sequence","die":{"op":"d","sides":2},"rolls":{"float":"1.5"}}"#,
-        );
+        let (ty, msg) =
+            raised(r#"{"op":"die_sequence","die":{"op":"d","sides":2},"rolls":{"float":"1.5"}}"#);
         assert_eq!(ty, "TypeError");
         assert_eq!(msg, "'float' object cannot be interpreted as an integer");
         // `expr * die` is `Die.__rmul__`, which makes `Die([expr])` first.

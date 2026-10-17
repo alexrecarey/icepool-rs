@@ -1,7 +1,7 @@
 //! Nodes of harness/grammar/collection.py: `Vector`, `vectorize` and `Symbols` as values, and their methods.
 
 use super::format;
-use super::ops::{binary_op, py_iter, type_error, unary_op};
+use super::ops::{binary_op, missing_attribute, py_iter, unary_op, wrong_type};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
 use crate::value::builtins::{getitem, py_len, to_float, Index};
@@ -37,9 +37,7 @@ pub(super) fn attribute_error<T>(receiver: &PValue, attr: &str) -> Result<T, PEr
         PValue::Value(v) => v.type_name(),
         _ => "object",
     };
-    type_error(format!(
-        "AttributeError: '{type_name}' object has no attribute '{attr}'"
-    ))
+    missing_attribute(format!("'{type_name}' object has no attribute '{attr}'"))
 }
 
 /// `die.sequence(rolls)`: `icepool.cartesian_product(*(die for _ in range(rolls)), outcome_type=tuple)`, every
@@ -56,12 +54,12 @@ pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
             "die.sequence(rolls)",
         )?,
         PValue::Value(v) => {
-            return type_error(format!(
+            return wrong_type(format!(
                 "'{}' object cannot be interpreted as an integer",
                 v.type_name()
             ))
         }
-        _ => return type_error("object cannot be interpreted as an integer"),
+        _ => return wrong_type("object cannot be interpreted as an integer"),
     };
     let dice = crate::memory::try_repeat(die, Some(rolls), "die.sequence(rolls)")?;
     cartesian_product(PValue::List(dice), true)
@@ -89,7 +87,7 @@ pub fn cartesian_product(args: PValue, tuple: bool) -> Result<PValue, PErr> {
         match population_type {
             None => population_type = Some(new_type),
             Some(t) if t != new_type => {
-                return type_error(
+                return wrong_type(
                     "Arguments to vector() of type Population must all be Die or all be Deck, not a mixture of \
                      the two.",
                 )
@@ -144,8 +142,7 @@ pub fn iter_cartesian_product(args: PValue) -> Result<PValue, PErr> {
             ]))
         }),
         "iter_cartesian_product",
-    )?,
-    ))
+    )?))
 }
 
 /// `icepool.Vector(items)`.
@@ -294,18 +291,18 @@ pub fn symbols_method(s: PValue, method: PValue, arg: PValue) -> Result<PValue, 
         }
         // `functools.reduce(operator.add, args, initial=self)`: `reduce` takes no keyword arguments before
         // Python 3.14, so these always raise there (DIVERGENCES.md).
-        "additive_union" | "difference" | "intersection" | "union" => {
-            raise(Error::Type("reduce() takes no keyword arguments".into()))
-        }
+        "additive_union" | "difference" | "intersection" | "union" => raise(Error::WrongType(
+            "reduce() takes no keyword arguments".into(),
+        )),
         // `s.<name>` for a name that is not an attribute: `__getattr__`, which is `s[name]` unless the name starts
         // with an underscore (and `key[0]` of an empty name raises IndexError).
         "getattr" => match value(arg)? {
             Value::Str(a) if a.is_empty() => {
-                raise(Error::Index("string index out of range".into()))
+                raise(Error::IndexOutOfRange("string index out of range".into()))
             }
             Value::Str(a) if a.starts_with('_') => attribute_error(&s, &a),
             Value::Str(a) => Ok(PValue::Value(sym.getitem(&a))),
-            _ => type_error("attribute name must be string"),
+            _ => wrong_type("attribute name must be string"),
         },
         "values" => Ok(PValue::tuple(
             sym.items()

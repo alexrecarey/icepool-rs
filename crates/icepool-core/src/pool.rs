@@ -17,6 +17,7 @@ use crate::compound_keep::CompoundKeepSource;
 use crate::deal::DealSource;
 use crate::die::Die;
 use crate::error::{Error, Result};
+use crate::evaluator::MultisetEvaluator;
 use crate::function::sorted_union;
 use crate::keep_tuple::{
     self, pop_max_from_keep_tuple, pop_min_from_keep_tuple, sum_counts, KeepIndex,
@@ -24,7 +25,6 @@ use crate::keep_tuple::{
 use crate::math::comb_row;
 use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
-use crate::evaluator::MultisetEvaluator;
 use crate::outcome::{Outcome, OutcomeOrder};
 use crate::weightless::WeightlessSource;
 use crate::{Int, Quantity};
@@ -44,7 +44,10 @@ fn add_die<O: OutcomeOrder>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, coun
 /// `die_a.hash_key < die_b.hash_key`: `(Die, tuple(items))` compared as Python compares tuples. The classes are the
 /// same object, so it comes down to the items: the first `(outcome, quantity)` pair that differs (by `==`) decides,
 /// by outcome if those differ (which may raise), else by quantity; a prefix is smaller.
-fn hash_key_lt<O: OutcomeOrder>(a: &Die<O>, b: &Die<O>) -> std::result::Result<bool, O::Incomparable> {
+fn hash_key_lt<O: OutcomeOrder>(
+    a: &Die<O>,
+    b: &Die<O>,
+) -> std::result::Result<bool, O::Incomparable> {
     for ((oa, qa), (ob, qb)) in a.items().iter().zip(b.items()) {
         if oa != ob {
             return oa.try_lt(ob);
@@ -71,10 +74,15 @@ fn sort_dice<O: OutcomeOrder>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<
 /// trap), where Python answers given memory.
 fn denominator<O: OutcomeOrder>(dice: &[(Die<O>, usize)]) -> Result<Quantity> {
     let bits = dice.iter().try_fold(0u64, |total, (die, count)| {
-        (die.denominator().bit_len() as u64).checked_mul(*count as u64)?.checked_add(total)
+        (die.denominator().bit_len() as u64)
+            .checked_mul(*count as u64)?
+            .checked_add(total)
     });
     crate::memory::check_bits(bits, "a pool's denominator")?;
-    Ok(dice.iter().map(|(die, count)| die.denominator().pow(*count)).product())
+    Ok(dice
+        .iter()
+        .map(|(die, count)| die.denominator().pow(*count))
+        .product())
 }
 
 /// A pool of dice with a keep tuple (Python `Pool`, a `KeepGenerator`). Cloning is cheap.
@@ -266,7 +274,10 @@ impl<O: Outcome> Pool<O> {
     /// assert_eq!(best.keep_tuple(), [0, 1, 1, 1].map(Int::from));
     /// ```
     pub fn highest(&self, keep: usize) -> Self {
-        self.keep_slice(keep_tuple::highest_slice(Some(i64::try_from(keep).unwrap_or(i64::MAX)), None))
+        self.keep_slice(keep_tuple::highest_slice(
+            Some(i64::try_from(keep).unwrap_or(i64::MAX)),
+            None,
+        ))
     }
 
     /// Keeps the `keep` lowest rolls (Python's `pool.lowest(keep)`); see [`Pool::highest`].
@@ -277,13 +288,16 @@ impl<O: Outcome> Pool<O> {
     /// assert_eq!(worst.keep_tuple(), [1, 0, 0].map(Int::from));
     /// ```
     pub fn lowest(&self, keep: usize) -> Self {
-        self.keep_slice(keep_tuple::lowest_slice(Some(i64::try_from(keep).unwrap_or(i64::MAX)), None))
+        self.keep_slice(keep_tuple::lowest_slice(
+            Some(i64::try_from(keep).unwrap_or(i64::MAX)),
+            None,
+        ))
     }
 
     fn keep_slice(&self, slice: Result<keep_tuple::Slice>) -> Self {
         slice
             .and_then(|slice| self.keep(&KeepIndex::Slice { slice, step: false }))
-            .unwrap_or_else(|e| panic!("{}", e.message()))
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     /// Evaluates this pool (Python's `evaluator.evaluate(pool)`): the die of the evaluator's final outcomes, each
@@ -691,9 +705,15 @@ mod tests {
         let bits = 8 * crate::memory::MAX_ALLOC_BYTES / MAX_POOL_SIZE + 1;
         let die = |q: Quantity| Die::from_dict(vec![(Value::from(1i64), q)]).unwrap();
         let huge = Pool::new(vec![(die(Quantity::ONE << bits), MAX_POOL_SIZE)]).unwrap();
-        assert!(matches!(huge.denominator(), Err(Error::Memory(_))));
+        assert!(matches!(huge.denominator(), Err(Error::TooLarge(_))));
         // A denominator of 1 is never too big; a smaller pool of the same die is answered.
-        assert_eq!(Pool::new(vec![(die(Quantity::ONE), MAX_POOL_SIZE)]).unwrap().denominator().unwrap(), Quantity::ONE);
+        assert_eq!(
+            Pool::new(vec![(die(Quantity::ONE), MAX_POOL_SIZE)])
+                .unwrap()
+                .denominator()
+                .unwrap(),
+            Quantity::ONE
+        );
         let small = Pool::new(vec![(die(Quantity::ONE << bits), 2)]).unwrap();
         assert_eq!(small.denominator().unwrap(), Quantity::ONE << (2 * bits));
     }

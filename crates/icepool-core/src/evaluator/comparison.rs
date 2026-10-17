@@ -59,10 +59,7 @@ impl ComparisonEvaluator {
             IsSuperset => (true, cmp(Ge, left, right)?),
             IsEqualSet => (true, left == right),
             IsNotEqualSet => (left != right, true),
-            IsDisjointSet => (
-                true,
-                !(cmp(Gt, left, &zero)? && cmp(Gt, right, &zero)?),
-            ),
+            IsDisjointSet => (true, !(cmp(Gt, left, &zero)? && cmp(Gt, right, &zero)?)),
         })
     }
 
