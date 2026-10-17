@@ -4,8 +4,8 @@ Three read-only reviews of icepool-rs at `1b5764c` (all 55 port tasks done, long
 performance and memory across general workloads, and code quality as a library. Alex's decisions (2026-10-17): fix
 all robustness findings (R1-R4), drop the glibc math ports (B9), do all code-quality work (D1, C1-C8); Python and
 JS/TS bindings over the Rust core, the TS API idiomatic and as close to icepool as possible with its own docs;
-production builds contain no tests. The performance items (P-list below) are not scheduled yet: don't regress them,
-and prefer designs that make them easy.
+production builds contain no tests. The performance items (P-list below) are deliberately NOT planned: the library is fast
+enough, and readability comes first. They are kept for reference only.
 
 ## Robustness
 
@@ -55,7 +55,7 @@ Memory: native Die item `(Value, UBig)` 80 B (~180 B with cumulative quantities 
 219 B/outcome vs Python 101 B. Peak during big evaluations 3-4x Python (per-call memo holding cloned sources,
 statelets, dice). No unbounded caches; RSS flat over repeated calls. `Value` is 56 B because of inline `RBig`.
 
-Not scheduled yet (P-list), in expected-value order: dense i64 convolution for sums of int dice (100d6 3.2x, 10d6
+Not planned, for reference only (P-list), in expected-value order: dense i64 convolution for sums of int dice (100d6 3.2x, 10d6
 7x, d100@d10 2.9x); facade fast path for plain outcomes (`Die(range(10000))` 30 -> 12 ms, callback map 2.6x);
 bounded LRU cross-call caches; checked-i64 fast path in `Value::binary` (-15 to -21% on sums); evaluator buffer reuse
 + borrowed memo keys (-20-30% on pool evaluators, lower peak memory); typed evaluator states (-30-40% on

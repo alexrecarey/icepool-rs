@@ -17,6 +17,7 @@ real problems:
    on small cases) when you can see it is wrong from icepool's source.
 5. Explanatory comments from icepool's Python not carried over, or new code with no "why" where it is non-obvious.
 6. Tasks removed or work silently dropped (follow-up tasks are fine).
+7. Readability sacrificed for performance: fast paths, manual buffer reuse, clever layouts or other optimisations the task did not ask for (AGENTS.md "Readability over performance"). Reject them; the library is fast enough.
 
 Do not reject for style preferences, naming, or things a later task is planned to do.
 

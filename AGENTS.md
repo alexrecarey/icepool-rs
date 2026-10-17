@@ -72,6 +72,13 @@ documented in `harness/core/grammar_api.py` and `harness/core/encode.py`; Python
 **If you are stuck on a genuine question about intended behaviour** (rare: the oracle answers almost everything),
 add it to `QUESTIONS.md`, work around it, and continue.
 
+## Readability over performance
+
+The library is fast enough. Alex's priorities (2026-10-17) are modularity, correctness, robustness and beautiful,
+readable code. **Never trade readability for speed**: no micro-optimisations, special-case fast paths, manual
+buffer reuse, unsafe, or clever data layouts unless a task explicitly asks for one. When two designs are correct,
+pick the clearer one. If something is genuinely too slow to use, note it in NOTES.md instead of optimising it.
+
 ## Code rules
 
 - Stable Rust (see `rust-toolchain.toml`). `cargo clippy -D warnings` is part of the gate.
