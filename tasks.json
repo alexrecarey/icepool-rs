@@ -651,5 +651,15 @@
     ],
     "milestone": "library ready to show upstream: robustness fixed, typed core, Rust/Python/TS APIs with docs",
     "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 7 and 9.8. README.md for the project (what it is, the three bindings, install/usage snippets for Rust, Python, JS, parity story), docs/MODULE-MAP.md (python module -> rust module(s) -> py facade file -> TS file, status, oracle version) plus a script that lists upstream icepool changes between two tags against the map, Python binding docs (what differs from upstream icepool), GitHub Actions CI (cargo test, clippy, the fixture suite, the JS suite, check-production.sh; the oracle comparison jobs need the oracle checkout per oracle.lock). Split oversized files (program/ops.rs, program/expression.rs, value/ops.rs) by domain. Note: the loop machinery files at the repo root (PROGRESS.md, tasks.json, QUESTIONS.md, loop/, harness-out) are owned by the loop; propose their new layout in QUESTIONS.md rather than moving them. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C1b",
+    "title": "py_* names only inside value/: the residual Value-layer callers",
+    "deps": [
+      "C2",
+      "C5b"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 1 (\"grep -rn 'py_' src --include=*.rs | grep -v '^src/value/' is empty after C1, comments citing Python names excepted\"). C1 moved Python's order into value/order.rs and value/sort.rs and removed every py_ comparison from generic code, but Value-layer code outside value/ still calls Value's py_ helpers: the impl Die<Value> blocks in die.rs and population.rs (sign, cmp_die, py_sum, statistics), the Value-only evaluators (poker.rs/basic.rs py_max/py_min), format.rs/operator py_str, function.rs py_min_max, to_pool.rs Value::py_min, ownership.rs py_hash, and the program runner (py_iter, py_repr, catalogue::py_eq). C2 moves the Die<Value> methods and evaluators into value:: extension traits and C5b moves program/ out of the crate; after both, make the grep empty (move what is left into value/, or rename helpers that are not Python-only). Pure move/rename: no behaviour change, every fixture passes."
   }
 ]

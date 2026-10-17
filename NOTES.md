@@ -1550,3 +1550,24 @@ turns out wrong. Newest decisions at the top of each section.
   - Not guarded (bounded elsewhere): MExpr's bool walkers (`has_parameter`, `same_expression`, `hashable`,
     `static_keepable`, Debug) — JSON depth natively, `check_nesting` in JS, unused by the Python facade;
     `map_tools` `has_nan`/`same_spelling`, facade `has_host` — values come through `from_py` (levels).
+
+- **Typed outcomes (C1, design/library-architecture.md section 1).** `outcome.rs`: `OutcomeOrder` (sealed; blanket
+  impl for every `Ord + Hash + Clone + Debug + Send + Sync + 'static` type with `Incomparable = Infallible`, and
+  `value/order.rs` for `Value` with `Incomparable = Error`), `Outcome` = an `OutcomeOrder` that cannot fail (any
+  `Ord` type), `OutcomeArith` (was `SumOutcome`: `try_add/sub/neg/mul/mul_count/zero`, checked ints by macro,
+  Python operators for `Value`). `Value::py_lt/py_le/py_gt/py_ge/py_eq/py_check_key` are inherent methods in
+  `value/order.rs`; `value/sort.rs` is the old pysort.rs (`timsort`, plus `sorted`/`sorted_reverse` of Values).
+  - Generic code is bound by `O: OutcomeOrder` and compares with `outcome::{lt, gt, sort_by, sorted, min, max}`
+    (core `Result`) or the trait's `try_*` (`O::Incomparable`). `?` cannot convert `O::Incomparable` into `Error`
+    (a `From` bound on an associated type is not carried to the trait's users), so generic code that mixes the
+    two writes `.err_into()?` (`outcome::ErrInto`).
+  - Paths that can only fail by comparing return `Result<_, O::Incomparable>`: `Counts::new`, `Die/Deck::from_dict`,
+    `split`, `from_mapping`, `from_cumulative`, `try_quantity_le/ge`, `try_quantity`, `try_clip`, `try_truncate`.
+    For `Value` that is `Result<_, Error>`, so the Value layer did not change. `impl<O: Outcome> Die<O>` has the
+    plain-value forms `quantity_le/ge`, `quantity`, `clip`, `truncate` (via `infallible`). Inherent methods of
+    the generic and typed impls cannot share a name (E0592: the impls overlap for `Die<i64>`), hence `try_` on
+    the generic one. `try_nearest` also raises ValueError for `==`/`!=`, so it has no typed form yet.
+  - To make another generic path typed: give it `O::Incomparable` as its error if comparisons are all that can
+    fail (rename to `try_x`, add `x` to the typed impl), else keep the core `Result`.
+  - Left for C1b (after C2/C5b): `py_` names outside `value/` are now only Value-layer callers (impl Die<Value>,
+    Value-only evaluators, formatting, the program runner).
