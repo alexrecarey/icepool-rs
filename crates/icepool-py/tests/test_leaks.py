@@ -70,7 +70,9 @@ def collected(make):
     return alive() is None
 '''
 
-# Each makes an object of the facade that holds `o` through the core.
+# Each makes an object of the facade that holds `o` through the core. Still not collected: a cycle through two
+# objects sharing core data that is not structural, such as a die and its popped die (`_pop_min`, cached on both
+# sides), or a source (`_make_source()`) and the generator it came from; see NOTES.md.
 CYCLES = {
     'die': 'Die([o, O(2)])',
     'mapped die': 'd(2).map(lambda x: o)',
@@ -89,6 +91,13 @@ CYCLES = {
     'compound keep of a deal': 'Deck([o, O(2)]).deal(1) + Die([O(3)]).pool(1)',
     'nested compound keep': '(Die([o, O(2)]).pool(2).highest(1) + Die([O(3)]).pool(1) + Deck([O(4)]).deal(1))[1:]',
     'compound keep source': '(Die([o, O(2)]).pool(2).highest(1) + Die([O(3)]).pool(1))._make_source()',
+    # A pool holds its dice's `_rs` objects, not copies of the dice (R4b): the die and the pool, both alive.
+    'a die and a pool of it': '(die := Die([o, O(2)]), die.pool(3))',
+    'a die put in zero times': '(die := Die([o, O(2)]), Pool([die, Die([O(3)])], [0, 2]))',
+    'a pool and a keep of it': '(p := Die([o, O(2)]).pool(3), p.highest(2), -p)',
+    "a pool and its facade's dice": '(p := Pool([Die([o, O(2)]), Die([O(3)])]), p._dice)',
+    'a pool and a merge of it': '(p := Die([o, O(2)]).pool(1), p + Die([O(3)]).pool(2))',
+    'a die and a compound keep of it': '(die := Die([o, O(2)]), die.pool(2).highest(1) + Die([O(3)]).pool(1))',
     'a user source': 'weightless_of(o)',
 }
 

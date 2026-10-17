@@ -83,7 +83,7 @@ impl Inner {
 
     fn source(&self) -> PyResult<MultisetSource<Value>> {
         Ok(match self {
-            Inner::Pool(p) => MultisetSource::Pool(p.get().pool.source()),
+            Inner::Pool(p) => MultisetSource::Pool(p.get().pool()?.source()),
             Inner::Deal(d) => MultisetSource::Deal(d.get().deal().source()),
             Inner::Compound(c) => {
                 // Compound keeps nest (`g = g + d6.pool(1)` in a loop): a level each, as the sources take.

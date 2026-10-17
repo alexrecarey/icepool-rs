@@ -110,8 +110,15 @@ impl<O: Outcome> Pool<O> {
             .try_fold(0usize, |a, (_, t)| a.checked_add(*t))
             .filter(|&n| n <= MAX_POOL_SIZE)
             .ok_or_else(|| Error::Overflow("too many dice in the pool".into()))?;
+        Self::from_parts(&dice, vec![Int::ONE; size].into())
+    }
+
+    /// The pool `new(dice)` makes, with `keep_tuple` (one count per die put in) instead of all ones: what keeping
+    /// and multiplying counts make of it, and, given the dice of all the pools in turn, what merging pools does
+    /// (`additive_union`). For a host that holds the dice rather than the pool (the Python facade's `RsPool`).
+    pub fn from_parts(dice: &[(Die<O>, usize)], keep_tuple: Arc<[Int]>) -> Result<Self> {
         let mut dice_counts = Vec::new();
-        for (die, count) in &dice {
+        for (die, count) in dice {
             if *count == 0 {
                 continue;
             }
@@ -119,7 +126,7 @@ impl<O: Outcome> Pool<O> {
         }
         // Includes dice with zero qty.
         let outcomes = sorted_union(dice.iter().map(|(d, _)| d.outcomes()))?;
-        Self::from_mapping(dice_counts, outcomes.into(), vec![Int::ONE; size].into())
+        Self::from_mapping(dice_counts, outcomes.into(), keep_tuple)
     }
 
     /// `Pool._new_from_mapping`: `dice_counts` in insertion order.

@@ -186,6 +186,11 @@ impl<O: Outcome> Die<O> {
         Ok(Self::from_counts(Counts::new(items)?))
     }
 
+    /// Whether the two are clones of one die (not merely equal): `is` on Python's die objects.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+
     /// The sum of all quantities.
     pub fn denominator(&self) -> Quantity {
         // `_denominator` is a `cached_property` in Python too.
