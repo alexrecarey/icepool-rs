@@ -3,17 +3,31 @@ name = "icepool-wasm"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "WASM (JS) facade over icepool-core: the program runner and khepri's calculate"
+description = "WASM (JS) facade over icepool-core, for the npm package icepool-wasm"
 
 [lib]
 # cdylib for wasm-pack; rlib so the native workspace build, test and clippy cover it too.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-icepool-core = { path = "../icepool-core", features = ["khepri"] }
+# Interim, until task C6: the JS facade (src/facade.rs under js/core.js) calls the program runner's nodes by name,
+# so the npm package still links icepool-core's `runner` (scripts/check-production.sh reports this as INTERIM).
+# C6 backs the JS API with the core directly and drops the feature here.
+icepool-core = { path = "../icepool-core", features = ["runner"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 # Only wasm-bindgen itself: the few JS globals we need (JSON, BigInt, Reflect) are declared below, not via js-sys.
 wasm-bindgen = "0.2"
+
+[dev-dependencies]
+# The unit tests of `run` and `calculate` run in every test build, whatever the features (src/lib.rs).
+icepool-core = { path = "../icepool-core", features = ["runner", "khepri"] }
+
+[features]
+# None default: the npm package (js/build.sh) is built without either.
+# The `run` export, test-only: run-wasm.sh drives the fixtures and the fuzzer through it.
+runner = []
+# The `calculate` export: khepri's engine, for khepri's own build (build.sh).
+khepri = ["icepool-core/khepri"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

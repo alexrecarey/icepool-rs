@@ -11,7 +11,8 @@
 # (--no-opt: under a second once cargo has built the wasm32 target, which the long gate does just before), since
 # wasm-opt -O3 alone took 6 to 45 s here. It is the same code rustc generated for wasm32, which is what can differ
 # from native; wasm-opt preserves semantics. --test and --bench use the optimised build that ships.
-# A lock keeps parallel starts from building at once.
+# A lock keeps parallel starts from building at once. Built with the `runner` (the `run` export) and `khepri` (the
+# `calculate` export) features, which the npm package leaves out.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -34,7 +35,8 @@ if stale; then
   (
     flock 9
     if stale; then
-      wasm-pack --quiet build "$HERE" --release --target nodejs --out-dir "$PKG" --no-pack "${OPT[@]}" >&2
+      wasm-pack --quiet build "$HERE" --release --target nodejs --out-dir "$PKG" --no-pack "${OPT[@]}" \
+        -- --features runner,khepri >&2
       touch "$STAMP"
     fi
   ) 9> "$CARGO_TARGET_DIR/icepool-wasm.lock"

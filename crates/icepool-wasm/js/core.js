@@ -326,17 +326,29 @@ export function liveHandles() {
   return wasm(() => W.live_handles());
 }
 
+/** The raw export `name`, which only builds with the Cargo `feature` have (the npm package has neither). */
+function optional(name, feature) {
+  if (typeof W[name] !== "function") {
+    throw new Error(`${name}() is not in this build of icepool-wasm: build it with the "${feature}" feature`);
+  }
+  return W[name];
+}
+
 /** One program of the harness's JSON program language (text) in, its JSON result (text) out: what `icepool-run`
- * prints for that line. A trap is a `PanicException`, as for every other call, and the instance stays usable. */
+ * prints for that line. A trap is a `PanicException`, as for every other call, and the instance stays usable.
+ * Test-only: builds with the `runner` feature (run-wasm.sh, `js/build.sh --test`). */
 export function run(programJson) {
-  return wasm(() => W.run(programJson));
+  const f = optional("run", "runner");
+  return wasm(() => f(programJson));
 }
 
 /** khepri's `f2f.calculate`: the engine input object in, `{rolls, outcomes: [{player, wounds, chance}, ...]}` out
  * (src/lib.rs). Throws an `Error` where Python raises, and a `PanicException` after a trap, which leaves the
- * instance usable: call this rather than the raw wasm-bindgen export. */
+ * instance usable: call this rather than the raw wasm-bindgen export. Only in builds with the `khepri` feature
+ * (khepri's own, crates/icepool-wasm/build.sh). */
 export function calculate(engineInput) {
-  return wasm(() => W.calculate(engineInput));
+  const f = optional("calculate", "khepri");
+  return wasm(() => f(engineInput));
 }
 
 // --- Callbacks from the core --------------------------------------------------------------------------------------

@@ -51,7 +51,8 @@ new Deck([1, 2, 3], 4).deal(2).sum();
   thrown by your callback reaches you unchanged. Sizes no memory holds (`d(2n ** 40n)`) are a `MemoryError`. A bug in
   the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `pythonType` `"PanicException"`;
   the instance and your objects stay usable afterwards. The low-level `run(programJson)` and `calculate(engineInput)`
-  (khepri's engine) are exported with the same recovery: use them rather than the raw wasm-bindgen exports.
+  (khepri's engine) are exported with the same recovery, but only builds with the Cargo features `runner` (the
+  tests') and `khepri` (khepri's) have them: this package's build throws an `Error` for either.
 - **Memory**: dice, pools, decks and expressions live in WASM memory. Each is freed when its JS object is
   garbage-collected, or at once by `release()` (also `Symbol.dispose`, so `using die = d(6);` frees it at the end of
   the block). Using an object after releasing it throws a `TypeError`; objects made from it are not affected. Release
