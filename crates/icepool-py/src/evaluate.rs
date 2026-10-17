@@ -39,6 +39,7 @@ use icepool_core::evaluator::poker::{
 use icepool_core::evaluator::{evaluate_call_tree, evaluate_expressions, Final, MultisetEvaluator};
 use icepool_core::expression::{free_variable, CallTree};
 use icepool_core::order::Order;
+use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::{Error, Int, Quantity, Value};
 use pyo3::exceptions::PyValueError;
@@ -145,20 +146,24 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
                 index => Some(count_from_py(index)?),
             },
         }),
-        "highest_outcome_and_count" => v.visit(HighestOutcomeAndCountEvaluator),
-        "all_counts" => v.visit(AllCountsEvaluator {
+        "highest_outcome_and_count" => v.visit(PyEvaluator(HighestOutcomeAndCountEvaluator)),
+        "all_counts" => v.visit(PyEvaluator(AllCountsEvaluator {
             filter: from_py(param(0)?)?,
-        }),
-        "largest_count" => v.visit(LargestCountEvaluator),
-        "largest_count_and_outcome" => v.visit(LargestCountAndOutcomeEvaluator),
-        "count_subset" => v.visit(CountSubsetEvaluator {
-            empty_divisor: from_py(param(0)?)?,
-        }),
-        "largest_straight" => v.visit(LargestStraightEvaluator),
-        "largest_straight_and_outcome" => v.visit(LargestStraightAndOutcomeEvaluator {
+        })),
+        "largest_count" => v.visit(PyEvaluator(LargestCountEvaluator)),
+        "largest_count_and_outcome" => v.visit(PyEvaluator(LargestCountAndOutcomeEvaluator)),
+        // `empty_divisor=None` is "not set".
+        "count_subset" => v.visit(PyEvaluator(CountSubsetEvaluator {
+            empty_divisor: match from_py(param(0)?)? {
+                Value::None => None,
+                d => Some(d),
+            },
+        })),
+        "largest_straight" => v.visit(PyEvaluator(LargestStraightEvaluator)),
+        "largest_straight_and_outcome" => v.visit(PyEvaluator(LargestStraightAndOutcomeEvaluator {
             prioritize_highest: param(0)?.extract()?,
-        }),
-        "all_straights" => v.visit(AllStraightsEvaluator),
+        })),
+        "all_straights" => v.visit(PyEvaluator(AllStraightsEvaluator)),
         "is_proper_subset" => v.visit(ComparisonEvaluator(Comparison::IsProperSubset)),
         "is_subset" => v.visit(ComparisonEvaluator(Comparison::IsSubset)),
         "is_proper_superset" => v.visit(ComparisonEvaluator(Comparison::IsProperSuperset)),

@@ -32,7 +32,8 @@ use crate::evaluator::poker::{
 use crate::evaluator::{evaluate_expressions, MultisetEvaluator};
 use crate::lexi::compute_lexi_tuple_with_extra;
 use crate::order::Order;
-use crate::{Die, Quantity, Value};
+use crate::value::evaluators::PyEvaluator;
+use crate::{Die, Int, Quantity, Value};
 
 /// `implicit_convert_to_expression`: an expression stays itself; a mapping or sequence (a list, tuple or str; a
 /// die is a mapping, which `Pool` refuses) becomes `Pool(arg)`; anything else raises `ImplicitConversionError`.
@@ -155,12 +156,20 @@ pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
         "pool_empty" => die(EmptyEvaluator { any: false }, &pools),
         "pool_any" => die(EmptyEvaluator { any: true }, &pools),
         "pool_product_of_counts" => die(ProductOfCountsEvaluator, &pools),
-        "pool_highest_outcome_and_count" => die(HighestOutcomeAndCountEvaluator, &pools),
-        "pool_largest_count" => die(LargestCountEvaluator, &pools),
-        "pool_largest_count_and_outcome" => die(LargestCountAndOutcomeEvaluator, &pools),
-        "pool_largest_straight" => die(LargestStraightEvaluator, &pools),
-        "pool_all_straights" => die(AllStraightsEvaluator, &pools),
+        "pool_highest_outcome_and_count" => die(PyEvaluator(HighestOutcomeAndCountEvaluator), &pools),
+        "pool_largest_count" => die(PyEvaluator(LargestCountEvaluator), &pools),
+        "pool_largest_count_and_outcome" => die(PyEvaluator(LargestCountAndOutcomeEvaluator), &pools),
+        "pool_largest_straight" => die(PyEvaluator(LargestStraightEvaluator), &pools),
+        "pool_all_straights" => die(PyEvaluator(AllStraightsEvaluator), &pools),
         _ => Err(PErr::Unimplemented(op.into())),
+    }
+}
+
+/// An `int | None` parameter as Python reads it (`is None`).
+fn optional(x: Value) -> Option<Value> {
+    match x {
+        Value::None => None,
+        x => Some(x),
     }
 }
 
@@ -177,9 +186,9 @@ fn value(x: PValue) -> Result<Value, PErr> {
 pub fn all_counts(p: PValue, filter: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     die(
-        AllCountsEvaluator {
+        PyEvaluator(AllCountsEvaluator {
             filter: value(filter)?,
-        },
+        }),
         &pools,
     )
 }
@@ -196,7 +205,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
 pub fn largest_straight_and_outcome(p: PValue, priority: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     let evaluator = straight_and_outcome_evaluator(priority)?;
-    die(evaluator, &pools)
+    die(PyEvaluator(evaluator), &pools)
 }
 
 /// `LargestStraightAndOutcomeEvaluator(priority)`: its constructor checks the priority, as the method does.
@@ -215,7 +224,7 @@ fn straight_and_outcome_evaluator(
 /// the priority checked) before its argument is converted.
 pub fn straight_and_outcome_evaluate(priority: PValue, arg: PValue) -> Result<PValue, PErr> {
     let evaluator = straight_and_outcome_evaluator(priority)?;
-    die(evaluator, &[implicit_convert(arg)?])
+    die(PyEvaluator(evaluator), &[implicit_convert(arg)?])
 }
 
 /// `keep_evaluator.evaluate(pool, index=index)`.
@@ -238,9 +247,9 @@ pub fn count_subset(p: PValue, divisor: PValue, empty_divisor: PValue) -> Result
     let left = method_self(p)?;
     let right = implicit_convert(divisor)?;
     die(
-        CountSubsetEvaluator {
-            empty_divisor: value(empty_divisor)?,
-        },
+        PyEvaluator(CountSubsetEvaluator {
+            empty_divisor: optional(value(empty_divisor)?),
+        }),
         &[left, right],
     )
 }
@@ -417,14 +426,14 @@ pub fn largest_count_wild(
     let pools = [method_self(p)?];
     let none = |x: &PValue| matches!(x, PValue::Value(Value::None));
     if none(&wild) && none(&wild_low) && none(&wild_high) {
-        return die(LargestCountEvaluator, &pools);
+        return die(PyEvaluator(LargestCountEvaluator), &pools);
     }
     die(
-        LargestCountWithWildEvaluator {
-            wild: make_select_function(wild)?,
-            wild_low: make_select_function(wild_low)?,
-            wild_high: make_select_function(wild_high)?,
-        },
+        PyEvaluator(LargestCountWithWildEvaluator::new(
+            make_select_function(wild)?,
+            make_select_function(wild_low)?,
+            make_select_function(wild_high)?,
+        )),
         &pools,
     )
 }
@@ -439,9 +448,9 @@ pub fn all_straights_reduce_counts(p: PValue, reducer: PValue) -> Result<PValue,
         ));
     };
     die(
-        AllStraightsReduceCountsEvaluator {
-            reducer: move |a: &Value, b: &Value| call_values(&f, &[a.clone(), b.clone()]),
-        },
+        PyEvaluator(AllStraightsReduceCountsEvaluator::new(
+            move |score: &Value, count: &Int| call_values(&f, &[score.clone(), count.into()]),
+        )),
         &pools,
     )
 }
@@ -675,9 +684,9 @@ pub fn rfloordiv(other: PValue, p: PValue) -> Result<PValue, PErr> {
         other => implicit_convert(other)?,
     };
     die(
-        CountSubsetEvaluator {
-            empty_divisor: Value::None,
-        },
+        PyEvaluator(CountSubsetEvaluator {
+            empty_divisor: None,
+        }),
         &[left, right],
     )
 }
@@ -745,19 +754,19 @@ pub fn builtin_evaluate(
         "SizeEvaluator" if simple(&kwargs) => die(SizeEvaluator, &exprs()?),
         "ProductOfCountsEvaluator" if simple(&kwargs) => die(ProductOfCountsEvaluator, &exprs()?),
         "HighestOutcomeAndCountEvaluator" if simple(&kwargs) => {
-            die(HighestOutcomeAndCountEvaluator, &exprs()?)
+            die(PyEvaluator(HighestOutcomeAndCountEvaluator), &exprs()?)
         }
-        "LargestCountEvaluator" if simple(&kwargs) => die(LargestCountEvaluator, &exprs()?),
+        "LargestCountEvaluator" if simple(&kwargs) => die(PyEvaluator(LargestCountEvaluator), &exprs()?),
         "LargestCountAndOutcomeEvaluator" if simple(&kwargs) => {
-            die(LargestCountAndOutcomeEvaluator, &exprs()?)
+            die(PyEvaluator(LargestCountAndOutcomeEvaluator), &exprs()?)
         }
-        "LargestStraightEvaluator" if simple(&kwargs) => die(LargestStraightEvaluator, &exprs()?),
-        "AllStraightsEvaluator" if simple(&kwargs) => die(AllStraightsEvaluator, &exprs()?),
+        "LargestStraightEvaluator" if simple(&kwargs) => die(PyEvaluator(LargestStraightEvaluator), &exprs()?),
+        "AllStraightsEvaluator" if simple(&kwargs) => die(PyEvaluator(AllStraightsEvaluator), &exprs()?),
         "AllStraightsReduceCountsEvaluator" if simple(&kwargs) => die(
             // The default reducer, `operator.mul`.
-            AllStraightsReduceCountsEvaluator {
-                reducer: |a: &Value, b: &Value| a.binary(crate::value::BinOp::Mul, b),
-            },
+            PyEvaluator(AllStraightsReduceCountsEvaluator::new(|score: &Value, count: &Int| {
+                score.binary(crate::value::BinOp::Mul, &count.into())
+            })),
             &exprs()?,
         ),
         "EmptyEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
@@ -793,31 +802,27 @@ pub fn builtin_evaluate(
                 None => Value::from(1),
                 Some(filter) => value(filter)?,
             };
-            die(AllCountsEvaluator { filter }, &exprs()?)
+            die(PyEvaluator(AllCountsEvaluator { filter }), &exprs()?)
         }
         "CountSubsetEvaluator" if positional == 0 && kwargs.is_empty() => {
             let empty_divisor = match only(&ctor_kwargs, "empty_divisor")? {
-                None => Value::None,
-                Some(d) => value(d)?,
+                None => None,
+                Some(d) => optional(value(d)?),
             };
-            die(CountSubsetEvaluator { empty_divisor }, &exprs()?)
+            die(PyEvaluator(CountSubsetEvaluator { empty_divisor }), &exprs()?)
         }
         "LargestStraightAndOutcomeEvaluator"
             if positional == 1 && ctor_kwargs.is_empty() && kwargs.is_empty() =>
         {
             let evaluator = straight_and_outcome_evaluator(params.next().expect("one parameter"))?;
-            die(evaluator, &exprs()?)
+            die(PyEvaluator(evaluator), &exprs()?)
         }
         "LargestCountWithWildEvaluator"
             if positional == 3 && ctor_kwargs.is_empty() && kwargs.is_empty() =>
         {
             let mut select = || make_select_function(params.next().expect("three parameters"));
-            let evaluator = LargestCountWithWildEvaluator {
-                wild: select()?,
-                wild_low: select()?,
-                wild_high: select()?,
-            };
-            die(evaluator, &exprs()?)
+            let evaluator = LargestCountWithWildEvaluator::new(select()?, select()?, select()?);
+            die(PyEvaluator(evaluator), &exprs()?)
         }
         "ArgsortEvaluatorDrop" | "ArgsortEvaluatorLeft" | "ArgsortEvaluatorRight" | "ArgsortGroupedEvaluator"
             if positional == 0 && kwargs.is_empty() =>

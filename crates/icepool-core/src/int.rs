@@ -129,6 +129,13 @@ impl Int {
 
 /// A small value hashes as its bare `i64` (no enum tag): keep tuples and counts are part of the evaluator's memo
 /// keys. A big value never equals a small one, so sharing hashes with them is harmless.
+/// Zero.
+impl Default for Int {
+    fn default() -> Self {
+        Int::ZERO
+    }
+}
+
 impl Hash for Int {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.0 {

@@ -16,6 +16,7 @@
 pub mod argsort;
 pub mod basic;
 pub mod comparison;
+pub mod fold;
 pub mod keep;
 pub mod lexi;
 pub mod multiset_function;
@@ -192,7 +193,7 @@ pub trait MultisetEvaluator<O> {
     }
 }
 
-fn tuple_unsupported() -> Error {
+pub(crate) fn tuple_unsupported() -> Error {
     Error::Unsupported("a multiset tuple input (MultiDeal) to this evaluator".into())
 }
 

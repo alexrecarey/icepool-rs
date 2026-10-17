@@ -10,6 +10,7 @@
 
 pub mod builtins;
 mod complex;
+pub mod evaluators;
 mod host;
 mod number;
 pub mod ops;

@@ -8,7 +8,7 @@ use super::ops::{d, new_die};
 use super::{raise, PErr, PValue};
 use crate::error::{Error, Result};
 use crate::evaluator::basic::int;
-use crate::evaluator::poker::consecutive;
+use crate::evaluator::poker::IntegerOutcome;
 use crate::evaluator::{evaluate_expressions, Final, MultisetEvaluator};
 use crate::order::Order;
 use crate::pool::Count;
@@ -342,7 +342,7 @@ impl MultisetEvaluator<Value> for CatalogueEvaluator {
 
     fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
         match self {
-            CatalogueEvaluator::ZeroRuns => consecutive(outcomes),
+            CatalogueEvaluator::ZeroRuns => Value::consecutive(outcomes),
             _ => Ok(Vec::new()),
         }
     }

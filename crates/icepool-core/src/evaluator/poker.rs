@@ -1,65 +1,102 @@
 //! Port of icepool `evaluator/poker.py`: evaluators for poker/Yahtzee-like mechanics.
+//!
+//! Each evaluator is a [`CountFold`] over any outcome type, with typed states and final outcomes: counts are
+//! [`Int`]s, straights need [`IntegerOutcome`]s. The `Value` layer (`value/evaluators.rs`) turns the finals into
+//! Python values and runs Python's own arithmetic on tuple counts (a `MultiDeal` input), which have no typed
+//! meaning.
 
 use dashu_int::IBig;
 
-use super::basic::{int, state_as_outcome};
-use super::{tuple_compared_with_int, Final, MultisetEvaluator};
+use super::fold::{count_fold_evaluators, CountFold};
+use super::Final;
 use crate::error::{Error, Result};
 use crate::order::Order;
-use crate::value::sort::sorted_reverse;
-use crate::value::BinOp;
-use crate::{Int, Value};
+use std::marker::PhantomData;
+
+use crate::outcome::{gt, min, sort_by, ErrInto, OutcomeOrder};
+use crate::Int;
+
+count_fold_evaluators!(
+    HighestOutcomeAndCountEvaluator,
+    AllCountsEvaluator<F>,
+    LargestCountEvaluator,
+    LargestCountAndOutcomeEvaluator,
+    CountSubsetEvaluator<D>,
+    LargestStraightEvaluator,
+    LargestStraightAndOutcomeEvaluator,
+    AllStraightsEvaluator,
+    LargestCountWithWildEvaluator<S, T>,
+    AllStraightsReduceCountsEvaluator<R, S>,
+);
 
 /// More consecutive outcomes than this and the port refuses (`range` of a huge span: Python would take minutes).
-const MAX_CONSECUTIVE: usize = 1 << 20;
+pub(crate) const MAX_CONSECUTIVE: usize = 1 << 20;
 
-/// `MultisetEvaluator.consecutive`: all `int`s from the min outcome to the max outcome among the inputs,
-/// inclusive. `TypeError` if any input has any non-`int` outcome (a `bool` is an `int`).
-pub fn consecutive(outcomes: &[Value]) -> Result<Vec<Value>> {
-    let (Some(first), Some(last)) = (outcomes.first(), outcomes.last()) else {
-        return Ok(Vec::new());
-    };
-    let as_int = |x: &Value| match x {
-        Value::Int(i) => Some(i.clone()),
-        Value::Bool(b) => Some(IBig::from(*b as u8)),
-        _ => None,
-    };
-    if outcomes.iter().any(|x| as_int(x).is_none()) {
-        return Err(Error::Type(
-            "consecutive cannot be used with outcomes of type other than 'int'.".into(),
-        ));
-    }
-    let (lo, hi) = (
-        as_int(first).expect("checked"),
-        as_int(last).expect("checked"),
-    );
-    let span = usize::try_from(&hi - &lo + IBig::ONE).unwrap_or(0);
+/// Integer outcomes: what the straight evaluators need.
+pub trait IntegerOutcome: OutcomeOrder {
+    /// `MultisetEvaluator.consecutive`: all `int`s from the min outcome to the max outcome among the inputs
+    /// (`outcomes`, sorted), inclusive.
+    fn consecutive(outcomes: &[Self]) -> Result<Vec<Self>>;
+
+    /// `self - n`.
+    fn try_sub_int(&self, n: &Int) -> Result<Self>;
+}
+
+/// The number of integers in `lo..=hi`, refused past [`MAX_CONSECUTIVE`].
+pub(crate) fn consecutive_span(lo: IBig, hi: IBig) -> Result<usize> {
+    let span = usize::try_from(hi - lo + IBig::ONE).unwrap_or(0);
     if span > MAX_CONSECUTIVE {
-        return Err(Error::Unsupported(
-            "consecutive outcomes over a huge range".into(),
-        ));
+        return Err(Error::Unsupported("consecutive outcomes over a huge range".into()));
     }
-    Ok((0..span).map(|i| Value::Int(&lo + IBig::from(i))).collect())
+    Ok(span)
 }
 
-/// The elements of a tuple state.
-fn items(state: &Value) -> &[Value] {
-    match state {
-        Value::Tuple(t) => t,
-        _ => &[],
+macro_rules! integer_outcome {
+    ($($t:ty),*) => {$(
+        impl IntegerOutcome for $t {
+            fn consecutive(outcomes: &[Self]) -> Result<Vec<Self>> {
+                let (Some(&lo), Some(&hi)) = (outcomes.first(), outcomes.last()) else {
+                    return Ok(Vec::new());
+                };
+                consecutive_span(IBig::from(lo), IBig::from(hi))?;
+                Ok((lo..=hi).collect())
+            }
+
+            fn try_sub_int(&self, n: &Int) -> Result<Self> {
+                <$t>::try_from(n.to_ibig())
+                    .ok()
+                    .and_then(|n| self.checked_sub(n))
+                    .ok_or_else(|| Error::Overflow("attempt to subtract with overflow".into()))
+            }
+        }
+    )*};
+}
+
+integer_outcome!(i8, i16, i32, i64, i128, isize);
+
+/// The truth value of what a wild selector returns: Python only asks for it where it branches on it, and for some
+/// values (a `Vector`) asking raises.
+pub trait Truth {
+    fn truth(&self) -> Result<bool>;
+}
+
+impl Truth for bool {
+    fn truth(&self) -> Result<bool> {
+        Ok(*self)
     }
 }
 
-/// An int inside a state (all of them are made from counts here).
-fn as_count(x: &Value) -> Int {
-    match x {
-        Value::Int(i) => i.into(),
-        _ => unreachable!("count states hold ints"),
-    }
+/// `AllCountsEvaluator`'s `filter`: which counts are kept.
+pub trait CountFilter {
+    /// `self._filter == 'all' or count >= self._filter`.
+    fn keeps(&self, count: &Int) -> Result<bool>;
 }
 
-fn int_tuple(xs: impl IntoIterator<Item = Int>) -> Value {
-    Value::tuple(xs.into_iter().map(int).collect())
+/// `None` is `filter='all'`; `Some(n)` keeps counts of at least `n`.
+impl CountFilter for Option<Int> {
+    fn keeps(&self, count: &Int) -> Result<bool> {
+        Ok(self.as_ref().is_none_or(|filter| count >= filter))
+    }
 }
 
 /// `tuple(sorted(xs, reverse=True))` for ints.
@@ -73,376 +110,193 @@ fn sorted_descending(mut xs: Vec<Int>) -> Vec<Int> {
 /// If no outcomes have positive count, the result is the min outcome with a count of 0.
 pub struct HighestOutcomeAndCountEvaluator;
 
-impl MultisetEvaluator<Value> for HighestOutcomeAndCountEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
+    /// `None`, then `(outcome, count)`.
+    type State = Option<(O, Int)>;
+    type Final = (O, Int);
 
-    /// `max(count, 0)` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &Self::State,
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<Self::State>> {
-        Err(tuple_compared_with_int(">"))
-    }
-
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        _: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
+    fn fold(&self, state: &Self::State, _: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
         let count = counts[0].clone().max(Int::ZERO);
-        let pair = |o: Value, c: Int| Ok(Some(Value::tuple(vec![o, int(c)])));
-        let Value::Tuple(s) = state else {
-            return pair(outcome.clone(), count);
+        let Some((best, best_count)) = state else {
+            return Ok(Some((outcome.clone(), count)));
         };
-        if count.is_positive() && outcome.binary(BinOp::Gt, &s[0])?.truthy()? {
-            return pair(outcome.clone(), count);
+        if count.is_positive() && gt(outcome, best)? {
+            return Ok(Some((outcome.clone(), count)));
         }
-        if count.is_zero() && s[1] == int(0) {
-            return pair(Value::py_min(outcome.clone(), s[0].clone())?, Int::ZERO);
+        if count.is_zero() && best_count.is_zero() {
+            return Ok(Some((min([outcome, best])?.clone(), Int::ZERO)));
         }
-        Ok(Some(state.clone()))
+        Ok(state.clone())
     }
 
     /// Always sees zero counts.
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
         Ok(outcomes.to_vec())
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        Ok(state_as_outcome(final_state))
+    fn finish(&self, state: &Self::State) -> Result<Final<(O, Int)>> {
+        Ok(state.clone().map_or(Final::None, Final::Outcome))
     }
 }
 
 /// All counts in descending order (`AllCountsEvaluator`). In other words, this produces tuples of the sizes of all
 /// matching sets.
-pub struct AllCountsEvaluator {
+pub struct AllCountsEvaluator<F = Option<Int>> {
     /// Any counts below this value will not be in the output. For example, `filter=2` will only produce pairs and
-    /// better. If `'all'`, no filtering will be done.
-    pub filter: Value,
+    /// better. If `'all'` (`None`), no filtering will be done.
+    pub filter: F,
 }
 
-impl MultisetEvaluator<Value> for AllCountsEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O: Clone, F: CountFilter> CountFold<O> for AllCountsEvaluator<F> {
+    /// The counts so far, descending (Python's `state or ()`).
+    type State = Vec<Int>;
+    type Final = Vec<Int>;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        self.next_state_values(state, order, outcome, &[int(&counts[0])])
-    }
-
-    /// Also for `int` counts: a state may hold tuple counts. A tuple count is kept only with `filter='all'`
-    /// (`count >= filter` is `TypeError` for an int filter), and sorting tuples with ints is `TypeError`.
-    fn next_state_values(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Value],
-    ) -> Result<Option<Value>> {
+    fn fold(&self, state: &Vec<Int>, _: Order, _: &O, counts: &[Int]) -> Result<Vec<Int>> {
         let count = &counts[0];
-        // `state = state or ()`
-        let state = items(state);
-        if self.filter == Value::str("all") || count.binary(BinOp::Ge, &self.filter)?.truthy()? {
-            let mut xs = state.to_vec();
-            xs.push(count.clone());
-            // `tuple(sorted(state, reverse=True))`
-            Ok(Some(Value::tuple(sorted_reverse(xs)?)))
+        if self.filter.keeps(count)? {
+            let mut state = state.clone();
+            state.push(count.clone());
+            Ok(sorted_descending(state))
         } else {
-            Ok(Some(Value::tuple(state.to_vec())))
+            Ok(state.clone())
         }
     }
 
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
     /// Always sees zero counts.
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
         Ok(outcomes.to_vec())
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        Ok(Final::Outcome(match final_state {
-            Value::None => Value::tuple(Vec::new()),
-            state => state.clone(),
-        }))
+    fn finish(&self, state: &Vec<Int>) -> Result<Final<Vec<Int>>> {
+        Ok(Final::Outcome(state.clone()))
     }
 }
 
 /// The largest count of any outcome (`LargestCountEvaluator`).
 pub struct LargestCountEvaluator;
 
-impl MultisetEvaluator<Value> for LargestCountEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O> CountFold<O> for LargestCountEvaluator {
+    type State = Option<Int>;
+    type Final = Int;
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        self.next_state_values(state, order, outcome, &[int(&counts[0])])
-    }
-
-    /// Also for `int` counts. A tuple count is the state while it is the largest (tuples compare
-    /// lexicographically, `()` is falsy), and `TypeError` against an `int` one.
-    fn next_state_values(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Value],
-    ) -> Result<Option<Value>> {
+    fn fold(&self, state: &Option<Int>, _: Order, _: &O, counts: &[Int]) -> Result<Option<Int>> {
         // `max(state or count, count)`: a state of 0 is falsy too, which matters for negative counts.
-        let count = counts[0].clone();
-        let first = if state.truthy()? {
-            state.clone()
-        } else {
-            count.clone()
+        let count = &counts[0];
+        let first = match state {
+            Some(s) if !s.is_zero() => s,
+            _ => count,
         };
-        Ok(Some(Value::py_max(first, count)?))
+        Ok(Some(first.max(count).clone()))
     }
 
-    fn reads_sizes(&self) -> bool {
+    fn finish(&self, state: &Option<Int>) -> Result<Final<Int>> {
+        Ok(state.clone().map_or(Final::None, Final::Outcome))
+    }
+}
+
+/// `max(a, b)` of `(count, outcome)` pairs: Python compares tuples elementwise, so by count, then (where the
+/// counts are equal and the outcomes differ by `==`) by outcome. `b` only if it is greater, so the first of equal
+/// pairs wins.
+fn max_pair<O: OutcomeOrder>(a: (Int, O), b: (Int, O)) -> Result<(Int, O)> {
+    let b_greater = if a.0 != b.0 {
+        b.0 > a.0
+    } else if a.1 == b.1 || a.1.try_eq(&b.1).err_into()? {
         false
-    }
-
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        Ok(state_as_outcome(final_state))
-    }
+    } else {
+        gt(&b.1, &a.1)?
+    };
+    Ok(if b_greater { b } else { a })
 }
 
 /// The largest count of any outcome, along with that outcome (`LargestCountAndOutcomeEvaluator`).
 pub struct LargestCountAndOutcomeEvaluator;
 
-impl MultisetEvaluator<Value> for LargestCountAndOutcomeEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
+    /// `None`, then `(count, outcome)`.
+    type State = Option<(Int, O)>;
+    type Final = (Int, O);
 
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        self.next_state_values(state, order, outcome, &[int(&counts[0])])
-    }
-
-    /// Also for `int` counts: the pairs compare by count first (lexicographically for tuple counts, `TypeError`
-    /// between a tuple and an `int`), then by outcome.
-    fn next_state_values(
-        &self,
-        state: &Value,
-        _: Order,
-        outcome: &Value,
-        counts: &[Value],
-    ) -> Result<Option<Value>> {
+    fn fold(&self, state: &Self::State, _: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
         // `max(state or (count, outcome), (count, outcome))`
-        let pair = Value::tuple(vec![counts[0].clone(), outcome.clone()]);
-        let first = if state.truthy()? {
-            state.clone()
-        } else {
-            pair.clone()
-        };
-        Ok(Some(Value::py_max(first, pair)?))
+        let pair = (counts[0].clone(), outcome.clone());
+        let first = state.clone().unwrap_or_else(|| pair.clone());
+        max_pair(first, pair).map(Some)
     }
 
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        Ok(state_as_outcome(final_state))
+    fn finish(&self, state: &Self::State) -> Result<Final<(Int, O)>> {
+        Ok(state.clone().map_or(Final::None, Final::Outcome))
     }
 }
 
 /// The number of times the right side is contained in the left side (`CountSubsetEvaluator`).
-pub struct CountSubsetEvaluator {
+pub struct CountSubsetEvaluator<D = Int> {
     /// If the divisor is empty, the outcome will be this. If not set (`None`), `ZeroDivisionError` will be raised
     /// for an empty right side.
-    pub empty_divisor: Value,
+    pub empty_divisor: Option<D>,
 }
 
-impl MultisetEvaluator<Value> for CountSubsetEvaluator {
-    type State = Value;
-    type Final = Value;
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        self.next_state_values(state, order, outcome, &[int(&counts[0]), int(&counts[1])])
-    }
-
-    /// Also for `int` counts: a tuple `right` is not `== 0`, and `//` with a tuple is `TypeError`.
-    fn next_state_values(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Value],
-    ) -> Result<Option<Value>> {
-        let (left, right) = (&counts[0], &counts[1]);
-        if *right == int(0) {
-            return Ok(Some(state.clone()));
+impl<D> CountSubsetEvaluator<D> {
+    /// `final_outcome` of a final state (`None` if the divisor was empty).
+    pub(crate) fn final_outcome_of(&self, state: Option<D>) -> Result<Final<D>>
+    where
+        D: Clone,
+    {
+        match state.or_else(|| self.empty_divisor.clone()) {
+            Some(outcome) => Ok(Final::Outcome(outcome)),
+            None => Err(Error::ZeroDivision(
+                "Empty divisor. Set empty_divisor_outcome if you want a particular value in this case.".into(),
+            )),
         }
-        let current = left.binary(BinOp::FloorDiv, right)?;
+    }
+}
+
+impl<O, D: Clone + From<Int>> CountFold<O> for CountSubsetEvaluator<D> {
+    type State = Option<Int>;
+    type Final = D;
+
+    fn fold(&self, state: &Option<Int>, _: Order, _: &O, counts: &[Int]) -> Result<Option<Int>> {
+        let (left, right) = (&counts[0], &counts[1]);
+        if right.is_zero() {
+            return Ok(state.clone());
+        }
+        let current = left.floor_divmod(right)?.0;
         Ok(Some(match state {
-            Value::None => current,
-            state => Value::py_min(state.clone(), current)?,
+            None => current,
+            // `min(state, current)`
+            Some(state) => state.clone().min(current),
         }))
     }
 
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        match final_state {
-            Value::None => match &self.empty_divisor {
-                Value::None => Err(Error::ZeroDivision(
-                    "Empty divisor. Set empty_divisor_outcome if you want a particular value in this case."
-                        .into(),
-                )),
-                d => Ok(Final::Outcome(d.clone())),
-            },
-            state => Ok(Final::Outcome(state.clone())),
-        }
+    fn finish(&self, state: &Option<Int>) -> Result<Final<D>> {
+        self.final_outcome_of(state.clone().map(D::from))
     }
 }
 
 /// The size of the largest straight (`LargestStraightEvaluator`). Outcomes must be `int`s.
 pub struct LargestStraightEvaluator;
 
-impl MultisetEvaluator<Value> for LargestStraightEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O: IntegerOutcome> CountFold<O> for LargestStraightEvaluator {
+    /// `(best_run, run)`: Python's `state or (0, 0)`.
+    type State = (Int, Int);
+    type Final = Int;
 
-    /// `count >= 1` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &Self::State,
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<Self::State>> {
-        Err(tuple_compared_with_int(">="))
-    }
-
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        // `best_run, run = state or (0, 0)`
-        let (best_run, mut run) = match items(state) {
-            [b, r] => (as_count(b), as_count(r)),
-            _ => (Int::ZERO, Int::ZERO),
-        };
+    fn fold(&self, state: &(Int, Int), _: Order, _: &O, counts: &[Int]) -> Result<(Int, Int)> {
+        let (best_run, mut run) = state.clone();
         if counts[0] >= 1 {
             run += 1;
         } else {
             run = Int::ZERO;
         }
-        Ok(Some(int_tuple([best_run.max(run.clone()), run])))
+        Ok((best_run.max(run.clone()), run))
     }
 
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
-        consecutive(outcomes)
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
+        O::consecutive(outcomes)
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        Ok(Final::Outcome(match items(final_state) {
-            [best, _] => best.clone(),
-            _ => int(0),
-        }))
+    fn finish(&self, state: &(Int, Int)) -> Result<Final<Int>> {
+        Ok(Final::Outcome(state.0.clone()))
     }
 }
 
@@ -456,85 +310,50 @@ pub struct LargestStraightAndOutcomeEvaluator {
     pub prioritize_highest: bool,
 }
 
-impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
-    type State = Value;
-    type Final = Value;
+impl<O: IntegerOutcome> CountFold<O> for LargestStraightAndOutcomeEvaluator {
+    /// `(best_run, best_outcome, run)`, always set by `initial_state`.
+    type State = Option<(Int, O, Int)>;
+    type Final = (Int, O);
 
-    /// `count >= 1` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &Self::State,
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<Self::State>> {
-        Err(tuple_compared_with_int(">="))
-    }
-
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn initial_state(&self, order: Order, outcomes: &[Value], _: &[Option<Int>]) -> Result<Value> {
+    fn initial(&self, order: Order, outcomes: &[O]) -> Result<Self::State> {
         let end = if order.value() > 0 {
             outcomes.last()
         } else {
             outcomes.first()
         };
         let end = end.ok_or_else(|| Error::Index("tuple index out of range".into()))?;
-        Ok(Value::tuple(vec![int(0), end.clone(), int(0)]))
+        Ok(Some((Int::ZERO, end.clone(), Int::ZERO)))
     }
 
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        let [best_run, best_outcome, run] = items(state) else {
-            unreachable!("a 3-tuple state")
+    fn fold(&self, state: &Self::State, order: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+        let Some((best_run, best_outcome, run)) = state else {
+            return Err(Error::Type("cannot unpack non-iterable NoneType object".into()));
         };
-        let (best_run, mut run) = (as_count(best_run), as_count(run));
-        if counts[0] >= 1 {
-            run += 1;
-        } else {
-            run = Int::ZERO;
-        }
-        let state = |a: &Int, o: Value, r: &Int| Ok(Some(Value::tuple(vec![int(a), o, int(r)])));
+        let run = if counts[0] >= 1 { run + 1 } else { Int::ZERO };
         if self.prioritize_highest == (order.value() > 0) {
-            if run >= best_run {
-                state(&run, outcome.clone(), &run)
+            if run >= *best_run {
+                Ok(Some((run.clone(), outcome.clone(), run)))
             } else {
-                state(&best_run, best_outcome.clone(), &run)
+                Ok(Some((best_run.clone(), best_outcome.clone(), run)))
             }
-        } else if run > best_run {
+        } else if run > *best_run {
             // `outcome - (run - 1) * order.value`
-            let offset = int(&run - 1).binary(BinOp::Mul, &int(order.value()))?;
-            state(&run, outcome.binary(BinOp::Sub, &offset)?, &run)
+            let offset = (&run - 1) * order.value();
+            Ok(Some((run.clone(), outcome.try_sub_int(&offset)?, run)))
         } else {
-            state(&best_run, best_outcome.clone(), &run)
+            Ok(Some((best_run.clone(), best_outcome.clone(), run)))
         }
     }
 
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
-        consecutive(outcomes)
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
+        O::consecutive(outcomes)
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        let [best_run, best_outcome, _] = items(final_state) else {
-            unreachable!("a 3-tuple state")
-        };
-        Ok(Final::Outcome(Value::tuple(vec![
-            best_run.clone(),
-            best_outcome.clone(),
-        ])))
+    fn finish(&self, state: &Self::State) -> Result<Final<(Int, O)>> {
+        Ok(match state {
+            Some((best_run, best_outcome, _)) => Final::Outcome((best_run.clone(), best_outcome.clone())),
+            None => Final::None,
+        })
     }
 }
 
@@ -544,89 +363,43 @@ impl MultisetEvaluator<Value> for LargestStraightAndOutcomeEvaluator {
 /// overlap in outcomes. In this case, elements are preferentially assigned to the longer straight.
 pub struct AllStraightsEvaluator;
 
-/// `(current_runs, ended_runs) = state or ((), ())`.
-fn runs(state: &Value) -> (Vec<Int>, Vec<Int>) {
-    match items(state) {
-        [current, ended] => (
-            items(current).iter().map(as_count).collect(),
-            items(ended).iter().map(as_count).collect(),
-        ),
-        _ => (Vec::new(), Vec::new()),
-    }
-}
+impl<O: IntegerOutcome> CountFold<O> for AllStraightsEvaluator {
+    /// `(current_runs, ended_runs)`: Python's `state or ((), ())`.
+    type State = (Vec<Int>, Vec<Int>);
+    type Final = Vec<Int>;
 
-impl MultisetEvaluator<Value> for AllStraightsEvaluator {
-    type State = Value;
-    type Final = Value;
-
-    /// `count < len(current_runs)` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &Self::State,
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<Self::State>> {
-        Err(tuple_compared_with_int("<"))
-    }
-
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        let (current_runs, ended_runs) = runs(state);
+    fn fold(&self, state: &Self::State, _: Order, _: &O, counts: &[Int]) -> Result<Self::State> {
+        let (current_runs, ended_runs) = state;
         let count = &counts[0];
         let len = current_runs.len() as i64;
-        let (next_current_runs, next_ended_runs) = if *count < len {
+        if *count < len {
             // `current_runs[:count]` / `current_runs[count:]`: a negative count counts from the end.
-            let split = (count + len).max(Int::ZERO).clamp_usize().min(len as usize);
             let split = if count.is_negative() {
-                split
+                (count + len).max(Int::ZERO).clamp_usize()
             } else {
                 count.clamp_usize()
             };
-            let next_current: Vec<Int> = current_runs[..split].iter().map(|x| x + 1).collect();
-            let mut ended = ended_runs;
+            let next_current_runs = current_runs[..split].iter().map(|x| x + 1).collect();
+            let mut ended = ended_runs.clone();
             ended.extend_from_slice(&current_runs[split..]);
-            (next_current, sorted_descending(ended))
+            Ok((next_current_runs, sorted_descending(ended)))
         } else {
-            let mut next_current: Vec<Int> = current_runs.iter().map(|x| x + 1).collect();
+            let mut next_current_runs: Vec<Int> = current_runs.iter().map(|x| x + 1).collect();
             // `(1, ) * (count - len(current_runs))`
             let more = crate::keep_tuple::list_len(&(count - len))?;
-            next_current.extend(std::iter::repeat_n(Int::ONE, more));
-            (next_current, ended_runs)
-        };
-        Ok(Some(Value::tuple(vec![
-            int_tuple(next_current_runs),
-            int_tuple(next_ended_runs),
-        ])))
+            next_current_runs.extend(std::iter::repeat_n(Int::ONE, more));
+            Ok((next_current_runs, ended_runs.clone()))
+        }
     }
 
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
-        consecutive(outcomes)
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
+        O::consecutive(outcomes)
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        let (mut all, ended) = runs(final_state);
-        all.extend(ended);
-        Ok(Final::Outcome(int_tuple(sorted_descending(all))))
+    fn finish(&self, (current_runs, ended_runs): &Self::State) -> Result<Final<Vec<Int>>> {
+        let mut all = current_runs.clone();
+        all.extend_from_slice(ended_runs);
+        Ok(Final::Outcome(sorted_descending(all)))
     }
 }
 
@@ -635,91 +408,82 @@ impl MultisetEvaluator<Value> for AllStraightsEvaluator {
 ///
 /// Each selector is `make_select_function(which)`: `None` selects nothing, a callable is called with the outcome,
 /// any other collection becomes a `frozenset` tested with `in`. The caller builds them, returning the selector's
-/// result as is: Python only takes its truth value where it uses it (`is_wild or ...`, `if is_wild_early`,
-/// `if is_wild_late`), and a result without one (a `Vector` from `identity`) raises only there.
-pub struct LargestCountWithWildEvaluator<S> {
+/// result as is ([`Truth`]): Python only takes its truth value where it uses it (`is_wild or ...`,
+/// `if is_wild_early`, `if is_wild_late`), and a result without one (a `Vector` from `identity`) raises only there.
+pub struct LargestCountWithWildEvaluator<S, T = bool> {
     /// These outcomes' counts are combined with the counts of any other outcomes.
     pub wild: S,
     /// These wilds can only be combined with outcomes that they are lower than.
     pub wild_low: S,
     /// These wilds can only be combined with outcomes that they are higher than.
     pub wild_high: S,
+    /// What the selectors return.
+    truth: PhantomData<fn() -> T>,
 }
 
-impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWithWildEvaluator<S> {
-    /// `None` before the first outcome, then `(best, total_wild_early)`: counts, so tuples too.
-    type State = Option<(Value, Value)>;
-    type Final = Value;
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Self::State> {
-        Ok(None)
+impl<S, T> LargestCountWithWildEvaluator<S, T> {
+    pub fn new(wild: S, wild_low: S, wild_high: S) -> Self {
+        LargestCountWithWildEvaluator {
+            wild,
+            wild_low,
+            wild_high,
+            truth: PhantomData,
+        }
     }
 
-    fn next_state(
-        &self,
-        state: &Self::State,
-        order: Order,
-        outcome: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Self::State>> {
-        self.next_state_values(state, order, outcome, &[int(&counts[0])])
-    }
-
-    /// Also for `int` counts: Python's `+` and `max` on the counts, so tuple counts concatenate (`count + 0` is
-    /// `TypeError`).
-    fn next_state_values(
-        &self,
-        state: &Self::State,
-        order: Order,
-        outcome: &Value,
-        counts: &[Value],
-    ) -> Result<Option<Self::State>> {
-        let count = &counts[0];
+    /// `(is_wild_early, is_wild_late)` of `outcome`: `is_wild or self._wild_low(outcome)` and
+    /// `is_wild or self._wild_high(outcome)`, early and late in the order `next_state` sees the outcomes.
+    pub(crate) fn wilds<O>(&self, order: Order, outcome: &O) -> Result<(T, T)>
+    where
+        S: Fn(&O) -> Result<T>,
+        T: Truth + Clone,
+    {
         let is_wild = (self.wild)(outcome)?;
         // `is_wild or select(outcome)`: `is_wild` itself if truthy, else the second selector's result.
-        let wild = is_wild.truthy()?;
-        let either = |select: &S| -> Result<Value> {
+        let wild = is_wild.truth()?;
+        let either = |select: &S| -> Result<T> {
             if wild {
                 Ok(is_wild.clone())
             } else {
                 select(outcome)
             }
         };
-        let (is_wild_early, is_wild_late) = if order.is_ascending() {
-            (either(&self.wild_low)?, either(&self.wild_high)?)
+        if order.is_ascending() {
+            Ok((either(&self.wild_low)?, either(&self.wild_high)?))
         } else {
-            (either(&self.wild_high)?, either(&self.wild_low)?)
-        };
+            Ok((either(&self.wild_high)?, either(&self.wild_low)?))
+        }
+    }
+}
+
+impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O> for LargestCountWithWildEvaluator<S, T> {
+    /// `None` before the first outcome, then `(best, total_wild_early)`.
+    type State = Option<(Int, Int)>;
+    type Final = Int;
+
+    fn fold(&self, state: &Self::State, order: Order, outcome: &O, counts: &[Int]) -> Result<Self::State> {
+        let count = &counts[0];
+        let (is_wild_early, is_wild_late) = self.wilds(order, outcome)?;
         let Some((best, total_wild_early)) = state else {
-            return Ok(Some(Some(if is_wild_early.truthy()? {
+            return Ok(Some(if is_wild_early.truth()? {
                 (count.clone(), count.clone())
             } else {
-                (count.clone(), int(0))
-            })));
+                (count.clone(), Int::ZERO)
+            }));
         };
         let (mut best, mut total_wild_early) = (best.clone(), total_wild_early.clone());
-        if is_wild_late.truthy()? {
-            best = best.binary(BinOp::Add, count)?;
+        if is_wild_late.truth()? {
+            best += count;
         }
-        best = Value::py_max(best, count.binary(BinOp::Add, &total_wild_early)?)?;
-        if is_wild_early.truthy()? {
-            total_wild_early = total_wild_early.binary(BinOp::Add, count)?;
+        best = best.max(count + &total_wild_early);
+        if is_wild_early.truth()? {
+            total_wild_early += count;
         }
-        Ok(Some(Some((best, total_wild_early))))
+        Ok(Some((best, total_wild_early)))
     }
 
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn final_outcome(
-        &self,
-        final_state: &Self::State,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        match final_state {
+    fn finish(&self, state: &Self::State) -> Result<Final<Int>> {
+        match state {
             // `final_state[0]`
             Some((best, _)) => Ok(Final::Outcome(best.clone())),
             None => Err(Error::Type("'NoneType' object is not subscriptable".into())),
@@ -730,99 +494,81 @@ impl<S: Fn(&Value) -> Result<Value>> MultisetEvaluator<Value> for LargestCountWi
 /// All straights with a reduce operation on the counts (`AllStraightsReduceCountsEvaluator`).
 ///
 /// This can be used to evaluate e.g. cribbage-style straight counting. The result is a tuple of
-/// `(run_length, run_score)`s.
-pub struct AllStraightsReduceCountsEvaluator<R> {
+/// `(run_length, run_score)`s; a run's score starts as its first count (`S::from`).
+pub struct AllStraightsReduceCountsEvaluator<R, S = Int> {
     /// How to reduce the counts within each straight. The default is `operator.mul`, which counts the number of
     /// ways to pick elements for each straight, e.g. cribbage.
     pub reducer: R,
+    /// The scores' type.
+    score: PhantomData<fn() -> S>,
 }
 
-/// `current_run_length, current_run_score, ended_runs = state or (None, None, ())`.
-fn reduce_state(state: &Value) -> (Value, Value, Vec<Value>) {
-    match items(state) {
-        [length, score, ended] => (length.clone(), score.clone(), items(ended).to_vec()),
-        _ => (Value::None, Value::None, Vec::new()),
+impl<R, S> AllStraightsReduceCountsEvaluator<R, S> {
+    pub fn new(reducer: R) -> Self {
+        AllStraightsReduceCountsEvaluator {
+            reducer,
+            score: PhantomData,
+        }
     }
 }
 
-/// `tuple(sorted(ended_runs + ((current_run_length, current_run_score), ), reverse=True))`.
-fn end_run(ended_runs: Vec<Value>, length: Value, score: Value) -> Result<Vec<Value>> {
-    let mut runs = ended_runs;
-    runs.push(Value::tuple(vec![length, score]));
-    sorted_reverse(runs)
+/// `tuple(sorted(ended_runs + (current_run, ), reverse=True))` for `(length, score)` runs: Python compares the
+/// tuples by length, then (where the lengths are equal and the scores differ by `==`) by score. A reverse sort
+/// reverses, sorts stably and reverses back, so equal runs keep their order.
+fn end_run<S: OutcomeOrder>(ended_runs: &[(Int, S)], current_run: (Int, S)) -> Result<Vec<(Int, S)>> {
+    let mut runs = ended_runs.to_vec();
+    runs.push(current_run);
+    runs.reverse();
+    let mut runs = sort_by::<S, _>(runs, |a, b| {
+        if a.0 != b.0 {
+            Ok(a.0 < b.0)
+        } else if a.1 == b.1 || a.1.try_eq(&b.1)? {
+            Ok(false)
+        } else {
+            a.1.try_lt(&b.1)
+        }
+    })?;
+    runs.reverse();
+    Ok(runs)
 }
 
-impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>
-    for AllStraightsReduceCountsEvaluator<R>
+impl<O, S, R> CountFold<O> for AllStraightsReduceCountsEvaluator<R, S>
+where
+    O: IntegerOutcome,
+    S: OutcomeOrder + From<Int>,
+    R: Fn(&S, &Int) -> Result<S>,
 {
-    type State = Value;
-    type Final = Value;
+    /// `(current_run, ended_runs)`, the current run `(length, score)` if there is one: Python's
+    /// `state or (None, None, ())`.
+    type State = (Option<(Int, S)>, Vec<(Int, S)>);
+    type Final = Vec<(Int, S)>;
 
-    /// `count > 0` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &Self::State,
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<Self::State>> {
-        Err(tuple_compared_with_int(">"))
-    }
-
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    fn initial_state(&self, _: Order, _: &[Value], _: &[Option<Int>]) -> Result<Value> {
-        Ok(Value::None)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        _: Order,
-        _: &Value,
-        counts: &[Int],
-    ) -> Result<Option<Value>> {
-        let (mut length, mut score, mut ended_runs) = reduce_state(state);
+    fn fold(&self, state: &Self::State, _: Order, _: &O, counts: &[Int]) -> Result<Self::State> {
+        let (current_run, ended_runs) = state;
         let count = &counts[0];
         if count.is_positive() {
-            if length == Value::None {
-                length = int(1);
-                score = int(count);
-            } else {
-                length = length.binary(BinOp::Add, &int(1))?;
-                score = (self.reducer)(&score, &int(count))?;
-            }
+            let current_run = match current_run {
+                None => (Int::ONE, S::from(count.clone())),
+                Some((length, score)) => (length + 1, (self.reducer)(score, count)?),
+            };
+            Ok((Some(current_run), ended_runs.clone()))
         } else {
-            if length != Value::None {
-                ended_runs = end_run(ended_runs, length, score)?;
-            }
-            length = Value::None;
-            score = Value::None;
+            let ended_runs = match current_run {
+                Some(run) => end_run(ended_runs, run.clone())?,
+                None => ended_runs.clone(),
+            };
+            Ok((None, ended_runs))
         }
-        Ok(Some(Value::tuple(vec![
-            length,
-            score,
-            Value::tuple(ended_runs),
-        ])))
     }
 
-    fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
-        consecutive(outcomes)
+    fn extra(&self, outcomes: &[O]) -> Result<Vec<O>> {
+        O::consecutive(outcomes)
     }
 
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        _: Order,
-        _: &[Value],
-        _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
-        let (length, score, mut ended_runs) = reduce_state(final_state);
-        if length != Value::None {
-            ended_runs = end_run(ended_runs, length, score)?;
-        }
-        Ok(Final::Outcome(Value::tuple(ended_runs)))
+    fn finish(&self, (current_run, ended_runs): &Self::State) -> Result<Final<Vec<(Int, S)>>> {
+        Ok(Final::Outcome(match current_run {
+            Some(run) => end_run(ended_runs, run.clone())?,
+            None => ended_runs.clone(),
+        }))
     }
 }
