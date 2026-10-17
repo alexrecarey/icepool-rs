@@ -198,6 +198,9 @@
     },
     "C3": {
       "status": "done"
+    },
+    "C4": {
+      "attempts": 1
     }
   },
   "merges": 66,
