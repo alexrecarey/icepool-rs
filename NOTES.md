@@ -8,6 +8,10 @@ turns out wrong. Newest decisions at the top of each section.
 - **Crates and production builds (C5, design sections 5 and 8).** Follow-up: C5b (the runner's code moves into
   icepool-harness once the loop owner moves the protected fixtures test, QUESTIONS.md "D1"), C6 (JS API off the
   runner), C2f (khepri crate).
+  - **C5b is blocked (checked 2026-10-17, attempts 1 and 2):** `crates/icepool-core/tests/fixtures.rs` has not
+    moved and still calls `icepool_core::program::run`. Do not start the move until
+    `crates/icepool-harness/tests/fixtures.rs` exists (calling `icepool_harness::run`): moving `program/` first would
+    break the protected test. Check with `ls crates/icepool-harness/tests/fixtures.rs`.
   - `crates/icepool-harness` (`publish = false`, test-only): the `icepool-run` binary (same name, so
     `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and `icepool_harness::run`, for
     now a re-export of `icepool_core::program::run`. Never a dependency of a production crate.

@@ -80,3 +80,6 @@ The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fix
    checked against the fixtures. Please add `--test-package icepool-core,icepool-harness` (or
    `--test-workspace true`) to that line when you move the file. Until then core's dev-dependency on
    icepool-harness keeps `cargo test -p icepool-core` running every fixture.
+
+   **C5b status (2026-10-17): waiting on this move.** C5b was scheduled twice with fixtures.rs still in
+   icepool-core, so both attempts could only record that they are blocked. Please hold C5b until the move is done.
