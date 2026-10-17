@@ -94,13 +94,25 @@ fn get(id: u32) -> Result<PValue, PErr> {
 /// Frees a handle (the JS object holding it was garbage-collected).
 #[wasm_bindgen]
 pub fn release(id: u32) {
-    HANDLES.with(|h| {
+    // The value is dropped after the table is released: dropping it may call back into JS (`host_release`).
+    let value = HANDLES.with(|h| {
         let (slots, free) = &mut *h.borrow_mut();
-        if let Some(slot @ Some(_)) = slots.get_mut(id as usize) {
-            *slot = None;
+        let value = slots.get_mut(id as usize).and_then(Option::take);
+        if value.is_some() {
             free.push(id);
         }
+        value
     });
+    drop(value);
+}
+
+/// After a trap (a Rust panic: WASM has no unwinding), once JS has left every call into the instance: resets the
+/// core's per-call state, which the trap skipped the destructors of, and returns the panic's message (empty if
+/// none was recorded). The handle table is never borrowed across code that can panic, so it survives as it is.
+#[wasm_bindgen]
+pub fn recover() -> String {
+    program::reset_after_trap();
+    crate::take_panic().unwrap_or_default()
 }
 
 /// How many handles are live (for the JS tests' leak check).

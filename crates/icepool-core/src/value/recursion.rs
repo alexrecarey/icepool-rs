@@ -121,6 +121,13 @@ pub fn set_frame_budget(budget: fn() -> usize) {
     let _ = FRAME_BUDGET.set(budget);
 }
 
+/// Gives back every level and frame. Only for the WASM facade after a trap: a trap skips the `Drop`s that would
+/// have given them back, so the next call would start out deep.
+pub fn reset() {
+    LEVELS.with(|l| l.set(0));
+    FRAMES.with(|f| f.set(0));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

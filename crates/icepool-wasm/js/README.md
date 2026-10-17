@@ -48,7 +48,9 @@ new Deck([1, 2, 3], 4).deal(2).sum();
   `rest` (`(a, ...more) => ...`), `kwonly` (names of keyword-only arguments, passed to `f` as a trailing options
   object: `f.call(pool, { target: [5, 6] })`); `star` is inferred unless given.
 - **Errors**: icepool's exceptions are thrown as `IcepoolError` with `pythonType` (`"ValueError"`, ...); an exception
-  thrown by your callback reaches you unchanged.
+  thrown by your callback reaches you unchanged. Sizes no memory holds (`d(2n ** 40n)`) are a `MemoryError`. A bug in
+  the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `pythonType` `"PanicException"`;
+  the instance and your objects stay usable afterwards.
 - **Memory**: dice, pools and decks live in WASM memory and are freed when their JS objects are garbage-collected.
 
 The TypeScript declarations are in `icepool.d.ts`.

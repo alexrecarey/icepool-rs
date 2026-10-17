@@ -317,3 +317,32 @@ test("deep nesting raises RecursionError rather than overflowing the WASM stack"
   const f = ip.multisetFunction((a) => f.call(a));
   assert.throws(() => f.call(d(2).pool(1)), (e) => isRecursionError(e) || e instanceof RangeError);
 });
+
+test("sizes no memory holds raise MemoryError rather than trapping", () => {
+  const isMemoryError = (e) => e instanceof ip.IcepoolError && e.pythonType === "MemoryError";
+  assert.throws(() => d(2n ** 63n - 1n), isMemoryError);
+  assert.throws(() => d(2 ** 33), isMemoryError);
+  assert.throws(() => d(2).sequence(2n ** 62n), isMemoryError);
+  assert.equal(d(6).denominator(), 6n);
+});
+
+test("a trap is a PanicException, and the instance stays usable", () => {
+  // A JS callback throwing a RuntimeError stands in for a panic deep in the core: it abandons the WASM frames
+  // below it without running their destructors, just as a trap does.
+  const trap = () => { throw new WebAssembly.RuntimeError("simulated trap"); };
+  const isPanic = (e) => e instanceof ip.IcepoolError && e.pythonType === "PanicException";
+  const kept = d(4);
+  assert.throws(() => d(6).map(trap), isPanic);
+  // From a nested call into the core: the outer call is abandoned too.
+  assert.throws(() => d(6).map(() => d(2).map(trap)), isPanic);
+  // Abandoned 40 calls deep in a multiset function calling itself, many times over: the levels and frames those
+  // calls held would add up past the recursion limit if they were not reset.
+  for (let i = 0; i < 100; i++) {
+    let n = 0;
+    const f = ip.multisetFunction((a) => (++n > 40 ? trap() : f.call(a)));
+    assert.throws(() => f.call(d(2).pool(1)), isPanic);
+  }
+  const g = ip.multisetFunction((a, b) => a.add(b).sum());
+  assert.deepEqual(g.call(d(2).pool(1), d(2).pool(1)).items(), d(2).add(d(2)).items());
+  assert.equal(kept.add(1).denominator(), 4n);
+});

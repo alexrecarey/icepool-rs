@@ -6,17 +6,38 @@
 //! - `calculate(engineInput)`: khepri's engine, the drop-in for `f2f.calculate` that khepri's worker calls through
 //!   Pyodide today. Same input object, same output shape.
 //!
-//! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`, and the caller should drop the
-//! instance (run-wasm.mjs reloads it).
+//! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`. The panic hook installed at
+//! start-up keeps its message; the JS facade (js/core.js) then calls `recover()` and throws an `IcepoolError`
+//! ("PanicException", as the Python facade raises), and run-wasm.mjs reloads the instance. Sizes from user input are
+//! checked before allocating (`icepool_core::memory`), so huge inputs are a `MemoryError`, not a trap.
 
 mod facade;
 
 pub use facade::{
-    call, evaluate, from_wire, live_handles, multiset_function, release, wire_result,
+    call, evaluate, from_wire, live_handles, multiset_function, recover, release, wire_result,
 };
+
+use std::cell::Cell;
 
 use serde_json::Value as Json;
 use wasm_bindgen::prelude::*;
+
+thread_local! {
+    /// The message of the last panic, for `recover()`.
+    static PANIC: Cell<Option<String>> = const { Cell::new(None) };
+}
+
+/// Runs when the module is instantiated: panics record their message (the default hook would print it to a
+/// console the caller may not see, and the trap itself only says "unreachable").
+#[wasm_bindgen(start)]
+fn start() {
+    std::panic::set_hook(Box::new(|info| PANIC.with(|p| p.set(Some(info.to_string())))));
+}
+
+/// The last panic's message, if any, forgotten once taken.
+fn take_panic() -> Option<String> {
+    PANIC.with(Cell::take)
+}
 
 // The JS globals we need, declared directly so wasm-bindgen is the only binding dependency.
 #[wasm_bindgen]
@@ -30,6 +51,16 @@ extern "C" {
     fn big_int(digits: &str) -> JsValue;
     #[wasm_bindgen(js_namespace = Reflect, js_name = set)]
     fn reflect_set(target: &JsValue, key: &JsValue, value: &JsValue) -> bool;
+    #[wasm_bindgen(js_namespace = Reflect, js_name = get)]
+    fn reflect_get(target: &JsValue, key: &JsValue) -> JsValue;
+}
+
+/// The instance's shadow stack pointer, the `WebAssembly.Global` `__stack_pointer` (exported by build.rs), or
+/// `undefined`. Rust keeps its frames' locals on this stack in linear memory; a trap abandons them without
+/// popping them, so the JS facade saves its value before each outermost call and puts it back after a trap.
+#[wasm_bindgen]
+pub fn stack_pointer() -> JsValue {
+    reflect_get(&wasm_bindgen::exports(), &JsValue::from_str("__stack_pointer"))
 }
 
 /// One program (JSON text) in, its result (JSON text) out: the icepool-run protocol for one line.

@@ -14,10 +14,12 @@
 //   Fraction, Vector, Symbols: classes below. None is null.
 
 let W = null; // the wasm-bindgen module (bind())
+let SP = null; // the instance's shadow stack pointer, a `WebAssembly.Global` (see `wasm`)
 
 /** Installs the WASM module; node.js and web.js call it once. */
 export function bind(wasm) {
   W = wasm;
+  SP = wasm.stack_pointer() ?? null;
   globalThis.__icepool_wasm_host = HOST;
 }
 
@@ -31,6 +33,38 @@ export class IcepoolError extends Error {
     this.pythonType = pythonType;
     /** True when Python would answer but the port does not cover the case yet. */
     this.unimplemented = unimplemented;
+  }
+}
+
+// A Rust panic in WASM is a trap (`WebAssembly.RuntimeError: unreachable`): WASM has no unwinding, so the Rust frames
+// it abandons run no destructors, and the core's per-call state (recursion levels, the arguments of the multiset
+// function bodies being traced) is left behind. So a trap is never handed to the core as a callback's exception
+// (`callback` rethrows it): it abandons every WASM frame of the call, and once the outermost one is gone,
+// the shadow stack pointer is put back where it was (Rust keeps its locals on a stack in linear memory, and the
+// abandoned frames were never popped from it: a few traps would exhaust it), then `W.recover()` resets that state
+// and gives the panic's message, thrown as an `IcepoolError` (`PanicException`, what the Python facade raises for a
+// panic). The instance stays usable, and handles stay valid. JS functions and evaluators the abandoned call had
+// registered are never released (a leak, not an error).
+let depth = 0; // calls into WASM in progress (a JS callback may call in again)
+let stackTop = 0; // the shadow stack pointer when the outermost call began
+
+/** `f()`, a call into the WASM instance, with a trap turned into an `IcepoolError` once the call is left. */
+function wasm(f) {
+  if (depth === 0 && SP) stackTop = SP.value;
+  depth++;
+  try {
+    return f();
+  } catch (e) {
+    if (e instanceof WebAssembly.RuntimeError && depth === 1) {
+      if (SP) SP.value = stackTop;
+      const message = W.recover();
+      const error = new IcepoolError("PanicException", message || e.message);
+      error.cause = e;
+      throw error;
+    }
+    throw e;
+  } finally {
+    depth--;
   }
 }
 
@@ -277,18 +311,18 @@ function argsText(args) {
 /** Calls a node of the program language by name: `call("add", { a: d(6), b: 1 })`. The methods below are all
  * built on this; it is exported for the nodes without a method (and for the fixture tests). */
 export function call(op, args = {}) {
-  return dec(unwrap(W.call(op, argsText(args))));
+  return dec(unwrap(wasm(() => W.call(op, argsText(args)))));
 }
 
 /** A literal of the harness's wire format (`{"float": "1.5"}`, `{"tuple": [...]}`, ...) as a JS value, read
  * exactly as the program runner reads it (for the fixture tests). */
 export function fromWire(text) {
-  return dec(unwrap(W.from_wire(text)));
+  return dec(unwrap(wasm(() => W.from_wire(text))));
 }
 
 /** How many core objects JS holds (for leak checks). */
 export function liveHandles() {
-  return W.live_handles();
+  return wasm(() => W.live_handles());
 }
 
 // --- Callbacks from the core --------------------------------------------------------------------------------------
@@ -310,6 +344,8 @@ function callback(body) {
   try {
     return `{"ok":${body()}}`;
   } catch (e) {
+    // A trap in a nested call: the WASM frames below must be abandoned too (see `wasm`).
+    if (e instanceof WebAssembly.RuntimeError) throw e;
     if (e instanceof UnsupportedOrder) return `{"error":"UnsupportedOrder"}`;
     pendingError = e;
     return `{"throw":true}`;
@@ -359,7 +395,7 @@ const HOST = {
 // --- Handles ------------------------------------------------------------------------------------------------------
 
 const HANDLE = Symbol("handle"); // constructor token: wrap an existing handle
-const registry = new FinalizationRegistry((h) => W && W.release(h));
+const registry = new FinalizationRegistry((h) => W && wasm(() => W.release(h)));
 
 /** A core object (die, pool, deck, ...) held by JS. */
 export class Handle {
@@ -371,7 +407,7 @@ export class Handle {
   }
   /** The harness's wire encoding of this object (`{"ok": true, "die" | "value": ...}`), as JSON text. */
   toWire() {
-    return W.wire_result(this._h);
+    return wasm(() => W.wire_result(this._h));
   }
 }
 
@@ -785,7 +821,7 @@ export function fromRv(rv, outcomes, denominator, kwargs = {}) {
   const pdf = "pdf" in rv;
   const cdf = (...args) => rv.cdf(...args);
   const args = `{"cdf":${enc(cdf)},"pdf":${pdf},"outcomes":${enc(outcomes)},"denominator":${enc(denominator)},"kwargs":${argsText(kwargs)}}`;
-  return dec(unwrap(W.from_rv(args)));
+  return dec(unwrap(wasm(() => W.from_rv(args))));
 }
 
 // --- Free functions -----------------------------------------------------------------------------------------------
@@ -1275,7 +1311,7 @@ export class MultisetEvaluator {
     // inside a multiset function's body, when the function holding the recorded evaluation is dropped.
     const id = nextId++;
     evaluators.set(id, this);
-    return dec(unwrap(W.evaluate(id, args, kw)));
+    return dec(unwrap(wasm(() => W.evaluate(id, args, kw))));
   }
 }
 
@@ -1427,7 +1463,7 @@ export class MultisetFunction extends Handle {
 export function multisetFunction(f, { params = f.length, rest = false, kwonly = [] } = {}) {
   if (typeof f !== "function") throw new TypeError("icepool: multisetFunction takes a function");
   const args = `{"f":${enc(f)},"params":${Number(params)},"var":${rest ? "true" : "false"},"kwonly":${JSON.stringify(Array.from(kwonly, String))}}`;
-  return dec(unwrap(W.multiset_function(args)));
+  return dec(unwrap(wasm(() => W.multiset_function(args))));
 }
 class RawResult extends Handle {}
 

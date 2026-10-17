@@ -108,6 +108,31 @@ thread_local! {
     static VARS: RefCell<Vec<Arguments>> = const { RefCell::new(Vec::new()) };
 }
 
+/// The arguments of one traced body on `VARS`, popped when dropped: also when a panic unwinds through the body
+/// (icepool-run and the Python facade catch it and carry on, and must not leave the body's arguments behind).
+struct VarsFrame;
+
+impl VarsFrame {
+    fn push(args: Arguments) -> VarsFrame {
+        VARS.with(|v| v.borrow_mut().push(args));
+        VarsFrame
+    }
+}
+
+impl Drop for VarsFrame {
+    fn drop(&mut self) {
+        // Taken out first so that the arguments are dropped with `VARS` released.
+        let args = VARS.with(|v| v.borrow_mut().pop());
+        drop(args);
+    }
+}
+
+/// Forgets every traced body's arguments. For the WASM facade after a trap, which skips every `Drop`.
+pub fn reset_vars() {
+    let stale = VARS.with(|v| std::mem::take(&mut *v.borrow_mut()));
+    drop(stale);
+}
+
 /// Node `mf_def`: `icepool.multiset_function(f)` for a function `f(p0, ..., p{params-1}[, *rest][, *, k...])`
 /// whose body is the lazy program `body` (`kwonly`, the keyword-only names, may be left out).
 pub fn mf_def(m: &Map<String, Json>) -> Result<PValue, PErr> {
@@ -469,10 +494,8 @@ fn prepare_function(
     }
     let result = match &f.body {
         Body::Program(body) => {
-            VARS.with(|v| v.borrow_mut().push((vars, kwargs)));
-            let result = eval(body);
-            VARS.with(|v| v.borrow_mut().pop());
-            result?
+            let _frame = VarsFrame::push((vars, kwargs));
+            eval(body)?
         }
         Body::Host(body) => body.call(vars, kwargs)?,
     };
@@ -601,4 +624,25 @@ fn call(f: PValue, args: PValue, kwargs: Vec<(String, PValue)>) -> Result<PValue
         results.push((new_die(outcomes, &weights)?, prepared.weight));
     }
     super::evaluate::mix(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_in_a_body_pops_its_arguments() {
+        let depth = || VARS.with(|v| v.borrow().len());
+        let caught = std::panic::catch_unwind(|| {
+            let _frame = VarsFrame::push((vec![PValue::Value(Value::from(1))], vec![]));
+            assert_eq!(depth(), 1);
+            panic!("a bug in the body");
+        });
+        assert!(caught.is_err());
+        assert_eq!(depth(), 0);
+        // After a WASM trap nothing was popped: the reset forgets it all.
+        std::mem::forget(VarsFrame::push((vec![], vec![])));
+        reset_vars();
+        assert_eq!(depth(), 0);
+    }
 }

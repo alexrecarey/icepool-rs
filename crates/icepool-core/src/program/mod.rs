@@ -185,6 +185,14 @@ pub fn check_nesting(v: &PValue) -> Result<(), PErr> {
     }
 }
 
+/// Resets the thread-local state a call into the core keeps while it runs (traced bodies' arguments, recursion
+/// levels) once no call is running. Unwinding gives it all back by itself; a WASM trap does not run destructors,
+/// so the WASM facade calls this after one.
+pub fn reset_after_trap() {
+    multiset_function::reset_vars();
+    crate::value::recursion::reset();
+}
+
 /// Run one program. Never panics on bad input: errors are results too (`{"ok": false, "error": ...}`).
 pub fn run(program: &Json) -> Json {
     match eval(program) {

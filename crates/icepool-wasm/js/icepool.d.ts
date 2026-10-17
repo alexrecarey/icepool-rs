@@ -39,7 +39,8 @@ export type Repl = ((...args: any[]) => MapResult) | Map<unknown, MapResult> | C
 
 // --- Errors -------------------------------------------------------------------------------------------------------
 
-/** An exception icepool raised: `pythonType` is the Python exception (`ValueError`, `TypeError`, ...). */
+/** An exception icepool raised: `pythonType` is the Python exception (`ValueError`, `TypeError`, `MemoryError`, ...),
+ * or `PanicException` for a bug in the core (a trap, after which the instance is still usable). */
 export class IcepoolError extends Error {
   readonly pythonType: string;
   /** Python would answer, but the port does not cover the case yet. */

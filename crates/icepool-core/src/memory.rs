@@ -103,10 +103,10 @@ mod tests {
         assert_eq!(try_repeat(7u8, Some(3usize), "x").unwrap(), vec![7, 7, 7]);
         assert_eq!(try_collect(Some(2u32), [1, 2], "x").unwrap(), vec![1, 2]);
         assert_eq!(check_len::<u64, usize>(Some(MAX_ALLOC_BYTES / 8), "x").unwrap(), MAX_ALLOC_BYTES / 8);
-        let q = crate::Quantity::from;
-        assert!(check_pow(&q(1u8), usize::MAX, "x").is_ok());
-        assert!(check_pow(&q(255u8), MAX_ALLOC_BYTES, "x").is_ok());
-        assert!(matches!(check_pow(&q(256u16), MAX_ALLOC_BYTES, "x"), Err(Error::Memory(_))));
-        assert!(matches!(check_pow(&q(2u8), usize::MAX, "x"), Err(Error::Memory(_))));
+        let q = |x: u32| crate::Quantity::from(x);
+        assert!(check_pow(&q(1), usize::MAX, "x").is_ok());
+        assert!(check_pow(&q(255), MAX_ALLOC_BYTES, "x").is_ok());
+        assert!(matches!(check_pow(&q(256), MAX_ALLOC_BYTES, "x"), Err(Error::Memory(_))));
+        assert!(matches!(check_pow(&q(2), usize::MAX, "x"), Err(Error::Memory(_))));
     }
 }
