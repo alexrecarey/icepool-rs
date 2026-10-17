@@ -12,6 +12,7 @@ pub mod builtins;
 mod complex;
 pub mod evaluators;
 mod host;
+mod matmul;
 mod number;
 pub mod ops;
 mod order;
@@ -36,6 +37,7 @@ use crate::error::Result;
 /// Python's `collections.Counter`, as `Deck` arithmetic uses it.
 pub use crate::deck::{Counter, CounterOp};
 pub use host::{HostError, HostObject, HostRef, LenKind};
+pub use matmul::matmul_dice;
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;

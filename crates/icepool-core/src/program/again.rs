@@ -323,7 +323,7 @@ pub fn evaluate_agains_using_count(
     // `n @ die` with an int `n` is `Die([n]) @ die` (`Die.__rmatmul__`).
     let matmul = |n: &Value, die: &Die<Value>| {
         let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
-        ops::matmul_dice(&n, die)
+        crate::value::matmul_dice(&n, die)
     };
     Ok(PValue::Die(crate::again::evaluate_agains_using_count(
         &step_die,

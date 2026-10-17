@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::catalogue::Func;
 use super::expression::{add_inner, as_expression, binary_op, MExpr};
 use super::map::{arg_items, call, select, star_arg, the_die};
-use super::ops::{matmul_dice, wrong_type};
+use super::ops::wrong_type;
 use super::pool::{die_pool, pool, pool_highest_lowest, KeepGen};
 use super::{raise, PErr, PValue};
 use crate::error::Error;
@@ -20,7 +20,7 @@ use crate::{Die, DieArg, Pool, Quantity, Value};
 /// `n @ die` with a Python int (or bool) `n`: `Die([n]) @ die` (`Die.__rmatmul__`).
 fn rmatmul(n: &Value, die: &Die<Value>) -> Result<Die<Value>, PErr> {
     let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
-    matmul_dice(&n, die)
+    Ok(crate::value::matmul_dice(&n, die)?)
 }
 
 /// `icepool.map_to_pool(repl, *args, star=star)` (node `map_to_pool`).

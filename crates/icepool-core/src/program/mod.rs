@@ -26,8 +26,6 @@ mod statistics;
 mod to_pool;
 pub mod wire;
 
-pub use ops::matmul_dice;
-
 use std::sync::Arc;
 
 use serde_json::{json, Value as Json};

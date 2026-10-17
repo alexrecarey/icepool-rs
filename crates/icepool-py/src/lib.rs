@@ -24,7 +24,6 @@ mod to_pool;
 mod weightless;
 
 use dashu_int::{IBig, UBig};
-use icepool_core::program::PErr;
 use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
 use pyo3::exceptions::{
     PyNotImplementedError, PyOverflowError, PyTypeError, PyValueError, PyZeroDivisionError,
@@ -242,14 +241,6 @@ fn binary_operator(
     RsDie::wrap(py, result)
 }
 
-/// A program-layer error (the Python-dynamic layer the facade shares with icepool-run) as a Python exception.
-fn perr_to_py(e: PErr) -> PyErr {
-    match e {
-        PErr::Raise(e) => to_py_err(e),
-        PErr::Unimplemented(m) => PyNotImplementedError::new_err(format!("icepool_rs: {m}")),
-    }
-}
-
 fn rs(die: &Bound<'_, RsDie>) -> CoreDie<Value> {
     die.get().die.clone()
 }
@@ -412,8 +403,7 @@ pub(crate) fn matmul_core(
         n = CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items));
     }
     // Pure Rust from here (but for host outcomes, which take the GIL back per operation): other threads go on.
-    py.detach(|| icepool_core::program::matmul_dice(&n, die))
-        .map_err(perr_to_py)
+    py.detach(|| icepool_core::value::matmul_dice(&n, die)).map_err(to_py_err)
 }
 
 /// `Die._popped_min`: the die without its min outcome (zero quantities kept) and that outcome's quantity.
@@ -534,7 +524,7 @@ fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     icepool_core::interrupt::set_check(convert::check_signals);
     // PyO3 guards every entry point with `catch_unwind`: a panic in the core (a bug) unwinds to it and is raised as
     // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's
-    // thread-local state is given back on the way: `recursion::Level`, `program::multiset_function::VarsFrame`).
+    // thread-local state is given back on the way: `recursion::Level`).
     // Exported so that callers and the tests can name it.
     m.add(
         "PanicException",
