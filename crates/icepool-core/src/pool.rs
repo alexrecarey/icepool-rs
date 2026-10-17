@@ -24,7 +24,8 @@ use crate::keep_tuple::{
 use crate::math::comb_row;
 use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
-use crate::outcome::OutcomeOrder;
+use crate::evaluator::MultisetEvaluator;
+use crate::outcome::{Outcome, OutcomeOrder};
 use crate::weightless::WeightlessSource;
 use crate::{Int, Quantity};
 
@@ -236,6 +237,62 @@ impl<O: OutcomeOrder> Pool<O> {
             hi: self.outcomes.len(),
             keep_tuple: self.keep_tuple.clone(),
         }
+    }
+}
+
+/// The typed API (design/library-architecture.md section 4): keeping and evaluating without Python's arguments.
+impl<O: Outcome> Pool<O> {
+    /// Keeps the `keep` highest rolls (Python's `pool.highest(keep)`); the others count zero times. Applied to a
+    /// pool that already keeps some rolls, it keeps relative to those (as [`Pool::keep`]).
+    ///
+    /// # Panics
+    ///
+    /// If the pool already has negative counts, which Python cannot keep as a pool either.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// let best = d(6).pool(4).highest(3);
+    /// assert_eq!(best.keep_tuple(), [0, 1, 1, 1].map(Int::from));
+    /// ```
+    pub fn highest(&self, keep: usize) -> Self {
+        self.keep_slice(keep_tuple::highest_slice(Some(i64::try_from(keep).unwrap_or(i64::MAX)), None))
+    }
+
+    /// Keeps the `keep` lowest rolls (Python's `pool.lowest(keep)`); see [`Pool::highest`].
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// let worst = d(6).pool(3).lowest(1);
+    /// assert_eq!(worst.keep_tuple(), [1, 0, 0].map(Int::from));
+    /// ```
+    pub fn lowest(&self, keep: usize) -> Self {
+        self.keep_slice(keep_tuple::lowest_slice(Some(i64::try_from(keep).unwrap_or(i64::MAX)), None))
+    }
+
+    fn keep_slice(&self, slice: Result<keep_tuple::Slice>) -> Self {
+        slice
+            .and_then(|slice| self.keep(&KeepIndex::Slice { slice, step: false }))
+            .unwrap_or_else(|e| panic!("{}", e.message()))
+    }
+
+    /// Evaluates this pool (Python's `evaluator.evaluate(pool)`): the die of the evaluator's final outcomes, each
+    /// weighted by how likely its rolls are.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::LargestCountEvaluator;
+    /// use icepool_core::{d, Die, Int};
+    /// // How many of a kind in 3d6: 120 of the 216 rolls have none, 90 a pair, 6 three of a kind.
+    /// let largest: Die<Int> = d(6).pool(3).evaluate(&LargestCountEvaluator).unwrap();
+    /// assert_eq!(largest, Die::from_weights([(Int::from(1), 120u32), (Int::from(2), 90), (Int::from(3), 6)]));
+    /// ```
+    pub fn evaluate<E>(&self, evaluator: &E) -> Result<Die<E::Final>>
+    where
+        E: MultisetEvaluator<O>,
+        E::Final: Outcome,
+    {
+        // `Die(final_outcomes, final_weights)`: plain outcomes, so equal ones simply add up.
+        let finals = crate::evaluator::evaluate(evaluator, &[MultisetSource::Pool(self.source())])?;
+        Ok(Die::from_weights(finals))
     }
 }
 

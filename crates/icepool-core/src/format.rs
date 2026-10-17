@@ -222,7 +222,7 @@ fn gather_cols(population: &Die<Value>, format_tokens: &[Token]) -> Result<Vec<V
             },
             Token::Quantity(c) => result.push(
                 population
-                    .quantities(c)
+                    .quantities_by(c)
                     .into_iter()
                     .map(|q| py_str(&Value::Int(q.into())))
                     .collect::<Result<_>>()?,

@@ -431,6 +431,94 @@ impl<O: OutcomeOrder> Die<O> {
 
 /// The typed API: an [`Outcome`]'s comparisons cannot fail, so neither can these.
 impl<O: Outcome> Die<O> {
+    /// A die that always rolls `outcome` (Python's `Die([outcome])`).
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// let five = Die::single(5);
+    /// assert_eq!(five.outcomes().collect::<Vec<_>>(), [&5]);
+    /// ```
+    pub fn single(outcome: O) -> Self {
+        Self::from_counts(Counts::from_sorted(vec![(outcome, Quantity::ONE)]))
+    }
+
+    /// A die from `(outcome, quantity)` pairs (Python's `Die({outcome: quantity, ...})`). Equal outcomes add up
+    /// their quantities; outcomes with zero quantity are dropped.
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// let loaded = Die::from_weights([(1, 2u32), (2, 1), (1, 1)]);
+    /// assert_eq!(loaded.quantities().map(|q| q.to_string()).collect::<Vec<_>>(), ["3", "1"]);
+    /// ```
+    pub fn from_weights<Q: Into<Quantity>>(items: impl IntoIterator<Item = (O, Q)>) -> Self {
+        let mut data = OrderedMerge::default();
+        for (outcome, quantity) in items {
+            data.add(outcome, quantity.into());
+        }
+        infallible(Self::from_mapping(data))
+    }
+
+    /// The quantities in the order of their outcomes, zero quantities included (Python's `die.quantities()`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert!(d(6).quantities().all(|q| *q == Quantity::ONE));
+    /// ```
+    pub fn quantities(&self) -> impl ExactSizeIterator<Item = &Quantity> {
+        self.items().iter().map(|(_, q)| q)
+    }
+
+    /// The die whose outcomes are `f` of this die's outcomes: equal results add up their quantities (Python's
+    /// `die.map(f)` for an `f` that returns plain outcomes).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let parity: Die<bool> = d(6).map(|&x| x % 2 == 0);
+    /// assert_eq!(parity, Die::from_weights([(false, 3u32), (true, 3)]));
+    /// ```
+    pub fn map<P: Outcome>(&self, mut f: impl FnMut(&O) -> P) -> Die<P> {
+        let mut data = OrderedMerge::default();
+        for (outcome, quantity) in self.items() {
+            data.add(f(outcome), quantity.clone());
+        }
+        infallible(Die::from_mapping(data))
+    }
+
+    /// Rolls this die and `other` and combines the two outcomes with `f`: every pair of outcomes, the quantities
+    /// multiplied, equal results adding up (Python's `die.binary_operator`, for any function). The operators
+    /// (`+`, `&`, ...) and the comparison methods ([`Die::lt`], ...) are this.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let highest = d(6).binary(&d(6), |a, b| *a.max(b));
+    /// assert_eq!(highest.quantity_le(&1).to_string(), "1");
+    /// assert_eq!(highest.denominator().to_string(), "36");
+    /// ```
+    pub fn binary<Q: Outcome, P: Outcome>(&self, other: &Die<Q>, mut f: impl FnMut(&O, &Q) -> P) -> Die<P> {
+        infallible(self.try_binary(other, |a, b| Ok(f(a, b))))
+    }
+
+    /// [`Die::binary`] with a function that may fail: the first error is returned.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let sum = d(6).try_binary(&Die::single(i64::MAX), |a, b| a.checked_add(*b).ok_or("overflow"));
+    /// assert_eq!(sum, Err("overflow"));
+    /// ```
+    pub fn try_binary<Q: Outcome, P: Outcome, E>(
+        &self,
+        other: &Die<Q>,
+        mut f: impl FnMut(&O, &Q) -> std::result::Result<P, E>,
+    ) -> std::result::Result<Die<P>, E> {
+        let mut data = OrderedMerge::default();
+        for (outcome_self, quantity_self) in self.items() {
+            for (outcome_other, quantity_other) in other.items() {
+                data.add(f(outcome_self, outcome_other)?, quantity_self * quantity_other);
+            }
+        }
+        Ok(infallible(Die::from_mapping(data)))
+    }
+
     /// `quantity('>=', outcome)`: the total quantity of the outcomes at or above `outcome`.
     pub fn quantity_ge(&self, outcome: &O) -> Quantity {
         infallible(self.try_quantity_ge(outcome))
@@ -821,7 +909,7 @@ mod tests {
     /// The typed API on `Die<i64>` answers comparisons with plain values, as the `Value` path does with `Ok`.
     #[test]
     fn typed_comparisons_return_plain_values() {
-        let d6: Die<i64> = d(6).unwrap();
+        let d6: Die<i64> = d(6);
         let q = |x: u8| Quantity::from(x);
         assert_eq!(d6.quantity_le(&4), q(4));
         assert_eq!(d6.quantity_ge(&4), q(3));

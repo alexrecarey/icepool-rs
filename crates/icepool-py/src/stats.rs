@@ -78,7 +78,7 @@ pub fn quantities<'py>(
     die: &Bound<'py, RsDie>,
     comparison: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyTuple>> {
-    let qs = die.get().die.quantities(self::comparison(comparison)?);
+    let qs = die.get().die.quantities_by(self::comparison(comparison)?);
     PyTuple::new(
         py,
         qs.iter()

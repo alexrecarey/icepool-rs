@@ -205,7 +205,7 @@ fn matmul(count: i64, die: &Die<i64>) -> Result<Die<i64>> {
 
 /// `d20 > value`: a die of `False` / `True`, here `0` / `1`.
 fn d20_gt(value: i64) -> Result<Die<i64>> {
-    d::<i64>(20)?.binary_operator(&constant(value)?, |a, b| Ok(i64::from(a > b)))
+    d(20).binary_operator(&constant(value)?, |a, b| Ok(i64::from(a > b)))
 }
 
 /// `pool.highest(keep)`.
@@ -263,7 +263,7 @@ pub fn read_roll(mut roll: i64, mut success_value: i64) -> i64 {
 
 /// A d20 rolled against this success value, read as above (`d20.map(read_roll, success_value)`).
 pub fn infinity_die(success_value: i64) -> Result<Die<i64>> {
-    map(&d::<i64>(20)?, |&roll| {
+    map(&d(20), |&roll| {
         Ok(DieArg::Outcome(read_roll(roll, success_value)))
     })
 }

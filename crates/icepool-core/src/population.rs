@@ -88,10 +88,11 @@ fn set_item(data: &mut Data, position: Option<usize>, outcome: &Value, quantity:
 }
 
 impl<O: OutcomeOrder> Die<O> {
-    /// The quantities fitting the comparison for each outcome in sorted order: `'<='` gives the CDF.
+    /// Python's `quantities(comparison)`: the quantities fitting the comparison for each outcome in sorted order:
+    /// `'<='` gives the CDF. ([`Die::quantities`] is the plain iterator of the typed API.)
     ///
     /// `'>='` accumulates `values()[:-1]` downwards from the denominator, so an empty die has one: `(0,)`.
-    pub fn quantities(&self, comparison: Comparison) -> Vec<Quantity> {
+    pub fn quantities_by(&self, comparison: Comparison) -> Vec<Quantity> {
         let values = || self.items().iter().map(|(_, q)| q);
         let den = self.denominator();
         let complement = |qs: Vec<Quantity>| qs.into_iter().map(|q| &den - q).collect();
@@ -107,8 +108,8 @@ impl<O: OutcomeOrder> Die<O> {
                 out
             }
             Comparison::Ne => complement(values().cloned().collect()),
-            Comparison::Lt => complement(self.quantities(Comparison::Ge)),
-            Comparison::Gt => complement(self.quantities(Comparison::Le)),
+            Comparison::Lt => complement(self.quantities_by(Comparison::Ge)),
+            Comparison::Gt => complement(self.quantities_by(Comparison::Le)),
         }
     }
 
@@ -276,7 +277,7 @@ impl Die<Value> {
     /// The total probabilities fitting the comparison for each outcome in sorted order (`'<='` gives the CDF).
     /// With `percent`, each is `100.0 * x`.
     pub fn probabilities(&self, comparison: Comparison, percent: bool) -> Result<Vec<Value>> {
-        self.quantities(comparison)
+        self.quantities_by(comparison)
             .into_iter()
             .map(|q| {
                 let x = self.fraction(q)?;
@@ -304,7 +305,7 @@ impl Die<Value> {
 
     /// The outcome `n / d` of the way through the CDF, taking the lesser in case of a tie.
     pub fn quantile_low(&self, n: &Value, d: &Value) -> Result<Value> {
-        let cdf = self.quantities(Comparison::Le);
+        let cdf = self.quantities_by(Comparison::Le);
         // (n * self.denominator() + d - 1) // d
         let target = n
             .binary(BinOp::Mul, &Value::Int(self.den()))?
@@ -317,7 +318,7 @@ impl Die<Value> {
 
     /// The outcome `n / d` of the way through the CDF, taking the greater in case of a tie.
     pub fn quantile_high(&self, n: &Value, d: &Value) -> Result<Value> {
-        let cdf = self.quantities(Comparison::Le);
+        let cdf = self.quantities_by(Comparison::Le);
         // n * self.denominator() // d
         let target = n
             .binary(BinOp::Mul, &Value::Int(self.den()))?

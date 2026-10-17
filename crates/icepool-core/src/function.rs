@@ -13,9 +13,47 @@ use crate::{Quantity, Value};
 
 /// A standard die, uniformly distributed from `1` to `sides` inclusive.
 ///
-/// Don't confuse this with `Die::new`: `Die([6])` always rolls the integer 6, `d(6)` is a d6. (Python's
-/// `TypeError` for a non-`int` `sides` is the facade's job.)
-pub fn d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
+/// Don't confuse this with [`Die::single`]: `Die::single(6)` always rolls the integer 6, `d(6)` is a d6.
+///
+/// # Panics
+///
+/// If `sides` is less than 1 (Python raises `ValueError: sides must be at least 1.`), or if no machine could
+/// hold the die. [`try_d`] is the fallible form.
+///
+/// ```
+/// use icepool_core::{d, Die};
+/// let d6: Die<i64> = d(6);
+/// assert_eq!(d6.outcomes().copied().collect::<Vec<_>>(), [1, 2, 3, 4, 5, 6]);
+/// assert_eq!(d6.denominator().to_string(), "6");
+/// ```
+pub fn d(sides: i64) -> Die<i64> {
+    try_d(sides).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// A die uniformly distributed from `0` to `sides - 1` inclusive. Equal to `d(sides) - 1`.
+///
+/// # Panics
+///
+/// As [`d`]. [`try_z`] is the fallible form.
+///
+/// ```
+/// use icepool_core::{d, z};
+/// assert_eq!(z(10), d(10) - 1);
+/// ```
+pub fn z(sides: i64) -> Die<i64> {
+    try_z(sides).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// [`d`] for any outcome type made from an `i64` (the bindings' `Value`), as a `Result`: `ValueError` if `sides`
+/// is less than 1. (Python's `TypeError` for a non-`int` `sides` is the facade's job.)
+///
+/// ```
+/// use icepool_core::{function::try_d, Die, Value};
+/// let d6: Die<Value> = try_d(6).unwrap();
+/// assert_eq!(d6.len(), 6);
+/// assert_eq!(try_d::<i64>(0).unwrap_err().message(), "sides must be at least 1.");
+/// ```
+pub fn try_d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
@@ -46,8 +84,14 @@ where
     crate::outcome::sorted(union)
 }
 
-/// A die uniformly distributed from `0` to `sides - 1` inclusive (`z`). Equal to `d(sides) - 1`.
-pub fn z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
+/// [`z`] for any outcome type made from an `i64`, as a `Result` (see [`try_d`]).
+///
+/// ```
+/// use icepool_core::{function::try_z, Die};
+/// let z6: Die<i64> = try_z(6).unwrap();
+/// assert_eq!(z6.outcomes().next(), Some(&0));
+/// ```
+pub fn try_z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
@@ -244,10 +288,10 @@ mod tests {
     fn huge_standard_dice_are_memory_errors() {
         // Fixtures only see that both sides raise: Python's type here is MemoryError, not an abort or a panic.
         for sides in [i64::MAX, 1 << 40] {
-            assert!(matches!(d::<Value>(sides), Err(Error::Memory(_))), "{sides}");
-            assert!(matches!(z::<Value>(sides), Err(Error::Memory(_))), "{sides}");
+            assert!(matches!(try_d::<Value>(sides), Err(Error::Memory(_))), "{sides}");
+            assert!(matches!(try_z::<Value>(sides), Err(Error::Memory(_))), "{sides}");
         }
-        assert_eq!(d::<Value>(3).unwrap().len(), 3);
+        assert_eq!(try_d::<Value>(3).unwrap().len(), 3);
     }
 
     #[test]

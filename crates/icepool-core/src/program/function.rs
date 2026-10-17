@@ -45,7 +45,7 @@ pub fn z(sides: PValue) -> Result<PValue, PErr> {
     };
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
-    Ok(PValue::Die(function::z(sides)?))
+    Ok(PValue::Die(function::try_z(sides)?))
 }
 
 /// Python's `int(s)` for a str: optional whitespace, sign, then decimal digits with single underscores between

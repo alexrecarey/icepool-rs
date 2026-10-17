@@ -420,10 +420,11 @@ mod tests {
     use super::*;
     use crate::evaluator::{evaluate, MultisetEvaluator};
     use crate::pool::MultisetSource;
-    use crate::{d, Pool, Quantity};
+    use crate::function::try_d;
+    use crate::{Pool, Quantity};
 
     fn pool<O: crate::outcome::OutcomeOrder + From<i64>>(sides: i64, n: usize) -> MultisetSource<O> {
-        MultisetSource::Pool(Pool::new(vec![(d(sides).unwrap(), n)]).unwrap().source())
+        MultisetSource::Pool(Pool::new(vec![(try_d(sides).unwrap(), n)]).unwrap().source())
     }
 
     /// Evaluates `evaluator` on `n`d`sides` typed (`i64` outcomes) and as Python does (`Value` outcomes): the

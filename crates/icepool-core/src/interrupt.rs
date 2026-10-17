@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn an_interrupt_stops_an_evaluation() {
         set_check(check);
-        let pool = crate::Pool::new(vec![(crate::d::<crate::Value>(20).unwrap(), 30)]).unwrap();
+        let pool = crate::Pool::new(vec![(crate::function::try_d::<crate::Value>(20).unwrap(), 30)]).unwrap();
         let sum = || {
             let sources = [crate::pool::MultisetSource::Pool(pool.source())];
             crate::evaluator::evaluate(&crate::evaluator::basic::SumEvaluator, &sources)

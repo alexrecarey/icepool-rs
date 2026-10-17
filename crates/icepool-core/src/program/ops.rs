@@ -1198,7 +1198,7 @@ pub(super) fn d(sides: PValue) -> Result<PValue, PErr> {
     // Beyond i64 Python would run out of memory long before finishing.
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
-    Ok(PValue::Die(crate::d(sides)?))
+    Ok(PValue::Die(crate::function::try_d(sides)?))
 }
 
 /// Python's `iter(x)` over a program value: a list, a tuple's elements, a str's characters, a die's outcomes.

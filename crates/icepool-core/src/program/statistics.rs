@@ -41,7 +41,7 @@ fn tuple_of(values: Vec<Value>) -> PValue {
 /// `tuple(die.quantities(comparison))`.
 pub fn quantities(die: PValue, comparison: PValue) -> Result<PValue, PErr> {
     let die = the_population(die)?;
-    let qs = die.quantities(comparison_or_eq(comparison)?);
+    let qs = die.quantities_by(comparison_or_eq(comparison)?);
     Ok(tuple_of(
         qs.into_iter().map(|q| Value::Int(q.into())).collect(),
     ))
