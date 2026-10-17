@@ -64,3 +64,19 @@ The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fix
    `crates/icepool-harness/tests/fixtures.rs` with one change, `icepool_core::program::run` ->
    `icepool_harness::run` (C5 makes that function exist), keep it in guard.sh's protected list under its new path,
    and update its `root()` (`../..` stays right: the crate is also two levels down). C5b then moves `program/`.
+
+   **C5 status (2026-10-17): ready to move.** `crates/icepool-harness` exists with `pub use ... run` and a
+   build.rs identical to icepool-core's (the `env!("CARGO_MANIFEST_DIR")` rebuild guard), so the move is exactly:
+
+   ```bash
+   git mv crates/icepool-core/tests/fixtures.rs crates/icepool-harness/tests/fixtures.rs
+   sed -i 's/icepool_core::program::run/icepool_harness::run/' crates/icepool-harness/tests/fixtures.rs
+   # guard.sh: protect crates/icepool-harness/tests/fixtures.rs instead of the old path
+   ```
+
+   (`serde_json` is already a normal dependency of icepool-harness; no Cargo.toml change is needed.) One knock-on
+   in the protected gate.sh: its long-gate mutants step runs `cargo mutants ... -p icepool-core`, which tests only
+   icepool-core's package; once the fixtures test lives in icepool-harness, mutants in core would no longer be
+   checked against the fixtures. Please add `--test-package icepool-core,icepool-harness` (or
+   `--test-workspace true`) to that line when you move the file. Until then core's dev-dependency on
+   icepool-harness keeps `cargo test -p icepool-core` running every fixture.

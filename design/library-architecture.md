@@ -453,6 +453,11 @@ The runner keeps driving the oracle comparison throughout: it runs on `Value`, s
    `program/` behind `runner`, serde_json optional; verify `cargo test --workspace` still runs the fixtures test.
    (b) `host` module consolidation. (c) icepool-wasm: `run()` behind its `runner` feature (run-wasm.sh enables it),
    `calculate` behind `khepri`. (d) `scripts/check-production.sh`. (e) QUESTIONS.md: the fixtures.rs move.
+   *Done (C5, 2026-10-17)*, with one interim exception: the JS facade of today (src/facade.rs) is the JSON-op RPC
+   over the runner, so icepool-wasm still depends on `icepool-core/runner` and serde_json, and the npm package
+   carries them until C6; check-production.sh reports that as `interim` (keyed on facade.rs using
+   `icepool_core::program`) and applies every check to the npm package once C6 removes it. icepool-core's
+   `khepri` feature is no longer default either (icepool-harness turns it on).
    **C5b** (new task, after the owner moves fixtures.rs): move `program/` into icepool-harness as a client of the
    public API; drop the `runner` feature.
 6. **C6 TypeScript API** (section 6), with the fixture adapter and API tests mirroring upstream's Python tests;

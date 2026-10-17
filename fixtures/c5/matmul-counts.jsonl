@@ -1,0 +1,14 @@
+{"program":{"op":"matmul","n":{"op":"die","outcomes":[1001]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"RecursionError"}}
+{"program":{"op":"matmul","n":{"op":"die","outcomes":[800]},"die":{"op":"die","outcomes":[0]}},"expected":{"ok":true,"die":[[0,1]]}}
+{"program":{"op":"matmul","n":{"op":"die","outcomes":[-799]},"die":{"op":"die","outcomes":[1]}},"expected":{"ok":true,"die":[[-799,1]]}}
+{"program":{"op":"matmul","n":{"op":"die","outcomes":[{"int":"99999999999999999999"}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"-2.0"}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"-3.0"},2]},"die":{"op":"die","outcomes":[0]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[-2,{"float":"3.0"}]},"die":{"op":"die","outcomes":[0]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"2.0"},3]},"die":{"op":"die","outcomes":[0]}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"frac":[5,2]}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"RecursionError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"inf"}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"RecursionError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"nan"}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"RecursionError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"1.0"},{"bool":true}]},"die":{"op":"d","sides":3}},"expected":{"ok":false,"error":"TypeError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"float":"40.0"},1]},"die":{"op":"d","sides":{"int":"100000000000000000000"}}},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"matmul","n":{"op":"die_typed","outcomes":[{"bool":false},{"bool":true}]},"die":{"op":"d","sides":4}},"expected":{"ok":true,"die":[[0,4],[1,1],[2,1],[3,1],[4,1]]}}

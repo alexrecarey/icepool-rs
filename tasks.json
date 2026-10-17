@@ -726,5 +726,14 @@
     ],
     "milestone": null,
     "details": "Design: design/library-architecture.md section 4 and 7; continues C3 (read NOTES.md 'Public Rust API (C3)'). After C2d (generic map/explode/Again) and C2e (typed statistics, FormatOutcome): Display for Pool (Python's str(pool): header + repr(die) per die, today only in program/expression.rs pool_str) and Deck, Debug everywhere, Display for Die switched from IntoValue to FormatOutcome; typed Deck::from_iter/from_weights and Deck::deal(n) -> Deal; pointwise_max/pointwise_min at the root; floor_div and pow (Python's // and **) as Die methods; Again re-exported at the root with std::ops (Again::new() + 1); the crate guide (crates/icepool-core/README.md) gains map/explode/Again, decks and statistics (mean -> Ratio, pub type Ratio at the root). A doctest on every public item of evaluator, expression and value (C3 did the root surface). cargo doc -D warnings clean, every fixture still passes."
+  },
+  {
+    "id": "C5c",
+    "title": "Python wheel ships the facade: python-source, ICEPOOL_BACKEND defaults to rust in the wheel",
+    "deps": [
+      "C5"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 8 ('What ships'). C5 wrote scripts/check-production.sh, but the wheel `maturin build --release -m crates/icepool-py/Cargo.toml` builds today is the extension alone (icepool_rs/__init__.py + the .so), not a usable package: the python/icepool facade is not in it. Make the wheel ship both (maturin `python-source = \"../../python\"` or an equivalent layout; check what maturin needs when the extension module, icepool_rs, is not inside the facade package), with ICEPOOL_BACKEND defaulting to `rust` in the wheel only, via a build-time constant (the harness keeps choosing explicitly; harness/core/upstream_suite.sh and run-facade.sh must behave exactly as before). check-production.sh keeps passing: no tests, conftest, run-facade, harness, catalogue or program files in the wheel. Verify by installing the wheel into a fresh venv (uv venv) and running a smoke test (`import icepool; icepool.d(6) + 1` on the Rust backend) without the repo on sys.path. Parity with the oracle stays absolute for native and Python builds."
   }
 ]

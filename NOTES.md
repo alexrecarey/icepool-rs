@@ -5,6 +5,43 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Crates and production builds (C5, design sections 5 and 8).** Follow-up: C5b (the runner's code moves into
+  icepool-harness once the loop owner moves the protected fixtures test, QUESTIONS.md "D1"), C6 (JS API off the
+  runner), C2f (khepri crate).
+  - `crates/icepool-harness` (`publish = false`, test-only): the `icepool-run` binary (same name, so
+    `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and `icepool_harness::run`, for
+    now a re-export of `icepool_core::program::run`. Never a dependency of a production crate.
+  - icepool-core has **no default features**: `runner` (src/program/, test-only, interim until C5b) and `khepri`;
+    serde_json is optional, pulled in only by those two. icepool-harness depends on core with both, so every
+    `--workspace` cargo command (the gate) unifies them on; core's dev-dependency on icepool-harness (a dev cycle,
+    allowed) does the same for `cargo test -p icepool-core` (what cargo-mutants runs). Code only the runner uses is
+    compiled with it: `random.rs` (the seeded Mersenne Twister) and `lexi::compute_lexi_tuple_with_zero_right_first`.
+    **A runner-less build is not what the gate compiles**: after touching core, also run
+    `cargo clippy --release -p icepool-core -- -D warnings` and `-p icepool-py` (core without features) or dead
+    code there only shows in check-production's maturin build.
+  - `icepool_core::host` (public, documented) holds every host-callback trait the core calls: `HostObject`,
+    `HostRef`, `HostError`, `LenKind` (host/object.rs, was value/host.rs), `HostSource`/`HostSourceObject`
+    (host/source.rs, was host_source.rs), `HostOperator` (host/operator.rs, was in operator/mod.rs). The JS
+    facade's `HostFunction`/`HostEvaluator` take runner values (`PValue`) and stay in program/host.rs until C6.
+  - `value::matmul_dice` (value/matmul.rs, was program/ops.rs): `n @ die` with Python's count rules, for both
+    bindings. icepool-py no longer touches `program` at all; it has no serialisation (PyO3 converts directly), so
+    there is no model to share with the JS facade, whose JSON (the runner's wire format) goes away in C6.
+  - icepool-wasm features, none default: `runner` (the `run` export, src/runner.rs) and `khepri` (`calculate`,
+    src/khepri.rs). Their unit tests compile in every test build (`cfg(any(test, feature))` + a dev-dependency on
+    core with both features). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
+    same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
+    (khepri's) `khepri`. core.js's `run`/`calculate` throw a clear Error in builds without the feature.
+    **Interim until C6:** the JS facade (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
+    core with `runner` and on serde_json.
+  - `scripts/check-production.sh` (the gate runs it once it exists; ~7 s warm, ~1 min cold): cargo tree of
+    icepool-py / icepool-wasm (built alone), `maturin build --release` wheel file list + the .so's strings and
+    symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports. While facade.rs uses
+    `icepool_core::program`, the npm package's runner code is reported as `interim`, not failed; C6 ends that by
+    dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
+    and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
+    The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with
+    `python-source` and `ICEPOOL_BACKEND` defaulting to rust is not done yet.
+
 - **Public Rust API (C3, design section 4).** Rest in C3b (bindings off the hidden modules) and C3c (Display for
   Pool/Deck, Deck constructors, Again, statistics, doctests on evaluator/expression/value).
   - `lib.rs`: the crate docs are `crates/icepool-core/README.md` (the usage guide; its examples are doctests).
@@ -61,9 +98,8 @@ turns out wrong. Newest decisions at the top of each section.
     `next_state_tuples`. C2c removes it from the core trait.
   - Typed-vs-Python check: value/evaluators.rs `typed_matches_python` evaluates on `Pool<i64>` and `Pool<Value>` and
     asserts the typed finals spelled as Values equal Python's, in order. Reuse it for the next evaluators.
-  - **khepri** is behind icepool-core's `khepri` feature, **on by default** so any build of `icepool-run` has the
-    `khepri` node (a `cargo build -p icepool-core` without it would silently break the khepri sweep);
-    icepool-py has `default-features = false`, icepool-wasm asks for it. The crate move waits for C5b (C2f).
+  - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
+    runner's `khepri` node, icepool-wasm's `khepri` feature for `calculate`). The crate move waits for C5b (C2f).
 
 - **Library architecture (D1, 2026-10-17): `design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
