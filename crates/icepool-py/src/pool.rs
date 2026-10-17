@@ -25,7 +25,7 @@ use crate::RsDie;
 /// A pool of the Rust core (`Pool<Value>`), held by the facade's `Pool` as `_rs`.
 #[pyclass(frozen, name = "Pool", module = "icepool_rs")]
 pub struct RsPool {
-    pool: Pool<Value>,
+    pub(crate) pool: Pool<Value>,
 }
 
 /// What the evaluator pops outcomes from, held by the facade's `PoolSource` as `_rs`.

@@ -83,7 +83,12 @@ CYCLES = {
     'deck': 'Deck([o, O(2)])',
     'deal': 'Deck([o, O(2), O(3)]).deal(2)',
     'multi deal': 'Deck([o, O(2), O(3)]).deal((1, 1))',
-    'compound keep': 'Die([o, O(2)]).pool(1) + Die([O(3)]).pool(1)',
+    'merged pool': 'Die([o, O(2)]).pool(1) + Die([O(3)]).pool(1)',
+    # A compound keep holds its inners' `_rs` objects, not copies of their dice or cards (R4b).
+    'compound keep': 'Die([o, O(2)]).pool(2).highest(1) + Die([O(3)]).pool(1)',
+    'compound keep of a deal': 'Deck([o, O(2)]).deal(1) + Die([O(3)]).pool(1)',
+    'nested compound keep': '(Die([o, O(2)]).pool(2).highest(1) + Die([O(3)]).pool(1) + Deck([O(4)]).deal(1))[1:]',
+    'compound keep source': '(Die([o, O(2)]).pool(2).highest(1) + Die([O(3)]).pool(1))._make_source()',
     'a user source': 'weightless_of(o)',
 }
 

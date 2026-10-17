@@ -98,7 +98,7 @@ pub struct PyHost {
 /// shared with another core value are not reported (`icepool_core::ownership`: reporting a shared one could free
 /// it while in use). The classes are frozen, and immutable references need no `__clear__`: every cycle passes
 /// through a mutable Python object, which Python clears.
-pub fn traverse(root: &impl Traverse, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+pub fn traverse(root: &(impl Traverse + ?Sized), visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
     for host in owned_hosts(root) {
         if let Some(h) = host.downcast_ref::<PyHost>() {
             visit.call(&h.obj)?;

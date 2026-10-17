@@ -223,7 +223,7 @@ pub fn deal_new(rs_deck: &Bound<'_, RsDeck>, hand_size: &Bound<'_, PyAny>) -> Py
 }
 
 impl RsDeal {
-    fn deal(&self) -> Deal<Value> {
+    pub(crate) fn deal(&self) -> Deal<Value> {
         Deal::from_parts(self.deck.get().deck.clone(), self.keep_tuple.clone())
     }
 

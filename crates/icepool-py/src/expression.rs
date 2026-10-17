@@ -17,8 +17,10 @@ use icepool_core::operator::{
     OutcomeFilter, OutcomePredicate,
 };
 use icepool_core::order::{Order, OrderReason};
+use icepool_core::ownership::{Owners, Traverse};
 use icepool_core::pool::{Count, MultisetSource};
 use icepool_core::value::builtins::Index;
+use icepool_core::value::recursion::level;
 use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
@@ -28,16 +30,79 @@ use crate::convert::{
     count_from_py, count_to_py, counts_to_py, from_py, host_error, int_from_py, quantity_to_py,
     to_py, to_py_err,
 };
-use crate::deck::RsDealSource;
+use crate::deck::{RsDeal, RsDealSource};
 use crate::evaluate::count_py;
 use crate::multi_deal::RsMultiDealSource;
-use crate::pool::{exact_count, hash_of, keep_index, outcome_tuple, RsPoolSource};
+use crate::pool::{exact_count, hash_of, keep_index, outcome_tuple, RsPool, RsPoolSource};
 use crate::weightless::RsWeightlessSource;
 
 /// A `CompoundKeepGenerator` of the core, held by the facade's as `_rs`.
+///
+/// Like `RsDeal`, it holds the Python objects of its inner generators rather than clones of their core values, and
+/// makes the core compound keep when asked: the facade's generator keeps its inners too, and Python's cycle
+/// collector can only be told about Python objects held by one object (`convert::traverse`), so the dice and cards
+/// stay the inners' alone.
 #[pyclass(frozen, name = "CompoundKeep", module = "icepool_rs")]
 pub struct RsCompoundKeep {
-    compound: CompoundKeep<Value>,
+    inners: Vec<Inner>,
+    keep_tuple: Vec<Int>,
+}
+
+/// One inner generator of a compound keep.
+enum Inner {
+    /// A pool, deal or compound keep of the core (the facade's `_rs`), whose source is made when needed: Python's
+    /// `_make_source` makes a new one each time too.
+    Pool(Py<RsPool>),
+    Deal(Py<RsDeal>),
+    Compound(Py<RsCompoundKeep>),
+    /// The source of any other generator (a user's subclass), made once by its `_make_source`.
+    Source(MultisetSource<Value>),
+}
+
+impl Inner {
+    fn new(inner: &Bound<'_, PyAny>) -> PyResult<Inner> {
+        Ok(if let Ok(p) = inner.cast::<RsPool>() {
+            Inner::Pool(p.clone().unbind())
+        } else if let Ok(d) = inner.cast::<RsDeal>() {
+            Inner::Deal(d.clone().unbind())
+        } else if let Ok(c) = inner.cast::<RsCompoundKeep>() {
+            Inner::Compound(c.clone().unbind())
+        } else {
+            Inner::Source(core_source(inner)?)
+        })
+    }
+
+    fn clone_ref(&self, py: Python<'_>) -> Inner {
+        match self {
+            Inner::Pool(p) => Inner::Pool(p.clone_ref(py)),
+            Inner::Deal(d) => Inner::Deal(d.clone_ref(py)),
+            Inner::Compound(c) => Inner::Compound(c.clone_ref(py)),
+            Inner::Source(s) => Inner::Source(s.clone()),
+        }
+    }
+
+    fn source(&self) -> PyResult<MultisetSource<Value>> {
+        Ok(match self {
+            Inner::Pool(p) => MultisetSource::Pool(p.get().pool.source()),
+            Inner::Deal(d) => MultisetSource::Deal(d.get().deal().source()),
+            Inner::Compound(c) => {
+                // Compound keeps nest (`g = g + d6.pool(1)` in a loop): a level each, as the sources take.
+                let _level = level().map_err(to_py_err)?;
+                MultisetSource::CompoundKeep(c.get().compound()?.source().map_err(to_py_err)?)
+            }
+            Inner::Source(s) => s.clone(),
+        })
+    }
+}
+
+/// Only the sources it holds itself have core values to list: the generators' Python objects are reported as such
+/// (`RsCompoundKeep::__traverse__`).
+impl Traverse for Inner {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        if let Inner::Source(s) = self {
+            s.traverse(owners);
+        }
+    }
 }
 
 /// A `CompoundKeepSource` of the core, held by the facade's as `_rs`.
@@ -95,69 +160,100 @@ fn keep_counts(keep_tuple: &[Bound<'_, PyAny>]) -> PyResult<Vec<Int>> {
     keep_tuple.iter().map(exact_count).collect()
 }
 
-/// `CompoundKeepGenerator(inners, keep_tuple)`, given the inners' sources (`_make_source()._rs`).
+/// `CompoundKeepGenerator(inners, keep_tuple)`, given each inner's `_rs` (a pool, deal or compound keep of the
+/// core) or else its source (`_make_source()`, see `core_source`).
 #[pyfunction]
 pub fn compound_keep_new(
-    inner_sources: Vec<Bound<'_, PyAny>>,
+    inners: Vec<Bound<'_, PyAny>>,
     keep_tuple: Vec<Bound<'_, PyAny>>,
 ) -> PyResult<RsCompoundKeep> {
-    let sources = inner_sources
-        .iter()
-        .map(core_source)
-        .collect::<PyResult<Vec<_>>>()?;
     Ok(RsCompoundKeep {
-        compound: CompoundKeep::new(sources, keep_counts(&keep_tuple)?),
+        inners: inners.iter().map(Inner::new).collect::<PyResult<_>>()?,
+        keep_tuple: keep_counts(&keep_tuple)?,
     })
+}
+
+impl RsCompoundKeep {
+    /// The core compound keep, over sources of the inners made now.
+    fn compound(&self) -> PyResult<CompoundKeep<Value>> {
+        let sources = self
+            .inners
+            .iter()
+            .map(Inner::source)
+            .collect::<PyResult<_>>()?;
+        Ok(CompoundKeep::new(sources, self.keep_tuple.clone()))
+    }
+
+    /// A compound keep of the same inners with another keep tuple.
+    fn with_keep_counts(&self, py: Python<'_>, keep_tuple: Vec<Int>) -> RsCompoundKeep {
+        RsCompoundKeep {
+            inners: self.inners.iter().map(|i| i.clone_ref(py)).collect(),
+            keep_tuple,
+        }
+    }
 }
 
 #[pymethods]
 impl RsCompoundKeep {
-    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    /// Its inners' Python objects, and the Python objects of the sources it holds itself, for the cycle collector.
     fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
-        crate::convert::traverse(&self.compound, &visit)
+        for inner in &self.inners {
+            match inner {
+                Inner::Pool(p) => visit.call(p)?,
+                Inner::Deal(d) => visit.call(d)?,
+                Inner::Compound(c) => visit.call(c)?,
+                Inner::Source(_) => {}
+            }
+        }
+        crate::convert::traverse(&self.inners[..], &visit)
     }
 
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        counts_to_py(py, self.compound.keep_tuple())
+        counts_to_py(py, &self.keep_tuple)
     }
 
     /// `_set_keep_tuple`.
-    fn with_keep_tuple(&self, keep_tuple: Vec<Bound<'_, PyAny>>) -> PyResult<RsCompoundKeep> {
-        Ok(RsCompoundKeep {
-            compound: self.compound.with_keep_tuple(keep_counts(&keep_tuple)?),
-        })
+    fn with_keep_tuple(
+        &self,
+        py: Python<'_>,
+        keep_tuple: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<RsCompoundKeep> {
+        Ok(self.with_keep_counts(py, keep_counts(&keep_tuple)?))
     }
 
     /// `KeepGenerator.keep` for a keep tuple without negative counts (the facade checks), short of evaluating
     /// the result for an `int` index.
     fn keep(&self, index: &Bound<'_, PyAny>) -> PyResult<RsCompoundKeep> {
-        let compound = self.compound.keep(&keep_index(index)?).map_err(to_py_err)?;
-        Ok(RsCompoundKeep { compound })
+        let keep_tuple = icepool_core::keep_tuple::keep(&self.keep_tuple, &keep_index(index)?)
+            .map_err(to_py_err)?;
+        Ok(self.with_keep_counts(index.py(), keep_tuple))
     }
 
     /// `KeepGenerator.multiply_counts`.
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsCompoundKeep> {
-        let compound = self.compound.multiply_counts(&exact_count(constant)?);
-        Ok(RsCompoundKeep { compound })
+        let keep_tuple =
+            icepool_core::keep_tuple::multiply_counts(&self.keep_tuple, &exact_count(constant)?);
+        Ok(self.with_keep_counts(constant.py(), keep_tuple))
     }
 
     /// `_make_source`.
     fn source(&self) -> PyResult<RsCompoundKeepSource> {
         Ok(RsCompoundKeepSource {
-            source: self.compound.source().map_err(to_py_err)?,
+            source: self.compound()?.source().map_err(to_py_err)?,
         })
     }
 
     /// Python's `hash_key` `(CompoundKeepGenerator, inner_generators, keep_tuple)`: the inners' sources compare
     /// as their generators do.
-    fn __hash__(&self) -> isize {
-        hash_of(&self.compound)
+    fn __hash__(&self) -> PyResult<isize> {
+        Ok(hash_of(&self.compound()?))
     }
 
-    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        other
-            .cast::<RsCompoundKeep>()
-            .is_ok_and(|o| self.compound == o.get().compound)
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        match other.cast::<RsCompoundKeep>() {
+            Ok(o) => Ok(self.compound()? == o.get().compound()?),
+            Err(_) => Ok(false),
+        }
     }
 }
 

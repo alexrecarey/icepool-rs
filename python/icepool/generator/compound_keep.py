@@ -19,10 +19,11 @@ class CompoundKeepGenerator(KeepGenerator[T]):
                  keep_tuple: Sequence[int]):
         self._inner_generators = tuple(inners)
         # icepool-rs: the generator is the Rust core's, over the inners'
-        # sources; keeping, multiplying counts and popping run there.
+        # own (or their sources); keeping, multiplying counts and popping
+        # run there.
         if icepool.backend.RUST:
             self._rs = icepool.backend.RUST.compound_keep_new(
-                [_rust_source(inner._make_source()) for inner in self._inner_generators],
+                [_rust_inner(inner) for inner in self._inner_generators],
                 list(keep_tuple))
             self._keep_tuple = self._rs.keep_tuple()
             return
@@ -74,6 +75,16 @@ class CompoundKeepGenerator(KeepGenerator[T]):
         return ('CompoundKeep([' +
                 ', '.join(str(inner) for inner in self._inner_generators) +
                 '], keep_tuple=' + str(self.keep_tuple()) + ')')
+
+
+def _rust_inner(inner):
+    """icepool-rs: what the Rust core's compound keep takes for an inner generator: the `_rs` of a pool, deal or
+    compound keep (it makes their sources itself, and holds the object rather than a copy of its dice or cards, so
+    a reference cycle through both is collected), or else the inner's source (`_make_source()`).
+    """
+    if type(inner) in (icepool.Pool, icepool.Deal, CompoundKeepGenerator):
+        return inner._rs
+    return _rust_source(inner._make_source())
 
 
 def _rust_source(source):
