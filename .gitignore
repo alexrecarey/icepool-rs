@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 loop/logs/
 .loop/
+dist/
+node_modules/

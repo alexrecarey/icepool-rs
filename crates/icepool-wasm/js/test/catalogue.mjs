@@ -3,7 +3,7 @@
 // Each body is the Python one with Python's operators (`ops.*`, which run in the core), so outcome types behave as
 // in Python; fixed-arity lambdas check their argument count as Python does.
 
-import * as ip from "../node.js";
+import * as ip from "../dist/node.js";
 
 const { ops } = ip;
 

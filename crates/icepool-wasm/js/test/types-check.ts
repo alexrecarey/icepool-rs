@@ -1,7 +1,7 @@
-// Type-checks typical uses of the API against icepool.d.ts (build.sh --test runs `tsc --noEmit` on it; it is never
-// executed). A declaration that drifts from core.js shows up here or in the JS tests.
-import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction, fromRv, Wallenius, mapToPool, List } from "../icepool.js";
-import type { Outcome, MultisetExpression } from "../icepool.js";
+// Type-checks typical uses of the API against its generated declarations (dist/*.d.ts; build.sh --test runs `tsc --noEmit`
+// on it; it is never executed).
+import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction, fromRv, Wallenius, mapToPool, List } from "../dist/index.js";
+import type { Outcome, MultisetExpression } from "../dist/index.js";
 
 const d6: Die = d(6);
 const sum: Die = d6.add(d6).sub(1).mul(2n);
@@ -49,7 +49,7 @@ const pools: Die = d6.mapToPool((x: number) => List.of(x, x)).sum().add(mapToPoo
   using scratch = d(20).add(d6);
   scratch.mean();
 }
-d6.add(1).release();
+d6.add(1).free();
 
 export {
   quantities, items, mean, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,

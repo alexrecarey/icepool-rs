@@ -6,10 +6,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 
-import { bind, calculate } from "./js/core.js";
+import { bindRaw } from "./recover.mjs";
 
-// Through the JS package's `calculate`, which khepri's worker should call (it recovers from a trap).
-bind(createRequire(import.meta.url)(path.join(process.argv[2], "icepool_wasm.js")));
+// With the recovery from a trap that the JS package's `calculate` (js/src/wasm.ts) has, which khepri's worker
+// should call.
+const { calculate } = bindRaw(createRequire(import.meta.url)(path.join(process.argv[2], "icepool_wasm.js")));
 const here = path.dirname(new URL(import.meta.url).pathname);
 
 // rolls passes 2**53, where JSON.parse would round: keep its source text (node >= 21 passes it to the reviver).

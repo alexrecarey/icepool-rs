@@ -12,7 +12,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as ip from "../node.js";
+import * as ip from "../dist/node.js";
+import * as internal from "../dist/internal.js";
 import { EVALUATORS, FUNCTIONS, RVS } from "./catalogue.mjs";
 
 /** Each node's argument names (harness/grammar/, by `run`'s signature). Regenerate when nodes are added:
@@ -73,7 +74,7 @@ export function evaluate(x) {
     const args = {};
     // Arguments in the order the Rust runner evaluates them (serde_json's sorted keys).
     for (const k of Object.keys(x).filter((k) => k !== "op").sort()) {
-      if (LAZY.has(op)) args[k] = new ip.RawJSON(text(x[k]));
+      if (LAZY.has(op)) args[k] = new internal.RawJSON(text(x[k]));
       else if (op === "fn" && k === "name") args[k] = x[k]; // lazy: the catalogue name as a str
       else args[k] = evaluate(x[k]);
     }
@@ -85,10 +86,10 @@ export function evaluate(x) {
       return idiomatic.value;
     }
     count(usage.generic, op);
-    return ip.call(op, args);
+    return internal.call(op, args);
   }
   // A typed literal, read by the core's own decoder, then held as a JS value.
-  return ip.fromWire(text(x));
+  return internal.fromWire(text(x));
 }
 
 // --- Multiset functions from JS functions -------------------------------------------------------------------------
@@ -128,14 +129,14 @@ function multisetFunction(x) {
 function mfVar(i) {
   const args = MF_VARS.at(-1).args;
   const j = Number(i) < 0 ? args.length + Number(i) : Number(i);
-  if (j < 0 || j >= args.length) throw new ip.IcepoolError("IndexError", "tuple index out of range");
+  if (j < 0 || j >= args.length) throw new ip.IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
   return args[j];
 }
 
 /** `_VARS[-1][1][name]` (KeyError if there is none). */
 function mfKwarg(name) {
   const kwargs = MF_VARS.at(-1).kwargs;
-  if (!Object.hasOwn(kwargs, name)) throw new ip.IcepoolError("KeyError", JSON.stringify(name));
+  if (!Object.hasOwn(kwargs, name)) throw new ip.IcepoolError("MissingKey", "KeyError", JSON.stringify(name));
   return kwargs[name];
 }
 
@@ -482,15 +483,15 @@ function wire(x) {
   if (x instanceof ip.Fraction) return { frac: [x.numerator, x.denominator] };
   if (x instanceof ip.Vector) {
     // encode.py iterates the vector: a VectorWithTruthOnly raises there.
-    if (x.items === null) throw new ip.IcepoolError("ValueError", "a VectorWithTruthOnly has no elements");
+    if (x.items === null) throw new ip.IcepoolError("InvalidArgument", "ValueError", "a VectorWithTruthOnly has no elements");
     return { vector: x.items.map(wire) };
   }
   if (x instanceof ip.Symbols) {
-    if (x.str === null) throw new ip.IcepoolError("TypeError", "str() of these Symbols raises");
+    if (x.str === null) throw new ip.IcepoolError("WrongType", "TypeError", "str() of these Symbols raises");
     return { symbols: x.str };
   }
   if (x instanceof ip.Die) return { die: dieItems(x) };
-  if (x instanceof ip.Handle) return parseExact(x.toWire()).value;
+  if (x instanceof internal.Handle) return parseExact(x.toWire()).value;
   if (SPECIAL_REPRS.has(x)) return { repr: SPECIAL_REPRS.get(x) };
   if (x instanceof ip.Opaque) return { repr: x.repr };
   if (x instanceof ip.Complex) return { repr: `complex: ${x}` };
@@ -502,7 +503,7 @@ const dieItems = (die) => die.items().map(([o, q]) => [wire(o), q]);
 /** encode.py `result_of`. */
 export function resultOf(x) {
   if (x instanceof ip.Die) return { ok: true, die: dieItems(x) };
-  if (x instanceof ip.Handle) return parseExact(x.toWire());
+  if (x instanceof internal.Handle) return parseExact(x.toWire());
   return { ok: true, value: wire(x) };
 }
 

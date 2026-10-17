@@ -43,6 +43,7 @@ use icepool_core::host::{HostError, HostObject, HostRef};
 use icepool_core::value::{float_repr, Symbols, Vector};
 use icepool_core::Value;
 use icepool_core::{Error, Result as CoreResult};
+use crate::api::WasmDie;
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
 
@@ -94,6 +95,40 @@ fn get(id: u32) -> Result<PValue, PErr> {
                 "released or unknown handle {id}"
             )))
         })
+}
+
+/// Takes a value out of the table, freeing its handle.
+fn take(id: u32) -> Result<PValue, PErr> {
+    let value = get(id)?;
+    release(id);
+    Ok(value)
+}
+
+/// Interim bridge to the typed API (task C6): a handle for a die of the typed API, to pass it to a node. `truth` is
+/// the truth value of a `DieWithTruth` (the result of `==` / `!=`), `undefined` for a plain die.
+#[wasm_bindgen(js_name = dieHandle)]
+pub fn die_handle(die: &WasmDie, truth: Option<bool>) -> u32 {
+    let die = die.die.clone();
+    put(match truth {
+        Some(truth) => PValue::DieWithTruth(die, truth),
+        None => PValue::Die(die),
+    })
+}
+
+#[wasm_bindgen]
+impl WasmDie {
+    /// Interim bridge to the typed API (task C6): the die a node returned, from its handle (of kind `die` or
+    /// `die_truth`, which the caller still frees). A `DieWithTruth` whose data raised throws that error.
+    #[wasm_bindgen(js_name = fromHandle)]
+    pub fn from_handle(id: u32) -> Result<WasmDie, JsValue> {
+        match get(id) {
+            Ok(PValue::Die(d) | PValue::DieWithTruth(d, _)) => Ok(WasmDie::new(d)),
+            Ok(PValue::DieWithTruthError(e, _)) => Err(crate::api::to_js_error(e)),
+            Ok(_) => Err(crate::api::to_js_error(Error::WrongType("not a die handle".into()))),
+            Err(PErr::Raise(e)) => Err(crate::api::to_js_error(e)),
+            Err(PErr::Unimplemented(what)) => Err(crate::api::to_js_error(Error::Unported(what))),
+        }
+    }
 }
 
 /// Frees a handle (the JS object holding it was garbage-collected).
@@ -264,7 +299,11 @@ fn envelope(result: Result<Json, PErr>) -> String {
     match result {
         Ok(v) => json!({ "ok": v }),
         Err(PErr::Raise(Error::Callback(_))) => json!({"host": true}),
-        Err(PErr::Raise(e)) => json!({"error": program::wire::python_exception(&e), "message": e.to_string()}),
+        Err(PErr::Raise(e)) => json!({
+            "error": crate::api::python_type(&e),
+            "kind": crate::api::error_kind(&e),
+            "message": e.to_string(),
+        }),
         Err(PErr::Unimplemented(what)) => {
             json!({"error": "NotImplementedError", "message": format!("not ported yet: {what}"), "unimplemented": true})
         }
@@ -449,6 +488,8 @@ fn from_js(j: &Json) -> Result<PValue, PErr> {
             let (k, x) = m.iter().next().expect("one entry");
             match (k.as_str(), x) {
                 ("$h", Json::Number(n)) => get(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?,
+                // A handle JS made for this value alone (a JS callback's result): the core takes it over.
+                ("$take", Json::Number(n)) => take(n.as_u64().ok_or_else(|| bad("handle"))? as u32)?,
                 ("$int", Json::String(s)) => {
                     PValue::Value(Value::Int(s.parse().map_err(|_| bad("$int digits"))?))
                 }

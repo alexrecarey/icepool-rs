@@ -15,13 +15,15 @@
 //! name (run-wasm.mjs and test-calculate.mjs do), not raw, to get that recovery. Sizes from user input are
 //! checked before allocating (`icepool_core::memory`), so huge inputs are a `MemoryError`, not a trap.
 
+mod api;
 mod facade;
 #[cfg(any(test, feature = "khepri"))]
 mod khepri;
 #[cfg(any(test, feature = "runner"))]
 mod runner;
 
-pub use facade::{
+pub use api::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};
+pub use facade::{die_handle, 
     call, evaluate, from_wire, live_handles, multiset_function, recover, release, wire_result,
 };
 #[cfg(any(test, feature = "khepri"))]
