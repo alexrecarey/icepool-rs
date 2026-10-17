@@ -279,6 +279,23 @@ class AscOperator(DoubleCounts):
             raise MyUnsupported('ascending only')
         return 0, None
 
+def nest_vector(n, leaf=1):
+    """`leaf` in `n` nested one-element vectors."""
+    for _ in range(n):
+        leaf = Vector([leaf])
+    return leaf
+
+def nest_tuple(n, leaf=1):
+    for _ in range(n):
+        leaf = (leaf,)
+    return leaf
+
+class Deep:
+    """Adding to it adds two vectors nested 100 deep: a vector operator called back from inside one."""
+    def __add__(self, other):
+        return nest_vector(100) + nest_vector(100)
+    def __repr__(self): return 'Deep()'
+
 def items(x):
     if isinstance(x, Population):
         return [(repr(o), type(o).__name__, q) for o, q in x.items()]
@@ -1287,6 +1304,45 @@ CASES = [
     'evaluator.lexi_comparison_evaluator.evaluate(HANDS, d(3).pool(2).keep_outcomes([1]), sort_order=Order.Ascending, lexi_tuple=(1, 2, 3, 4, 5))',
     'multiset_function(lambda h, p: MultisetExpression.argsort(h, p, limit=0, limit_pad=1, tie="left"))(HANDS, d(3).pool(1))',
     'multiset_function(lambda h, p: (p.sum(), MultisetExpression.argsort_grouped(h, limit=0)))(HANDS, d(3).pool(1))',
+    # R1: recursion on nested values raises RecursionError where Python's stack would overflow. Vector operators
+    # are Python methods in icepool, 4 frames a level: at top level `+` raises from 250 levels. (Comparisons of
+    # vectors nested 30 to 500 deep take exponential time in Python.)
+    'nest_vector(249) + nest_vector(249)',
+    'nest_vector(250) + nest_vector(250)',
+    'nest_vector(249) + 1',
+    'nest_vector(250) + 1',
+    '1 - nest_vector(249)',
+    '1 - nest_vector(250)',
+    '-nest_vector(249)',
+    '-nest_vector(250)',
+    'round(nest_vector(249), 1)',
+    'round(nest_vector(250), 1)',
+    'nest_vector(10) < nest_vector(10, 2)',
+    'nest_vector(600) == nest_vector(600)',
+    'nest_vector(5000) + nest_vector(5000)',
+    'nest_vector(100000) + 1',
+    'abs(nest_vector(100000))',
+    'nest_vector(249, E.A) + 1',
+    'nest_vector(250, E.A) + 1',
+    'nest_vector(148, Deep()) + 1',
+    'nest_vector(149, Deep()) + 1',
+    'nest_vector(150, Deep()) + 1',
+    # `Die()` checks `arg in REROLL_TYPES`: `Vector.__eq__` broadcast, from 249 levels.
+    'Die([nest_vector(248)])',
+    'Die([nest_vector(249)])',
+    'Die([nest_vector(100000)])',
+    'Die([nest_vector(200)]) + Die([nest_vector(200)])',
+    'str(Die([nest_vector(200)]))',
+    'hash(nest_vector(5000))',
+    # Nested tuples: CPython compares and reprs them in C, raising from about 10000 levels.
+    'Die([nest_tuple(5000)])',
+    'Die([nest_tuple(5000), nest_tuple(5000, 2)])',
+    'str(Die([nest_tuple(5000)]))',
+    'Die([nest_tuple(5000)]) + Die([nest_tuple(5000)])',
+    'Die([nest_tuple(9000)]).map(lambda x: (x,))',
+    'nest_tuple(20000) == nest_tuple(20000)',
+    'str(Die([nest_tuple(20000)]))',
+    'Die([nest_tuple(20000), nest_tuple(20000, 2)])',
 ]
 
 SCRIPT = PRELUDE + '''
