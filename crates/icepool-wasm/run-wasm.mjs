@@ -3,29 +3,23 @@
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import path from "node:path";
+import { bind, run, IcepoolError } from "./js/core.js";
 
-const require = createRequire(import.meta.url);
-const entry = path.join(process.argv[2], "icepool_wasm.js");
-
-// A Rust panic traps the WASM instance (no unwinding in WASM) and may leave its memory mid-update, so after one we
-// load a fresh instance, the way icepool-run reports a caught panic and carries on.
-function load() {
-  delete require.cache[require.resolve(entry)];
-  return require(entry);
-}
-let wasm = load();
+// The JS package's core.js over this build: its `run` recovers from a trap the way every call of the JS API does
+// (the shadow stack pointer put back, the core's per-call state reset), so the instance stays usable.
+bind(createRequire(import.meta.url)(path.join(process.argv[2], "icepool_wasm.js")));
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 for await (const line of rl) {
   if (line.trim() === "") continue;
   let result;
   try {
-    result = wasm.run(line);
+    result = run(line);
   } catch (e) {
-    // Same answer as icepool-run's panic guard; the cause goes to stderr for whoever debugs it.
-    process.stderr.write(`run-wasm: ${e && e.message}\n`);
+    if (!(e instanceof IcepoolError && e.pythonType === "PanicException")) throw e;
+    // Same answer as icepool-run's panic guard; the panic's message goes to stderr for whoever debugs it.
+    process.stderr.write(`run-wasm: ${e.message}\n`);
     result = JSON.stringify({ ok: false, error: "unimplemented: panic in icepool-run" });
-    wasm = load();
   }
   process.stdout.write(result + "\n");
 }

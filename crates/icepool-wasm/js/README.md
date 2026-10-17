@@ -50,7 +50,8 @@ new Deck([1, 2, 3], 4).deal(2).sum();
 - **Errors**: icepool's exceptions are thrown as `IcepoolError` with `pythonType` (`"ValueError"`, ...); an exception
   thrown by your callback reaches you unchanged. Sizes no memory holds (`d(2n ** 40n)`) are a `MemoryError`. A bug in
   the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `pythonType` `"PanicException"`;
-  the instance and your objects stay usable afterwards.
+  the instance and your objects stay usable afterwards. The low-level `run(programJson)` and `calculate(engineInput)`
+  (khepri's engine) are exported with the same recovery: use them rather than the raw wasm-bindgen exports.
 - **Memory**: dice, pools and decks live in WASM memory and are freed when their JS objects are garbage-collected.
 
 The TypeScript declarations are in `icepool.d.ts`.

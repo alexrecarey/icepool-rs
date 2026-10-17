@@ -16,8 +16,8 @@ turns out wrong. Newest decisions at the top of each section.
   `limit` pad goes through `list_len`. `MAX_INT_BITS` is 2**30 on wasm32. The audit of the other
   `with_capacity` / `vec![x; n]` / `repeat_n` sites: they are sized by data that already exists, by `list_len`, or
   by the pool / deal size limits. Not covered: results that grow step by step from huge *work* (`d(10**6) *
-  d(10**6)`), and `Pool::denominator` (`den ** count`, up to 2**24 dice), on wasm32 only a risk with 129+-bit
-  denominators. `die.highest/lowest(rolls)` lost its 2**16-rolls OverflowError (Python answers `d1` for any
+  d(10**6)`). `Pool::denominator` (`den ** count`, up to 2**24 dice) is fallible since R2b: `memory::check_bits`
+  on `sum(bits(den) * count)`, MemoryError past the cap (on wasm32 from 129-bit denominators in a full pool). `die.highest/lowest(rolls)` lost its 2**16-rolls OverflowError (Python answers `d1` for any
   rolls); `check_pow` skips bases 0 and 1. Fixtures: fixtures/r2 (huge-sizes, large-but-answered).
 - **Panics.** icepool-run: `catch_unwind` (as before). Python: PyO3 wraps every `#[pyfunction]` / `#[pymethods]`
   in `catch_unwind` and raises `pyo3_runtime.PanicException` (a BaseException; exported as
@@ -33,8 +33,11 @@ turns out wrong. Newest decisions at the top of each section.
   cleared, recursion levels 0; returns the hook's message) and throws `IcepoolError("PanicException")`. Handles
   stay valid (HANDLES is only borrowed around code that cannot panic; `release` drops the value after the
   borrow). JS functions an abandoned call registered leak. A trap inside a die's `OnceLock` initialisation would
-  leave it running (each later use of that die panics again: an error, not a crash). `run` / `calculate` called
-  directly (run-wasm.mjs, khepri's worker) are not wrapped: run-wasm.mjs reloads the instance after a trap. The JS
+  leave it running (each later use of that die panics again: an error, not a crash). `run` / `calculate` (R2b):
+  core.js exports wrapped versions (`run(programJson)`, `calculate(engineInput)`, typed in icepool.d.ts);
+  run-wasm.mjs and test-calculate.mjs `bind` core.js to their wasm-pack build and call those, so the protocol
+  exercises the recovery (it no longer reloads the instance). khepri's worker should import `calculate` from the
+  package rather than call the raw export. The JS
   API test simulates a trap by throwing `WebAssembly.RuntimeError` from a callback (no reachable panic is left to
   trigger one); a deliberate `assert!` in `d()` was used once by hand to check the hook's message reaches JS.
 

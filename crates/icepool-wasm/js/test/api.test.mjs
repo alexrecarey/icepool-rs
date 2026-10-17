@@ -346,3 +346,21 @@ test("a trap is a PanicException, and the instance stays usable", () => {
   assert.deepEqual(g.call(d(2).pool(1), d(2).pool(1)).items(), d(2).add(d(2)).items());
   assert.equal(kept.add(1).denominator(), 4n);
 });
+
+test("run and calculate, the raw exports' wrapped versions", async () => {
+  assert.deepEqual(JSON.parse(ip.run('{"op":"d","sides":2}')), { ok: true, die: [[1, 1], [2, 1]] });
+  assert.equal(JSON.parse(ip.run('{"op":"d","sides":0}')).error, "ValueError");
+  assert.throws(() => ip.calculate("not an object"));
+  // No panic is reachable from a program, so a stand-in module traps instead, bound to a fresh copy of core.js:
+  // the trap must leave the shadow stack pointer where the call found it and reset the core's state.
+  const core = await import("../core.js?trap");
+  const sp = new WebAssembly.Global({ value: "i32", mutable: true }, 1000);
+  let recovered = 0;
+  const trap = () => { sp.value = 600; throw new WebAssembly.RuntimeError("unreachable"); };
+  core.bind({ stack_pointer: () => sp, recover: () => (recovered++, "a panic"), run: trap, calculate: trap });
+  for (const f of [() => core.run("{}"), () => core.calculate({})]) {
+    assert.throws(f, (e) => e instanceof core.IcepoolError && e.pythonType === "PanicException" && /a panic/.test(e.message));
+    assert.equal(sp.value, 1000);
+  }
+  assert.equal(recovered, 2);
+});

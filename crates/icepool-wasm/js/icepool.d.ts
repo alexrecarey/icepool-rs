@@ -125,6 +125,13 @@ export function call(op: string, args?: Record<string, unknown>): any;
 export function fromWire(text: string): any;
 /** How many core objects JS holds. */
 export function liveHandles(): number;
+/** One program of the harness's JSON program language in, its JSON result out (one `icepool-run` line). */
+export function run(programJson: string): string;
+/** khepri's `f2f.calculate`, with the same recovery after a trap as every other call. */
+export function calculate(engineInput: object): {
+  rolls: number | bigint;
+  outcomes: { player: string; wounds: number; chance: number }[];
+};
 
 /** A core object held by JS (released when garbage-collected). */
 export class Handle {

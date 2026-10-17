@@ -8,7 +8,8 @@
 //!
 //! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`. The panic hook installed at
 //! start-up keeps its message; the JS facade (js/core.js) then calls `recover()` and throws an `IcepoolError`
-//! ("PanicException", as the Python facade raises), and run-wasm.mjs reloads the instance. Sizes from user input are
+//! ("PanicException", as the Python facade raises). Call `run` / `calculate` through core.js's wrappers of the same
+//! name (run-wasm.mjs and test-calculate.mjs do), not raw, to get that recovery. Sizes from user input are
 //! checked before allocating (`icepool_core::memory`), so huge inputs are a `MemoryError`, not a trap.
 
 mod facade;

@@ -6,8 +6,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 
-const require = createRequire(import.meta.url);
-const wasm = require(path.join(process.argv[2], "icepool_wasm.js"));
+import { bind, calculate } from "./js/core.js";
+
+// Through the JS package's `calculate`, which khepri's worker should call (it recovers from a trap).
+bind(createRequire(import.meta.url)(path.join(process.argv[2], "icepool_wasm.js")));
 const here = path.dirname(new URL(import.meta.url).pathname);
 
 // rolls passes 2**53, where JSON.parse would round: keep its source text (node >= 21 passes it to the reviver).
@@ -18,7 +20,7 @@ const cases = JSON.parse(
 assert.equal(cases.length, 40);
 let big = 0;
 for (const { input, expected } of cases) {
-  const got = wasm.calculate(input);
+  const got = calculate(input);
   // A Number while it is a safe integer, a BigInt beyond (as Pyodide's to_js gives a Python int).
   assert.equal(typeof got.rolls, Number.isSafeInteger(Number(expected.rolls)) ? "number" : "bigint");
   if (typeof got.rolls === "bigint") big++;
@@ -29,6 +31,6 @@ for (const { input, expected } of cases) {
   }
 }
 // Where Python raises, calculate throws.
-assert.throws(() => wasm.calculate({ ...cases[0].input, burstA: undefined }));
-assert.throws(() => wasm.calculate("not an object"));
+assert.throws(() => calculate({ ...cases[0].input, burstA: undefined }));
+assert.throws(() => calculate("not an object"));
 console.log(`calculate: ${cases.length} cases match f2f.calculate (${big} with rolls past 2**53)`);

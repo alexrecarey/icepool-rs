@@ -325,6 +325,19 @@ export function liveHandles() {
   return wasm(() => W.live_handles());
 }
 
+/** One program of the harness's JSON program language (text) in, its JSON result (text) out: what `icepool-run`
+ * prints for that line. A trap is a `PanicException`, as for every other call, and the instance stays usable. */
+export function run(programJson) {
+  return wasm(() => W.run(programJson));
+}
+
+/** khepri's `f2f.calculate`: the engine input object in, `{rolls, outcomes: [{player, wounds, chance}, ...]}` out
+ * (src/lib.rs). Throws an `Error` where Python raises, and a `PanicException` after a trap, which leaves the
+ * instance usable: call this rather than the raw wasm-bindgen export. */
+export function calculate(engineInput) {
+  return wasm(() => W.calculate(engineInput));
+}
+
 // --- Callbacks from the core --------------------------------------------------------------------------------------
 
 const functions = new Map(); // id -> JS function; one id per time a function is passed, released by the core
