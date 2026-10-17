@@ -336,6 +336,9 @@ CASES = [
     'Die([-1, 4]) ** 0.5',
     'Die([complex(1, 2)])',
     'Die(["%d"]) % 3',
+    # Without the GIL until the core meets `str %` with a specifier, then again with Python's operator (R3).
+    'Die(["%d", "x%s"]) % Die([1, 2])',
+    'Die(["%d", "a"]) % Die(["b"])',
     'round(Die([1.25, 2.5, 13]), 1)',
     'round(Die([1.25, 2.5]), E.A)',
     'math.floor(Die([Fraction(7, 2), -1.5]))',

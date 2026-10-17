@@ -41,6 +41,24 @@ turns out wrong. Newest decisions at the top of each section.
   API test simulates a trap by throwing `WebAssembly.RuntimeError` from a callback (no reachable panic is left to
   trigger one); a deliberate `assert!` in `d()` was used once by hand to check the hook's message reaches JS.
 
+- **Ctrl-C and the GIL (R3).** `interrupt.rs`: `poll()` asks the host's check (`set_check`, set once by the Python
+  facade: `convert::check_signals` = `Python::attach(py.check_signals())`, so a `KeyboardInterrupt` comes back as
+  `Error::Host` and is re-raised unchanged) at most every 50 ms per thread (`Instant`; without a check it returns
+  before reading the clock, so the native runner and WASM never touch time). Polled per pop in
+  `evaluate_backward`/`forward`, per row of `Die::binary_operator` (so sums, `@`, `_sum_all`), per die argument of
+  `merge_weights_lcm` / `merge_duplicates` (now fallible), per outcome of `step_transition_die(_with_time)`, per
+  state of the Markov BFS and per elimination row, per pool pop product, per cartesian product item, per
+  `mean_time_to_sum` target. Put new polls at a loop level whose iterations do real work (not per hash insert).
+  Any error escapes, so a new `match`/`.ok()` that swallows *all* errors in a polled loop would swallow Ctrl-C:
+  catch specific kinds only. GIL released (`py.detach`) for built-in evaluations (`RunBuiltin::visit`; the
+  `BuiltinVisitor` evaluators are `Sync`), `matmul_core`, and `binary_operator` with a built-in operator on dice
+  without host outcomes (`Binary::native`; an `Unsupported` result, `str %` with specifiers, runs it again with
+  the GIL and Python's operator). Host callbacks already take the GIL themselves (`Python::attach`), so a host
+  outcome inside a detached computation is fine, just slower. Callback-driven paths (map, host evaluators,
+  map(repeat)) keep the GIL: Python checks signals in the callbacks itself, and the polls cost little with the GIL
+  held. After an interrupt the evaluation's memo is dropped before the exception reaches Python (0.5 s for
+  `d(30).pool(60).expand()`). Tests: crates/icepool-py/tests/test_interrupt.py (not in the gate; ~10 s).
+
 - **A deck beside a multiset expression, and mx_str of a non-expression (M202610160934a).** `deck <op> expr` is
   `Deck.__op__`, which takes any iterable: `Counter(expr)` iterates the expression by `__getitem__` (`expr[0]`,
   `expr[1]`, ...: `keep(i)` evaluated into a die) until an index raises IndexError, so the keys are dice. No die is
