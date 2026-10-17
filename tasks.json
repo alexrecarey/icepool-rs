@@ -1,5 +1,12 @@
 [
   {
+    "id": "L202610172222",
+    "title": "Fix the long gate",
+    "deps": [],
+    "milestone": null,
+    "details": "The long gate went red on main. Log: /home/alex/code/alexrecarey/icepool-rs-logs/iterations/long-20261017-2209.log. Failing steps: --- fuzz: fresh seed: FAILED (295s) --- fixtures through wasm: FAILED (37s) --- fuzz through wasm: FAILED (2s) . Reproduce, fix the port (not the checks), import any fuzz failures as fixtures."
+  },
+  {
     "id": "M202610160934",
     "title": "Kill surviving mutants",
     "deps": [],
