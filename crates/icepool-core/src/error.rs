@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use crate::value::HostError;
+use crate::host::HostError;
 
 /// Why an operation failed.
 ///

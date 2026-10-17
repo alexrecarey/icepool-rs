@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::order::Order;
+use crate::host::HostOperator;
 use crate::pool::Count;
 use crate::Int;
 
@@ -131,27 +132,6 @@ impl<O> Operator<O> {
             _ => return None,
         })
     }
-}
-
-/// The methods of an [`Operator::Host`]: `_initial_state(order, outcomes, child_sizes, source_sizes, arg_sizes)`
-/// and `_next_state(state, order, outcome, child_counts, source_counts, arg_counts)`, each returning the local
-/// state and this node's size or count. Only an operator's children are its business: the source and argument
-/// counts are for free variables and parameters, so the host gets none.
-pub trait HostOperator<O> {
-    fn initial_state(
-        &self,
-        order: Order,
-        outcomes: &[O],
-        child_sizes: &[Option<Count>],
-    ) -> Result<(crate::Value, Option<Count>)>;
-
-    fn next_state(
-        &self,
-        state: &crate::Value,
-        order: Order,
-        outcome: &O,
-        child_counts: &[Count],
-    ) -> Result<(crate::Value, Count)>;
 }
 
 /// The local state of an operator node (`None` for the stateless ones), part of the evaluation's room key.

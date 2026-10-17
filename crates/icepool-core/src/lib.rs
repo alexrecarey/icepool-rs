@@ -15,6 +15,7 @@
 // trait with the built-in evaluators, multiset expressions, and `Value`, the dynamic outcome of the bindings.
 pub mod evaluator;
 pub mod expression;
+pub mod host;
 pub mod value;
 
 pub use deal::Deal;
@@ -65,8 +66,6 @@ pub mod expand;
 pub mod format;
 #[doc(hidden)]
 pub mod function;
-#[doc(hidden)]
-pub mod host_source;
 #[doc(hidden)]
 pub mod interrupt;
 #[doc(hidden)]

@@ -6,12 +6,11 @@
 //! - `str` and `tuple` compare only with their own kind; `<` between kinds raises `TypeError`, `==` is just `False`.
 //!
 //! - icepool's `Vector` and `Symbols` are variants too (`vector.rs`, `symbols.rs`); objects of the host language
-//!   the core has no variant for are `Host` (`host.rs`).
+//!   the core has no variant for are `Host` (`crate::host`).
 
 pub mod builtins;
 mod complex;
 pub mod evaluators;
-mod host;
 mod matmul;
 mod number;
 pub mod ops;
@@ -33,10 +32,10 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 use crate::error::Result;
+use crate::host::HostRef;
 
 /// Python's `collections.Counter`, as `Deck` arithmetic uses it.
 pub use crate::deck::{Counter, CounterOp};
-pub use host::{HostError, HostObject, HostRef, LenKind};
 pub use matmul::matmul_dice;
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
@@ -225,7 +224,7 @@ impl PartialEq for Value {
 
 #[inline(never)]
 fn scalar_eq(this: &Value, other: &Value) -> bool {
-    if let Some(h) = host::host_of(this, other) {
+    if let Some(h) = crate::host::host_of(this, other) {
         return h.eq(this, other);
     }
     match (this, other) {

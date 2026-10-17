@@ -5,7 +5,8 @@
 //! seeds it), and writing CSV through Python's `csv` module when `format` is given writer arguments.
 
 use icepool_core::format::{self as core_format, Formatted};
-use icepool_core::value::{BinOp, LenKind};
+use icepool_core::host::LenKind;
+use icepool_core::value::BinOp;
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
 use pyo3::types::PyString;

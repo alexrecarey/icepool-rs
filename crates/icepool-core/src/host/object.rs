@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use dashu_ratio::RBig;
 
-use super::builtins::Index;
-use super::{BinOp, UnOp, Value};
+use crate::value::builtins::Index;
+use crate::value::{BinOp, UnOp, Value};
 use crate::error::{Error, Result};
 
 /// What the core needs from a host object. `a` and `b` are the full operands in Python's order; at least one of
@@ -117,7 +117,7 @@ impl PartialEq for HostError {
 impl Eq for HostError {}
 
 /// The host object among two operands, if any (the left one first).
-pub(super) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
+pub(crate) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
     match (a, b) {
         (Value::Host(h), _) | (_, Value::Host(h)) => Some(h),
         _ => None,

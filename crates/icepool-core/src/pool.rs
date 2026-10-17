@@ -338,8 +338,8 @@ pub enum MultisetSource<O> {
     CompoundKeep(CompoundKeepSource<O>),
     /// Another source with all weights 1.
     Weightless(WeightlessSource<O>),
-    /// A source the host implements (`crate::host_source`): the facade's user-defined sources.
-    Host(crate::host_source::HostSource<O>),
+    /// A source the host implements ([`crate::host::HostSource`]): the facade's user-defined sources.
+    Host(crate::host::HostSource<O>),
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.

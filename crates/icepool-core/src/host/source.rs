@@ -43,6 +43,7 @@ pub struct HostSource<O> {
 }
 
 impl<O> HostSource<O> {
+    /// Wraps the host's object; its outcomes are asked for the first time the driver needs them.
     pub fn new(object: Arc<dyn HostSourceObject<O>>) -> Self {
         HostSource {
             object,
@@ -50,11 +51,12 @@ impl<O> HostSource<O> {
         }
     }
 
+    /// The host's object, for the binding to get its own object back.
     pub fn object(&self) -> &Arc<dyn HostSourceObject<O>> {
         &self.object
     }
 
-    pub fn outcomes(&self) -> Result<&[O]> {
+    pub(crate) fn outcomes(&self) -> Result<&[O]> {
         if let Some(o) = self.outcomes.get() {
             return Ok(o);
         }
@@ -62,19 +64,19 @@ impl<O> HostSource<O> {
         Ok(self.outcomes.get_or_init(|| outcomes))
     }
 
-    pub fn size(&self) -> Result<Option<Count>> {
+    pub(crate) fn size(&self) -> Result<Option<Count>> {
         self.object.size()
     }
 
-    pub fn is_resolvable(&self) -> Result<bool> {
+    pub(crate) fn is_resolvable(&self) -> Result<bool> {
         self.object.is_resolvable()
     }
 
-    pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
+    pub(crate) fn order_preference(&self) -> Result<(Order, OrderReason)> {
         self.object.order_preference()
     }
 
-    pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<SourcePopped<O>>> {
+    pub(crate) fn pop(&self, order: Order, outcome: &O) -> Result<Vec<SourcePopped<O>>> {
         self.object.pop(order, outcome)
     }
 }

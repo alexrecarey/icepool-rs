@@ -191,7 +191,7 @@ impl Value {
     /// Python's `operator.<op>(self, other)` on two outcomes.
     pub fn binary(&self, op: BinOp, other: &Value) -> Result<Value> {
         use BinOp::*;
-        if let Some(h) = super::host::host_of(self, other) {
+        if let Some(h) = crate::host::host_of(self, other) {
             return h.binary(op, self, other);
         }
         if self.is_collection() || other.is_collection() {
@@ -766,7 +766,7 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
         BinOp::Ge => o != Ordering::Less,
         _ => unreachable!("not a comparison"),
     };
-    if let Some(h) = super::host::host_of(a, b) {
+    if let Some(h) = crate::host::host_of(a, b) {
         return h.compare(op, a, b);
     }
     // A vector's comparison is a vector, whose truth value may raise.
@@ -855,7 +855,7 @@ impl Value {
     /// falls back to identity: unequal.
     pub fn eq_op(&self, other: &Value, ne: bool) -> Result<Value> {
         use super::VecOp;
-        if super::host::host_of(self, other).is_some()
+        if crate::host::host_of(self, other).is_some()
             || !(self.is_collection() || other.is_collection())
         {
             return Ok(Value::Bool((self == other) != ne));

@@ -4,7 +4,7 @@
 
 use std::cmp::Ordering;
 
-use super::{host, ops, recursion, sort, BinOp, UnOp, Value};
+use super::{ops, recursion, sort, BinOp, UnOp, Value};
 use crate::error::{wrong_type, Error, Result};
 use crate::outcome::{OutcomeArith, OutcomeOrder};
 use crate::Int;
@@ -45,7 +45,7 @@ impl Value {
 
     /// Python's `self < other`. Incomparable values (an `int` and a `str`) raise `TypeError`, as in Python.
     pub fn py_lt(&self, other: &Self) -> Result<bool> {
-        if let Some(h) = host::host_of(self, other) {
+        if let Some(h) = crate::host::host_of(self, other) {
             return h.compare(BinOp::Lt, self, other);
         }
         if self.is_collection() || other.is_collection() {

@@ -15,7 +15,8 @@ use std::sync::Arc;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::value::recursion::{level, Level};
-use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
+use icepool_core::host::{HostError, HostObject, HostRef};
+use icepool_core::value::{BinOp, Symbols, UnOp, Vector};
 use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{
     PyAttributeError, PyIndexError, PyKeyError, PyMemoryError, PyNotImplementedError,
@@ -199,7 +200,7 @@ impl HostObject for PyHost {
         Python::attach(|py| Ok(self.obj.bind(py).str()?.to_string())).map_err(host_error)
     }
 
-    fn len_kind(&self) -> icepool_core::Result<icepool_core::value::LenKind> {
+    fn len_kind(&self) -> icepool_core::Result<icepool_core::host::LenKind> {
         Python::attach(|py| crate::format::host_len_kind(self.obj.bind(py))).map_err(host_error)
     }
 }

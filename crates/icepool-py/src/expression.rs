@@ -447,7 +447,7 @@ fn host_count(c: &Bound<'_, PyAny>) -> icepool_core::Result<Count> {
     icepool_core::expression::value_count(&from_py(c).map_err(host_error)?)
 }
 
-impl icepool_core::operator::HostOperator<Value> for HostOperatorPy {
+impl icepool_core::host::HostOperator<Value> for HostOperatorPy {
     fn initial_state(
         &self,
         order: Order,
