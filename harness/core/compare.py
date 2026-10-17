@@ -7,6 +7,7 @@ repr). There is no tolerance, except the opt-in ICEPOOL_FLOAT_ULPS for WASM runs
 import json
 import math
 import os
+import re
 import struct
 
 # Floats may differ by up to this many ULPs (units in the last place). 0 = bit-exact, the default everywhere.
@@ -35,11 +36,25 @@ def _float_close(a, b):
     return _ulps(fa, fb) <= FLOAT_ULPS
 
 
+# Complex numbers have no wire type: they travel as {"repr": "complex: (a+bj)"} (or "complex: bj"). Under the ULP
+# tolerance, compare them part by part like floats.
+_PART = r"(?:inf|nan|[\d.]+(?:e[+-]\d+)?)"
+_COMPLEX = re.compile(rf"^complex: (?:\((-?{_PART})([+-]{_PART})j\)|(-?{_PART})j)$")
+
+
+def _complex_parts(r):
+    m = isinstance(r, str) and _COMPLEX.match(r)
+    return m and ((m[1], m[2]) if m[3] is None else ("0", m[3]))
+
+
 def _eq(a, b):
     """Structural equality; {"float": ...} leaves within FLOAT_ULPS of each other count as equal."""
     if isinstance(a, dict) and isinstance(b, dict):
         if set(a) == {"float"} and set(b) == {"float"}:
             return a["float"] == b["float"] or _float_close(a["float"], b["float"])
+        if set(a) == {"repr"} and set(b) == {"repr"} and a != b:
+            pa, pb = _complex_parts(a["repr"]), _complex_parts(b["repr"])
+            return bool(pa and pb) and all(_float_close(x, y) for x, y in zip(pa, pb))
         return a.keys() == b.keys() and all(_eq(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(_eq(x, y) for x, y in zip(a, b))

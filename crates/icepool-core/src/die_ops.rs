@@ -1,5 +1,5 @@
 //! The idiomatic Rust surface of a typed [`Die`]: `std::ops` operators, comparison methods, `n @ die`, pools,
-//! iteration, conversions and `Display` (design/library-architecture.md section 4).
+//! iteration, conversions and `Display` (docs/design/library-architecture.md section 4).
 //!
 //! Every operator is Python's `Die.binary_operator` / `_unary_operator` on typed outcomes: each pair of outcomes
 //! is combined, the quantities multiplied, and equal results add up. A plain outcome on either side stands for the

@@ -259,7 +259,7 @@ impl<O: OutcomeOrder> Pool<O> {
     }
 }
 
-/// The typed API (design/library-architecture.md section 4): keeping and evaluating without Python's arguments.
+/// The typed API (docs/design/library-architecture.md section 4): keeping and evaluating without Python's arguments.
 impl<O: Outcome> Pool<O> {
     /// Keeps the `keep` highest rolls (Python's `pool.highest(keep)`); the others count zero times. Applied to a
     /// pool that already keeps some rolls, it keeps relative to those (as [`Pool::keep`]).

@@ -95,7 +95,7 @@ fn fixtures_match_oracle() {
                 continue;
             }
             checked += 1;
-            let got = icepool_core::program::run(&fx["program"]);
+            let got = icepool_harness::run(&fx["program"]);
             if let Err(why) = same(&fx["expected"], &got) {
                 failures.push(format!("{}:{}: {why}", path.display(), i + 1));
             }

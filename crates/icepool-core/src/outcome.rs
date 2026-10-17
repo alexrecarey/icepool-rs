@@ -6,7 +6,7 @@
 //! 'a'` raises `TypeError`. The generic algorithms are written once against [`OutcomeOrder`], whose refusal to
 //! compare is an associated type: [`Infallible`] for every `Ord` type, [`Error`] for `Value`. The typed API asks
 //! for [`Outcome`] (an `OutcomeOrder` that cannot fail) and returns plain values; see
-//! design/library-architecture.md section 1.
+//! docs/design/library-architecture.md section 1.
 
 use std::convert::Infallible;
 use std::fmt::Debug;

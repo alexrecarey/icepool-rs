@@ -23,7 +23,7 @@ JS facade unnoticed. Please add it to the long gate, next to "fixtures through w
 ```
 - S6c question: done 2026-10-16, JS suite added to the long gate (node 22 in ~/.local/node22).
 
-## B9: compare.py's ULP tolerance should cover complex values (the long gate's WASM step needs it)
+## B9: compare.py's ULP tolerance should cover complex values (done 2026-10-17: complex repr leaves compared part by part)
 
 With the glibc ports gone, 7 complex powers in `fixtures/v1/complex-edge-cases.jsonl` (lines 2, 5, 13, 15, 63, 76,
 79) come out of WASM 1-2 ULP off in a part, e.g. `(0.6236155388561803-0.6236155388561802j)` for Python's
@@ -52,10 +52,10 @@ def _complex_parts(r):
 
 The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fixtures.mjs` `complexParts`) and passes.
 
-## D1: two protected-path moves the library design needs (loop owner)
+## D1: two protected-path moves the library design needs (done 2026-10-17: design doc in docs/design/, fixtures.rs in crates/icepool-harness/tests/, guard and mutants updated, C5b requeued)
 
 1. **The design document.** D1 asks for `docs/design/library-architecture.md`, but `docs/` is protected, so it is
-   at `design/library-architecture.md` (as FACADE-AUDIT.md went to the root). Please `git mv` it to
+   at `docs/design/library-architecture.md` (as FACADE-AUDIT.md went to the root). Please `git mv` it to
    `docs/design/library-architecture.md`; tasks.json's C details already say "to move to docs/design/".
 2. **The fixtures test** (needed by C5b, not before). The JSON program runner leaves icepool-core (design section 5),
    but the protected `crates/icepool-core/tests/fixtures.rs` calls `icepool_core::program::run`. Until it moves, C5

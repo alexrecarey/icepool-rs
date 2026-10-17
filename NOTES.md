@@ -105,7 +105,7 @@ turns out wrong. Newest decisions at the top of each section.
   - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
     runner's `khepri` node, icepool-wasm's `khepri` feature for `calculate`). The crate move waits for C5b (C2f).
 
-- **Library architecture (D1, 2026-10-17): `design/library-architecture.md`** is the plan C1-C8 follow (in
+- **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
   is written against the sealed `OutcomeOrder` (associated `Incomparable` error: `Infallible` for every `Ord` type by
   blanket impl, `Error` for `Value`); the typed API is `impl<O: Outcome> Die<O>` with no `Result` from comparisons;
@@ -1667,7 +1667,7 @@ turns out wrong. Newest decisions at the top of each section.
     `static_keepable`, Debug) — JSON depth natively, `check_nesting` in JS, unused by the Python facade;
     `map_tools` `has_nan`/`same_spelling`, facade `has_host` — values come through `from_py` (levels).
 
-- **Typed outcomes (C1, design/library-architecture.md section 1).** `outcome.rs`: `OutcomeOrder` (sealed; blanket
+- **Typed outcomes (C1, docs/design/library-architecture.md section 1).** `outcome.rs`: `OutcomeOrder` (sealed; blanket
   impl for every `Ord + Hash + Clone + Debug + Send + Sync + 'static` type with `Incomparable = Infallible`, and
   `value/order.rs` for `Value` with `Incomparable = Error`), `Outcome` = an `OutcomeOrder` that cannot fail (any
   `Ord` type), `OutcomeArith` (was `SumOutcome`: `try_add/sub/neg/mul/mul_count/zero`, checked ints by macro,
