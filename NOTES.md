@@ -1012,9 +1012,11 @@ turns out wrong. Newest decisions at the top of each section.
   -2.0` was 1 ULP off): Alex accepted that, so WASM runs compare floats within 2 ULP (`ICEPOOL_FLOAT_ULPS=2` in
   compare.py and the long gate; the JS fixture suite defaults to 2 too, `ICEPOOL_FLOAT_ULPS=0` makes it exact).
   Until B9 these were line-by-line ports of glibc 2.43 (Arm's pow/log/exp, IBM's sin/cos/atan2, glibc's hypot);
-  they are gone, with QUESTIONS.md V1 (their LGPL licence) moot. Don't port libm functions again. Only float
-  values (`{"float": ...}` leaves) get the tolerance: a complex is compared by its repr, so a complex power
-  through WASM can still mismatch in the last bit (none of the fixtures do today).
+  they are gone, with QUESTIONS.md V1 (their LGPL licence) moot. Don't port libm functions again. compare.py
+  gives the tolerance only to `{"float": ...}` leaves; a complex has no wire type and is compared by its repr
+  (`{"repr": "complex: (a+bj)"}`), so 7 polar complex powers in fixtures/v1/complex-edge-cases.jsonl fail the long
+  gate's "fixtures through wasm" step (each part within 2 ULP). compare.py is protected: QUESTIONS.md "B9" asks
+  Alex to extend it. The JS fixture suite already parses complex reprs (fixtures.mjs `complexParts`).
 - **Measurements (K8)**, on this machine, inputs in `crates/icepool-wasm/bench-cases.json` (heavy = 6+2 vs 6+2,
   both EXP + Continuous: 536-bit denominator, heavier than ANALYSIS.md's 258-bit case):
 

@@ -22,3 +22,29 @@ JS facade unnoticed. Please add it to the long gate, next to "fixtures through w
   fi
 ```
 - S6c question: done 2026-10-16, JS suite added to the long gate (node 22 in ~/.local/node22).
+
+## B9: compare.py's ULP tolerance should cover complex values (the long gate's WASM step needs it)
+
+With the glibc ports gone, 7 complex powers in `fixtures/v1/complex-edge-cases.jsonl` (lines 2, 5, 13, 15, 63, 76,
+79) come out of WASM 1-2 ULP off in a part, e.g. `(0.6236155388561803-0.6236155388561802j)` for Python's
+`...803j)`. A complex has no wire type: results encode it as `{"repr": "complex: (a+bj)"}`, which `compare.py`
+compares as text even with `ICEPOOL_FLOAT_ULPS=2`, so `gate.sh long`'s "fixtures through wasm" step fails on them
+(`ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN=crates/icepool-wasm/run-wasm.sh harness/core/tool fixtures verify --oracle-sample 0`:
+11555 checked, these 7 failures). compare.py is protected, so: please extend `_eq` to compare two complex repr
+leaves part by part, e.g.
+
+```python
+_PART = r"(?:inf|nan|[\d.]+(?:e[+-]\d+)?)"
+_COMPLEX = re.compile(rf"^complex: (?:\((-?{_PART})([+-]{_PART})j\)|(-?{_PART})j)$")
+
+def _complex_parts(r):
+    m = isinstance(r, str) and _COMPLEX.match(r)
+    return m and ((m[1], m[2]) if m[3] is None else ("0", m[3]))
+
+# in _eq, next to the {"float"} case:
+        if set(a) == {"repr"} and set(b) == {"repr"} and a != b:
+            pa, pb = _complex_parts(a["repr"]), _complex_parts(b["repr"])
+            return bool(pa and pb) and all(_float_close(x, y) for x, y in zip(pa, pb))
+```
+
+The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fixtures.mjs` `complexParts`) and passes.

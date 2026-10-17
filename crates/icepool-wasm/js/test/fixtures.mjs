@@ -540,13 +540,33 @@ function floatClose(a, b) {
   return (d < 0n ? -d : d) <= BigInt(FLOAT_ULPS);
 }
 
-/** compare.py `_eq`: structural equality, `{float}` leaves within FLOAT_ULPS of each other counting as equal. */
+/** The two parts of a complex's repr leaf (`{"repr": "complex: (1.5-2j)"}`, or `"complex: 2j"` when the real
+ * part is +0.0, as Python's `complex.__repr__` writes them), as float reprs; undefined for any other leaf. */
+export function complexParts(repr) {
+  const part = String.raw`(?:inf|nan|[\d.]+(?:e[+-]\d+)?)`; // repr's exponents always have a sign
+  const m = new RegExp(String.raw`^complex: (?:\((-?${part})([+-]${part})j\)|(-?${part})j)$`).exec(repr);
+  if (!m) return undefined;
+  return m[3] === undefined ? [m[1], m[2].replace(/^\+/, "")] : ["0", m[3]];
+}
+
+/** Two complex repr leaves whose parts are each within FLOAT_ULPS. Complex values have no wire type of their own,
+ * so this goes beyond compare.py, which compares them as text (see QUESTIONS.md "B9"). */
+function complexClose(a, b) {
+  const [pa, pb] = [complexParts(a), complexParts(b)];
+  return pa !== undefined && pb !== undefined && floatClose(pa[0], pb[0]) && floatClose(pa[1], pb[1]);
+}
+
+/** compare.py `_eq`: structural equality, `{float}` leaves (and here complex reprs) within FLOAT_ULPS of each other
+ * counting as equal. */
 function close(a, b) {
   const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
   if (isObject(a) && isObject(b)) {
     const [ka, kb] = [Object.keys(a).sort(), Object.keys(b).sort()];
     if (canon(ka) === canon(["float"]) && canon(kb) === canon(["float"])) {
       return a.float === b.float || floatClose(a.float, b.float);
+    }
+    if (canon(ka) === canon(["repr"]) && canon(kb) === canon(["repr"]) && a.repr !== b.repr) {
+      return complexClose(a.repr, b.repr);
     }
     return canon(ka) === canon(kb) && ka.every((k) => close(a[k], b[k]));
   }
