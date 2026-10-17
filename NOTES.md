@@ -671,8 +671,8 @@ turns out wrong. Newest decisions at the top of each section.
   `reduce` raises TypeError only once an outcome is seen. `MultisetKeep` with a negative child size slices
   `keep_tuple[:size]` from the end and `[0] * size` is empty (port in `operator/keep.rs` with Python slice / list
   assignment semantics, IndexError past the end). `(keep_more,) * more` makes bool elements: harmless, they are only
-  summed. `sort_pair` raises a plain `OrderError` (not Conflicting): core `Error::Order` with an `"OrderError: "`
-  prefix (icepool-py maps it). `MultisetForceOrder` message prints the int.
+  summed. `sort_pair` raises a plain `OrderError` (not Conflicting): core `Error::UninferrableSize` (C4; was
+  `Error::Order` with a message prefix). `MultisetForceOrder` message prints the int.
 - Program layer `program/expression.rs`: `MExpr { Gen(KeepGen), MultiDeal, Op(Arc<(Operator, children)>) }`,
   `PValue::Expr` (compound keeps and operators; pools / deals / multi-deals keep their own variants, see
   `into_pvalue`). `KeepGen` gained `Compound`; every evaluation takes `MExpr`s (`evaluate::run`, catalogue
@@ -814,7 +814,7 @@ turns out wrong. Newest decisions at the top of each section.
   same NaN object again by identity). A process with infinitely many states never finishes, in Python too (the
   fuzzer skips it as "oracle slow").
 - New `Error::NotImplemented` (Python `NotImplementedError` raised by icepool itself; `mean_time_to_absorb` with
-  Restart). icepool-py maps a core `Error::Type("AttributeError: ...")` to `AttributeError`.
+  Restart). Python's `AttributeError` is core `Error::MissingAttribute` (C4; was `Error::Type("AttributeError: ...")`).
 - Program layer `program/map_tools.rs`: nodes `map_repeat` (`f, args, star, repeat`; `repeat` int or 'inf'),
   `map_and_time` (`f, initial, args, star, repeat`), `mean_time_to_absorb` (kind "value", a Fraction),
   `time_to_sum` (`die, target, max_time, dnf`; the step closure is native). Pools / decks among the args: S3 (top).
@@ -1288,6 +1288,22 @@ turns out wrong. Newest decisions at the top of each section.
   to 128 bits inline, so small quantities never allocate (num-bigint always heap-allocates); `RBig` is the
   normalised `Fraction`. `Quantity = UBig` (quantities are never negative in icepool).
 - Error results carry an extra `"message"` key for debugging; the comparators ignore it.
+- **Errors are domain variants (C4).** `Error` (error.rs) names conditions, not Python exceptions:
+  `InvalidArgument` (ValueError), `WrongType` / `Incomparable {op,left,right}` / `Unhashable {type_name}` (all
+  TypeError), `MissingAttribute` (AttributeError), `IndexOutOfRange`, `MissingKey`, `DivisionByZero`,
+  `ConflictingOrder` (icepool ConflictingOrderError), `UninferrableSize` (icepool's plain OrderError, `sort_pair`),
+  `UnsupportedOrder`, `RecursionLimit`, `Overflow`, `TooLarge` (MemoryError), `NotImplementedUpstream`
+  (NotImplementedError), `Unported` (the port lacks it; never a raise), `Callback(HostError)`. **One variant, one
+  Python exception**: if a condition raises different types at different Python sites, add a variant; never encode
+  the exception in the message. The exception names live in `program::wire::python_exception` (runner and wasm
+  wire results) and `icepool-py/src/convert.rs::to_py_err` (PyErr types); both are total matches, so a new variant
+  fails to compile until it is mapped. That is also why `Error` is **not** `#[non_exhaustive]` (design section 3
+  suggested it; with it, the bindings would need a `_` arm and lose that check). `Display` is the message alone
+  (Python's text); `python_type()` and `message()` are gone (use `to_string()`). Where the port copies Python's
+  `except TypeError`, use `Error::is_wrong_kind()` (covers the three TypeError variants), never a single variant.
+  Helpers: `error::{wrong_type, invalid_argument}`; in `program/`, `ops::{wrong_type, missing_attribute,
+  unhashable_list}`. Wire `error` names changed for the AttributeError sites (were reported "TypeError"); fixtures
+  only compare raise vs. not. `fixtures/c4/error-variants.jsonl` covers each reworked variant.
 
 ## Gotchas
 
