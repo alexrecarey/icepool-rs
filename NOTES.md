@@ -5,6 +5,16 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Library architecture (D1, 2026-10-17): `design/library-architecture.md`** is the plan C1-C8 follow (in
+  `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
+  is written against the sealed `OutcomeOrder` (associated `Incomparable` error: `Infallible` for every `Ord` type by
+  blanket impl, `Error` for `Value`); the typed API is `impl<O: Outcome> Die<O>` with no `Result` from comparisons;
+  `py_*` and the timsort port live only in `src/value/`; Python-only behaviour is `value::Py*` extension traits on
+  `Die<Value>` (inherent typed methods with unmet bounds are skipped, so `die.mean()` resolves per type; associated
+  functions without `self` must not share names: rustc reports them ambiguous). Built-in evaluators get typed
+  finals, converted to `Value` per final state by `evaluate_into` before the die is built, as Python builds it.
+  Errors: one domain variant maps to exactly one Python exception; the mapping lives in icepool-py and the runner.
+  Runner: behind icepool-core's `runner` feature until the protected fixtures.rs moves (task C5b).
 - **Cycles and the collector (R4).** The review's "leak" (20k x `d(6).map(lambda o, big=big: o)` +
   `pool(3).sum()`, maxrss +1.7 MB) was warm-up: after 500 warm-up iterations 20k more add 0 KB of maxrss and a few KB
   of traced memory (icepool's caches) on both backends. The real leak was cycles: a Python object held by the core

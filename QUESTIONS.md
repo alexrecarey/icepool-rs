@@ -51,3 +51,16 @@ def _complex_parts(r):
 ```
 
 The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fixtures.mjs` `complexParts`) and passes.
+
+## D1: two protected-path moves the library design needs (loop owner)
+
+1. **The design document.** D1 asks for `docs/design/library-architecture.md`, but `docs/` is protected, so it is
+   at `design/library-architecture.md` (as FACADE-AUDIT.md went to the root). Please `git mv` it to
+   `docs/design/library-architecture.md`; tasks.json's C details already say "to move to docs/design/".
+2. **The fixtures test** (needed by C5b, not before). The JSON program runner leaves icepool-core (design section 5),
+   but the protected `crates/icepool-core/tests/fixtures.rs` calls `icepool_core::program::run`. Until it moves, C5
+   keeps the runner in core behind a non-default `runner` feature that the new `icepool-harness` crate turns on, so
+   `cargo test --workspace` still compiles and runs it. Please, once C5 is merged: move it to
+   `crates/icepool-harness/tests/fixtures.rs` with one change, `icepool_core::program::run` ->
+   `icepool_harness::run` (C5 makes that function exist), keep it in guard.sh's protected list under its new path,
+   and update its `root()` (`../..` stays right: the crate is also two levels down). C5b then moves `program/`.

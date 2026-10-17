@@ -569,7 +569,7 @@
       "D1"
     ],
     "milestone": null,
-    "details": "Implement D1's Outcome design: core Outcome is Ord + Hash + Clone; Python comparison/semantics move to the Value layer; pysort and py_* helpers become Value-only. Die<i64> comparisons return plain values, not Result. Follow docs/design/library-architecture.md; split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 1 and 9.1. Implement D1's Outcome design: core Outcome is Ord + Hash + Clone; Python comparison/semantics move to the Value layer; pysort and py_* helpers become Value-only. Die<i64> comparisons return plain values, not Result. Follow docs/design/library-architecture.md; split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C2",
@@ -578,7 +578,7 @@
       "C1"
     ],
     "milestone": null,
-    "details": "Per D1: built-in evaluators (evaluator/poker.rs, keep.rs, basic.rs, lexi.rs, argsort.rs, comparison.rs), map/map_tools, explode/Again, to_pool, expand and formatting become generic over the design's trait, with Value's Python behaviour as one implementation. Remove poker-evaluator boilerplate (one shared default-method trait or generic count-shape evaluator). Move khepri.rs out of the core crate (into icepool-wasm or a khepri feature/crate per D1). Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 2 and 9.2. Per D1: built-in evaluators (evaluator/poker.rs, keep.rs, basic.rs, lexi.rs, argsort.rs, comparison.rs), map/map_tools, explode/Again, to_pool, expand and formatting become generic over the design's trait, with Value's Python behaviour as one implementation. Remove poker-evaluator boilerplate (one shared default-method trait or generic count-shape evaluator). Move khepri.rs out of the core crate (into icepool-wasm or a khepri feature/crate per D1). Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C3",
@@ -587,7 +587,7 @@
       "C2"
     ],
     "milestone": null,
-    "details": "Per D1: std::ops (Add, Sub, Mul, Neg, ...) on Die, typed constructors (d(6) -> Die<i64>, from ranges/weights), Display for Die/Pool, iterators, curated pub use in lib.rs with internals pub(crate) (program/pysort/trig etc. are currently pub). Crate-level docs with a usage guide and doctests on every public item (they double as tests). cargo doc builds without warnings (add #![warn(missing_docs)] for the public API). Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 4 and 9.3. Per D1: std::ops (Add, Sub, Mul, Neg, ...) on Die, typed constructors (d(6) -> Die<i64>, from ranges/weights), Display for Die/Pool, iterators, curated pub use in lib.rs with internals pub(crate) (program/pysort/trig etc. are currently pub). Crate-level docs with a usage guide and doctests on every public item (they double as tests). cargo doc builds without warnings (add #![warn(missing_docs)] for the public API). Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C4",
@@ -596,7 +596,7 @@
       "C3"
     ],
     "milestone": null,
-    "details": "Per D1: replace Error::{Type,Value,Index,...}(String) named after Python exceptions with domain variants; move python_type()/exception naming into icepool-py and the harness runner. No stringly-typed matching anywhere. Error implements std::error::Error with good messages. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 3 and 9.4. Per D1: replace Error::{Type,Value,Index,...}(String) named after Python exceptions with domain variants; move python_type()/exception naming into icepool-py and the harness runner. No stringly-typed matching anywhere. Error implements std::error::Error with good messages. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C5",
@@ -605,7 +605,16 @@
       "C4"
     ],
     "milestone": null,
-    "details": "Per D1: move the JSON program runner (crates/icepool-core/src/program/), the icepool-run binary and tests/fixtures.rs into the harness crate (keep harness/core/*.py working: ICEPOOL_RUN path, cargo test of fixtures - you may not edit harness/core/ or crates/icepool-core/tests/fixtures.rs, so if they need to move, add QUESTIONS.md entry describing the exact move and keep a thin shim in the old location until Alex/the loop owner moves them). icepool-core drops serde_json. Consolidate host-callback traits into one core module. icepool-py and icepool-wasm depend on core only (not the runner) for production; their test-only paths go behind dev-dependencies/cfg(test)/features. Write scripts/check-production.sh: builds the release wheel (maturin build --release) and npm package (npm pack), lists their contents and symbols, and fails if any test, fixture, runner, harness or JSON-program code is included. Share one serialisation model between the facades where they still need one. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 5, 8 and 9.5. Per D1: move the JSON program runner (crates/icepool-core/src/program/), the icepool-run binary and tests/fixtures.rs into the harness crate (keep harness/core/*.py working: ICEPOOL_RUN path, cargo test of fixtures - you may not edit harness/core/ or crates/icepool-core/tests/fixtures.rs, so if they need to move, add QUESTIONS.md entry describing the exact move and keep a thin shim in the old location until Alex/the loop owner moves them). icepool-core drops serde_json. Consolidate host-callback traits into one core module. icepool-py and icepool-wasm depend on core only (not the runner) for production; their test-only paths go behind dev-dependencies/cfg(test)/features. Write scripts/check-production.sh: builds the release wheel (maturin build --release) and npm package (npm pack), lists their contents and symbols, and fails if any test, fixture, runner, harness or JSON-program code is included. Share one serialisation model between the facades where they still need one. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C5b",
+    "title": "Move the JSON program runner out of icepool-core into icepool-harness",
+    "deps": [
+      "C5"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 5 and 9.5. Blocked on the loop owner moving the protected crates/icepool-core/tests/fixtures.rs to crates/icepool-harness/tests/fixtures.rs (calling icepool_harness::run; see QUESTIONS.md 'D1'). If fixtures.rs has not moved yet, do nothing but say so. Then: move crates/icepool-core/src/program/ into crates/icepool-harness/src/ as a client of icepool-core's public API only (root, value, host): anything it needs that is not public gets a deliberate public API, never a widened pub mod. Drop icepool-core's `runner` feature and its optional serde_json; icepool-wasm's `runner` feature becomes an optional dependency on icepool-harness. Pure move: no behaviour change, every fixture still passes, scripts/check-production.sh still passes. Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C6",
@@ -614,7 +623,7 @@
       "C5"
     ],
     "milestone": "TypeScript API mirrors icepool",
-    "details": "Per D1 section 6: replace the JSON-op RPC JS facade (crates/icepool-wasm/src/facade.rs call/evaluate/from_wire) with a real JS/TS API: classes and functions mirroring Python icepool (Die, d, Pool, Deck, Deal, MultiDeal, Again, Reroll, MultisetEvaluator subclassable in JS, multisetFunction, map/explode/reroll/keep/highest/lowest/..., statistics, formatting), operators as methods, BigInt quantities, iterables, proper TypeScript types (no any in the public surface), errors as Error subclasses, explicit dispose. Back it directly with wasm-bindgen exports of the core, not the program runner. Drive the JS test suite from the fixtures (a test-only adapter may translate fixture programs into calls of the public TS API, so the fixtures exercise the real API) plus hand-written API tests mirroring upstream's Python tests. Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 6 and 9.6. Per D1 section 6: replace the JSON-op RPC JS facade (crates/icepool-wasm/src/facade.rs call/evaluate/from_wire) with a real JS/TS API: classes and functions mirroring Python icepool (Die, d, Pool, Deck, Deal, MultiDeal, Again, Reroll, MultisetEvaluator subclassable in JS, multisetFunction, map/explode/reroll/keep/highest/lowest/..., statistics, formatting), operators as methods, BigInt quantities, iterables, proper TypeScript types (no any in the public surface), errors as Error subclasses, explicit dispose. Back it directly with wasm-bindgen exports of the core, not the program runner. Drive the JS test suite from the fixtures (a test-only adapter may translate fixture programs into calls of the public TS API, so the fixtures exercise the real API) plus hand-written API tests mirroring upstream's Python tests. Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C6b",
@@ -623,7 +632,7 @@
       "C6"
     ],
     "milestone": null,
-    "details": "Its own documentation for the JS/TS package: a guide (install, first dice, pools and evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python icepool), every public symbol with TSDoc comments and an example, and a generated API reference (TypeDoc or similar) built by a script; package README. Examples in the docs are executed as tests so they cannot rot. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 7 (JS/TS). Its own documentation for the JS/TS package: a guide (install, first dice, pools and evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python icepool), every public symbol with TSDoc comments and an example, and a generated API reference (TypeDoc or similar) built by a script; package README. Examples in the docs are executed as tests so they cannot rot. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C7",
@@ -632,7 +641,7 @@
       "C6b"
     ],
     "milestone": null,
-    "details": "Behavioural coverage currently all goes through the JSON runner; die.rs, pool.rs, population.rs, the evaluators and map_tools have no Rust tests. Add typed Die<i64> unit tests and doctests for the public API (property tests where useful, e.g. proptest comparing typed paths against Value paths), runnable with plain `cargo test` without the Python oracle. Test-only code stays under cfg(test) / dev-dependencies so production builds exclude it. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 9.7. Behavioural coverage currently all goes through the JSON runner; die.rs, pool.rs, population.rs, the evaluators and map_tools have no Rust tests. Add typed Die<i64> unit tests and doctests for the public API (property tests where useful, e.g. proptest comparing typed paths against Value paths), runnable with plain `cargo test` without the Python oracle. Test-only code stays under cfg(test) / dev-dependencies so production builds exclude it. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   },
   {
     "id": "C8",
@@ -641,6 +650,6 @@
       "C7"
     ],
     "milestone": "library ready to show upstream: robustness fixed, typed core, Rust/Python/TS APIs with docs",
-    "details": "README.md for the project (what it is, the three bindings, install/usage snippets for Rust, Python, JS, parity story), docs/MODULE-MAP.md (python module -> rust module(s) -> py facade file -> TS file, status, oracle version) plus a script that lists upstream icepool changes between two tags against the map, Python binding docs (what differs from upstream icepool), GitHub Actions CI (cargo test, clippy, the fixture suite, the JS suite, check-production.sh; the oracle comparison jobs need the oracle checkout per oracle.lock). Split oversized files (program/ops.rs, program/expression.rs, value/ops.rs) by domain. Note: the loop machinery files at the repo root (PROGRESS.md, tasks.json, QUESTIONS.md, loop/, harness-out) are owned by the loop; propose their new layout in QUESTIONS.md rather than moving them. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+    "details": "Design: design/library-architecture.md (D1; to move to docs/design/ per QUESTIONS.md), section 7 and 9.8. README.md for the project (what it is, the three bindings, install/usage snippets for Rust, Python, JS, parity story), docs/MODULE-MAP.md (python module -> rust module(s) -> py facade file -> TS file, status, oracle version) plus a script that lists upstream icepool changes between two tags against the map, Python binding docs (what differs from upstream icepool), GitHub Actions CI (cargo test, clippy, the fixture suite, the JS suite, check-production.sh; the oracle comparison jobs need the oracle checkout per oracle.lock). Split oversized files (program/ops.rs, program/expression.rs, value/ops.rs) by domain. Note: the loop machinery files at the repo root (PROGRESS.md, tasks.json, QUESTIONS.md, loop/, harness-out) are owned by the loop; propose their new layout in QUESTIONS.md rather than moving them. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   }
 ]
