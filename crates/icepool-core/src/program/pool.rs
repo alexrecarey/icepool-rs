@@ -533,7 +533,8 @@ pub fn die_middle(die: PValue, rolls: PValue, keep: PValue, tie: PValue) -> Resu
 /// int index is `self.pool(rolls).keep(index)` (a Die), anything else `self.pool(rolls).keep(index).sum()`. Without
 /// an index, `rolls` is itself the sequence of counts: `self.pool(len(rolls)).keep(rolls).sum()`.
 pub fn die_keep(die: PValue, rolls: PValue, index: PValue) -> Result<PValue, PErr> {
-    if !matches!(die, PValue::Die(_)) {
+    // A `DieWithTruth` (the result of `==` / `!=`) is a die too.
+    if !matches!(die, PValue::Die(_) | PValue::DieWithTruth(..)) {
         return missing_attribute("object has no attribute 'keep'");
     }
     let no_index = matches!(index, PValue::Value(Value::None));
@@ -568,7 +569,8 @@ pub fn die_keep_slice(
     stop: PValue,
     step: PValue,
 ) -> Result<PValue, PErr> {
-    if !matches!(die, PValue::Die(_)) {
+    // A `DieWithTruth` (the result of `==` / `!=`) is a die too.
+    if !matches!(die, PValue::Die(_) | PValue::DieWithTruth(..)) {
         return missing_attribute("object has no attribute 'keep'");
     }
     if int_value(&rolls).is_none() {
@@ -710,7 +712,8 @@ pub fn die_highest_lowest(
     keep: PValue,
     drop: PValue,
 ) -> Result<PValue, PErr> {
-    let PValue::Die(die) = die else {
+    // A `DieWithTruth` (the result of `==` / `!=`) is a die too.
+    let (PValue::Die(die) | PValue::DieWithTruth(die, _)) = die else {
         return wrong_type("highest() / lowest() need a Die");
     };
     let rolls_int = int_value(&rolls).ok_or_else(|| PErr::Unimplemented("non-int rolls".into()))?;

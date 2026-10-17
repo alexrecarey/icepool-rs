@@ -1,0 +1,13 @@
+{"program":{"op":"die_keep","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":3,"index":1},"expected":{"ok":true,"die":[[{"bool":false},56],[{"bool":true},160]]}}
+{"program":{"op":"die_keep","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":3,"index":[1,0,{"op":"Ellipsis"}]},"expected":{"ok":true,"die":[[0,152],[1,64]]}}
+{"program":{"op":"die_keep","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":[1,-1],"index":null},"expected":{"ok":true,"die":[[-1,16],[0,20]]}}
+{"program":{"op":"die_keep","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":3,"index":null},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"die_keep","die":{"op":"eq","a":{"op":"die","outcomes":[]},"b":{"op":"d","sides":2}},"rolls":2,"index":0},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_keep_slice","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":3,"start":1,"stop":null,"step":null},"expected":{"ok":true,"die":[[0,8],[1,48],[2,160]]}}
+{"program":{"op":"die_keep_slice","die":{"op":"eq","a":{"op":"die","outcomes":[]},"b":{"op":"d","sides":2}},"rolls":2,"start":null,"stop":1,"step":null},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_highest","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":2,"keep":1,"drop":null},"expected":{"ok":true,"die":[[{"bool":false},4],[{"bool":true},32]]}}
+{"program":{"op":"die_lowest","die":{"op":"ne","a":{"op":"d","sides":3},"b":{"op":"d","sides":2}},"rolls":3,"keep":2,"drop":0},"expected":{"ok":true,"die":[[0,56],[1,96],[2,64]]}}
+{"program":{"op":"die_highest","die":{"op":"eq","a":{"op":"die","outcomes":[]},"b":{"op":"d","sides":2}},"rolls":2,"keep":null,"drop":1},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_keep","die":{"op":"again","outcomes":[{"op":"ne","a":{"op":"mul","a":{"op":"Again"},"b":-1},"b":{"op":"d","sides":2}}],"depth":1,"end":{"op":"Reroll"}},"rolls":3,"index":[1,0,{"op":"Ellipsis"}]},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"eq","a":{"op":"die_keep","die":{"op":"again","outcomes":[{"op":"ne","a":{"op":"mul","a":{"op":"Again"},"b":-1},"b":{"op":"d","sides":2}}],"depth":1,"end":{"op":"Reroll"}},"rolls":3,"index":[1,0,{"op":"Ellipsis"}]},"b":{"op":"rshift","a":-3,"b":{"op":"die","outcomes":[3]}}},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"die_lowest","die":{"op":"again","outcomes":[{"op":"eq","a":{"op":"Again"},"b":1},2],"depth":1,"end":null},"rolls":2,"keep":1,"drop":null},"expected":{"ok":true,"die":[[{"bool":false},12],[2,4]]}}
