@@ -543,7 +543,9 @@ impl<'py> BuiltinVisitor<'py> for BuiltinLeaf<'py> {
 /// One call of a `@multiset_function` evaluation as evaluator_rust.py `_call_tree` describes it: `(kind, flats,
 /// ...)` with kind `function` (one inner call), `joint` (a list of them), `builtin` (name, params) or `host` (the
 /// dungeon's `next_state_main` and the quest's `initial_state_main`, `extra_outcomes`, `final_outcome`, kwargs).
+/// Calls nest: a level each (`recursion.rs`), for a recursion limit raised beyond what the stack holds.
 fn call_tree<'py>(py: Python<'py>, desc: &Bound<'py, PyAny>) -> PyResult<PyCall<'py>> {
+    let _level = icepool_core::value::recursion::level().map_err(to_py_err)?;
     let t = desc.cast::<PyTuple>()?;
     let kind: String = t.get_item(0)?.extract()?;
     let flats = t

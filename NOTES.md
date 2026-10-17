@@ -1428,3 +1428,32 @@ turns out wrong. Newest decisions at the top of each section.
   types): a pool sorts a set in per-process hash order, so the oracle itself raised TypeError on some runs only.
   `_has_nan` now looks inside Vectors too. (5) The long gate's "khepri sweep through wasm" failure was rustup
   (`rustc ... not applicable to the stable toolchain`, a toolchain update mid-run), not the port.
+
+- **Recursion limits (R1).** `value/recursion.rs`: every recursion user data drives takes a `level()` (RecursionError
+  past `MAX_DEPTH` = 10000 levels, CPython's C recursion limit, or `STACK_LIMIT` = 6 MiB of stack since the
+  outermost level; WASM 1000 / 512 KiB), and icepool's *Python-level* recursion is emulated with `frames(n)`:
+  the frames Python would push, checked against the host's budget (the facade registers `convert::frame_budget`
+  = `sys.getrecursionlimit()` minus its stack depth, asked only past 16 emulated frames; native: 1000 with an empty
+  stack). New `Error::Recursion` (was `Error::Value("RecursionError: ...")`).
+  - Vector methods (`vector.rs`): the dunder + `binary_operator`/`unary_operator`/`reverse_binary_operator` (2,
+    counted in `Vector::binary`/`reverse_binary`/`unary`/round, i.e. only when the core dispatches; the facade's
+    calls come from those real Python frames), `Vector.__init__` + the generator (2, around elementwise results,
+    not around the truth comparison). Calibrated: `t + t` raises from 250 levels at top level at any stack depth
+    and recursion limit, also through a host callback that does vector ops itself (crates/icepool-py/tests).
+  - Again (`again.rs`): `_evaluate` + genexpr + `_evaluate_arg` (3 a level), `DIE_CALL_FRAMES` (6) for the
+    function in depth mode's outer levels (it gets a die), `replace_again` (+1) and, after the innermost level,
+    `Die.__new__` + `evaluate_agains_using_depth` (+2); count mode: `make_step_outcome` (+1), 0 call frames.
+    Matches the oracle for again_depth 0/1/2, again_end die/Reroll, again_count, at stack depths 0/7/100.
+  - Keep recursive frames small: CPython's C recursion is lean, ours is not; `from_py`/`to_py`/`py_repr`/
+    `PartialEq` dispatch tuples and vectors first and push everything else into `#[inline(never)]` helpers, and
+    avoid `iter().map().collect::<Result<_>>()` on the recursive path (GenericShunt frames). Measure with
+    crates/icepool-core/tests/recursion.rs (8 MiB thread, MAX_DEPTH+1 must raise, 2000 must work). An
+    `eprintln!` of `&local as *const _ as usize` in `level()` at two depths gives bytes per level.
+  - Infallible recursions (`PartialEq`, `Hash`, `Display`, `Drop`) take no level: every die outcome passed
+    `check_key` (which does), `Display` prints `...` past the limit. The JS facade runs `program::check_nesting`
+    on every Again / expression / raw-result handle it keeps, so chains built call by call stay bounded.
+  - Facade cases: crates/icepool-py/tests/test_backends.py (`nest_vector`, `nest_tuple`, `nest_again`, `Deep`).
+    Thresholds near 10000 nested tuples differ from CPython by a few levels (DIVERGENCES.md).
+  - Not guarded (bounded elsewhere): MExpr's bool walkers (`has_parameter`, `same_expression`, `hashable`,
+    `static_keepable`, Debug) — JSON depth natively, `check_nesting` in JS, unused by the Python facade;
+    `map_tools` `has_nan`/`same_spelling`, facade `has_host` — values come through `from_py` (levels).

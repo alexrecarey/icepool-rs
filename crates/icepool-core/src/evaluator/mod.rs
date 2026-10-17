@@ -391,6 +391,9 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
         if let Some(result) = self.cache.get(&key) {
             return Ok(result.clone());
         }
+        // A level per outcome (`value::recursion`): the callers' depth checks stop at Python's recursion limit, which
+        // a user may raise far beyond what the stack holds.
+        let _level = crate::value::recursion::level()?;
         let mut result = FinalStates::new();
         if lo == hi {
             result
@@ -441,6 +444,7 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
         if let Some(result) = self.cache.get(&key) {
             return Ok(result.clone());
         }
+        let _level = crate::value::recursion::level()?;
         let mut result = FinalStates::new();
         if lo == hi {
             result

@@ -422,3 +422,36 @@ def test_d_rejects_non_int_after_cache():
     with pytest.raises(TypeError):
         icepool.d(1.0)  # fails: returns the cached d(True)
 ```
+
+### Values nested ~10000 deep raise `RecursionError` where CPython may still answer (R1)
+
+CPython recurses on nested tuples in C: comparison and `repr` raise `RecursionError` from its C recursion limit
+(`Py_C_RECURSION_LIMIT`, 10000 in 3.13: `t == u` for tuples nested 9998 deep, `str(Die([t]))` from 9993,
+`Die([t, u])` from 9996), and hashing has no limit at all, so `Die([t])` works for a tuple nested 100000 deep
+(and crashes the interpreter somewhere beyond). The port recurses natively and must not overflow its stack, so
+every recursion on a nested value takes a level (`value/recursion.rs`) and raises `RecursionError` past 10000
+levels *or* 6 MiB of stack (1000 levels / 512 KiB in WASM). So: anything on a tuple nested more than 10000 deep
+raises (`Die([t])`, `tupleize` chains, `map(lambda s: (s,), repeat=n)` states), and near 10000 the exact level
+differs from CPython's by a few (each CPython operation adds its own C levels; the port counts tuple levels
+only). With `sys.setrecursionlimit` raised far, Vector operators and evaluations over many outcomes (one level
+per outcome) also raise from the stack budget, where Python continues (or crashes: `Die(range(20000)).pool(1)
+.sum()` at limit 100000 segfaults the oracle). Not a Python bug; listed so the threshold differences are known.
+
+### Vector comparisons take exponential time in Python (R1)
+
+`Vector.binary_operator` with `compare_for_truth` computes `op(self._data, other._data)` (a tuple comparison,
+recursing into the elements' own comparison operators) and then the elementwise results again, so `t == u` or
+`t < u` for vectors nested `n` deep takes `2**n` steps; from about 30 levels Python effectively hangs, from ~250
+(`==`: ~500) it raises `RecursionError` after exploring. The port computes `==`'s truth value with tuple equality
+(linear) but follows the same order otherwise, so it gives the same results and raises where Python eventually
+would (from 250 levels at top level), immediately.
+
+Drafted upstream test:
+
+```python
+def test_nested_vector_comparison_is_not_exponential():
+    t = 1
+    for _ in range(40):
+        t = Vector([t])
+    assert bool(t == t)  # currently ~2**40 steps
+```
