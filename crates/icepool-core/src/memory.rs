@@ -84,7 +84,9 @@ pub fn check_pow(base: &crate::Quantity, exp: usize, what: &str) -> Result<()> {
         return Ok(());
     }
     let bytes = (base.bit_len() as u64).checked_mul(exp as u64).map(|bits| bits / 8);
-    check_len::<u8, u64>(bytes, what).map(drop)
+    check_len::<u8, u64>(bytes, what)
+        .map(drop)
+        .map_err(|_| Error::Memory(format!("{what}: a result of {} bytes", bytes.map_or("too many".into(), |b| b.to_string()))))
 }
 
 #[cfg(test)]

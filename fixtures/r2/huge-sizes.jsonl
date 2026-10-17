@@ -1,0 +1,12 @@
+{"program":{"op":"d","sides":8589934592},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"d","sides":9223372036854775807},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"d","sides":1099511627776},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"z","sides":9223372036854775807},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"z","sides":8589934592},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"die_sequence","die":{"op":"d","sides":1},"rolls":0},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"d_pool","die_sizes":[[6,1099511627776]],"mapping":{"bool":true}},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"d_pool","die_sizes":[[6,9223372036854775807]],"mapping":{"bool":true}},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"d_pool","die_sizes":[[6,2],[4,1099511627776]],"mapping":{"bool":true}},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"argsort","args":[[1,2]],"order":-1,"limit":1099511627776,"limit_pad":0,"tie":{"str":"drop"}},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"argsort","args":[[1,2]],"order":-1,"limit":9223372036854775807,"limit_pad":0,"tie":{"str":"drop"}},"expected":{"ok":false,"error":"MemoryError"}}
+{"program":{"op":"argsort","args":[[1,2]],"order":1,"limit":5,"limit_pad":7,"tie":{"str":"drop"}},"expected":{"ok":true,"die":[[{"tuple":[0,0,7,7,7]},1]]}}

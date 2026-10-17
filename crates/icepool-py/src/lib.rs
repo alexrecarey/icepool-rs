@@ -511,6 +511,11 @@ fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     icepool_core::value::recursion::set_frame_budget(convert::frame_budget);
+    // PyO3 guards every entry point with `catch_unwind`: a panic in the core (a bug) unwinds to it and is raised as
+    // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's
+    // thread-local state is given back on the way: `recursion::Level`, `program::multiset_function::VarsFrame`).
+    // Exported so that callers and the tests can name it.
+    m.add("PanicException", m.py().get_type::<pyo3::panic::PanicException>())?;
     m.add_class::<RsDie>()?;
     m.add_class::<pool::RsPool>()?;
     m.add_class::<pool::RsPoolSource>()?;

@@ -1393,3 +1393,33 @@ def results():
 def test_rust_facade_matches_oracle(results, i):
     expected, actual = results
     assert actual[i] == expected[i]
+
+
+PANIC_SCRIPT = PRELUDE + '''
+import icepool_rs
+
+class Boom:
+    """Adding it raises PanicException, which PyO3 turns back into a Rust panic inside the core."""
+    def __add__(self, other):
+        raise icepool_rs.PanicException('boom')
+    __radd__ = __add__
+
+# Each panic unwinds through 100 levels of vector recursion: unless unwinding gives them back, 200 panics leave
+# 20000 levels taken and the next nested operation raises RecursionError.
+for _ in range(200):
+    try:
+        nest_vector(100, Boom()) + nest_vector(100, Boom())
+        raise SystemExit('no panic')
+    except icepool_rs.PanicException:
+        pass
+assert nest_vector(200) + nest_vector(200) == nest_vector(200, 2)
+assert (Die([nest_vector(200)]) + Die([nest_vector(200)])).outcomes() == (nest_vector(200, 2),)
+print('ok')
+'''
+
+
+def test_a_panic_raises_panic_exception_and_leaves_no_state():
+    """Rust backend only: a panic in the core is `PanicException`, and the core works as before afterwards."""
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, 'python'), ICEPOOL_BACKEND='rust')
+    p = subprocess.run([sys.executable, '-c', PANIC_SCRIPT], env=env, capture_output=True, text=True)
+    assert p.stdout.strip() == 'ok', p.stderr[-2000:]

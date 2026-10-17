@@ -693,9 +693,6 @@ pub fn pool_pop(pool: PValue, order: PValue, outcome: PValue) -> Result<PValue, 
     ))
 }
 
-/// Above this many rolls the port refuses `x ** rolls` (Python would compute for minutes).
-const MAX_ROLLS: i64 = 1 << 16;
-
 /// `die.highest(rolls, keep, drop)` / `die.lowest(rolls, keep, drop)`.
 pub fn die_highest_lowest(
     highest: bool,
@@ -724,10 +721,9 @@ pub fn die_highest_lowest(
         start == 0 && stop == 1
     };
     if single {
-        if rolls > MAX_ROLLS {
-            return raise(Error::Overflow("too many rolls".into()));
-        }
-        let rolls = rolls as usize;
+        // `x ** rolls` of every cumulative quantity: the core refuses results no memory holds (`MemoryError`), and
+        // a die whose quantities are all 0 or 1 answers for any number of rolls, as Python does.
+        let rolls = usize::try_from(rolls).unwrap_or(usize::MAX);
         let result = if highest {
             die.highest_single(rolls)?
         } else {
