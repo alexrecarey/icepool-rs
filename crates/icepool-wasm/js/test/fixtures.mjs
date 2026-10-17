@@ -7,7 +7,7 @@
 // boundary both ways. Catalogue functions and evaluators are the JS ones of catalogue.mjs (JS callbacks), except
 // the "mapping" dict. A `mf_def` is `multisetFunction` of a JS function that evaluates its body program this way
 // (so the core traces JS functions, and `mf_var` / `mf_kwarg` read the JS function's arguments). The result is encoded back into the wire format by JS (dice through `items()`) and compared
-// exactly with the oracle's, as harness/core/compare.py does.
+// with the oracle's as harness/core/compare.py does: exactly, except that floats may differ by FLOAT_ULPS.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -506,6 +506,57 @@ export function resultOf(x) {
   return { ok: true, value: wire(x) };
 }
 
+// --- Comparison (harness/core/compare.py) -------------------------------------------------------------------------
+
+/** Floats may differ by up to this many ULPs, as the gate allows WASM runs (compare.py's ICEPOOL_FLOAT_ULPS): under
+ * WASM the core's float math (sin, pow, log...) is Rust's own libm, which can round the last bit differently from
+ * the platform libm Python uses (DIVERGENCES.md). Set ICEPOOL_FLOAT_ULPS=0 to demand bit-exact floats. */
+export const FLOAT_ULPS = Number(process.env.ICEPOOL_FLOAT_ULPS ?? "2");
+
+/** A float's position on the number line in ULPs (compare.py `_ulps`'s key): adjacent floats differ by 1. */
+function ulpKey(f) {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, f);
+  const i = view.getBigInt64(0);
+  return i >= 0n ? i : -(i & 0x7fffffffffffffffn);
+}
+
+/** A Python float repr ("0.5", "inf", "-inf", "nan") as a number; undefined if it is not one. */
+function pyFloat(repr) {
+  const special = { inf: Infinity, "-inf": -Infinity, nan: NaN };
+  if (typeof repr !== "string") return undefined;
+  if (repr in special) return special[repr];
+  const f = Number(repr);
+  return repr.trim() === "" || Number.isNaN(f) ? undefined : f;
+}
+
+/** compare.py `_float_close`: two float reprs within FLOAT_ULPS (NaN only equals NaN, an infinity only itself). */
+function floatClose(a, b) {
+  const [fa, fb] = [pyFloat(a), pyFloat(b)];
+  if (fa === undefined || fb === undefined) return false;
+  if (Number.isNaN(fa) || Number.isNaN(fb)) return Number.isNaN(fa) && Number.isNaN(fb);
+  if (!Number.isFinite(fa) || !Number.isFinite(fb)) return fa === fb;
+  const d = ulpKey(fa) - ulpKey(fb);
+  return (d < 0n ? -d : d) <= BigInt(FLOAT_ULPS);
+}
+
+/** compare.py `_eq`: structural equality, `{float}` leaves within FLOAT_ULPS of each other counting as equal. */
+function close(a, b) {
+  const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+  if (isObject(a) && isObject(b)) {
+    const [ka, kb] = [Object.keys(a).sort(), Object.keys(b).sort()];
+    if (canon(ka) === canon(["float"]) && canon(kb) === canon(["float"])) {
+      return a.float === b.float || floatClose(a.float, b.float);
+    }
+    return canon(ka) === canon(kb) && ka.every((k) => close(a[k], b[k]));
+  }
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => close(x, b[i]));
+  return canon(a) === canon(b);
+}
+
+/** compare.py `match`. */
+const match = (a, b) => (FLOAT_ULPS === 0 ? canon(a) === canon(b) : close(a, b));
+
 /** Runs one fixture: null if it matches, else why not. */
 export function check(fixture) {
   let actual;
@@ -521,8 +572,9 @@ export function check(fixture) {
     return expected.ok ? `raised ${actual.error}: ${actual.message}` : `oracle raised ${expected.error}, JS returned`;
   }
   const key = "die" in expected ? "die" : "value";
+  if (match(expected[key], actual[key])) return null;
   const [e, a] = [canon(expected[key]), canon(actual[key])];
-  return e === a ? null : `${key}: expected ${e.slice(0, 300)}, got ${a.slice(0, 300)}`;
+  return `${key}: expected ${e.slice(0, 300)}, got ${a.slice(0, 300)}`;
 }
 
 /** Every fixture whose ops are all ported (as tests/fixtures.rs selects them). */

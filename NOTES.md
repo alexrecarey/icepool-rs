@@ -444,11 +444,7 @@ turns out wrong. Newest decisions at the top of each section.
   TypeError without converting. Nodes (harness/grammar/complex_num.py): `complex(re, im)`, `cx_binary`, `cx_unary`
   (operator.<name> on values, Rust side = collection.rs `binary`/`unary`); operators.py `scalar` is sometimes a
   complex. JS: a `Complex` class (`{"complex": [re repr, im repr]}` both ways, `String(z)` is Python's repr).
-  **WASM**: the libm calls are ports of glibc 2.43's FMA builds (trig.rs: IBM `__sin_fma`/`__cos_fma`/
-  `__atan2_fma`, `__branred` without FMA; tables generated from glibc's sources and checked against libm.so.6).
-  GCC fuses a product into *every* use when all its uses are +/- in the same basic block (e.g. atan2's `zz` across
-  `EADD`'s branch is not fused). The long gate's seed-21 fuzz through WASM hit polar complex powers before these
-  ports; it is clean now.
+  The libm calls are `f64::hypot/powf/atan2/exp/ln/cos/sin` (see "Float math" below).
 - **function.py helpers, reduce/accumulate, from_rv, Wallenius (S5b).** Core `function.rs`: `z`, `pointwise(dice,
   max)` (= pointwise_max/min *after* `harmonize_denominators`), `weighted_lcm(denominators, weights: &[Value])`
   (math.py's, with Python's `w > 0`, `math.gcd` TypeError for non-ints, `lcm * w // d` as Value ops, `zip`
@@ -795,8 +791,7 @@ turns out wrong. Newest decisions at the top of each section.
   `'n/d'`, single-quote str repr, CPython's 4300-digit int limit; a non-ASCII char in a str *repr* is Unsupported:
   printability needs Unicode tables) and `format_float` (`'f'`/`'e'`/`'%'`: Rust's exact formatting rounds ties
   like CPython's dtoa, checked on 800k values; only the exponent spelling differs). `builtins::math_log10` /
-  `float_ceil` (log10 is `f64::log10` = glibc natively; on WASM another libm, not ported: only
-  `format_probability_inverse`'s `ceil(log10(int_start))` uses it). `random.rs` = CPython's MT19937 `seed(int)`
+  `float_ceil` (log10 is `f64::log10`: only `format_probability_inverse`'s `ceil(log10(int_start))` uses it). `random.rs` = CPython's MT19937 `seed(int)`
   + `randrange` (`_randbelow_with_getrandbits`), for icepool-run/WASM; `Die::sample_at(r)` is the bisect.
   `Die::equals(other, simplify)`, `Die<Value>::hash_key_compare(op)` (tuple order of `(Die, tuple(items))`).
   New `HostObject` hooks: `py_str`, `py_repr` (fallible), `len_kind` (`Mapping` / `Sized` / neither).
@@ -829,11 +824,6 @@ turns out wrong. Newest decisions at the top of each section.
   incl. the huge-int frexp path, `m_log` specials, `math_1` domain errors), `getitem(Value, &Index)` (tuple/str
   index and slices exactly as `PySlice_Unpack` + `AdjustIndices`), `py_len`. Use them for any new Python-builtin
   arithmetic.
-- **`value/libm.rs` `log`**: natively `f64::ln` (glibc); on wasm32 a port of Arm's log as glibc 2.43's x86_64
-  `__log_fma` runs it (tables read out of libm.so's `__log_data`, FMA contractions off its disassembly).
-  `matches_platform_log` checks it bit for bit (~4M inputs); at S2a 1320 stats programs fuzzed clean through
-  crates/icepool-wasm/run-wasm.sh. Anything else transcendental still needs the same
-  treatment (see pow.rs).
 - New `HostObject` hooks, all defaulting to `Error::Unsupported`: `to_float`, `as_rational` (`numbers.Rational` ->
   `Fraction(n.numerator, n.denominator)`), `as_index` (`__index__`), `getitem(&Index)`, `py_len`. `PyHost` implements
   them in crates/icepool-py/src/stats.rs. Facade gap: an `int` subclass item in `sum`'s float path goes the
@@ -1016,15 +1006,15 @@ turns out wrong. Newest decisions at the top of each section.
   build the wasm32 target first, as the long gate does). `--test` and `--bench` use the optimised build; `--test` checks
   `calculate` against the 40 recorded `f2f.calculate` outputs, `--bench` times khepri. A panic is a trap in WASM
   (no unwinding): run-wasm.mjs answers like icepool-run's panic guard and reloads the instance.
-- **Float `pow` under WASM** (`value/pow.rs`). CPython's `float ** float` ends in glibc `pow`; wasm32's
-  `f64::powf` is another libm and was 1 ULP off (`7 ** -2`). `pow::pow` is `powf` natively and on wasm32 a port of
-  Arm's pow (= glibc >= 2.28), with the FMA contractions glibc's x86_64 `__pow_fma` has (read off its disassembly:
-  GCC fuses each `a*b + c` whose product has no other use; specialcase's k<0 branch is not fused). The native test
-  `matches_platform_pow` checks it bit for bit against glibc (1.2M inputs; 3M passed once). This ties the WASM
-  results to the oracle running on an FMA x86_64 machine with glibc; a non-FMA oracle would differ in rare cases.
-  Complex values do surface since V1 (scalar arithmetic, `standardized_moment` with a fractional k), so `hypot`
-  (libm.rs), `exp` (pow.rs `arm_exp`), `sin`/`cos`/`atan2` (trig.rs) are ported the same way. Any new
-  transcendental needs the same treatment: call it through these wrappers, never `f64::sin` & co directly.
+- **Float math (B9, 2026-10-17).** Transcendentals (`pow`, `log`, `log10`, `exp`, `sin`, `cos`, `atan2`, `hypot`)
+  are Rust's `f64` methods, called directly. Natively they are the platform libm, which is what CPython calls, so
+  native and Python builds stay bit-exact. Under WASM they are Rust's own libm and may be 1-2 ULP off (`7.0 **
+  -2.0` was 1 ULP off): Alex accepted that, so WASM runs compare floats within 2 ULP (`ICEPOOL_FLOAT_ULPS=2` in
+  compare.py and the long gate; the JS fixture suite defaults to 2 too, `ICEPOOL_FLOAT_ULPS=0` makes it exact).
+  Until B9 these were line-by-line ports of glibc 2.43 (Arm's pow/log/exp, IBM's sin/cos/atan2, glibc's hypot);
+  they are gone, with QUESTIONS.md V1 (their LGPL licence) moot. Don't port libm functions again. Only float
+  values (`{"float": ...}` leaves) get the tolerance: a complex is compared by its repr, so a complex power
+  through WASM can still mismatch in the last bit (none of the fixtures do today).
 - **Measurements (K8)**, on this machine, inputs in `crates/icepool-wasm/bench-cases.json` (heavy = 6+2 vs 6+2,
   both EXP + Continuous: 536-bit denominator, heavier than ANALYSIS.md's 258-bit case):
 
@@ -1302,8 +1292,8 @@ turns out wrong. Newest decisions at the top of each section.
   any new dealing generator through it. (3) Seed 15's failure was a traceback: `OracleTimeout` raised *at*
   `signal.alarm(0)` in tool.py's `finally` (the alarm landed after the try body ended, e.g. a long C call finishing
   right at 3 s). A race in the protected harness; it didn't reproduce. If it recurs, it is not the port.
-  (4) `value/pow.rs` wraps `2 * ix` as C does (`wrapping_mul`): debug builds panicked, so cargo-mutants refused to
-  run ("cargo test failed in an unmutated tree"). Run `cargo test -p icepool-core --lib` in debug too.
+  (4) The (since removed) `value/pow.rs` overflowed in debug builds only, so cargo-mutants refused to run ("cargo
+  test failed in an unmutated tree"). Run `cargo test -p icepool-core --lib` in debug too.
 - Files copied from the oracle checkout are read-only on disk (`chmod -R u+w python` once; git ignores the mode).
   Never run Python with the cwd inside `python/icepool`: its `operator/` package shadows the stdlib's.
 - The upstream suite passing is not proof a switched path is used: check with `ICEPOOL_BACKEND=rust` that dice

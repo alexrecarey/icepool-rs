@@ -13,6 +13,17 @@ next commit (reinstating `any()` evaluation), plus three fixes Alex is sending u
 
 Those three are bugs, not semantics, so the port follows the fixed behaviour. When upstream releases them, re-pin.
 
+## Where the port is not bit-exact
+
+### Floats under WASM are within 2 ULP of Python's (B9)
+
+CPython's `float ** float`, `math.log`, `math.log10` and complex powers/`abs` end in the platform libm (`pow`,
+`log`, `exp`, `sin`, `cos`, `atan2`, `hypot`). The port calls Rust's `f64` methods, which natively are that same
+platform libm, so native builds and the Python facade agree with the oracle bit for bit. Compiled to WASM, they are
+Rust's own libm, which can round the last bit differently (e.g. `7.0 ** -2.0` was `0.020408163265306124`, not
+`0.02040816326530612`). Alex accepted that (2026-10-17) over keeping line-by-line ports of glibc: WASM results are
+checked within 2 ULP (`ICEPOOL_FLOAT_ULPS=2`). Not a Python bug, so no upstream test.
+
 ## Found during the port
 
 ### A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3)
