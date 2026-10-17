@@ -125,7 +125,8 @@ impl<O: OutcomeOrder, E: MultisetEvaluator<O>> E { fn evaluate(&self, ...) -> Re
       fn fold(&self, state: &Self::State, outcome: &O, count: &Int) -> Result<Self::State>;
       fn finish(&self, state: &Self::State) -> Result<Final<Self::Final>>;
   }
-  impl<O: OutcomeOrder, T: CountFold<O>> MultisetEvaluator<O> for T { /* the shared defaults, once */ }
+  // C2: not a blanket impl (it would make every other generic `impl MultisetEvaluator<O>` a coherence error);
+  // `count_fold_evaluators!(A, B<F>, ...)` writes the shared impl for each listed type (evaluator/fold.rs).
   ```
 
   The per-file `int`/`int_tuple`/`sorted_descending` helpers go; there is one `IntoValue`.

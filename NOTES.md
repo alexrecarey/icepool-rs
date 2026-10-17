@@ -5,6 +5,37 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Generic evaluators (C2, design section 2).** Done for the poker evaluators; basic/keep/comparison are C2b,
+  lexi/argsort C2c, map/explode/Again C2d, to_pool/statistics/formatting C2e, the khepri crate C2f.
+  - `evaluator/fold.rs`: `CountFold<O>` (`initial` default `State::default()`, `extra`, `fold`, `finish`) is the
+    shape of an evaluator that folds `(outcome, counts)` into a typed state. `count_fold_evaluators!(A, B<F>, ...)`
+    writes `impl<O: OutcomeOrder, ..> MultisetEvaluator<O> for A where Self: CountFold<O>`. **Not a blanket impl**:
+    `impl<T: CountFold<O>> MultisetEvaluator<O> for T` makes every other generic `impl MultisetEvaluator<O>`
+    (MultisetFunction, a future generic SumEvaluator) a coherence error (E0119: downstream may impl CountFold).
+  - Poker evaluators (`evaluator/poker.rs`) are generic: counts are `Int`, finals typed (`Int`, `(O, Int)`,
+    `Vec<Int>`...). Straights need `IntegerOutcome` (`consecutive`, `try_sub_int`; macro for i8..i128/isize, `Value`
+    in value/evaluators.rs). Python parameters that may be any value are generic parameters: `AllCountsEvaluator<F:
+    CountFilter>` (`Option<Int>` typed, `Value` Python), `CountSubsetEvaluator<D: From<Int>>` (`empty_divisor:
+    Option<D>`; Python's `None` is `None`), wild selectors return `T: Truth` (Python asks for the truth value only
+    where it branches, and a `Vector` raises only there), `AllStraightsReduceCountsEvaluator<R, S>` with scores `S:
+    OutcomeOrder + From<Int>`. A type parameter that only appears in a closure's signature is unconstrained (E0207),
+    hence the `PhantomData` and `::new` on the last two.
+  - `value/evaluators.rs` is the Value layer: `IntoValue` (Int, i64, bool, Value, Option = None or value, Vec =
+    tuple, pairs, triples), `PyEvaluator<E>` (what the runner and icepool-py run: `Final = Value` via IntoValue per
+    final state, before the die is built) and `TupleCounts` (`next_state_tuples` / `final_outcome_tuples`). A
+    `PyEvaluator`'s state is `PyState::Typed` until the first tuple count (a MultiDeal), then
+    `PyState::Python(Value)` with Python's arithmetic, starting from `PyState::value()` = the typed state as Python
+    spells it (so a typed state's `IntoValue` must be Python's state, e.g. LargestCount's `Option<Int>` = None/int;
+    AllCounts' `Vec<Int>` = `()` where Python has None, which `state or ()` treats alike). Evaluators that only raise
+    on a tuple count implement `next_state_tuples` as the TypeError.
+  - The core trait still has `next_state_values` (other evaluators use it); `PyEvaluator` implements it by
+    `next_state_tuples`. C2c removes it from the core trait.
+  - Typed-vs-Python check: value/evaluators.rs `typed_matches_python` evaluates on `Pool<i64>` and `Pool<Value>` and
+    asserts the typed finals spelled as Values equal Python's, in order. Reuse it for the next evaluators.
+  - **khepri** is behind icepool-core's `khepri` feature, **on by default** so any build of `icepool-run` has the
+    `khepri` node (a `cargo build -p icepool-core` without it would silently break the khepri sweep);
+    icepool-py has `default-features = false`, icepool-wasm asks for it. The crate move waits for C5b (C2f).
+
 - **Library architecture (D1, 2026-10-17): `design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
   is written against the sealed `OutcomeOrder` (associated `Incomparable` error: `Infallible` for every `Ord` type by
