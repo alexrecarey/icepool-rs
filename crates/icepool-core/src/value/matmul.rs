@@ -66,7 +66,7 @@ pub fn matmul_dice(n: &Die<Value>, die: &Die<Value>) -> Result<Die<Value>> {
     }
     check_sum_all_recursion(&counts)?;
     if kinds.iter().all(|k| *k == CountKind::Int) {
-        return Ok(die.matmul(&counts)?);
+        return die.matmul(&counts);
     }
     // Some count is a float (with an integral value: others raised above). `_sum_all` treats it as the equal
     // int, but the factor `den**(max_abs_die_count - abs(die_count))` is then a float, and so is every quantity it
@@ -121,7 +121,7 @@ pub fn matmul_dice(n: &Die<Value>, die: &Die<Value>) -> Result<Die<Value>> {
         }
         items.push((outcome, quantity));
     }
-    Ok(Die::from_dict(items)?)
+    Die::from_dict(items)
 }
 
 /// Whether a count in `n @ die` is a float in Python, which makes its factor a float.

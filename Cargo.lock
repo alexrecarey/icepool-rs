@@ -73,7 +73,16 @@ dependencies = [
  "dashu-base",
  "dashu-int",
  "dashu-ratio",
+ "icepool-harness",
  "rustc-hash",
+ "serde_json",
+]
+
+[[package]]
+name = "icepool-harness"
+version = "0.1.0"
+dependencies = [
+ "icepool-core",
  "serde_json",
 ]
 

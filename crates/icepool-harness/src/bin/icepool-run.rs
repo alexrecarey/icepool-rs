@@ -13,7 +13,7 @@ fn main() {
         let result = match serde_json::from_str(&line) {
             Ok(program) => {
                 // A panic is a bug, but it must not take the whole run down: report it as an error result.
-                std::panic::catch_unwind(|| icepool_core::program::run(&program)).unwrap_or_else(|_| {
+                std::panic::catch_unwind(|| icepool_harness::run(&program)).unwrap_or_else(|_| {
                     serde_json::json!({"ok": false, "error": "unimplemented: panic in icepool-run"})
                 })
             }

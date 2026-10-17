@@ -1,0 +1,20 @@
+[package]
+name = "icepool-harness"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Test-only: the JSON program runner and the icepool-run binary that drive the oracle comparison"
+# Never published, and never a dependency of a production crate (scripts/check-production.sh checks).
+publish = false
+
+[dependencies]
+# The runner still lives in icepool-core behind its `runner` feature until the protected fixtures test moves here
+# (QUESTIONS.md "D1", task C5b); depending on it with the feature on is what turns it on in workspace builds.
+# `khepri`: the runner's `khepri` node (the khepri sweep).
+icepool-core = { path = "../icepool-core", features = ["runner", "khepri"] }
+# arbitrary_precision: program literals and results carry exact big integers.
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+
+[[bin]]
+name = "icepool-run"
+path = "src/bin/icepool-run.rs"

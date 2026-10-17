@@ -6,21 +6,30 @@ license.workspace = true
 description = "Rust port of the icepool dice probability library"
 
 [dependencies]
-serde_json = { version = "1", features = ["arbitrary_precision"] }
 # Big integers: inline storage up to 128 bits, so the common small quantity never allocates (see NOTES.md).
 dashu-base = "0.6"
 dashu-int = "0.6"
 dashu-ratio = "0.6"
 rustc-hash = "2"
+# The library itself has no JSON: only the interim `runner` and khepri's engine input (`khepri`) read it.
+# arbitrary_precision: exact big integers in program literals, results and khepri's `rolls`.
+serde_json = { version = "1", features = ["arbitrary_precision"], optional = true }
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+# Interim, until the protected tests/fixtures.rs moves to icepool-harness (QUESTIONS.md "D1", task C5b): it runs
+# programs through `program::run`, so testing this crate needs the `runner` and `khepri` features, which
+# icepool-harness turns on. (A dev-dependency cycle, which cargo allows: it only applies to this crate's tests, so
+# `cargo test -p icepool-core`, as cargo-mutants runs it, still compiles and runs every fixture.)
+icepool-harness = { path = "../icepool-harness" }
 
 [features]
-# khepri's f2f engine (src/khepri.rs): application code on the typed core, not part of the library. On by default
-# so that every build of the `icepool-run` binary has the runner's `khepri` node (the fixtures, the khepri sweep);
-# icepool-py turns it off, icepool-wasm keeps it for `calculate`. It moves into its own crate once the runner
-# leaves icepool-core (tasks C5b, C2f).
-default = ["khepri"]
-khepri = []
-
-[[bin]]
-name = "icepool-run"
-path = "src/bin/icepool-run.rs"
+# None default: a plain build of this crate is the library alone.
+#
+# The JSON program runner (src/program/): test-only, for icepool-harness, whose `icepool-run` binary and the
+# fixtures test drive every check through it. Interim: it moves into icepool-harness in task C5b and the feature
+# goes away. Production builds (maturin, wasm-pack of the npm package) never turn it on.
+runner = ["dep:serde_json"]
+# khepri's f2f engine (src/khepri.rs): application code on the typed core, not part of the library. For the
+# runner's `khepri` node and icepool-wasm's `calculate`. It moves into its own crate after C5b (task C2f).
+khepri = ["dep:serde_json"]

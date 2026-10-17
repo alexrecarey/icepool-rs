@@ -32,7 +32,8 @@ pub fn compute_lexi_tuple(comparison: &str, order: i64) -> Result<(i64, i64, i64
 }
 
 /// As [`compute_lexi_tuple`], but also computes an order such that right_first is 0. Returns the tuple and the
-/// order (`1` ascending, `-1` descending).
+/// order (`1` ascending, `-1` descending). Only the runner calls it (the Python facade runs lexi.py's own).
+#[cfg(feature = "runner")]
 pub fn compute_lexi_tuple_with_zero_right_first(
     comparison: &str,
 ) -> Result<((i64, i64, i64), i64)> {

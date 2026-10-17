@@ -10,8 +10,8 @@ name = "icepool_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Without khepri's engine (icepool-core's default `khepri` feature): it is not part of the library.
-icepool-core = { path = "../icepool-core", default-features = false }
+# The library alone: none of icepool-core's features (not the test-only `runner`, not khepri's engine).
+icepool-core = { path = "../icepool-core" }
 dashu-int = "0.6"
 dashu-ratio = "0.6"
 pyo3 = "0.29"
