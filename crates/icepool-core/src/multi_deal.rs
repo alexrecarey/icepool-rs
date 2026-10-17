@@ -7,6 +7,7 @@
 //! up to reordering the group's hands (counts sorted descending within the group), and the group splits by the
 //! counts it got.
 
+use crate::ownership::{Owners, Traverse};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -60,6 +61,12 @@ pub struct MultiDeal<O> {
     hand_groups: Arc<[HandGroup]>,
 }
 
+impl<O: Outcome + Traverse> Traverse for MultiDeal<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        self.deck.traverse(owners);
+    }
+}
+
 impl<O: Outcome> MultiDeal<O> {
     /// `MultiDeal(deck, hand_groups)`.
     ///
@@ -98,6 +105,13 @@ impl<O: Outcome> MultiDeal<O> {
             deck,
             hand_groups: groups.into(),
         })
+    }
+
+    /// A multi-deal's hand groups (`hand_groups()`) over its deck again: for a host that holds the deck apart (the
+    /// Python facade holds the deck's Python object, so that only one Python object holds the cards: see
+    /// `ownership`).
+    pub fn from_parts(deck: Deck<O>, hand_groups: Arc<[HandGroup]>) -> Self {
+        MultiDeal { deck, hand_groups }
     }
 
     /// The `Deck` the cards are dealt from.
@@ -160,6 +174,13 @@ pub struct MultiDealSource<O> {
     lo: usize,
     hi: usize,
     hand_groups: Arc<[HandGroup]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for MultiDealSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        self.deck.traverse(owners);
+        owners.arc(&self.outcomes);
+    }
 }
 
 impl<O: PartialEq> PartialEq for MultiDealSource<O> {

@@ -5,6 +5,7 @@
 //! Python's driver treats every source alike through the `MultisetSourceBase` methods (generator/
 //! multiset_generator.py, expression/multiset_expression_base.py); this is the same contract.
 
+use crate::ownership::{Owners, Traverse};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
@@ -75,6 +76,18 @@ impl<O> HostSource<O> {
 
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<SourcePopped<O>>> {
         self.object.pop(order, outcome)
+    }
+}
+
+/// The host's object is a leaf: what it holds is the host's to report.
+impl<O: Traverse> Traverse for HostSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.host(&self.object, self.object.as_any());
+        owners.arc_with(&self.outcomes, |owners, outcomes| {
+            if let Some(outcomes) = outcomes.get() {
+                owners.arc(outcomes);
+            }
+        });
     }
 }
 

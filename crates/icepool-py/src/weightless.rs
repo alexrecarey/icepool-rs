@@ -37,6 +37,11 @@ fn count_py<'py>(py: Python<'py>, c: &Count) -> PyResult<Bound<'py, PyAny>> {
 
 #[pymethods]
 impl RsWeightlessSource {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.source, &visit)
+    }
+
     /// The wrapped source as an `icepool_rs` object, for the facade to wrap.
     fn wrapped<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         source_object(py, self.source.wrapped())

@@ -34,6 +34,7 @@ pub mod multi_deal;
 pub mod operator;
 pub mod order;
 pub mod outcome;
+pub mod ownership;
 pub mod pool;
 pub mod population;
 pub mod program;

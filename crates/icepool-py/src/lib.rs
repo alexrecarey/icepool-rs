@@ -42,6 +42,11 @@ pub struct RsDie {
 
 #[pymethods]
 impl RsDie {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.die, &visit)
+    }
+
     /// The `(outcome, quantity)` pairs in sorted order, zero quantities included: the facade's `Counts` items.
     fn items<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         let items = self

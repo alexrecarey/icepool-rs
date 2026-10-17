@@ -6,6 +6,7 @@
 //! Python's `WeightlessGenerator` only holds the wrapped generator and makes this source from the wrapped one's;
 //! sources are immutable values here, so the program layer and the facade keep the generator side.
 
+use crate::ownership::{Owners, Traverse};
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
@@ -18,6 +19,12 @@ use crate::Quantity;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WeightlessSource<O> {
     wrapped: Arc<MultisetSource<O>>,
+}
+
+impl<O: Outcome + Traverse> Traverse for WeightlessSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc(&self.wrapped);
+    }
 }
 
 impl<O: Outcome> WeightlessSource<O> {

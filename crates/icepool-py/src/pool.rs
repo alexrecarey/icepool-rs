@@ -151,6 +151,11 @@ pub fn hash_of(x: &impl Hash) -> isize {
 
 #[pymethods]
 impl RsPool {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.pool, &visit)
+    }
+
     /// The `(die, count)` pairs, sorted by the die's `hash_key` (dice put in zero times are not here).
     fn dice<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         dice_list(py, self.pool.dice())
@@ -218,6 +223,11 @@ pub fn pool_additive_union(pools: Vec<Bound<'_, RsPool>>) -> PyResult<Option<RsP
 
 #[pymethods]
 impl RsPoolSource {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.source, &visit)
+    }
+
     fn dice<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         dice_list(py, self.source.dice())
     }

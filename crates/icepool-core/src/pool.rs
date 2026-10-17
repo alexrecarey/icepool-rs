@@ -7,6 +7,7 @@
 //! the top outcome of a d8 twice leaves a die equal to a d6, and equal dice merge into one entry with a count, whose
 //! rolls are then popped together with a binomial row (`comb_row`) instead of one by one.
 
+use crate::ownership::{Owners, Traverse};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -85,6 +86,17 @@ pub struct Pool<O> {
     outcomes: Arc<[O]>,
     /// How many times to count each sorted roll, lowest first.
     keep_tuple: Arc<[Int]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for Pool<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc_with(&self.dice, |owners, dice| {
+            for (die, _) in dice {
+                die.traverse(owners);
+            }
+        });
+        owners.arc(&self.outcomes);
+    }
 }
 
 impl<O: Outcome> Pool<O> {
@@ -260,6 +272,19 @@ fn int_popped<S, O>(
         .collect()
 }
 
+impl<O: Outcome + Traverse> Traverse for MultisetSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        match self {
+            MultisetSource::Pool(s) => s.traverse(owners),
+            MultisetSource::Deal(s) => s.traverse(owners),
+            MultisetSource::MultiDeal(s) => s.traverse(owners),
+            MultisetSource::CompoundKeep(s) => s.traverse(owners),
+            MultisetSource::Weightless(s) => s.traverse(owners),
+            MultisetSource::Host(s) => s.traverse(owners),
+        }
+    }
+}
+
 impl<O: Outcome> MultisetSource<O> {
     /// The possible outcomes, ascending. A compound keep sorts its inner sources' outcomes together, which can
     /// raise.
@@ -344,6 +369,17 @@ pub struct PoolSource<O> {
     lo: usize,
     hi: usize,
     keep_tuple: Arc<[Int]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for PoolSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc_with(&self.dice, |owners, dice| {
+            for (die, _) in dice {
+                die.traverse(owners);
+            }
+        });
+        owners.arc(&self.outcomes);
+    }
 }
 
 impl<O: PartialEq> PartialEq for PoolSource<O> {

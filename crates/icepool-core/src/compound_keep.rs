@@ -8,6 +8,7 @@
 //! A compound keep of compound keeps (`g = g + d6.pool(1)` in a loop) nests, and its sources recurse through the
 //! nesting: a level each (`value::recursion`), so a deep one raises `RecursionError` rather than overflowing.
 
+use crate::ownership::{Owners, Traverse};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
@@ -27,6 +28,12 @@ use crate::{Int, Quantity};
 pub struct CompoundKeep<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
     keep_tuple: Arc<[Int]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for CompoundKeep<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc(&self.inner_sources);
+    }
 }
 
 impl<O: Outcome> CompoundKeep<O> {
@@ -88,6 +95,15 @@ pub struct CompoundKeepSource<O> {
     /// `outcomes()`: the sorted union of the inner sources' (remaining) outcomes, computed when first asked (Python
     /// computes it per call: sorting can raise, and an evaluation with an unresolvable source never asks).
     outcomes: OnceLock<Arc<[O]>>,
+}
+
+impl<O: Outcome + Traverse> Traverse for CompoundKeepSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc(&self.inner_sources);
+        if let Some(outcomes) = self.outcomes.get() {
+            owners.arc(outcomes);
+        }
+    }
 }
 
 impl<O: PartialEq> PartialEq for CompoundKeepSource<O> {

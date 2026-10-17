@@ -7,6 +7,9 @@
 //! and comparisons call back into Python: the core never decides how a host object behaves. (A `Symbols` whose
 //! keys are not all single characters, which only `symbols[tuple]` makes, is a host object too.)
 
+use icepool_core::ownership::{owned_hosts, Traverse};
+use pyo3::gc::PyVisit;
+use pyo3::PyTraverseError;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -87,6 +90,23 @@ pub fn symbols_to_py<'py>(py: Python<'py>, s: &Symbols) -> PyResult<Bound<'py, P
 pub struct PyHost {
     pub obj: Py<PyAny>,
     hash: i64,
+}
+
+/// `__traverse__` for an `icepool_rs` object holding the core value `root`: tells Python's cycle collector about
+/// the Python objects (host outcomes, user sources) only `root` holds, so that a cycle through one (an outcome
+/// object referring back to the die it is an outcome of) is collected as it is on the Python backend. Objects
+/// shared with another core value are not reported (`icepool_core::ownership`: reporting a shared one could free
+/// it while in use). The classes are frozen, and immutable references need no `__clear__`: every cycle passes
+/// through a mutable Python object, which Python clears.
+pub fn traverse(root: &impl Traverse, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+    for host in owned_hosts(root) {
+        if let Some(h) = host.downcast_ref::<PyHost>() {
+            visit.call(&h.obj)?;
+        } else if let Some(s) = host.downcast_ref::<crate::host_source::PyHostSource>() {
+            visit.call(&s.object)?;
+        }
+    }
+    Ok(())
 }
 
 impl HostObject for PyHost {

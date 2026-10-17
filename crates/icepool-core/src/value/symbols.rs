@@ -519,6 +519,16 @@ fn counter(items: impl Iterator<Item = Value>) -> Result<Vec<(Value, Value)>> {
 }
 
 /// `==` as a dict sees it: the same counts for every character (missing counts are 0).
+impl crate::ownership::Traverse for Symbols {
+    fn traverse<'a>(&'a self, owners: &mut crate::ownership::Owners<'a>) {
+        owners.arc_with(&self.data, |owners, items| {
+            for (_, n) in items {
+                n.traverse(owners);
+            }
+        });
+    }
+}
+
 impl PartialEq for Symbols {
     fn eq(&self, other: &Self) -> bool {
         self.items()

@@ -23,6 +23,7 @@ pub mod trig;
 mod trig_tables;
 mod vector;
 
+use crate::ownership::{Owners, Traverse};
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -348,6 +349,25 @@ impl Outcome for Value {
 }
 
 /// Python's `repr`.
+/// What a value holds that may hold host objects: tuples, vectors, symbols, and host objects themselves.
+impl Traverse for Value {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        match self {
+            Value::Tuple(items) => owners.arc(items),
+            Value::Vector(v) => v.traverse(owners),
+            Value::Symbols(s) => s.traverse(owners),
+            Value::Host(h) => owners.host(&h.0, h.0.as_any()),
+            Value::None
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::Fraction(_)
+            | Value::Str(_)
+            | Value::Complex(..) => {}
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

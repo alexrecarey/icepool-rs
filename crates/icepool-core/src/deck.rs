@@ -6,6 +6,7 @@
 //! them. What differs is construction (`merge_duplicates`: duplicates add up, nothing is rescaled) and the multiset
 //! arithmetic, which goes through Python's `Counter` ([`Counter`]).
 
+use crate::ownership::{Owners, Traverse};
 use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 
@@ -21,6 +22,12 @@ use crate::Quantity;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Deck<O> {
     cards: Die<O>,
+}
+
+impl<O: Outcome + Traverse> Traverse for Deck<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        self.cards.traverse(owners);
+    }
 }
 
 impl<O: Outcome> Deck<O> {

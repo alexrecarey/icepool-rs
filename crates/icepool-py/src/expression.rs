@@ -112,6 +112,11 @@ pub fn compound_keep_new(
 
 #[pymethods]
 impl RsCompoundKeep {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.compound, &visit)
+    }
+
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         counts_to_py(py, self.compound.keep_tuple())
     }
@@ -158,6 +163,11 @@ impl RsCompoundKeep {
 
 #[pymethods]
 impl RsCompoundKeepSource {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.source, &visit)
+    }
+
     fn outcomes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
         outcome_tuple(py, self.source.outcomes().map_err(to_py_err)?)
     }

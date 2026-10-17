@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use dashu_int::IBig;
-use icepool_core::multi_deal::MultiDealSource;
+use icepool_core::multi_deal::{HandGroup, MultiDealSource};
 use icepool_core::order::{Order, OrderReason};
 use icepool_core::{Int, MultiDeal, Value};
 use pyo3::exceptions::PyNotImplementedError;
@@ -22,8 +22,18 @@ use crate::pool::{hash_of, outcome_tuple};
 
 /// A multi-deal of the Rust core, held by the facade's `MultiDeal` as `_rs`.
 #[pyclass(frozen, name = "MultiDeal", module = "icepool_rs")]
+///
+/// It holds the deck's Python object rather than a second clone of its cards, and makes the core multi-deal when
+/// asked: the facade's `MultiDeal` keeps its deck too (see `RsDeal`).
 pub struct RsMultiDeal {
-    multi_deal: MultiDeal<Value>,
+    deck: Py<RsDeck>,
+    hand_groups: Arc<[HandGroup]>,
+}
+
+impl RsMultiDeal {
+    fn multi_deal(&self) -> MultiDeal<Value> {
+        MultiDeal::from_parts(self.deck.get().deck.clone(), self.hand_groups.clone())
+    }
 }
 
 /// What the evaluator pops a multi-deal from, held by the facade's `MultiDealSource` as `_rs`.
@@ -53,7 +63,10 @@ pub fn multi_deal_new(
         .map(|(h, g)| Ok((hand_int(h)?, hand_int(g)?)))
         .collect::<PyResult<Vec<_>>>()?;
     let multi_deal = MultiDeal::new(deck.get().deck.clone(), &groups).map_err(to_py_err)?;
-    Ok(RsMultiDeal { multi_deal })
+    Ok(RsMultiDeal {
+        deck: deck.clone().unbind(),
+        hand_groups: multi_deal.hand_groups().into(),
+    })
 }
 
 /// One possibility of `pop`: `(popped source, counts, weight)`.
@@ -61,32 +74,42 @@ type Popped<'py> = (RsMultiDealSource, Bound<'py, PyTuple>, Bound<'py, PyAny>);
 
 #[pymethods]
 impl RsMultiDeal {
+    /// Its deck's Python object (which holds the cards), for the cycle collector.
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        visit.call(&self.deck)
+    }
+
     /// `comb(deck.size(), total) * prod(comb(total, h) for h in hand_sizes()[1:])`.
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        quantity_to_py(py, &self.multi_deal.denominator())
+        quantity_to_py(py, &self.multi_deal().denominator())
     }
 
     /// `_make_source`.
     fn source(&self) -> RsMultiDealSource {
         RsMultiDealSource {
-            source: self.multi_deal.source(),
+            source: self.multi_deal().source(),
         }
     }
 
     /// Python's `hash_key` `(MultiDeal, deck, hand_groups)`.
     fn __hash__(&self) -> isize {
-        hash_of(&self.multi_deal)
+        hash_of(&self.multi_deal())
     }
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         other
             .cast::<RsMultiDeal>()
-            .is_ok_and(|o| self.multi_deal == o.get().multi_deal)
+            .is_ok_and(|o| self.multi_deal() == o.get().multi_deal())
     }
 }
 
 #[pymethods]
 impl RsMultiDealSource {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.source, &visit)
+    }
+
     fn deck(&self) -> RsDeck {
         RsDeck {
             deck: self.source.deck().clone(),

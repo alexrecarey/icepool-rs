@@ -276,6 +276,17 @@ pub fn truth_only_error() -> Error {
 
 /// `==` between two vectors as a dict sees it: Python compares `_data` tuples (a `VectorWithTruthOnly` cannot be a
 /// key: hashing it raises, see `Outcome::check_key`).
+impl crate::ownership::Traverse for Vector {
+    fn traverse<'a>(&'a self, owners: &mut crate::ownership::Owners<'a>) {
+        if let Some(data) = &self.data {
+            owners.arc(data);
+        }
+        if let Some(truth) = &self.truth {
+            owners.arc(truth);
+        }
+    }
+}
+
 impl PartialEq for Vector {
     fn eq(&self, other: &Self) -> bool {
         match (&self.data, &other.data) {

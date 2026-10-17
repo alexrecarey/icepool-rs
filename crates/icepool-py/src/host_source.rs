@@ -50,8 +50,8 @@ pub(crate) fn host_object<'py>(py: Python<'py>, s: &HostSource<Value>) -> Option
         .map(|h| h.object.bind(py).clone())
 }
 
-struct PyHostSource {
-    object: Py<PyAny>,
+pub(crate) struct PyHostSource {
+    pub(crate) object: Py<PyAny>,
     hash: u64,
 }
 

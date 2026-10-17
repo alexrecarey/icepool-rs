@@ -7,12 +7,14 @@
 //! keys are expanded as any `Deck(...)` argument is. A deal holds the core deal, keeps and multiplies its counts in
 //! the core, and its source pops in the core (hypergeometric), under the core's evaluation driver (evaluate.rs).
 
+use std::sync::Arc;
+
 use dashu_int::IBig;
 use icepool_core::creation_args::DieArg;
 use icepool_core::deal::DealSource;
 use icepool_core::deck::{Counter, CounterOp};
 use icepool_core::order::{Order, OrderReason};
-use icepool_core::{Deal, Deck, Quantity, Value};
+use icepool_core::{Deal, Deck, Int, Quantity, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyTuple};
@@ -31,8 +33,13 @@ pub struct RsDeck {
 
 /// A deal of the Rust core, held by the facade's `Deal` as `_rs`.
 #[pyclass(frozen, name = "Deal", module = "icepool_rs")]
+///
+/// It holds the deck's Python object rather than a second clone of its cards, and makes the core deal when asked:
+/// the facade's `Deal` keeps its deck too, and Python's cycle collector can only be told about Python objects held
+/// by one object (`convert::traverse`), so the cards stay the deck's alone.
 pub struct RsDeal {
-    deal: Deal<Value>,
+    deck: Py<RsDeck>,
+    keep_tuple: Arc<[Int]>,
 }
 
 /// What the evaluator pops a deal from, held by the facade's `DealSource` as `_rs`.
@@ -149,6 +156,11 @@ pub fn deck_counter_op<'py>(
 
 #[pymethods]
 impl RsDeck {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.deck, &visit)
+    }
+
     /// The `(outcome, quantity)` pairs in sorted order: the facade's `Counts` items.
     fn items<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         items(py, self.deck.items())
@@ -188,8 +200,8 @@ impl RsDeck {
 /// `Deal(deck, hand_size)`: `hand_size` must not be negative nor exceed the deck's size. Python then builds
 /// `(1, ) * hand_size`, which raises `TypeError` for a non-int.
 #[pyfunction]
-pub fn deal_new(deck: &Bound<'_, RsDeck>, hand_size: &Bound<'_, PyAny>) -> PyResult<RsDeal> {
-    let deck = deck.get().deck.clone();
+pub fn deal_new(rs_deck: &Bound<'_, RsDeck>, hand_size: &Bound<'_, PyAny>) -> PyResult<RsDeal> {
+    let deck = rs_deck.get().deck.clone();
     if !hand_size.is_instance_of::<PyInt>() {
         if hand_size.lt(0)? {
             return Err(PyValueError::new_err("hand_size cannot be negative."));
@@ -206,67 +218,97 @@ pub fn deal_new(deck: &Bound<'_, RsDeck>, hand_size: &Bound<'_, PyAny>) -> PyRes
         )));
     }
     let hand_size: IBig = int_from_py(hand_size)?;
-    Ok(RsDeal {
-        deal: Deal::new(deck, &hand_size).map_err(to_py_err)?,
-    })
+    let deal = Deal::new(deck, &hand_size).map_err(to_py_err)?;
+    Ok(RsDeal::with_keep_tuple_of(rs_deck.clone().unbind(), &deal))
+}
+
+impl RsDeal {
+    fn deal(&self) -> Deal<Value> {
+        Deal::from_parts(self.deck.get().deck.clone(), self.keep_tuple.clone())
+    }
+
+    /// A deal of `deck` (the deck `deal` is dealt from) with `deal`'s keep tuple.
+    fn with_keep_tuple_of(deck: Py<RsDeck>, deal: &Deal<Value>) -> RsDeal {
+        RsDeal {
+            deck,
+            keep_tuple: deal.keep_tuple().into(),
+        }
+    }
+
+    /// Another deal of the same deck.
+    fn derived(&self, py: Python<'_>, deal: &Deal<Value>) -> RsDeal {
+        RsDeal::with_keep_tuple_of(self.deck.clone_ref(py), deal)
+    }
 }
 
 #[pymethods]
 impl RsDeal {
+    /// Its deck's Python object (which holds the cards), for the cycle collector.
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        visit.call(&self.deck)
+    }
+
     fn keep_tuple<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
-        counts_to_py(py, self.deal.keep_tuple())
+        counts_to_py(py, &self.keep_tuple)
     }
 
     /// `comb(deck.size(), hand_size)`.
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        quantity_to_py(py, &self.deal.denominator())
+        quantity_to_py(py, &self.deal().denominator())
     }
 
     /// `KeepGenerator.keep` for a keep tuple without negative counts (the facade checks), short of evaluating
     /// the result for an `int` index (the facade does that).
     fn keep(&self, index: &Bound<'_, PyAny>) -> PyResult<RsDeal> {
-        let deal = self.deal.keep(&keep_index(index)?).map_err(to_py_err)?;
-        Ok(RsDeal { deal })
+        let deal = self.deal().keep(&keep_index(index)?).map_err(to_py_err)?;
+        Ok(self.derived(index.py(), &deal))
     }
 
     /// `_set_keep_tuple`: this deal with another keep tuple.
-    fn with_keep_tuple(&self, keep_tuple: Vec<Bound<'_, PyAny>>) -> PyResult<RsDeal> {
+    fn with_keep_tuple(
+        &self,
+        py: Python<'_>,
+        keep_tuple: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<RsDeal> {
         let keep_tuple = keep_tuple
             .iter()
             .map(exact_count)
             .collect::<PyResult<Vec<_>>>()?;
-        Ok(RsDeal {
-            deal: self.deal.with_keep_tuple(keep_tuple),
-        })
+        Ok(self.derived(py, &self.deal().with_keep_tuple(keep_tuple)))
     }
 
     /// `KeepGenerator.multiply_counts`.
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsDeal> {
-        let deal = self.deal.multiply_counts(&exact_count(constant)?);
-        Ok(RsDeal { deal })
+        let deal = self.deal().multiply_counts(&exact_count(constant)?);
+        Ok(self.derived(constant.py(), &deal))
     }
 
     /// `_make_source`.
     fn source(&self) -> RsDealSource {
         RsDealSource {
-            source: self.deal.source(),
+            source: self.deal().source(),
         }
     }
 
     /// Python's `hash_key` `(Deal, deck, keep_tuple)`.
     fn __hash__(&self) -> isize {
-        hash_of(&self.deal)
+        hash_of(&self.deal())
     }
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         other
             .cast::<RsDeal>()
-            .is_ok_and(|o| self.deal == o.get().deal)
+            .is_ok_and(|o| self.deal() == o.get().deal())
     }
 }
 
 #[pymethods]
 impl RsDealSource {
+    /// The Python objects it holds, for the cycle collector (`convert::traverse`).
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        crate::convert::traverse(&self.source, &visit)
+    }
+
     fn deck(&self) -> RsDeck {
         RsDeck {
             deck: self.source.deck().clone(),

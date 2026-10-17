@@ -1,5 +1,6 @@
 //! Port of icepool `population/die.py`: sampling with replacement, quantities are weights.
 
+use crate::ownership::{Owners, Traverse};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
@@ -38,6 +39,26 @@ struct DieData<O> {
     index: OnceLock<FxHashMap<O, usize>>,
     cumulative: OnceLock<Vec<Quantity>>,
     denominator: OnceLock<Quantity>,
+}
+
+/// A die holds its outcomes, and more clones of them in its caches (its popped dice and its index).
+impl<O: Outcome + Traverse> Traverse for Die<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        owners.arc_with(&self.data, |owners, data| {
+            for (o, _) in data.counts.items() {
+                o.traverse(owners);
+            }
+            for (die, _) in [data.popped_min.get(), data.popped_max.get()]
+                .into_iter()
+                .flatten()
+            {
+                die.traverse(owners);
+            }
+            for o in data.index.get().into_iter().flat_map(|index| index.keys()) {
+                o.traverse(owners);
+            }
+        });
+    }
 }
 
 impl<O: PartialEq> PartialEq for Die<O> {

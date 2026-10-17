@@ -5,6 +5,7 @@
 //! the hand gets `count` of them in `comb(deck_count, count)` ways, and the rest of the hand comes from the rest of
 //! the deck.
 
+use crate::ownership::{Owners, Traverse};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -26,6 +27,12 @@ use crate::{Int, Quantity};
 pub struct Deal<O> {
     deck: Deck<O>,
     keep_tuple: Arc<[Int]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for Deal<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        self.deck.traverse(owners);
+    }
 }
 
 impl<O: Outcome> Deal<O> {
@@ -54,6 +61,12 @@ impl<O: Outcome> Deal<O> {
             deck,
             keep_tuple: vec![Int::ONE; n].into(),
         })
+    }
+
+    /// A deal's keep tuple (`keep_tuple()`) over its deck again: for a host that holds the deck apart (the Python
+    /// facade holds the deck's Python object, so that only one Python object holds the cards: see `ownership`).
+    pub fn from_parts(deck: Deck<O>, keep_tuple: Arc<[Int]>) -> Self {
+        Deal { deck, keep_tuple }
     }
 
     /// The `Deck` the cards are dealt from.
@@ -126,6 +139,13 @@ pub struct DealSource<O> {
     lo: usize,
     hi: usize,
     keep_tuple: Arc<[Int]>,
+}
+
+impl<O: Outcome + Traverse> Traverse for DealSource<O> {
+    fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+        self.deck.traverse(owners);
+        owners.arc(&self.outcomes);
+    }
 }
 
 impl<O: PartialEq> PartialEq for DealSource<O> {
