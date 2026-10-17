@@ -209,6 +209,9 @@
     "C5b": {
       "status": "todo",
       "attempts": 0
+    },
+    "C6": {
+      "status": "done"
     }
   },
   "merges": 69,
