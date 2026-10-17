@@ -772,6 +772,15 @@
     "details": "Design: docs/design/library-architecture.md section 4 and 9.3; continues C3 (read NOTES.md 'Public Rust API (C3)'). C3 curated the crate root and made die/outcome/int/pool/order/error/deck/deal/multi_deal private, but the modules icepool-py, icepool-wasm, the icepool-run binary and the protected tests still reach (again, compound_keep, counts, creation_args, expand, format, function, host_source, interrupt, keep, keep_tuple, khepri, map_tools, memory, operator, ownership, population, program, to_pool, weightless) are `#[doc(hidden)] pub mod`. Give icepool-py and icepool-wasm deliberate APIs instead, documented 'for language bindings', in `value` (or a new `host` module per design section 5: HostObject/HostRef/HostError, HostSource, HostOperator), never a widened pub mod, and make every module they no longer need pub(crate). `program` (and what only it uses) stays hidden until C5b moves the runner; khepri until C2f. Every newly visible item documented with an example (missing_docs is on; cargo doc -D warnings clean). Pure move/re-export: every fixture and the upstream suite still pass."
   },
   {
+    "id": "C3d",
+    "title": "icepool-harness through deliberate public APIs: the runner off core's hidden modules",
+    "deps": [
+      "C3b"
+    ],
+    "milestone": null,
+    "details": "Design: docs/design/library-architecture.md section 5 ('The runner is a client of the public API') and 4; continues C5b (read NOTES.md 'Crates and production builds'). C5b moved the JSON program runner into crates/icepool-harness, but it still reaches icepool-core's #[doc(hidden)] pub modules, as the bindings do: again, expand, memory, format, population, to_pool, operator, creation_args, keep, keep_tuple, function, compound_keep, weightless, map_tools, counts, khepri (`grep -ohE 'icepool_core::[a-z_]+' crates/icepool-harness/src/*.rs | sort | uniq -c`). After C3b gives the bindings deliberate APIs (in value, host, evaluator, expression or the root), move the runner onto the same ones, adding what only it needs as deliberate, documented API (never a widened pub mod), so the hidden modules can become pub(crate). Pure refactor: every fixture passes, fuzz clean, scripts/check-production.sh passes. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
     "id": "C3c",
     "title": "Typed API completion: Display for Pool/Deck, Deck/Deal constructors, Again, statistics in the guide, doctests everywhere",
     "deps": [

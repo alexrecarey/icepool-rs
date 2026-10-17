@@ -48,28 +48,32 @@ turns out wrong. Newest decisions at the top of each section.
   - **Upstream tests in JS:** `js/test/upstream-*.test.mjs` translate upstream's `tests/*_test.py` one test per
     Python test (helpers in `test/upstream.mjs`); `{ todo: "API: ..." }` marks a known API discrepancy.
 
-- **Crates and production builds (C5, design sections 5 and 8).** Follow-up: C5b (the runner's code moves into
-  icepool-harness once the loop owner moves the protected fixtures test, QUESTIONS.md "D1"), C6 (JS API off the
-  runner), C2f (khepri crate).
-  - **C5b is blocked (checked 2026-10-17, attempts 1 and 2):** `crates/icepool-core/tests/fixtures.rs` has not
-    moved and still calls `icepool_core::program::run`. Do not start the move until
-    `crates/icepool-harness/tests/fixtures.rs` exists (calling `icepool_harness::run`): moving `program/` first would
-    break the protected test. Check with `ls crates/icepool-harness/tests/fixtures.rs`.
-  - `crates/icepool-harness` (`publish = false`, test-only): the `icepool-run` binary (same name, so
-    `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and `icepool_harness::run`, for
-    now a re-export of `icepool_core::program::run`. Never a dependency of a production crate.
-  - icepool-core has **no default features**: `runner` (src/program/, test-only, interim until C5b) and `khepri`;
-    serde_json is optional, pulled in only by those two. icepool-harness depends on core with both, so every
-    `--workspace` cargo command (the gate) unifies them on; core's dev-dependency on icepool-harness (a dev cycle,
-    allowed) does the same for `cargo test -p icepool-core` (what cargo-mutants runs). Code only the runner uses is
-    compiled with it: `random.rs` (the seeded Mersenne Twister) and `lexi::compute_lexi_tuple_with_zero_right_first`.
-    **A runner-less build is not what the gate compiles**: after touching core, also run
+- **Crates and production builds (C5, C5b, design sections 5 and 8).** Follow-up: C6c-C6g (JS API off the
+  runner), C2f (khepri crate), C3d (the runner off core's hidden modules).
+  - `crates/icepool-harness` (`publish = false`, test-only) is the JSON program runner (`src/`, was
+    icepool-core's `src/program/` until C5b; its `mod.rs` is now `lib.rs`), the `icepool-run` binary (same name, so
+    `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and the protected fixtures test
+    (`tests/fixtures.rs`). `random.rs` (the seeded Mersenne Twister, only the runner samples with a seed) moved with
+    it: C6c's JS `sample` needs it in a production build, so give it a public home back in icepool-core then
+    (never make icepool-wasm's production build use the harness's copy). Feature `khepri` (default): the `khepri` node. **Never `cargo fmt` this crate**: it would reformat the
+    protected tests/fixtures.rs (C4 attempt 1 failed that way); `rustfmt --edition 2021 crates/icepool-harness/src/lib.rs`
+    formats the runner alone (it follows `mod`s, so revert any unrelated file it touches elsewhere).
+  - The runner is a client of icepool-core: `icepool_core::{root, value, host, evaluator, expression}` plus the same
+    `#[doc(hidden)] pub mod`s the bindings still reach (again, expand, memory, format, to_pool, operator, ...;
+    task C3d, after C3b, moves it onto deliberate APIs). C5b only had to make public what was private: lexi.py's
+    helpers (`evaluator::lexi::compute_lexi_tuple*`, re-exported from the private `lexi`) and
+    `Error::is_wrong_kind`. Never widen a private module for it.
+  - icepool-core has **no default features**: only `khepri` (serde_json optional, pulled in only by it). The
+    dev-dependency cycle on icepool-harness is gone: `cargo test -p icepool-core` no longer runs the fixtures (nor
+    tests/khepri_calculate.rs, which needs `khepri`); `cargo test --workspace` does, and cargo-mutants runs with
+    `--test-workspace true`. **A khepri-less build is not what the gate compiles**: after touching core, also run
     `cargo clippy --release -p icepool-core -- -D warnings` and `-p icepool-py` (core without features) or dead
     code there only shows in check-production's maturin build.
   - `icepool_core::host` (public, documented) holds every host-callback trait the core calls: `HostObject`,
     `HostRef`, `HostError`, `LenKind` (host/object.rs, was value/host.rs), `HostSource`/`HostSourceObject`
     (host/source.rs, was host_source.rs), `HostOperator` (host/operator.rs, was in operator/mod.rs). The JS
-    facade's `HostFunction`/`HostEvaluator` take runner values (`PValue`) and stay in program/host.rs until C6.
+    facade's `HostFunction`/`HostEvaluator` take runner values (`PValue`) and stay in icepool-harness's host.rs
+    until C6e.
   - `value::matmul_dice` (value/matmul.rs, was program/ops.rs): `n @ die` with Python's count rules, for both
     bindings. icepool-py no longer touches `program` at all; it has no serialisation (PyO3 converts directly), so
     there is no model to share with the JS facade, whose JSON (the runner's wire format) goes away in C6.
@@ -79,11 +83,13 @@ turns out wrong. Newest decisions at the top of each section.
     same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
     (khepri's) `khepri`. wasm.ts's `run`/`calculate` throw a clear Error in builds without the feature.
     **Interim until C6g:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
-    core with `runner` and on serde_json.
+    icepool-harness (`default-features = false`: no khepri engine in the npm package; icepool-wasm's `khepri` turns
+    `icepool-harness/khepri` on) and on serde_json. C6g makes that dependency optional, behind `runner`.
   - `scripts/check-production.sh` (the gate runs it once it exists; ~7 s warm, ~1 min cold): cargo tree of
     icepool-py / icepool-wasm (built alone), `maturin build --release` wheel file list + the .so's strings and
     symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports. While facade.rs uses
-    `icepool_core::program`, the npm package's runner code is reported as `interim`, not failed; C6g ends that by
+    `icepool_harness`, the npm package's runner code (icepool-harness, serde_json, the JSON-op exports) is reported
+    as `interim`, not failed (the wheel is always strict); C6g ends that by
     dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
     and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
     The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with
@@ -157,7 +163,7 @@ turns out wrong. Newest decisions at the top of each section.
   functions without `self` must not share names: rustc reports them ambiguous). Built-in evaluators get typed
   finals, converted to `Value` per final state by `evaluate_into` before the die is built, as Python builds it.
   Errors: one domain variant maps to exactly one Python exception; the mapping lives in icepool-py and the runner.
-  Runner: behind icepool-core's `runner` feature until the protected fixtures.rs moves (task C5b).
+  Runner: crates/icepool-harness (C5b).
 - **Cycles and the collector (R4).** The review's "leak" (20k x `d(6).map(lambda o, big=big: o)` +
   `pool(3).sum()`, maxrss +1.7 MB) was warm-up: after 500 warm-up iterations 20k more add 0 KB of maxrss and a few KB
   of traced memory (icepool's caches) on both backends. The real leak was cycles: a Python object held by the core
@@ -1093,7 +1099,7 @@ turns out wrong. Newest decisions at the top of each section.
   `_popped_min/_popped_max`, `__matmul__` (so `__rmatmul__`, `count`), `Die._lowest_single/_highest_single`, and
   keep.py's `_lowest_single/_highest_single`. Pattern for a selection: the facade runs `_select_outcomes` (Python
   callables and `in` stay Python's, identity semantics included) and passes `[o in outcome_set for o in
-  self.outcomes()]`; `icepool_rs` takes the flags. `@` goes through `icepool_core::program::matmul_dice` (shared
+  self.outcomes()]`; `icepool_rs` takes the flags. `@` goes through `icepool_core::value::matmul_dice` (shared
   with icepool-run: float/Fraction counts, the `_sum_all` recursion check; a core `Error::Value("RecursionError:
   ...")` is re-raised as `RecursionError`); an `int`-subclass count (IntEnum) is converted to the int first. The
   core's sum cache is per call: the facade die's `_sum_cache` is no longer filled (`_sum_all` itself stays

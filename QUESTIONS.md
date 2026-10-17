@@ -121,3 +121,22 @@ transcendentals would, and B9 decided against porting libm again. The long gate'
 3. bringing back exact libm ports for wasm32 only.
 
 The divergence is recorded in DIVERGENCES.md ("Floats under WASM").
+
+## C5b: the design doc's section 5 and 9.5 after the runner moved (docs/ is protected)
+
+C5b moved `program/` into crates/icepool-harness and dropped icepool-core's `runner` feature. Two things in
+docs/design/library-architecture.md are now out of date, and I cannot edit docs/:
+
+1. Section 5's "Interim, until the protected `crates/icepool-core/tests/fixtures.rs` moves" paragraph and the
+   `icepool-core/runner` entry under "Feature flags" describe the state before C5b; section 9.5 item 5 says
+   check-production.sh keys INTERIM on `icepool_core::program` (it now keys on facade.rs using `icepool_harness`).
+2. Section 5 says icepool-wasm's `runner` feature becomes "an optional dependency on icepool-harness after C5b".
+   That assumed C6 had taken the JS API off the runner, but C6 was split and the TypeScript API's bridge
+   (src/facade.rs, until C6g) still calls the runner's nodes in the npm package. So for now icepool-wasm depends on
+   icepool-harness **non-optionally**, with `default-features = false` (no khepri engine in the npm package), and
+   check-production.sh reports the harness in the npm package as `interim`, exactly as it reported
+   `icepool-core/runner` before (the wheel stays strict: icepool-py must not depend on icepool-harness). C6g makes
+   the dependency optional, behind `runner`. Please confirm that interim is acceptable, and update the design doc.
+
+The runner still reaches core's `#[doc(hidden)] pub mod`s, as the bindings do; task C3d (after C3b) moves it onto
+deliberate APIs.
