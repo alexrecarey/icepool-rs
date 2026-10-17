@@ -207,7 +207,8 @@
       "status": "done"
     },
     "C5b": {
-      "attempts": 1
+      "attempts": 1,
+      "status": "done"
     }
   },
   "merges": 68,
