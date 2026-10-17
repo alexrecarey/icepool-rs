@@ -28,36 +28,105 @@ import { raw, wasm } from "./wasm.js";
 
 // --- Argument types -----------------------------------------------------------------------------------------------
 
-/** What dice operators and constructors accept on the other side: an outcome, a die, or an Again expression. */
+/** What dice operators and constructors accept on the other side: an outcome, a die, or an Again expression. A
+ * plain outcome is converted to a die that always rolls it (Python's `implicit_convert_to_die`).
+ *
+ * @example
+ * ```ts
+ * d(6).add(1).outcomes(); //=> [2, 3, 4, 5, 6, 7]
+ * d(6).add(d(6)).probability(7).toString(); //=> "1/6"
+ * ```
+ */
 export type Operand = Outcome | Die | AgainExpression;
 
 /** A JS function the core calls back. Its parameters are typed by the caller (`(x: number) => ...`); Python's
- * `star` is inferred from its `length`, as Python counts positional parameters. */
+ * `star` is inferred from its `length`, as Python counts positional parameters.
+ *
+ * @example
+ * ```ts
+ * // One parameter: called with each outcome.
+ * d(6).map((x: number) => x * 2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
+ * // Two parameters (`length` 2): a tuple outcome is unpacked into them, as Python's `star`.
+ * new Die([[1, 2], [3, 4]]).map((a: number, b: number) => a + b).outcomes(); //=> [3, 7]
+ * ```
+ */
 export type Callback<R = unknown> = (...args: never[]) => R;
 
 /** A selection of outcomes (`reroll`, `filter`, `split`, `explode`, ...): a predicate or the outcomes themselves
- * (a Map: its keys, as Python's dict). */
+ * (a Map: its keys, as Python's dict).
+ *
+ * @example
+ * ```ts
+ * d(6).split([5, 6])[0].outcomes(); //=> [5, 6]
+ * d(6).split((x: number) => x > 4)[0].outcomes(); //=> [5, 6]
+ * ```
+ */
 export type Which = Callback | readonly Outcome[] | Map<unknown, unknown> | null;
 
-/** A comparison, as Python spells it. */
+/** A comparison, as Python spells it (`keepCounts`, `sortPair`, `versusAll`, ...).
+ *
+ * @example
+ * ```ts
+ * // The dice of 3d6 that are part of a pair or better: none, two or three.
+ * d(6).pool(3).keepCounts(">=", 2).size().items(); //=> [[0, 120n], [2, 90n], [3, 6n]]
+ * ```
+ */
 export type Comparison = "==" | "!=" | "<=" | "<" | ">=" | ">";
 
-/** What a `map` function may return. */
+/** What a `map` function may return: an outcome, a die (its outcomes share the original outcome's weight),
+ * `Reroll` (drops the outcome), `Restart` or `Break` (for `repeat`), an Again expression, or a tuple of these.
+ *
+ * @example
+ * ```ts
+ * d(6).map((x: number) => (x === 1 ? Reroll : x)).outcomes(); //=> [2, 3, 4, 5, 6]
+ * d(6).map((x: number) => (x === 6 ? d(6).add(6) : x)).denominator(); //=> 36n
+ * ```
+ */
 export type MapResult = Operand | typeof Reroll | typeof Restart | Break | readonly MapResult[];
 
 /** What `map` takes: a function, or a Map (Python's dict: `mapping.get(outcome, outcome)`, keys compared with
- * Python's `==`, so `1`, `1.0` and `true` are one key). */
+ * Python's `==`, so `1`, `1.0` and `true` are one key).
+ *
+ * @example
+ * ```ts
+ * d(6).map((x: number) => x * 2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
+ * // Outcomes not in the Map stay as they are.
+ * d(6).map(new Map([[6, 0]])).outcomes(); //=> [0, 1, 2, 3, 4, 5]
+ * ```
+ */
 export type Repl = Callback<MapResult> | Map<unknown, MapResult>;
 
-/** The keyword arguments of `Die(...)` for `Again` outcomes (population/again.py). */
+/** The keyword arguments of `Die(...)` for `Again` outcomes (population/again.py): how many times to roll again.
+ * At most one of `againCount` and `againDepth` may be given.
+ *
+ * @example
+ * ```ts
+ * // A d6 that explodes once on a 6.
+ * const once = new Die([1, 2, 3, 4, 5, Again.add(6)], { againDepth: 1 });
+ * once.outcomes(); //=> [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]
+ * // As before, but rerolling a second 6 instead of counting it as 0.
+ * new Die([1, 2, 3, 4, 5, Again.add(6)], { againDepth: 1, againEnd: Reroll }).maxOutcome(); //=> 11
+ * ```
+ */
 export interface AgainOptions {
+  /** `again_count`: count mode, at most this many extra rolls in total (additive Again expressions only). */
   againCount?: Int | null;
+  /** `again_depth`: depth mode, Again nested at most this deep; the default (1) when neither option is given. */
   againDepth?: Int | null;
+  /** `again_end`: what an `Again` beyond the limit becomes: an outcome, `Reroll`, `Restart` (count mode only), or
+   * zero when null. */
   againEnd?: Operand | typeof Reroll | typeof Restart | null;
 }
 
 /** What `new Die(...)` takes as outcomes: a sequence of outcomes, dice, `Reroll` or Again expressions, a Map of
- * outcomes to quantities, or a die (whose quantities multiply the times). */
+ * outcomes to quantities, or a die (whose quantities multiply the times).
+ *
+ * @example
+ * ```ts
+ * new Die([1, 2, 2, 3]).items(); //=> [[1, 1n], [2, 2n], [3, 1n]]
+ * new Die(new Map([[1, 2n], [2, 1n]])).items(); //=> [[1, 2n], [2, 1n]]
+ * ```
+ */
 export type DieOutcomes = readonly (MapResult | Special)[] | Map<unknown, Int> | Die;
 
 // --- Helpers ------------------------------------------------------------------------------------------------------
@@ -150,13 +219,50 @@ const UNARY: Record<UnaryName, keyof typeof import("../pkg-node/icepool_wasm.js"
   neg: "Neg", pos: "Pos", invert: "Invert", abs: "Abs", trunc: "Trunc", floor: "Floor", ceil: "Ceil",
 };
 
-/** `icepool.Die`: `new Die([1, 2, 3])`, `new Die([d6, d8], [2, 1])`, `new Die(new Map([[1, 2n], [2, 1n]]))`;
- * options `{ againCount, againDepth, againEnd }` as in Python. Free it with `free()` or `using` when done with it
- * (else the garbage collector does, eventually). */
+/** `icepool.Die`: sampling with replacement; quantities (BigInts) are weights.
+ *
+ * Dice are immutable: methods return a new die rather than changing this one. Operators are methods
+ * (`die.add(1)`, `die.gt(3)`), keyword arguments a trailing options object. A die can also be empty (no outcomes),
+ * though that has little use other than as a sentinel.
+ *
+ * `new Die(outcomes, times?, { againCount, againDepth, againEnd }?)` takes the faces as an array (duplicates add
+ * quantity) or a Map of outcomes to quantities; a face may itself be a die, flattened into the result with the
+ * quantity shared among its outcomes, `Reroll` (dropped), or an Again expression. Don't confuse it with `d()`:
+ * `new Die([6])` always rolls 6, `d(6)` is a d6. Each die holds WASM memory: free it with `free()` when done with
+ * it, or leave it to the garbage collector.
+ *
+ * @example
+ * ```ts
+ * // Some ways of making a d6.
+ * d(6).outcomes(); //=> [1, 2, 3, 4, 5, 6]
+ * new Die([1, 2, 3, 4, 5, 6]).equals(d(6)); //=> true
+ * new Die([d(3), d(3).add(3)]).equals(d(6)); //=> true
+ * new Die(new Map([[1, 1n], [2, 1n], [3, 1n], [4, 1n], [5, 1n], [6, 1n]])).equals(d(6)); //=> true
+ * // `times` multiplies each face's quantity.
+ * new Die([1, 2, 3], [3, 2, 1]).items(); //=> [[1, 3n], [2, 2n], [3, 1n]]
+ * // A d6 that explodes on a 6, once.
+ * new Die([1, 2, 3, 4, 5, Again.add(6)], { againDepth: 1 }).maxOutcome(); //=> 12
+ * ```
+ */
 export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable {
   /** The core's die; `null` once freed. @internal */
   protected core: WasmDie | null = null;
 
+  /** `Die(outcomes, times=1, *, again_count=None, again_depth=None, again_end=None)`.
+   *
+   * All quantities must be non-negative; outcomes with zero quantity are omitted. For a flat set of outcomes the
+   * denominator is the sum of the quantities; if some faces are dice, the overall denominator is the smallest
+   * that keeps the relative weights of the faces (`new Die([d(4), d(6)])` has denominator 24).
+   * `new Die([die])` is that very die.
+   *
+   * @param outcomes - The faces: an array of outcomes, dice, `Reroll` or Again expressions (tuples holding dice
+   *   are tupleized into a die of tuples), a Map of outcomes to quantities, or a die.
+   * @param times - Multiplies the quantity of each face: one int for all, or one per face. May be left out in
+   *   favour of the options.
+   * @param options - How `Again` faces are rolled again; see {@link AgainOptions}.
+   * @throws IcepoolError `ValueError` if both `againCount` and `againDepth` are given; `TypeError` for outcomes
+   *   that cannot be sorted together (such as `null`).
+   */
   constructor(outcomes: DieOutcomes, times?: Int | readonly Int[] | AgainOptions, options?: AgainOptions) {
     if (isOptions(times)) [times, options] = [undefined, times as AgainOptions];
     const made = makeDie(outcomes, times as Int | readonly Int[] | undefined, options ?? {});
@@ -188,13 +294,23 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   }
 
   /** Frees the die's WASM memory now rather than when it is garbage-collected. Using it afterwards throws a
-   * `TypeError`; freeing it again does nothing. Dice made from it (`die.add(1)`) are not affected. */
+   * `TypeError`; freeing it again does nothing. Dice made from it (`die.add(1)`) are not affected.
+   *
+   * @example
+   * ```ts
+   * const d6 = d(6);
+   * const plusOne = d6.add(1);
+   * d6.free();
+   * d6.mean(); //=> throws TypeError
+   * plusOne.outcomes(); //=> [2, 3, 4, 5, 6, 7]
+   * ```
+   */
   free(): void {
     this.core?.free();
     this.core = null;
   }
 
-  /** `free()`, for `using die = d(6);`. */
+  /** `free()`, for `using die = d(6);` (where the runtime supports `using`). */
   [Symbol.dispose](): void {
     this.free();
   }
@@ -216,44 +332,236 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     return Die.wrap(wasm(() => w.unary(op)));
   }
 
+  // Binary operators: the operator applied to every pair of outcomes of the two dice, rolled independently (an
+  // outcome operand is a die that always rolls it). With an Again expression on the other side, the result is an
+  // Again expression, as in Python.
+
+  /** `self + other`.
+   * @example
+   * ```ts
+   * d(6).add(1).outcomes(); //=> [2, 3, 4, 5, 6, 7]
+   * ```
+   */
   add(other: Operand): Die { return this.binary("add", other); }
+  /** `self - other`.
+   * @example
+   * ```ts
+   * d(6).sub(1).outcomes(); //=> [0, 1, 2, 3, 4, 5]
+   * ```
+   */
   sub(other: Operand): Die { return this.binary("sub", other); }
+  /** `self * other`.
+   * @example
+   * ```ts
+   * d(6).mul(2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
+   * ```
+   */
   mul(other: Operand): Die { return this.binary("mul", other); }
+  /** `self / other`: true division, so ints become floats.
+   * @example
+   * ```ts
+   * d(4).truediv(2).repr(); //=> "Die({0.5: 1, 1.0: 1, 1.5: 1, 2.0: 1})"
+   * ```
+   */
   truediv(other: Operand): Die { return this.binary("truediv", other); }
-  /** `truediv`. */
+  /** `self / other`: the same as `truediv`.
+   * @example
+   * ```ts
+   * d(4).div(2).equals(d(4).truediv(2)); //=> true
+   * ```
+   */
   div(other: Operand): Die { return this.binary("truediv", other); }
+  /** `self // other`: floor division.
+   * @example
+   * ```ts
+   * d(6).floordiv(2).items(); //=> [[0, 1n], [1, 2n], [2, 2n], [3, 1n]]
+   * ```
+   */
   floordiv(other: Operand): Die { return this.binary("floordiv", other); }
+  /** `self % other`, with Python's sign convention (the result has the sign of `other`).
+   * @example
+   * ```ts
+   * d(6).mod(3).items(); //=> [[0, 2n], [1, 2n], [2, 2n]]
+   * ```
+   */
   mod(other: Operand): Die { return this.binary("mod", other); }
+  /** `self ** other`.
+   * @example
+   * ```ts
+   * d(3).pow(2).outcomes(); //=> [1, 4, 9]
+   * ```
+   */
   pow(other: Operand): Die { return this.binary("pow", other); }
+  /** `self << other`.
+   * @example
+   * ```ts
+   * d(3).lshift(1).outcomes(); //=> [2, 4, 6]
+   * ```
+   */
   lshift(other: Operand): Die { return this.binary("lshift", other); }
+  /** `self >> other`.
+   * @example
+   * ```ts
+   * d(6).rshift(1).items(); //=> [[0, 1n], [1, 2n], [2, 2n], [3, 1n]]
+   * ```
+   */
   rshift(other: Operand): Die { return this.binary("rshift", other); }
+  /** `self & other`: bitwise and (logical for bools).
+   * @example
+   * ```ts
+   * d(6).and(1).items(); //=> [[0, 3n], [1, 3n]]
+   * ```
+   */
   and(other: Operand): Die { return this.binary("and", other); }
+  /** `self | other`: bitwise or (logical for bools).
+   * @example
+   * ```ts
+   * d(4).or(1).outcomes(); //=> [1, 3, 5]
+   * ```
+   */
   or(other: Operand): Die { return this.binary("or", other); }
+  /** `self ^ other`: bitwise exclusive or (logical for bools).
+   * @example
+   * ```ts
+   * d(4).xor(1).outcomes(); //=> [0, 2, 3, 5]
+   * ```
+   */
   xor(other: Operand): Die { return this.binary("xor", other); }
 
   // The reflected operators: `3 - die` is `die.rsub(3)`, the other operand converted to a die on the left.
+
+  /** `other + self`.
+   * @example
+   * ```ts
+   * d(6).radd(1).outcomes(); //=> [2, 3, 4, 5, 6, 7]
+   * ```
+   */
   radd(other: Operand): Die { return this.binary("add", other, true); }
+  /** `other - self`.
+   * @example
+   * ```ts
+   * d(6).rsub(7).outcomes(); //=> [1, 2, 3, 4, 5, 6]
+   * ```
+   */
   rsub(other: Operand): Die { return this.binary("sub", other, true); }
+  /** `other * self`.
+   * @example
+   * ```ts
+   * d(6).rmul(2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
+   * ```
+   */
   rmul(other: Operand): Die { return this.binary("mul", other, true); }
+  /** `other / self`: true division.
+   * @example
+   * ```ts
+   * d(4).rtruediv(12).repr(); //=> "Die({3.0: 1, 4.0: 1, 6.0: 1, 12.0: 1})"
+   * ```
+   */
   rtruediv(other: Operand): Die { return this.binary("truediv", other, true); }
+  /** `other // self`: floor division.
+   * @example
+   * ```ts
+   * d(4).rfloordiv(12).outcomes(); //=> [3, 4, 6, 12]
+   * ```
+   */
   rfloordiv(other: Operand): Die { return this.binary("floordiv", other, true); }
+  /** `other % self`.
+   * @example
+   * ```ts
+   * d(4).rmod(5).items(); //=> [[0, 1n], [1, 2n], [2, 1n]]
+   * ```
+   */
   rmod(other: Operand): Die { return this.binary("mod", other, true); }
+  /** `other ** self`.
+   * @example
+   * ```ts
+   * d(3).rpow(2).outcomes(); //=> [2, 4, 8]
+   * ```
+   */
   rpow(other: Operand): Die { return this.binary("pow", other, true); }
+  /** `other << self`.
+   * @example
+   * ```ts
+   * d(3).rlshift(1).outcomes(); //=> [2, 4, 8]
+   * ```
+   */
   rlshift(other: Operand): Die { return this.binary("lshift", other, true); }
+  /** `other >> self`.
+   * @example
+   * ```ts
+   * d(3).rrshift(8).outcomes(); //=> [1, 2, 4]
+   * ```
+   */
   rrshift(other: Operand): Die { return this.binary("rshift", other, true); }
+  /** `other & self`.
+   * @example
+   * ```ts
+   * d(3).rand(1).items(); //=> [[0, 1n], [1, 2n]]
+   * ```
+   */
   rand(other: Operand): Die { return this.binary("and", other, true); }
+  /** `other | self`.
+   * @example
+   * ```ts
+   * d(3).ror(4).outcomes(); //=> [5, 6, 7]
+   * ```
+   */
   ror(other: Operand): Die { return this.binary("or", other, true); }
+  /** `other ^ self`.
+   * @example
+   * ```ts
+   * d(3).rxor(1).outcomes(); //=> [0, 2, 3]
+   * ```
+   */
   rxor(other: Operand): Die { return this.binary("xor", other, true); }
 
   // Comparisons: dice of bools.
+
+  /** `self < other`: a die of whether this die rolls lower.
+   * @example
+   * ```ts
+   * d(6).lt(3).items(); //=> [[false, 4n], [true, 2n]]
+   * ```
+   */
   lt(other: Operand): Die { return this.binary("lt", other); }
+  /** `self <= other`.
+   * @example
+   * ```ts
+   * d(6).le(3).items(); //=> [[false, 3n], [true, 3n]]
+   * ```
+   */
   le(other: Operand): Die { return this.binary("le", other); }
+  /** `self > other`.
+   * @example
+   * ```ts
+   * d(6).gt(4).items(); //=> [[false, 4n], [true, 2n]]
+   * ```
+   */
   gt(other: Operand): Die { return this.binary("gt", other); }
+  /** `self >= other`.
+   * @example
+   * ```ts
+   * d(20).ge(11).probability(true).toString(); //=> "1/2"
+   * ```
+   */
   ge(other: Operand): Die { return this.binary("ge", other); }
   /** `self == other`: a die of bools with a truth value, `truth()`, which is whether the dice are the same
-   * (`equals`; a die is never the same as a plain outcome). */
+   * (`equals`; a die is never the same as a plain outcome).
+   * @example
+   * ```ts
+   * d(6).eq(3).items(); //=> [[false, 5n], [true, 1n]]
+   * d(6).eq(d(6)).truth(); //=> true
+   * d(6).eq(6).truth(); //=> false
+   * ```
+   */
   eq(other: Operand): DieWithTruth { return this.equality(other, false); }
-  /** `self != other`: as `eq`, with the opposite truth value. */
+  /** `self != other`: as `eq`, with the opposite truth value.
+   * @example
+   * ```ts
+   * d(6).ne(3).items(); //=> [[false, 1n], [true, 5n]]
+   * d(6).ne(d(8)).truth(); //=> true
+   * ```
+   */
   ne(other: Operand): DieWithTruth { return this.equality(other, true); }
 
   private equality(other: unknown, ne: boolean): DieWithTruth {
@@ -274,34 +582,109 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     return DieWithTruth.wrapTruth(data, same !== ne);
   }
 
+  // Unary operators, applied to each outcome.
+
+  /** `-self`.
+   * @example
+   * ```ts
+   * d(6).neg().outcomes(); //=> [-6, -5, -4, -3, -2, -1]
+   * ```
+   */
   neg(): Die { return this.unary("neg"); }
+  /** `+self`: each outcome unchanged, for numbers.
+   * @example
+   * ```ts
+   * d(6).pos().equals(d(6)); //=> true
+   * ```
+   */
   pos(): Die { return this.unary("pos"); }
+  /** `~self`: bitwise inversion, `-x - 1` for ints.
+   * @example
+   * ```ts
+   * d(3).invert().outcomes(); //=> [-4, -3, -2]
+   * ```
+   */
   invert(): Die { return this.unary("invert"); }
+  /** `abs(self)`.
+   * @example
+   * ```ts
+   * d(6).sub(d(6)).abs().outcomes(); //=> [0, 1, 2, 3, 4, 5]
+   * ```
+   */
   abs(): Die { return this.unary("abs"); }
+  /** `math.trunc(self)`: each outcome rounded toward zero. Not to be confused with {@link Die.truncate}.
+   * @example
+   * ```ts
+   * d(6).neg().truediv(4).trunc().items(); //=> [[-1, 3n], [0, 3n]]
+   * ```
+   */
   trunc(): Die { return this.unary("trunc"); }
+  /** `math.floor(self)`: each outcome rounded down.
+   * @example
+   * ```ts
+   * d(6).neg().truediv(4).floor().items(); //=> [[-2, 2n], [-1, 4n]]
+   * ```
+   */
   floor(): Die { return this.unary("floor"); }
+  /** `math.ceil(self)`: each outcome rounded up.
+   * @example
+   * ```ts
+   * d(6).truediv(4).ceil().items(); //=> [[1, 4n], [2, 2n]]
+   * ```
+   */
   ceil(): Die { return this.unary("ceil"); }
-  /** `round(die, ndigits)`. */
+  /** `round(die, ndigits)`: each outcome rounded as Python's `round`, so halves go to the even neighbour; to an
+   * int without `ndigits`, else to `ndigits` decimals.
+   * @example
+   * ```ts
+   * // 0.5 -> 0, 1.5 -> 2, 2.5 -> 2.
+   * d(6).truediv(2).round().items(); //=> [[0, 1n], [1, 1n], [2, 3n], [3, 1n]]
+   * d(6).truediv(4).round(1).repr(); //=> "Die({0.2: 1, 0.5: 1, 0.8: 1, 1.0: 1, 1.2: 1, 1.5: 1})"
+   * ```
+   */
   round(ndigits: Int | null = null): Die {
     const w = this.w;
     return Die.wrap(wasm(() => w.round(ndigits)));
   }
 
-  /** `self @ other`: roll this die, then roll `other` that many times and sum. */
+  /** `self @ other`: roll this die, then roll `other` that many times and sum the outcomes. The sum is computed
+   * one at a time, each additional roll on the right, as `reduce`; a negative count sums that many rolls and
+   * negates the result.
+   * @example
+   * ```ts
+   * d(2).matmul(6).outcomes(); //=> [6, 12]
+   * // Roll a d4 to find how many d6 to roll.
+   * d(4).matmul(d(6)).mean().toString(); //=> "35/4"
+   * ```
+   */
   matmul(other: Operand): Die {
     const o = nativeDie(other);
     if (o === undefined) return call("matmul", { n: this, die: other }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => w.matmul(o)));
   }
-  /** `n @ self`: the sum of `n` rolls of this die (`n` an int or a die). */
+  /** `n @ self`: the sum of `n` rolls of this die (`n` an int, or a die rolled first to find the count).
+   * @example
+   * ```ts
+   * d(6).rmatmul(3).mean().toString(); //=> "21/2"
+   * d(6).rmatmul(3).equals(Die.sum(3, d(6))); //=> true
+   * ```
+   */
   rmatmul(n: Int | Die): Die {
     const o = nativeDie(n);
     if (o === undefined) return call("matmul", { n, die: this }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => o.matmul(w)));
   }
-  /** `n @ die`: the sum of `n` rolls (n an int or a die). */
+  /** `n @ die`: the sum of `n` rolls of `die` (`n` an int, or a die rolled first to find the count). The way to
+   * write "3d6".
+   * @example
+   * ```ts
+   * Die.sum(3, d(6)).outcomes().length; //=> 16
+   * Die.sum(2, d(6)).probability(7).toString(); //=> "1/6"
+   * Die.sum(d(4), d(6)).mean().toString(); //=> "35/4"
+   * ```
+   */
   static sum(n: Int | Die, die: Die): Die {
     return ops.matmul(n, die);
   }
@@ -328,8 +711,27 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     return undefined;
   }
 
-  /** `die.reroll(which, star=, depth=)`. `which` a function, an array of outcomes, or null (the lowest outcome);
-   * `depth` is required, as in Python: an int, or Infinity (Python's 'inf'). */
+  /** `die.reroll(which, star=, depth=)`: rerolls the selected outcomes.
+   *
+   * If the reroll would never end (every outcome selected, unlimited depth), the result has no outcomes.
+   *
+   * @param which - The outcomes to reroll: an array of them, a function returning whether to reroll an outcome,
+   *   or null for the lowest outcome.
+   * @param options - Keyword arguments.
+   * @param options.star - Whether to unpack each outcome into the function's arguments; inferred from the
+   *   function's `length` when not given.
+   * @param options.depth - Required, as in Python: the maximum number of rerolls, or Infinity (Python's 'inf')
+   *   for no limit.
+   * @throws IcepoolError `ValueError` for a negative depth.
+   * @example
+   * ```ts
+   * // Reroll 1s until they stop coming up.
+   * d(6).reroll([1], { depth: Infinity }).outcomes(); //=> [2, 3, 4, 5, 6]
+   * // Reroll a 1 once: it stays only if rolled twice.
+   * d(6).reroll([1], { depth: 1 }).probability(1).toString(); //=> "1/36"
+   * d(6).reroll((x: number) => x <= 2, { depth: 1 }).probability(1).toString(); //=> "1/18"
+   * ```
+   */
   reroll(which: Which = null, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
     const d = depthArg(depth);
     if (d !== undefined) {
@@ -341,7 +743,19 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     }
     return call("reroll", { die: this, which: list(which), star, depth: inf(depth) }) as Die;
   }
-  /** `die.filter(which, star=, depth=)`: rerolls the outcomes `which` does not select. */
+  /** `die.filter(which, star=, depth=)`: rerolls until getting one of the selected outcomes; the complement of
+   * `reroll`.
+   *
+   * @param which - The outcomes to keep: an array of them, or a function returning whether to accept an outcome.
+   * @param options - Keyword arguments.
+   * @param options.star - As for {@link Die.reroll}.
+   * @param options.depth - Required: the maximum number of rerolls, or Infinity for no limit.
+   * @example
+   * ```ts
+   * d(6).filter((x: number) => x % 2 === 0, { depth: Infinity }).outcomes(); //=> [2, 4, 6]
+   * d(6).filter([5, 6], { depth: 1 }).items(); //=> [[1, 4n], [2, 4n], [3, 4n], [4, 4n], [5, 10n], [6, 10n]]
+   * ```
+   */
   filter(which: Which, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
     const d = depthArg(depth);
     const mask = d !== undefined && which !== null ? this.selection(which, star) : undefined;
@@ -359,15 +773,45 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     mask[0] = 1;
     return mask;
   }
+  /** `die.truncate(min_outcome, max_outcome)`: the outcomes within the range, endpoints included; a null bound
+   * leaves that side as it is. This effectively rerolls the outcomes outside the range; to replace them with the
+   * nearest endpoint instead, use {@link Die.clip}. Not to be confused with {@link Die.trunc}.
+   * @example
+   * ```ts
+   * d(6).truncate(2, 5).items(); //=> [[2, 1n], [3, 1n], [4, 1n], [5, 1n]]
+   * d(6).truncate(3).outcomes(); //=> [3, 4, 5, 6]
+   * ```
+   */
   truncate(min: Outcome = null, max: Outcome = null): Die {
     const w = this.w;
     return Die.wrap(wasm(() => w.truncate(min, max)));
   }
+  /** `die.clip(min_outcome, max_outcome)`: each outcome outside the range replaced by the nearest endpoint, so
+   * quantity bunches up at the endpoints; a null bound leaves that side as it is. To reroll the outcomes outside
+   * the range instead, use {@link Die.truncate}.
+   * @example
+   * ```ts
+   * d(6).clip(2, 5).items(); //=> [[2, 2n], [3, 1n], [4, 1n], [5, 2n]]
+   * d(6).clip(null, 4).items(); //=> [[1, 1n], [2, 1n], [3, 1n], [4, 3n]]
+   * ```
+   */
   clip(min: Outcome = null, max: Outcome = null): Die {
     const w = this.w;
     return Die.wrap(wasm(() => w.clip(min, max)));
   }
-  /** `[selected, rest]`. */
+  /** `die.split(which, star=)`: `[selected, rest]`, a die of the selected outcomes and a die of the others. The
+   * denominators of the two add up to this die's. To split more than two ways, use {@link Die.groupBy}.
+   *
+   * @param which - The outcomes to select: an array of them, or a function returning whether to select one.
+   * @param options - Keyword arguments.
+   * @param options.star - As for {@link Die.reroll}.
+   * @example
+   * ```ts
+   * const [high, low] = d(6).split((x: number) => x > 4);
+   * high.outcomes(); //=> [5, 6]
+   * low.outcomes(); //=> [1, 2, 3, 4]
+   * ```
+   */
   split(which: Which = null, { star = null }: { star?: boolean | null } = {}): [Die, Die] {
     const mask = which === null ? undefined : this.selection(which, star);
     if (mask !== undefined) {
@@ -377,6 +821,23 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     }
     return call("split", { die: this, which: list(which), star }) as [Die, Die];
   }
+  /** `die.explode(which, star=, depth=9, end=None)`: the selected outcomes are rolled again and added to the
+   * total.
+   *
+   * @param which - The outcomes that explode: an array of them, a function returning whether one explodes, or
+   *   null for the highest outcome.
+   * @param options - Keyword arguments.
+   * @param options.star - As for {@link Die.reroll}.
+   * @param options.depth - The maximum number of extra rolls, not counting the first (default 9).
+   * @param options.end - What further explosions count as once `depth` is reached: zero when null; `Reroll` makes
+   *   one final roll, rerolling until an outcome that does not explode.
+   * @throws IcepoolError `ValueError` for a negative depth.
+   * @example
+   * ```ts
+   * d(6).explode([6], { depth: 1 }).outcomes(); //=> [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]
+   * d(6).explode().mean().toString(); //=> "84652645/20155392"
+   * ```
+   */
   explode(
     which: Which = null,
     { star = null, depth = 9, end = null }: { star?: boolean | null; depth?: Int; end?: Operand | typeof Reroll | null } = {},
@@ -386,24 +847,95 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
 
   // --- map and friends: `die.map(f, ...extraArgs, { star, repeat })` is `map(f, die, ...extraArgs, ...)` --------
 
+  /** `die.map(repl, *extra_args, star=, repeat=, again_count=, ...)`: maps the outcomes of this die to other
+   * outcomes; the same as {@link map}`(repl, die, ...extraArgs, options)`, which documents the options.
+   *
+   * `repl` is a function called with each outcome (and one outcome of each extra argument, for every joint
+   * outcome), or a Map from old outcomes to new ones (unmapped outcomes stay the same). A new outcome may be a die,
+   * `Reroll` (rerolls that old outcome), or an Again expression. With `repeat`, the map is applied that many times
+   * (Infinity for the limit), which models a Markov process.
+   * @example
+   * ```ts
+   * d(6).map((x: number) => x * 2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
+   * // An extra argument: the higher of two d6.
+   * d(6).map((x: number, y: number) => Math.max(x, y), d(6)).probability(6).toString(); //=> "11/36"
+   * d(6).map((x: number) => (x === 1 ? Reroll : x)).outcomes(); //=> [2, 3, 4, 5, 6]
+   * ```
+   */
   map(f: Repl, ...rest: unknown[]): Die {
     return map(f, this, ...rest);
   }
+  /** `die.map_and_time(repl, *extra_args, star=, repeat=)`: repeatedly maps the outcomes of this die, the
+   * state, while counting time steps; the same as {@link mapAndTime}`(repl, die, ...extraArgs, options)`.
+   *
+   * The outcomes of the result are `[state, time]`, where `time` is the number of steps needed to reach an
+   * absorbing state (one that only leads to itself), or `repeat`, whichever is less. It returns early once
+   * every state is absorbed, so `repeat` can be as high as the longest time of interest. Extra arguments are
+   * rerolled at every step.
+   * @example
+   * ```ts
+   * // Add d2 to a total of 0 until it reaches 2.
+   * const process = new Die([0]).mapAndTime((x: number) => (x >= 2 ? x : d(2).add(x)), { repeat: 3 });
+   * process.items(); //=> [[[2, 1], 2n], [[2, 2], 1n], [[3, 2], 1n]]
+   * ```
+   */
   mapAndTime(f: Callback<MapResult>, ...rest: unknown[]): Die {
     return mapAndTime(f, this, ...rest);
   }
+  /** `die.mean_time_to_absorb(repl, *extra_args, star=)` (EXPERIMENTAL in icepool): the mean number of steps for
+   * the process starting from this die to reach an absorbing state (one that maps to itself with certainty); the
+   * same as {@link meanTimeToAbsorb}`(repl, die, ...extraArgs, options)`. `Restart` is not supported.
+   * @example
+   * ```ts
+   * new Die([0]).meanTimeToAbsorb((x: number) => (x >= 2 ? x : d(2).add(x))).toString(); //=> "3/2"
+   * ```
+   */
   meanTimeToAbsorb(f: Callback<MapResult>, ...rest: unknown[]): Fraction {
     return meanTimeToAbsorb(f, this, ...rest);
   }
-  /** The expected number of rolls to reach a sum of at least `target` (a Fraction). */
+  /** `die.mean_time_to_sum(target)`: the mean number of rolls until the running total is at least `target`, as
+   * a Fraction.
+   * @throws IcepoolError `ValueError` if this die has negative outcomes; `ZeroDivisionError` if its mean is 0.
+   * @example
+   * ```ts
+   * d(6).meanTimeToSum(6).toString(); //=> "16807/7776"
+   * d(6).meanTimeToSum(0).toString(); //=> "0"
+   * ```
+   */
   meanTimeToSum(target: Int): Fraction {
     return (call("mean_time_to_sum", { die: this, targets: List.of(target) }) as Fraction[])[0];
   }
+  /** `die.time_to_sum(target, max_time=None, dnf=None)`: a die of the number of rolls until the running total is
+   * at least `target`.
+   *
+   * @param target - The total to stop at.
+   * @param maxTime - The maximum number of rolls. Required if some outcome is not positive; by default the most
+   *   rolls the target can take.
+   * @param dnf - The time given to the cases that do not reach the target in `maxTime` rolls; `maxTime` when
+   *   null, `Reroll` to drop those cases.
+   * @throws IcepoolError `ValueError` without `maxTime` when some outcome is zero or negative.
+   * @example
+   * ```ts
+   * d(6).timeToSum(3).items(); //=> [[1, 144n], [2, 66n], [3, 6n]]
+   * d(6).timeToSum(6).mean().toString(); //=> "16807/7776"
+   * // Of the 36 sequences of 2 rolls, the 6 that reach 10.
+   * d(6).timeToSum(10, 2, Reroll).items(); //=> [[2, 6n]]
+   * ```
+   */
   timeToSum(target: Int, maxTime: Int | null = null, dnf: Int | typeof Reroll | null = null): Die {
     return call("time_to_sum", { die: this, target, max_time: maxTime, dnf }) as Die;
   }
-  /** The dice of the outcomes with the same key, by key (in order of first appearance; keys equal by Python's
-   * `==`). `key` is called on each outcome (unpacked if `star`), or a Map looked up with `key.get(o, o)`. */
+  /** `die.group_by(key_map, star=)`: the dice of the outcomes with the same key, by key (in order of first
+   * appearance; keys equal by Python's `==`). `key` is called on each outcome (unpacked if `star`), or a Map
+   * looked up with `key.get(o, o)` (outcomes not in it are their own key). The denominators of the dice add up to
+   * this die's, which is useful for the law of total probability.
+   * @example
+   * ```ts
+   * const byRemainder = d(10).groupBy((x: number) => x % 3);
+   * [...byRemainder.keys()]; //=> [1, 2, 0]
+   * byRemainder.get(0)!.outcomes(); //=> [3, 6, 9]
+   * ```
+   */
   groupBy(key: Callback<Outcome> | Map<unknown, Outcome>, { star = null }: { star?: boolean | null } = {}): Map<Outcome, Die> {
     if (typeof key === "function") {
       const f = key as (...args: unknown[]) => unknown;
@@ -423,21 +955,53 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     }
     return new Map(call("group_by", { die: this, key, star }) as [Outcome, Die][]);
   }
+  /** `die.group_by[index]`: {@link Die.groupBy} with the outcome's element at `index` as the key, for dice of
+   * tuples.
+   * @example
+   * ```ts
+   * const groups = new Die([[1, 2], [1, 3], [2, 3]]).groupByIndex(0);
+   * groups.get(1)!.outcomes(); //=> [[1, 2], [1, 3]]
+   * groups.get(2)!.outcomes(); //=> [[2, 3]]
+   * ```
+   */
   groupByIndex(index: Int): Map<Outcome, Die> {
     return new Map(call("group_by_index", { die: this, index }) as [Outcome, Die][]);
   }
-  /** `die.is_in(outcomes)`: a die of whether each outcome is `in` the outcomes. */
+  /** `die.is_in(outcomes)`: a die of whether the roll is `in` the outcomes (Python's `==`).
+   * @example
+   * ```ts
+   * d(6).isIn([5, 6]).items(); //=> [[false, 4n], [true, 2n]]
+   * ```
+   */
   isIn(outcomes: readonly Outcome[]): Die {
     const mask = Array.isArray(outcomes) ? this.selection(outcomes, false) : undefined;
     if (mask === undefined) return call("is_in", { die: this, outcomes: list(outcomes) }) as Die;
     // `self.map(lambda x: x in outcomes)`.
     return new Die(Array.from(mask, (m) => m === 1), this.quantities());
   }
-  /** `die.count(rolls, outcomes)`: how many of `rolls` rolls are `in` the outcomes. */
+  /** `die.count(rolls, outcomes)`: rolls this die `rolls` times and counts how many are `in` the outcomes.
+   * @example
+   * ```ts
+   * // Successes on 5+ with 3d6.
+   * d(6).count(3, [5, 6]).items(); //=> [[0, 64n], [1, 96n], [2, 48n], [3, 8n]]
+   * // No 6 in 4d6.
+   * d(6).count(4, [6]).probability(0).toString(); //=> "625/1296"
+   * ```
+   */
   count(rolls: Int, outcomes: readonly Outcome[]): Die {
     if (!Array.isArray(outcomes)) return call("die_count", { die: this, rolls, outcomes: list(outcomes) }) as Die;
     return this.isIn(outcomes).rmatmul(rolls);
   }
+  /** `die.if_else(outcome_if_true, outcome_if_false, again_count=, again_depth=, again_end=)`: the ternary
+   * operator; truthy outcomes become `ifTrue`, falsy ones `ifFalse` (either may be a die). The Again options are
+   * forwarded to the final die constructor.
+   * @example
+   * ```ts
+   * // On 11+ on a d20, roll a d8.
+   * d(20).ge(11).ifElse(d(8), 0).mean().toString(); //=> "9/4"
+   * new Die([0, 1, 2]).ifElse("yes", "no").items(); //=> [["no", 1n], ["yes", 2n]]
+   * ```
+   */
   ifElse(ifTrue: Operand, ifFalse: Operand, { againCount = null, againDepth = null, againEnd = null }: AgainOptions = {}): Die {
     return call("if_else", {
       die: this,
