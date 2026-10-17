@@ -4,7 +4,7 @@ use crate::counts::{Counts, OrderedMerge};
 use crate::die::Die;
 use crate::error::Result;
 use crate::math::weighted_lcm;
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::Quantity;
 
 /// One element of the `outcomes` passed to `Die(...)` or `Deck(...)`, after the facade has unpacked Python's dynamic
@@ -23,7 +23,7 @@ pub enum DieArg<O> {
     Reroll,
 }
 
-impl<O: Outcome> DieArg<O> {
+impl<O: OutcomeOrder> DieArg<O> {
     fn denominator(&self) -> Quantity {
         match self {
             DieArg::Outcome(_) => Quantity::ONE,
@@ -34,7 +34,7 @@ impl<O: Outcome> DieArg<O> {
 }
 
 /// `expand_args_for_die`: `Counts(merge_weights_lcm(subdatas, times).items())`.
-pub fn expand_args_for_die<O: Outcome>(
+pub fn expand_args_for_die<O: OutcomeOrder>(
     args: &[DieArg<O>],
     times: &[Quantity],
 ) -> Result<Counts<O>> {
@@ -46,7 +46,7 @@ pub fn expand_args_for_die<O: Outcome>(
 /// Every subdata gets total weight proportional to the corresponding element of `weights`. Outcomes are added up in
 /// a dict, so equal outcomes from different arguments merge into the first one seen. A die's zero quantities
 /// survive (they add 0), but an argument whose scale factor is 0 contributes nothing at all.
-pub fn merge_weights_lcm<O: Outcome>(
+pub fn merge_weights_lcm<O: OutcomeOrder>(
     subdatas: &[DieArg<O>],
     weights: &[Quantity],
 ) -> Result<Vec<(O, Quantity)>> {
@@ -73,7 +73,7 @@ pub fn merge_weights_lcm<O: Outcome>(
 }
 
 /// `expand_args_for_deck`: `Counts(merge_duplicates(subdatas, times).items())`.
-pub fn expand_args_for_deck<O: Outcome>(
+pub fn expand_args_for_deck<O: OutcomeOrder>(
     args: &[DieArg<O>],
     duplicates: &[Quantity],
 ) -> Result<Counts<O>> {
@@ -85,7 +85,7 @@ pub fn expand_args_for_deck<O: Outcome>(
 /// Every subdata gets dups equal to the corresponding element of duplicates times its original dups. Unlike
 /// `merge_weights_lcm` nothing is rescaled: a die among the arguments contributes its quantities as card counts.
 /// Zero dups (of an argument, or of an outcome of a die) contribute nothing, not even the key.
-pub fn merge_duplicates<O: Outcome>(
+pub fn merge_duplicates<O: OutcomeOrder>(
     subdatas: &[DieArg<O>],
     duplicates: &[Quantity],
 ) -> Result<Vec<(O, Quantity)>> {

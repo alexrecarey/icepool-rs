@@ -25,7 +25,7 @@ use crate::error::Result;
 use crate::expression::CountTree;
 use crate::function::sorted_union;
 use crate::order::Order;
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::Count;
 use crate::Int;
 
@@ -235,7 +235,7 @@ fn joint_states(state: &CallState) -> &[CallState] {
     }
 }
 
-impl<'a, O: Outcome, F> MultisetFunction<'a, O, F> {
+impl<'a, O: OutcomeOrder, F> MultisetFunction<'a, O, F> {
     /// `Quest.initial_state_main`.
     fn initial(
         call: &Call<'a, O, F>,
@@ -342,7 +342,7 @@ impl<'a, O: Outcome, F> MultisetFunction<'a, O, F> {
     }
 }
 
-impl<'a, O: Outcome, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
+impl<'a, O: OutcomeOrder, F> MultisetEvaluator<O> for MultisetFunction<'a, O, F> {
     type State = CallState;
     type Final = F;
 

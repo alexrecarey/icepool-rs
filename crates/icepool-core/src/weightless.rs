@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::order::{Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::{Count, MultisetSource, SourcePopped};
 use crate::Quantity;
 
@@ -21,13 +21,13 @@ pub struct WeightlessSource<O> {
     wrapped: Arc<MultisetSource<O>>,
 }
 
-impl<O: Outcome + Traverse> Traverse for WeightlessSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for WeightlessSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc(&self.wrapped);
     }
 }
 
-impl<O: Outcome> WeightlessSource<O> {
+impl<O: OutcomeOrder> WeightlessSource<O> {
     pub fn new(wrapped: MultisetSource<O>) -> Self {
         WeightlessSource {
             wrapped: Arc::new(wrapped),

@@ -126,7 +126,7 @@ pub(super) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Die, DieArg, Outcome, Quantity};
+    use crate::{Die, DieArg, Quantity};
 
     /// A host "number" that sorts in reverse and adds like an int, and whose `-` raises (a host exception).
     #[derive(Debug)]

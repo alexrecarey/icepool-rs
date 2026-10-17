@@ -18,7 +18,7 @@ use crate::keep_tuple::{
 };
 use crate::math::comb;
 use crate::order::{lo_hi_skip, Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::{Popped, MAX_POOL_SIZE};
 use crate::{Int, Quantity};
 
@@ -29,13 +29,13 @@ pub struct Deal<O> {
     keep_tuple: Arc<[Int]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for Deal<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for Deal<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         self.deck.traverse(owners);
     }
 }
 
-impl<O: Outcome> Deal<O> {
+impl<O: OutcomeOrder> Deal<O> {
     /// `Deal(deck, hand_size)`.
     ///
     /// For algorithmic reasons, you must pre-commit to the number of cards to deal.
@@ -141,7 +141,7 @@ pub struct DealSource<O> {
     keep_tuple: Arc<[Int]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for DealSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for DealSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         self.deck.traverse(owners);
         owners.arc(&self.outcomes);
@@ -163,7 +163,7 @@ impl<O: Hash> Hash for DealSource<O> {
     }
 }
 
-impl<O: Outcome> DealSource<O> {
+impl<O: OutcomeOrder> DealSource<O> {
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }

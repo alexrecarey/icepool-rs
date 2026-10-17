@@ -497,7 +497,7 @@ turns out wrong. Newest decisions at the top of each section.
   comparison, then TypeError; `str % x` formats first). `Value::eq_op` is the operator `==` (a Vector compares
   elementwise, `Symbols('ab') == 'ab'` is True, a failed `Symbols(other)` falls back to identity = unequal);
   `PartialEq` stays *dict* equality (a Vector/Symbols only equals its own kind, as their hashes differ from
-  everything else's). `Outcome::py_eq` is `bool(a == b)`: `Counts::new` sorts `(outcome, quantity)` pairs with it,
+  everything else's). `Value::py_eq` (`OutcomeOrder::try_eq`) is `bool(a == b)`: `Counts::new` sorts `(outcome, quantity)` pairs with it,
   as Python's `sorted(items)` does, so `Die([Symbols('a'), 'a'])` keeps both, ordered by quantity.
   `Value::truthy()` now returns `Result` (a Vector without a truth value raises; so do host objects), and
   `HostObject::truthy` too. A vector's truth value is the raw object of `op(self._data, other._data)`:
@@ -1193,8 +1193,8 @@ turns out wrong. Newest decisions at the top of each section.
   The program layer (`program/ops.rs` `binary`) does Python's dispatch: die on the left -> `Die.__op__`; die only
   on the right -> `__rop__` with the order kept (`3 - die` = `Die([3]) - die`), but comparisons reflect
   (`3 < die` = `die > 3`); scalar with scalar -> plain value result.
-- **`pysort.rs` is a faithful port of CPython 3.13 `list.sort`** (count_run, binary insertion, powersort merges,
-  galloping). `counts::py_sorted` re-exports it. Needed because NaN outcomes (`inf * 0`, `inf - inf`, `inf // x`)
+- **`value/sort.rs` (`timsort`, was pysort.rs) is a faithful port of CPython 3.13 `list.sort`** (count_run, binary insertion, powersort merges,
+  galloping). Generic code reaches it through `OutcomeOrder::try_sort_by` (`Ord` types use `sort_by`). Needed because NaN outcomes (`inf * 0`, `inf - inf`, `inf // x`)
   are unordered and land wherever the exact comparison sequence puts them. Keep it exact; do not "optimise" it.
 - `Value::Complex(re, im)`: from `negative ** fractional` (CPython `_Py_c_pow`) and arithmetic on it (V1,
   `value/complex.rs`). Never survives in a die (unorderable: `Counts` raises, even for a single outcome), unless its

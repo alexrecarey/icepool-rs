@@ -10,6 +10,7 @@
 //! Only `<` is ever used. The sort works on a permutation of indices; `lt` sees the elements.
 
 use crate::error::Result;
+use crate::Value;
 
 /// When we get into galloping mode, we stay there until both runs win less often than MIN_GALLOP consecutive times.
 const MIN_GALLOP: usize = 7;
@@ -17,7 +18,7 @@ const MIN_GALLOP: usize = 7;
 const MAX_MINRUN: usize = 64;
 
 /// Sorts `items` as Python's `sorted()` would with `lt` as `<`, stopping at the first comparison that raises.
-pub fn py_sorted<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Result<Vec<T>> {
+pub fn timsort<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Result<Vec<T>> {
     let n = items.len();
     let mut ms = MergeState {
         a: (0..n).collect(),
@@ -33,6 +34,20 @@ pub fn py_sorted<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Resul
         .into_iter()
         .map(|i| slots[i].take().expect("each index once"))
         .collect())
+}
+
+/// `sorted(values)`.
+pub fn sorted(values: Vec<Value>) -> Result<Vec<Value>> {
+    timsort(values, Value::py_lt)
+}
+
+/// `sorted(values, reverse=True)`: a reverse sort reverses, sorts stably and reverses back (so equal items keep
+/// their order).
+pub fn sorted_reverse(mut values: Vec<Value>) -> Result<Vec<Value>> {
+    values.reverse();
+    let mut sorted = sorted(values)?;
+    sorted.reverse();
+    Ok(sorted)
 }
 
 /// A pending run: `a[base..base + len]` is sorted.
@@ -653,7 +668,7 @@ impl<F: Fn(usize, usize) -> Result<bool>> MergeState<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::py_sorted;
+    use super::timsort;
 
     /// A tiny deterministic generator, so the test needs no dependency.
     fn lcg(seed: &mut u64) -> u64 {
@@ -671,19 +686,19 @@ mod tests {
                 let v: Vec<(u64, usize)> = (0..n).map(|i| (lcg(&mut seed) % modulus, i)).collect();
                 let mut expected = v.clone();
                 expected.sort_by_key(|x| x.0);
-                assert_eq!(py_sorted(v, |a, b| Ok(a.0 < b.0)).unwrap(), expected);
+                assert_eq!(timsort(v, |a, b| Ok(a.0 < b.0)).unwrap(), expected);
             }
         }
         // Long runs that trigger galloping both ways.
         let v: Vec<u64> = (0..300).chain(100..400).rev().chain(0..500).collect();
         let mut expected = v.clone();
         expected.sort();
-        assert_eq!(py_sorted(v, |a, b| Ok(a < b)).unwrap(), expected);
+        assert_eq!(timsort(v, |a, b| Ok(a < b)).unwrap(), expected);
     }
 
     #[test]
     fn nan_lands_where_cpython_puts_it() {
-        let sort = |v: Vec<f64>| py_sorted(v, |a: &f64, b| Ok(a < b)).unwrap();
+        let sort = |v: Vec<f64>| timsort(v, |a: &f64, b| Ok(a < b)).unwrap();
         // Expected values computed with CPython 3.13's sorted().
         assert_eq!(
             format!("{:?}", sort(vec![3.0, f64::NAN, 1.0, 2.0])),
@@ -696,7 +711,7 @@ mod tests {
         // Longer lists go through runs, merges and galloping. Checksum of the permutation
         // `sorted(range(300), key=lambda i: v[i])`: sum((k + 1) * p for k, p in enumerate(perm)).
         let checksum = |v: Vec<f64>| -> usize {
-            let perm = py_sorted((0..v.len()).collect(), |&a: &usize, &b| Ok(v[a] < v[b])).unwrap();
+            let perm = timsort((0..v.len()).collect(), |&a: &usize, &b| Ok(v[a] < v[b])).unwrap();
             perm.iter().enumerate().map(|(k, p)| (k + 1) * p).sum()
         };
         let v1 = (0..300)

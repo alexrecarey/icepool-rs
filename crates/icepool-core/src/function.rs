@@ -7,7 +7,7 @@ use crate::counts::Counts;
 use crate::die::Die;
 use crate::error::{value_error, Error, Result};
 use crate::memory::try_collect;
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::value::{BinOp, Vector};
 use crate::{Quantity, Value};
 
@@ -15,7 +15,7 @@ use crate::{Quantity, Value};
 ///
 /// Don't confuse this with `Die::new`: `Die([6])` always rolls the integer 6, `d(6)` is a d6. (Python's
 /// `TypeError` for a non-`int` `sides` is the facade's job.)
-pub fn d<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
+pub fn d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
@@ -31,7 +31,7 @@ pub fn d<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
 /// result whenever the outcomes are totally ordered (see NOTES.md for the NaN / partially comparable gap).
 pub fn sorted_union<'a, O, I>(args: impl IntoIterator<Item = I>) -> Result<Vec<O>>
 where
-    O: Outcome + 'a,
+    O: OutcomeOrder + 'a,
     I: IntoIterator<Item = &'a O>,
 {
     let mut seen = rustc_hash::FxHashSet::default();
@@ -43,11 +43,11 @@ where
             }
         }
     }
-    crate::counts::py_sorted(union, |a, b| a.py_lt(b))
+    crate::outcome::sorted(union)
 }
 
 /// A die uniformly distributed from `0` to `sides - 1` inclusive (`z`). Equal to `d(sides) - 1`.
-pub fn z<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
+pub fn z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
@@ -62,7 +62,7 @@ pub fn z<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
 /// among the arguments (equivalently, any quantile in the result is the highest of that quantile among the
 /// arguments). So its cumulative quantity `<=` each outcome is the *least* of the dice's; pointwise_min takes the
 /// greatest. Each die's cumulative quantities never decrease, so neither do their min / max.
-pub fn pointwise<O: Outcome>(dice: &[Die<O>], max: bool) -> Result<Die<O>> {
+pub fn pointwise<O: OutcomeOrder>(dice: &[Die<O>], max: bool) -> Result<Die<O>> {
     let outcomes = sorted_union(dice.iter().map(Die::outcomes))?;
     let mut cumulative = Vec::with_capacity(outcomes.len());
     for outcome in &outcomes {

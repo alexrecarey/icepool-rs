@@ -37,6 +37,13 @@ pub enum Error {
     Host(crate::value::HostError),
 }
 
+/// A comparison of an `Ord` outcome cannot fail (`OutcomeOrder::Incomparable` is `Infallible`).
+impl From<std::convert::Infallible> for Error {
+    fn from(never: std::convert::Infallible) -> Self {
+        match never {}
+    }
+}
+
 impl Error {
     /// The Python exception type name, used in wire results.
     pub fn python_type(&self) -> &'static str {

@@ -13,9 +13,11 @@ mod complex;
 mod host;
 mod number;
 pub mod ops;
+mod order;
 pub mod pystr;
 pub mod recursion;
 mod repr;
+pub mod sort;
 mod symbols;
 mod vector;
 
@@ -28,8 +30,7 @@ use std::sync::Arc;
 use dashu_int::IBig;
 use dashu_ratio::RBig;
 
-use crate::error::{type_error, Result};
-use crate::outcome::Outcome;
+use crate::error::Result;
 
 pub use host::{HostError, HostObject, HostRef, LenKind};
 pub use number::{int_to_f64, ratio_to_f64, Num};
@@ -287,63 +288,6 @@ impl Hash for Value {
     }
 }
 
-impl Outcome for Value {
-    fn check_key(&self) -> Result<()> {
-        match self {
-            Value::None => type_error("None is not a valid key."),
-            _ => self.check_hashable(),
-        }
-    }
-
-    fn py_le(&self, other: &Self) -> Result<bool> {
-        ops::compare(BinOp::Le, self, other)
-    }
-
-    fn py_eq(&self, other: &Self) -> Result<bool> {
-        if self.is_collection() || other.is_collection() {
-            return self.eq_op(other, false)?.truthy();
-        }
-        Ok(self == other)
-    }
-
-    fn py_ge(&self, other: &Self) -> Result<bool> {
-        ops::compare(BinOp::Ge, self, other)
-    }
-
-    fn py_gt(&self, other: &Self) -> Result<bool> {
-        ops::compare(BinOp::Gt, self, other)
-    }
-
-    fn py_lt(&self, other: &Self) -> Result<bool> {
-        if let Some(h) = host::host_of(self, other) {
-            return h.compare(BinOp::Lt, self, other);
-        }
-        if self.is_collection() || other.is_collection() {
-            return ops::compare(BinOp::Lt, self, other);
-        }
-        match (self, other) {
-            (Value::Str(a), Value::Str(b)) => Ok(a < b),
-            // Python's sequence comparison: the first position where the elements differ (by `==`) decides with
-            // `<`, which may itself raise; if one is a prefix of the other, the shorter is smaller.
-            (Value::Tuple(a), Value::Tuple(b)) => {
-                let _level = recursion::level()?;
-                match Value::first_difference(a, b)? {
-                    Some((x, y)) => x.py_lt(y),
-                    None => Ok(a.len() < b.len()),
-                }
-            }
-            _ => match (self.as_num(), other.as_num()) {
-                (Some(a), Some(b)) => Ok(a.partial_cmp(&b) == Some(Ordering::Less)),
-                _ => type_error(format!(
-                    "'<' not supported between instances of '{}' and '{}'",
-                    self.type_name(),
-                    other.type_name()
-                )),
-            },
-        }
-    }
-}
-
 /// Python's `repr`.
 /// What a value holds that may hold host objects: tuples, vectors, symbols, and host objects themselves.
 impl Traverse for Value {
@@ -486,13 +430,13 @@ mod tests {
     fn dict_keys_reject_none_and_unhashable_vectors() {
         // `Counts` raises these itself; sorting usually raises the same error type first (`None < None`, the
         // truth value of a `VectorWithTruthOnly`), so fixtures cannot see this check.
-        assert!(Value::None.check_key().is_err());
+        assert!(Value::None.py_check_key().is_err());
         let truth_only = Value::Vector(Vector::truth_only(Value::Bool(true)));
-        assert!(truth_only.check_key().is_err());
+        assert!(truth_only.py_check_key().is_err());
         assert!(Value::tuple(vec![Value::from(1), truth_only])
-            .check_key()
+            .py_check_key()
             .is_err());
-        assert!(Value::tuple(vec![Value::from(1)]).check_key().is_ok());
+        assert!(Value::tuple(vec![Value::from(1)]).py_check_key().is_ok());
     }
 
     #[test]

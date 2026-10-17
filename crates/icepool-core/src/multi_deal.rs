@@ -17,7 +17,7 @@ use crate::deck::Deck;
 use crate::error::{Error, Result};
 use crate::math::{comb, iter_hypergeom};
 use crate::order::{Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::MAX_POOL_SIZE;
 use crate::{Int, Quantity};
 
@@ -44,7 +44,7 @@ fn hand_count(hand_groups: &[HandGroup]) -> usize {
 
 /// `_denominator`: `comb(deck.size(), total) * prod(comb(total, h) for h in hand_sizes()[1:])`, as icepool computes
 /// it.
-fn denominator<O: Outcome>(deck: &Deck<O>, hand_groups: &[HandGroup]) -> Quantity {
+fn denominator<O: OutcomeOrder>(deck: &Deck<O>, hand_groups: &[HandGroup]) -> Quantity {
     let total = total_cards_dealt(hand_groups);
     let d_total = comb(&deck.size(), total);
     let total = Quantity::from(total);
@@ -61,13 +61,13 @@ pub struct MultiDeal<O> {
     hand_groups: Arc<[HandGroup]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for MultiDeal<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for MultiDeal<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         self.deck.traverse(owners);
     }
 }
 
-impl<O: Outcome> MultiDeal<O> {
+impl<O: OutcomeOrder> MultiDeal<O> {
     /// `MultiDeal(deck, hand_groups)`.
     ///
     /// For algorithmic reasons, you must pre-commit to the number of cards to deal for each hand.
@@ -176,7 +176,7 @@ pub struct MultiDealSource<O> {
     hand_groups: Arc<[HandGroup]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for MultiDealSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for MultiDealSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         self.deck.traverse(owners);
         owners.arc(&self.outcomes);
@@ -198,7 +198,7 @@ impl<O: Hash> Hash for MultiDealSource<O> {
     }
 }
 
-impl<O: Outcome> MultiDealSource<O> {
+impl<O: OutcomeOrder> MultiDealSource<O> {
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }

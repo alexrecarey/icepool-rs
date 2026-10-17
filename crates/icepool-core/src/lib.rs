@@ -1,6 +1,6 @@
 //! Rust port of [icepool](https://github.com/HighDiceRoller/icepool), pinned at the version in `oracle.lock`.
 //!
-//! The core is generic over [`Outcome`] (see docs/ANALYSIS.md "the design decisions"); the bindings instantiate it
+//! The core is generic over [`OutcomeOrder`] (see docs/ANALYSIS.md "the design decisions"); the bindings instantiate it
 //! with the dynamic [`Value`], which carries Python's semantics. Module layout mirrors icepool's own files; see
 //! NOTES.md.
 //!
@@ -38,7 +38,6 @@ pub mod ownership;
 pub mod pool;
 pub mod population;
 pub mod program;
-pub mod pysort;
 pub mod random;
 pub mod to_pool;
 pub mod value;
@@ -52,7 +51,7 @@ pub use error::{Error, Result};
 pub use function::d;
 pub use int::Int;
 pub use multi_deal::MultiDeal;
-pub use outcome::{Outcome, SumOutcome};
+pub use outcome::{infallible, Outcome, OutcomeArith, OutcomeOrder};
 pub use pool::Pool;
 pub use value::Value;
 

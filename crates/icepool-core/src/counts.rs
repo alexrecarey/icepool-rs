@@ -3,8 +3,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::error::Result;
-use crate::outcome::Outcome;
-pub use crate::pysort::py_sorted;
+use crate::outcome::{self, OutcomeOrder};
 use crate::Quantity;
 
 /// Sorted `(outcome, quantity)` items, exactly as icepool's `Counts` keeps them. Zero quantities are kept.
@@ -13,24 +12,24 @@ pub struct Counts<O> {
     items: Vec<(O, Quantity)>,
 }
 
-impl<O: Outcome> Counts<O> {
+impl<O: OutcomeOrder> Counts<O> {
     /// `Counts(items)`: sorts the items (as Python sorts `(key, value)` tuples: by key, then value for keys that
     /// are `==`), then merges equal keys (as a dict does), keeping the first. Raises `TypeError` if the keys are not mutually comparable;
     /// a single key is compared with itself so that even a one-outcome die checks its outcome is orderable.
     pub fn new(items: Vec<(O, Quantity)>) -> Result<Self> {
         if let [(k, _)] = items.as_slice() {
-            k.py_lt(k)?;
+            outcome::lt(k, k)?;
         }
-        let sorted = py_sorted(items, |(ka, qa), (kb, qb)| {
-            if ka.py_eq(kb)? {
+        let sorted = outcome::sort_by::<O, _>(items, |(ka, qa), (kb, qb)| {
+            if ka.try_eq(kb)? {
                 Ok(qa < qb)
             } else {
-                ka.py_lt(kb)
+                ka.try_lt(kb)
             }
         })?;
         let mut merged: Vec<(O, Quantity)> = Vec::with_capacity(sorted.len());
         for (k, q) in sorted {
-            k.check_key()?;
+            outcome::check_key(&k)?;
             // Sorted, so equal keys are adjacent.
             match merged.last_mut() {
                 Some((last, total)) if *last == k => *total += q,
@@ -42,7 +41,7 @@ impl<O: Outcome> Counts<O> {
 
     /// Items already sorted and merged (e.g. by construction, as in `d(n)`). Checked in debug builds.
     pub fn from_sorted(items: Vec<(O, Quantity)>) -> Self {
-        debug_assert!(items.windows(2).all(|w| w[0].0.py_lt(&w[1].0) == Ok(true)));
+        debug_assert!(items.windows(2).all(|w| outcome::lt(&w[0].0, &w[1].0) == Ok(true)));
         Counts { items }
     }
 
@@ -72,7 +71,7 @@ pub struct OrderedMerge<O> {
     items: Vec<(O, Quantity)>,
 }
 
-impl<O: Outcome> Default for OrderedMerge<O> {
+impl<O: OutcomeOrder> Default for OrderedMerge<O> {
     fn default() -> Self {
         OrderedMerge {
             index: FxHashMap::default(),
@@ -81,7 +80,7 @@ impl<O: Outcome> Default for OrderedMerge<O> {
     }
 }
 
-impl<O: Outcome> OrderedMerge<O> {
+impl<O: OutcomeOrder> OrderedMerge<O> {
     pub fn add(&mut self, outcome: O, quantity: Quantity) {
         match self.index.get(&outcome) {
             Some(&i) => self.items[i].1 += quantity,
@@ -114,7 +113,7 @@ mod tests {
         let keys: Vec<String> = c.items().iter().map(|(k, _)| k.to_string()).collect();
         assert_eq!(keys, ["True", "1.5", "3"]);
         assert!(Counts::new(vec![(Value::from(3), q(1)), (Value::str("a"), q(1))]).is_err());
-        let sorted = py_sorted((0..50).rev().collect(), |a: &i32, b| Ok(a < b)).unwrap();
+        let sorted = crate::value::sort::timsort((0..50).rev().collect(), |a: &i32, b| Ok(a < b)).unwrap();
         assert_eq!(sorted, (0..50).collect::<Vec<_>>());
     }
 }

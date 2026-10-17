@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHasher};
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
 use crate::error::{value_error, Error, Result};
-use crate::outcome::{Outcome, SumOutcome};
+use crate::outcome::{self, OutcomeArith, OutcomeOrder};
 use crate::Quantity;
 
 /// Dice are immutable; methods return new dice. Cloning is cheap (the items are shared).
@@ -42,7 +42,7 @@ struct DieData<O> {
 }
 
 /// A die holds its outcomes, and more clones of them in its caches (its popped dice and its index).
-impl<O: Outcome + Traverse> Traverse for Die<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for Die<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc_with(&self.data, |owners, data| {
             for (o, _) in data.counts.items() {
@@ -80,7 +80,7 @@ impl<O: Hash> Hash for Die<O> {
     }
 }
 
-impl<O: Outcome> Die<O> {
+impl<O: OutcomeOrder> Die<O> {
     /// `Die(outcomes, times)` after `itemize`: one quantity multiplier per element of `outcomes`.
     ///
     /// Outcomes with zero total weight are omitted; dice among the outcomes are mixed in, scaled by
@@ -297,14 +297,14 @@ impl<O: Outcome> Die<O> {
     /// `quantity('>=', outcome)`: the denominator minus `quantity('<', outcome)`, which looks up the cumulative
     /// quantity of the nearest outcome below with `bisect_left`.
     pub fn quantity_ge(&self, outcome: &O) -> Result<Quantity> {
-        let index = bisect(self.items(), |o| o.py_lt(outcome))?;
+        let index = bisect(self.items(), |o| outcome::lt(o, outcome))?;
         let below: Quantity = self.items()[..index].iter().map(|(_, q)| q).sum();
         Ok(self.denominator() - below)
     }
 
     /// `quantity('<=', outcome)`: the cumulative quantity of the nearest outcome at or below (`bisect_right`).
     pub fn quantity_le(&self, outcome: &O) -> Result<Quantity> {
-        let index = bisect(self.items(), |o| Ok(!outcome.py_lt(o)?))?;
+        let index = bisect(self.items(), |o| Ok(!outcome::lt(outcome, o)?))?;
         Ok(self.items()[..index].iter().map(|(_, q)| q).sum())
     }
 
@@ -390,11 +390,11 @@ impl<O: Outcome> Die<O> {
         let items = self.items();
         // bisect_left / bisect_right, making exactly the comparisons Python's bisect makes.
         let start = match min_outcome {
-            Some(x) => bisect(items, |o| o.py_lt(x))?,
+            Some(x) => bisect(items, |o| outcome::lt(o, x))?,
             None => 0,
         };
         let stop = match max_outcome {
-            Some(x) => bisect(items, |o| Ok(!x.py_lt(o)?))?,
+            Some(x) => bisect(items, |o| Ok(!outcome::lt(x, o)?))?,
             None => items.len(),
         };
         // `items()[start:stop]` is empty when start > stop.
@@ -411,8 +411,8 @@ impl<O: Outcome> Die<O> {
         let mut data = OrderedMerge::default();
         for (outcome, quantity) in self.items() {
             let new = match (min_outcome, max_outcome) {
-                (Some(min), _) if outcome.py_le(min)? => min,
-                (_, Some(max)) if outcome.py_ge(max)? => max,
+                (Some(min), _) if outcome::le(outcome, min)? => min,
+                (_, Some(max)) if outcome::ge(outcome, max)? => max,
                 _ => outcome,
             };
             data.add(new.clone(), quantity.clone());
@@ -421,13 +421,13 @@ impl<O: Outcome> Die<O> {
     }
 }
 
-impl<O: SumOutcome> Die<O> {
+impl<O: OutcomeArith> Die<O> {
     /// Zeros all outcomes of this die (`Population.zero`). This is done by multiplying all outcomes by `0`.
     ///
     /// The result will have the same denominator. Raises `ValueError` if the zeros did not resolve to a single
     /// outcome (an empty die included).
     pub fn zero(&self) -> Result<Self> {
-        let result = self.unary_operator(O::times_zero)?;
+        let result = self.unary_operator(O::try_zero)?;
         if result.len() != 1 {
             return value_error("zero() did not resolve to a single outcome.");
         }
@@ -530,7 +530,7 @@ struct SumCache<'a, O> {
     negative: rustc_hash::FxHashMap<u64, Die<O>>,
 }
 
-impl<'a, O: SumOutcome> SumCache<'a, O> {
+impl<'a, O: OutcomeArith> SumCache<'a, O> {
     fn new(die: &'a Die<O>) -> Self {
         SumCache {
             die,
@@ -548,7 +548,7 @@ impl<'a, O: SumOutcome> SumCache<'a, O> {
             if let Some(d) = self.negative.get(&k) {
                 return Ok(d.clone());
             }
-            let result = self.positive_sum(k as usize)?.unary_operator(O::neg)?;
+            let result = self.positive_sum(k as usize)?.unary_operator(O::try_neg)?;
             self.negative.insert(k, result.clone());
             Ok(result)
         } else if rolls == 0 {
@@ -571,7 +571,7 @@ impl<'a, O: SumOutcome> SumCache<'a, O> {
                 .positive
                 .last()
                 .expect("not empty")
-                .binary_operator(self.die, O::add)?;
+                .binary_operator(self.die, O::try_add)?;
             self.positive.push(next);
         }
         Ok(self.positive[rolls - 1].clone())
@@ -583,7 +583,7 @@ impl<'a, O: SumOutcome> SumCache<'a, O> {
 /// `reverse`: iff true, both of the arguments will be reversed. This allows e.g. constructing using a survival
 /// distribution. The cumulative quantities must be non-decreasing in the order used; differences of zero drop out
 /// (it ends in `Die(dict)`).
-pub fn from_cumulative<O: Outcome>(
+pub fn from_cumulative<O: OutcomeOrder>(
     mut outcomes: Vec<O>,
     mut cumulative: Vec<Quantity>,
     reverse: bool,
@@ -759,7 +759,7 @@ impl Die<crate::Value> {
     /// `x * 0` (`Die._sign`), so a tuple compares with `()` and a str with `''`.
     pub fn sign(&self) -> Result<Self> {
         self.unary_operator(|x| {
-            let z = x.times_zero()?;
+            let z = x.try_zero()?;
             Ok(crate::Value::from(if x.py_gt(&z)? {
                 1
             } else if x.py_lt(&z)? {

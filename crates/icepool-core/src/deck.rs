@@ -14,7 +14,7 @@ use crate::counts::Counts;
 use crate::creation_args::{expand_args_for_deck, DieArg};
 use crate::die::Die;
 use crate::error::Result;
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::Quantity;
 
 /// A deck of cards. Immutable and cheap to clone (the cards are shared). Equality and hashing are structural, as
@@ -24,13 +24,13 @@ pub struct Deck<O> {
     cards: Die<O>,
 }
 
-impl<O: Outcome + Traverse> Traverse for Deck<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for Deck<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         self.cards.traverse(owners);
     }
 }
 
-impl<O: Outcome> Deck<O> {
+impl<O: OutcomeOrder> Deck<O> {
     /// `Deck(outcomes, times)` after `itemize`: one duplicate count per element of `outcomes`.
     ///
     /// Outcomes with zero quantity are omitted. A die (or deck) among the outcomes is flattened into the result,
@@ -180,11 +180,11 @@ impl<O: Outcome> Deck<O> {
     }
 }
 
-impl<O: crate::outcome::SumOutcome> Deck<O> {
+impl<O: crate::outcome::OutcomeArith> Deck<O> {
     /// `Population.zero` of a deck: every outcome times 0 (`_unary_operator`, merging equal results), then
     /// `Deck(data)`; `ValueError` unless they resolve to a single outcome.
     pub fn zero(&self) -> Result<Self> {
-        let zeros = self.cards.unary_operator(O::times_zero)?;
+        let zeros = self.cards.unary_operator(O::try_zero)?;
         let result = Self::from_dict(zeros.items().to_vec())?;
         if result.len() != 1 {
             return crate::error::value_error("zero() did not resolve to a single outcome.");
@@ -218,7 +218,7 @@ pub struct Counter<O> {
     items: Vec<(O, IBig)>,
 }
 
-impl<O: Outcome> Default for Counter<O> {
+impl<O: OutcomeOrder> Default for Counter<O> {
     fn default() -> Self {
         Counter {
             index: FxHashMap::default(),
@@ -227,7 +227,7 @@ impl<O: Outcome> Default for Counter<O> {
     }
 }
 
-impl<O: Outcome> Counter<O> {
+impl<O: OutcomeOrder> Counter<O> {
     /// `Counter(iterable)`: each element counted once.
     pub fn from_elements(elements: impl IntoIterator<Item = O>) -> Self {
         let mut counter = Counter::default();

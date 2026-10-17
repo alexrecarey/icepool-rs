@@ -5,42 +5,18 @@
 use crate::die::{from_cumulative, Die};
 use crate::error::Result;
 use crate::function::sorted_union;
-use crate::outcome::Outcome;
+use crate::outcome::{self, OutcomeOrder};
 use crate::Quantity;
-
-/// Python's `min(xs)`: the first of the least elements, comparing `item < current`.
-fn py_min<'a, O: Outcome>(xs: impl IntoIterator<Item = &'a O>) -> Result<&'a O> {
-    let mut xs = xs.into_iter();
-    let mut best = xs.next().expect("at least one die");
-    for x in xs {
-        if x.py_lt(best)? {
-            best = x;
-        }
-    }
-    Ok(best)
-}
-
-/// Python's `max(xs)`: the first of the greatest elements, comparing `item > current`.
-fn py_max<'a, O: Outcome>(xs: impl IntoIterator<Item = &'a O>) -> Result<&'a O> {
-    let mut xs = xs.into_iter();
-    let mut best = xs.next().expect("at least one die");
-    for x in xs {
-        if x.py_gt(best)? {
-            best = x;
-        }
-    }
-    Ok(best)
-}
 
 /// Roll all the dice and take the lowest single one (`_lowest_single`, at least one die, none empty).
 ///
 /// The maximum outcome is equal to the least maximum outcome among all input dice.
-pub fn lowest_single<O: Outcome>(dice: &[Die<O>]) -> Result<Die<O>> {
+pub fn lowest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let maxes = dice
         .iter()
         .map(Die::max_outcome)
         .collect::<Result<Vec<_>>>()?;
-    let max_outcome = py_min(maxes)?.clone();
+    let max_outcome = outcome::min(maxes)?.clone();
     let dice = dice
         .iter()
         .map(|die| die.clip(None, Some(&max_outcome)))
@@ -60,12 +36,12 @@ pub fn lowest_single<O: Outcome>(dice: &[Die<O>]) -> Result<Die<O>> {
 /// Roll all the dice and take the highest single one (`_highest_single`, at least one die, none empty).
 ///
 /// The minimum outcome is equal to the greatest minimum outcome among all input dice.
-pub fn highest_single<O: Outcome>(dice: &[Die<O>]) -> Result<Die<O>> {
+pub fn highest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let mins = dice
         .iter()
         .map(Die::min_outcome)
         .collect::<Result<Vec<_>>>()?;
-    let min_outcome = py_max(mins)?.clone();
+    let min_outcome = outcome::max(mins)?.clone();
     let dice = dice
         .iter()
         .map(|die| die.clip(Some(&min_outcome), None))

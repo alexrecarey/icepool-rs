@@ -2,10 +2,11 @@
 
 use dashu_int::IBig;
 
-use super::basic::{int, py_sorted_reverse, state_as_outcome};
+use super::basic::{int, state_as_outcome};
 use super::{tuple_compared_with_int, Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
+use crate::value::sort::sorted_reverse;
 use crate::value::BinOp;
 use crate::{Int, Value};
 
@@ -174,7 +175,7 @@ impl MultisetEvaluator<Value> for AllCountsEvaluator {
             let mut xs = state.to_vec();
             xs.push(count.clone());
             // `tuple(sorted(state, reverse=True))`
-            Ok(Some(Value::tuple(py_sorted_reverse(xs)?)))
+            Ok(Some(Value::tuple(sorted_reverse(xs)?)))
         } else {
             Ok(Some(Value::tuple(state.to_vec())))
         }
@@ -748,7 +749,7 @@ fn reduce_state(state: &Value) -> (Value, Value, Vec<Value>) {
 fn end_run(ended_runs: Vec<Value>, length: Value, score: Value) -> Result<Vec<Value>> {
     let mut runs = ended_runs;
     runs.push(Value::tuple(vec![length, score]));
-    py_sorted_reverse(runs)
+    sorted_reverse(runs)
 }
 
 impl<R: Fn(&Value, &Value) -> Result<Value>> MultisetEvaluator<Value>

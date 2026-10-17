@@ -18,7 +18,7 @@ use crate::keep_tuple::{
     self, pop_max_from_keep_tuple, pop_min_from_keep_tuple, sum_counts, KeepIndex,
 };
 use crate::order::{merge_order_preferences, Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::{Count, MultisetSource, Popped, Product};
 use crate::value::recursion::level;
 use crate::{Int, Quantity};
@@ -30,13 +30,13 @@ pub struct CompoundKeep<O> {
     keep_tuple: Arc<[Int]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for CompoundKeep<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for CompoundKeep<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc(&self.inner_sources);
     }
 }
 
-impl<O: Outcome> CompoundKeep<O> {
+impl<O: OutcomeOrder> CompoundKeep<O> {
     /// `CompoundKeepGenerator(inners, keep_tuple)`, given the inners' sources.
     pub fn new(inner_sources: Vec<MultisetSource<O>>, keep_tuple: Vec<Int>) -> Self {
         CompoundKeep {
@@ -97,7 +97,7 @@ pub struct CompoundKeepSource<O> {
     outcomes: OnceLock<Arc<[O]>>,
 }
 
-impl<O: Outcome + Traverse> Traverse for CompoundKeepSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for CompoundKeepSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc(&self.inner_sources);
         if let Some(outcomes) = self.outcomes.get() {
@@ -121,7 +121,7 @@ impl<O: Hash> Hash for CompoundKeepSource<O> {
     }
 }
 
-impl<O: Outcome> CompoundKeepSource<O> {
+impl<O: OutcomeOrder> CompoundKeepSource<O> {
     fn new(inner_sources: Arc<[MultisetSource<O>]>, keep_tuple: Arc<[Int]>) -> Result<Self> {
         Ok(CompoundKeepSource {
             inner_sources,

@@ -4,7 +4,7 @@ use std::ops::Neg;
 
 use crate::die::Die;
 use crate::error::{Error, Result};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::Int;
 
 /// Can be used to define what order outcomes are seen in by MultisetEvaluators.
@@ -148,7 +148,7 @@ pub fn merge_order_preferences(
 /// Determines if the dice can be expressed as a one-sided truncation of a single base `Die`.
 ///
 /// Returns `(can_truncate_min, can_truncate_max)`: if both are true, all dice are identical.
-pub fn can_truncate<'a, O: Outcome + 'a>(
+pub fn can_truncate<'a, O: OutcomeOrder + 'a>(
     dice: impl IntoIterator<Item = &'a Die<O>>,
 ) -> (bool, bool) {
     let mut dice_iter = dice.into_iter();

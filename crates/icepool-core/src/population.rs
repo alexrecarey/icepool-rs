@@ -1,7 +1,7 @@
 //! Port of icepool `population/base.py`: quantities and probabilities (with comparators), `nearest`, quantiles,
 //! the scalar and joint statistics, `marginals`, `group_by`, and quantity management.
 //!
-//! What only needs the order of the outcomes is generic over `Outcome`. The statistics do arithmetic on the
+//! What only needs the order of the outcomes is generic over `OutcomeOrder`. The statistics do arithmetic on the
 //! outcomes, so they are written for `Value` with Python's own operators and builtins (`value::builtins`): a
 //! `Fraction` where Python gives one, floats rounded exactly as CPython rounds them, and Python's exceptions.
 //!
@@ -18,7 +18,7 @@ use rustc_hash::FxHashMap;
 
 use crate::error::{value_error, Error, Result};
 use crate::function::sorted_union;
-use crate::outcome::Outcome;
+use crate::outcome::{self, OutcomeOrder};
 use crate::value::builtins::{
     getattr, getitem, math_log, math_sqrt, py_len, py_sum, try_fraction, Index,
 };
@@ -87,7 +87,7 @@ fn set_item(data: &mut Data, position: Option<usize>, outcome: &Value, quantity:
     }
 }
 
-impl<O: Outcome> Die<O> {
+impl<O: OutcomeOrder> Die<O> {
     /// The quantities fitting the comparison for each outcome in sorted order: `'<='` gives the CDF.
     ///
     /// `'>='` accumulates `values()[:-1]` downwards from the denominator, so an empty die has one: `(0,)`.
@@ -117,8 +117,8 @@ impl<O: Outcome> Die<O> {
     fn nearest_index(&self, comparison: Comparison, outcome: &O) -> Result<Option<(usize, bool)>> {
         let items = self.items();
         // bisect_left compares `a[mid] < x`, bisect_right `x < a[mid]`.
-        let left = || bisect(items, |(o, _)| o.py_lt(outcome));
-        let right = || bisect(items, |(o, _)| Ok(!outcome.py_lt(o)?));
+        let left = || bisect(items, |(o, _)| outcome::lt(o, outcome));
+        let right = || bisect(items, |(o, _)| Ok(!outcome::lt(outcome, o)?));
         let below = |i: usize| i.checked_sub(1).map(|i| (i, false));
         let above = |i: usize| (i < items.len()).then_some((i, false));
         Ok(match comparison {

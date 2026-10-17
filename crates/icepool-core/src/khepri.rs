@@ -24,7 +24,7 @@ use crate::counts::Counts;
 use crate::evaluator::{evaluate, Final, MultisetEvaluator};
 use crate::keep_tuple::{highest_slice, KeepIndex};
 use crate::order::Order;
-use crate::outcome::{Outcome, SumOutcome};
+use crate::outcome::{OutcomeOrder, OutcomeArith};
 use crate::pool::MultisetSource;
 use crate::value::ratio_to_f64;
 use crate::Int;
@@ -90,12 +90,6 @@ impl Player {
             Player::Fail => "fail",
             Player::Reactive => "reactive",
         }
-    }
-}
-
-impl Outcome for (Player, i64) {
-    fn py_lt(&self, other: &Self) -> Result<bool> {
-        Ok(self < other)
     }
 }
 
@@ -179,13 +173,13 @@ impl Input {
 // --- Small helpers: icepool operations on typed dice ------------------------------------------------------------
 
 /// `Die([outcome])`, what `implicit_convert_to_die` makes of a plain outcome.
-fn constant<O: Outcome>(outcome: O) -> Result<Die<O>> {
+fn constant<O: OutcomeOrder>(outcome: O) -> Result<Die<O>> {
     Die::new(vec![DieArg::Outcome(outcome)], vec![Quantity::ONE])
 }
 
 /// `die.map(f)` without Again (`map_simple`): `Die([f(o) for o in die], [q for q in die])`, every item including
 /// zero quantities. `f` returns an outcome or a die (`DieArg`).
-fn map<O: Outcome, P: Outcome>(
+fn map<O: OutcomeOrder, P: OutcomeOrder>(
     die: &Die<O>,
     mut f: impl FnMut(&O) -> Result<DieArg<P>>,
 ) -> Result<Die<P>> {
@@ -201,7 +195,7 @@ fn map<O: Outcome, P: Outcome>(
 
 /// `die + other` for int dice.
 fn add(die: &Die<i64>, other: &Die<i64>) -> Result<Die<i64>> {
-    die.binary_operator(other, SumOutcome::add)
+    die.binary_operator(other, OutcomeArith::try_add)
 }
 
 /// `count @ die` for an int `count`: `Die([count]).__matmul__(die)`.
@@ -232,7 +226,7 @@ fn pool_of(die: Die<i64>, times: i64) -> Result<Pool<i64>> {
 }
 
 /// `evaluator.evaluate(*pools)`: `Die(final_outcomes, final_weights)`.
-fn evaluate_pools<F: Outcome, E: MultisetEvaluator<i64, Final = F>>(
+fn evaluate_pools<F: OutcomeOrder, E: MultisetEvaluator<i64, Final = F>>(
     evaluator: &E,
     pools: &[Pool<i64>],
 ) -> Result<Die<F>> {
@@ -372,7 +366,7 @@ impl MultisetEvaluator<i64> for Sum {
             .ok_or_else(|| Error::Overflow("i64 product overflowed".into()))?;
         Ok(Some(Some(match state {
             None => term,
-            Some(s) => SumOutcome::add(s, &term)?,
+            Some(s) => OutcomeArith::try_add(s, &term)?,
         })))
     }
 
@@ -452,7 +446,7 @@ fn add_args(a: &DieArg<i64>, b: &DieArg<i64>) -> Result<DieArg<i64>> {
         DieArg::Reroll => unreachable!("explode here always has an end outcome"),
     };
     match (a, b) {
-        (DieArg::Outcome(a), DieArg::Outcome(b)) => Ok(DieArg::Outcome(SumOutcome::add(a, b)?)),
+        (DieArg::Outcome(a), DieArg::Outcome(b)) => Ok(DieArg::Outcome(OutcomeArith::try_add(a, b)?)),
         _ => Ok(DieArg::Die(add(&as_die(a)?, &as_die(b)?)?)),
     }
 }

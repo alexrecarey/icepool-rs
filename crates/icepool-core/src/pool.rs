@@ -24,7 +24,7 @@ use crate::keep_tuple::{
 use crate::math::comb_row;
 use crate::multi_deal::MultiDealSource;
 use crate::order::{can_truncate, lo_hi_skip, Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::weightless::WeightlessSource;
 use crate::{Int, Quantity};
 
@@ -33,7 +33,7 @@ use crate::{Int, Quantity};
 pub(crate) const MAX_POOL_SIZE: usize = 1 << 24;
 
 /// `dice_counts[die] += count` in a dict: insertion order, equal dice (same `hash_key`) merged.
-fn add_die<O: Outcome>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, count: usize) {
+fn add_die<O: OutcomeOrder>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, count: usize) {
     match counts.iter_mut().find(|(d, _)| *d == die) {
         Some((_, c)) => *c += count,
         None => counts.push((die, count)),
@@ -43,10 +43,10 @@ fn add_die<O: Outcome>(counts: &mut Vec<(Die<O>, usize)>, die: Die<O>, count: us
 /// `die_a.hash_key < die_b.hash_key`: `(Die, tuple(items))` compared as Python compares tuples. The classes are the
 /// same object, so it comes down to the items: the first `(outcome, quantity)` pair that differs (by `==`) decides,
 /// by outcome if those differ (which may raise), else by quantity; a prefix is smaller.
-fn hash_key_lt<O: Outcome>(a: &Die<O>, b: &Die<O>) -> Result<bool> {
+fn hash_key_lt<O: OutcomeOrder>(a: &Die<O>, b: &Die<O>) -> std::result::Result<bool, O::Incomparable> {
     for ((oa, qa), (ob, qb)) in a.items().iter().zip(b.items()) {
         if oa != ob {
-            return oa.py_lt(ob);
+            return oa.try_lt(ob);
         }
         if qa != qb {
             return Ok(qa < qb);
@@ -59,8 +59,8 @@ fn hash_key_lt<O: Outcome>(a: &Die<O>, b: &Die<O>) -> Result<bool> {
 type Dice<O> = Arc<[(Die<O>, usize)]>;
 
 /// `tuple(sorted(dice_counts.items(), key=lambda kv: kv[0].hash_key))`: the canonical order of a pool's dice.
-fn sort_dice<O: Outcome>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<O>> {
-    Ok(crate::counts::py_sorted(dice_counts, |(a, _), (b, _)| hash_key_lt(a, b))?.into())
+fn sort_dice<O: OutcomeOrder>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<O>> {
+    Ok(crate::outcome::sort_by::<O, _>(dice_counts, |(a, _), (b, _)| hash_key_lt(a, b))?.into())
 }
 
 /// `math.prod(die.denominator()**count for die, count in dice)`.
@@ -68,7 +68,7 @@ fn sort_dice<O: Outcome>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<O>> {
 /// A pool holds up to `MAX_POOL_SIZE` dice, so the product can have `2**24` times as many bits as a die's
 /// denominator: `MemoryError` past the allocation cap (on wasm32 a die with a 129+-bit denominator would otherwise
 /// trap), where Python answers given memory.
-fn denominator<O: Outcome>(dice: &[(Die<O>, usize)]) -> Result<Quantity> {
+fn denominator<O: OutcomeOrder>(dice: &[(Die<O>, usize)]) -> Result<Quantity> {
     let bits = dice.iter().try_fold(0u64, |total, (die, count)| {
         (die.denominator().bit_len() as u64).checked_mul(*count as u64)?.checked_add(total)
     });
@@ -88,7 +88,7 @@ pub struct Pool<O> {
     keep_tuple: Arc<[Int]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for Pool<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for Pool<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc_with(&self.dice, |owners, dice| {
             for (die, _) in dice {
@@ -99,7 +99,7 @@ impl<O: Outcome + Traverse> Traverse for Pool<O> {
     }
 }
 
-impl<O: Outcome> Pool<O> {
+impl<O: OutcomeOrder> Pool<O> {
     /// `Pool(dice, times)` after `itemize` and `implicit_convert_to_die`: one `(die, times)` per element, in order.
     ///
     /// Dice may be in the pool zero times, in which case their outcomes will be considered but without any count
@@ -279,7 +279,7 @@ fn int_popped<S, O>(
         .collect()
 }
 
-impl<O: Outcome + Traverse> Traverse for MultisetSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for MultisetSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         match self {
             MultisetSource::Pool(s) => s.traverse(owners),
@@ -292,7 +292,7 @@ impl<O: Outcome + Traverse> Traverse for MultisetSource<O> {
     }
 }
 
-impl<O: Outcome> MultisetSource<O> {
+impl<O: OutcomeOrder> MultisetSource<O> {
     /// The possible outcomes, ascending. A compound keep sorts its inner sources' outcomes together, which can
     /// raise.
     pub fn outcomes(&self) -> Result<&[O]> {
@@ -378,7 +378,7 @@ pub struct PoolSource<O> {
     keep_tuple: Arc<[Int]>,
 }
 
-impl<O: Outcome + Traverse> Traverse for PoolSource<O> {
+impl<O: OutcomeOrder + Traverse> Traverse for PoolSource<O> {
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
         owners.arc_with(&self.dice, |owners, dice| {
             for (die, _) in dice {
@@ -404,7 +404,7 @@ impl<O: Hash> Hash for PoolSource<O> {
     }
 }
 
-impl<O: Outcome> PoolSource<O> {
+impl<O: OutcomeOrder> PoolSource<O> {
     pub fn dice(&self) -> &[(Die<O>, usize)] {
         &self.dice
     }
@@ -532,7 +532,7 @@ type DiePop<O> = (Die<O>, usize, usize, Quantity);
 
 /// `iter_die_pop_min` / `iter_die_pop_max`: the possibilities of several identical dice rolling the popped outcome
 /// (at or beyond the die's own end outcome).
-fn iter_die_pop<O: Outcome>(
+fn iter_die_pop<O: OutcomeOrder>(
     die: &Die<O>,
     rolls: usize,
     outcome: &O,

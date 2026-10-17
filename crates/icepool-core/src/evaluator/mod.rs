@@ -30,7 +30,7 @@ use crate::error::{Error, Result};
 use crate::expression::{self, CallTree, CountTree, Flat, Statelets};
 use crate::function::sorted_union;
 use crate::order::{merge_order_preferences, Order, OrderReason};
-use crate::outcome::Outcome;
+use crate::outcome::OutcomeOrder;
 use crate::pool::{Count, MultisetSource};
 use crate::Int;
 use crate::Quantity;
@@ -311,7 +311,7 @@ struct Dungeon<'a, O, E: MultisetEvaluator<O>> {
 /// One way the sources can produce the popped outcome: `(remaining sources, counts, weight)`.
 type RoomPop<O> = (Vec<MultisetSource<O>>, Vec<Count>, Quantity);
 
-impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
+impl<'a, O: OutcomeOrder, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     fn new(
         evaluator: &'a E,
         tree: &'a CallTree<O>,
@@ -500,7 +500,7 @@ enum Algorithm {
 /// Every input is one source (a generator). Returns the final outcomes with their weights, in the order
 /// `finalize_evaluation` produces them (`Reroll`s dropped), ready for `Die(final_outcomes, final_weights)`. If
 /// some source has no probability, no outcomes (`Die([])`).
-pub fn evaluate<O: Outcome, E: MultisetEvaluator<O>>(
+pub fn evaluate<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     sources: &[MultisetSource<O>],
 ) -> Result<Vec<(E::Final, Quantity)>> {
@@ -510,7 +510,7 @@ pub fn evaluate<O: Outcome, E: MultisetEvaluator<O>>(
 /// [`evaluate`], calling `check_depth(number of outcomes)` just before each attempt recurses: both algorithms
 /// recurse once per outcome, which in Python hits the recursion limit near 1000 outcomes. The Python facade
 /// passes a check that raises where Python would; the core itself has no such limit.
-pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
+pub fn evaluate_with_depth_check<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     sources: &[MultisetSource<O>],
     check_depth: impl Fn(usize) -> Result<()>,
@@ -524,7 +524,7 @@ pub fn evaluate_with_depth_check<O: Outcome, E: MultisetEvaluator<O>>(
 
 /// [`evaluate_with_depth_check`] for inputs that are multiset expressions: each input is a flat of dungeonlets
 /// (`crate::expression`), and `sources` are the sources of all their free variables, in traversal order.
-pub fn evaluate_expressions<O: Outcome, E: MultisetEvaluator<O>>(
+pub fn evaluate_expressions<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     flats: &[Flat<O>],
     sources: &[MultisetSource<O>],
@@ -540,7 +540,7 @@ pub fn evaluate_expressions<O: Outcome, E: MultisetEvaluator<O>>(
 
 /// [`evaluate_expressions`] for a call tree (a `@multiset_function` evaluation, see [`multiset_function`]):
 /// `sources` are the sources of the free variables of the whole tree, in traversal order.
-pub fn evaluate_call_tree<O: Outcome, E: MultisetEvaluator<O>>(
+pub fn evaluate_call_tree<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     tree: &CallTree<O>,
     sources: &[MultisetSource<O>],

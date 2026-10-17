@@ -7,7 +7,7 @@
 //! - anything with a `float` is done in floats, converting the other operand first (which may overflow);
 //! - otherwise `Fraction` arithmetic, where `//` gives an `int` and `**` with an integral exponent stays exact.
 //!
-//! `str` and `tuple` concatenate with `+` and repeat with `* int`; comparisons follow `Outcome::py_lt`'s rules.
+//! `str` and `tuple` concatenate with `+` and repeat with `* int`; comparisons follow `Value::py_lt`'s rules.
 
 use std::cmp::Ordering;
 
@@ -872,20 +872,6 @@ pub(super) fn complex_repr(re: f64, im: f64) -> String {
         let im_s = short(im);
         let sign = if im_s.starts_with('-') { "" } else { "+" };
         format!("({}{sign}{im_s}j)", short(re))
-    }
-}
-
-impl crate::outcome::SumOutcome for Value {
-    fn add(&self, other: &Self) -> Result<Self> {
-        self.binary(BinOp::Add, other)
-    }
-
-    fn neg(&self) -> Result<Self> {
-        self.unary(UnOp::Neg)
-    }
-
-    fn times_zero(&self) -> Result<Self> {
-        self.binary(BinOp::Mul, &Value::from(0))
     }
 }
 

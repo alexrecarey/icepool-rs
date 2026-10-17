@@ -5,10 +5,9 @@
 //! Python.
 
 use super::{Final, MultisetEvaluator};
-use crate::counts::py_sorted;
 use crate::error::Result;
 use crate::order::Order;
-use crate::outcome::Outcome;
+use crate::value::sort::{sorted, sorted_reverse};
 use crate::value::BinOp;
 use crate::Int;
 use crate::Value;
@@ -23,15 +22,6 @@ pub(crate) fn state_as_outcome(state: &Value) -> Final<Value> {
 
 pub(crate) fn int(i: impl Into<Value>) -> Value {
     i.into()
-}
-
-/// `sorted(items, reverse=True)`: a reverse sort reverses, sorts stably and reverses back (so equal items keep
-/// their order).
-pub(crate) fn py_sorted_reverse(mut items: Vec<Value>) -> Result<Vec<Value>> {
-    items.reverse();
-    let mut sorted = py_sorted(items, |a, b| a.py_lt(b))?;
-    sorted.reverse();
-    Ok(sorted)
 }
 
 /// All elements of the multiset (`ExpandEvaluator`).
@@ -103,9 +93,9 @@ impl MultisetEvaluator<Value> for ExpandEvaluator {
         };
         // `sorted(final_state, reverse=reverse)`.
         let sorted = if self.ascending {
-            py_sorted(items, |a, b| a.py_lt(b))?
+            sorted(items)?
         } else {
-            py_sorted_reverse(items)?
+            sorted_reverse(items)?
         };
         Ok(Final::Outcome(Value::tuple(sorted)))
     }

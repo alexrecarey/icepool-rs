@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::recursion::{set_frame_budget, MAX_DEPTH};
 use icepool_core::value::{BinOp, UnOp, Vector};
-use icepool_core::{Die, DieArg, Error, Outcome, Quantity, Value};
+use icepool_core::{Die, DieArg, Error, Quantity, Value};
 
 const STACK: usize = 8 << 20;
 
@@ -40,7 +40,7 @@ fn die(v: Value) -> icepool_core::Result<Die<Value>> {
 fn all_ops(x: &Value, y: &Value) -> Vec<(&'static str, icepool_core::Result<()>)> {
     type Op = fn(&Value, &Value) -> icepool_core::Result<()>;
     let ops: [(&str, Op); 12] = [
-        ("check_key", |x, _| x.check_key()),
+        ("check_key", |x, _| x.py_check_key()),
         ("py_lt", |x, y| ordering(x, y, |x, y| x.py_lt(y))),
         ("py_le", |x, y| ordering(x, y, |x, y| x.py_le(y))),
         ("py_eq", |x, y| x.py_eq(y).map(drop)),
@@ -65,7 +65,7 @@ fn ordering<T>(
     f: fn(&Value, &Value) -> icepool_core::Result<T>,
 ) -> icepool_core::Result<()> {
     match x {
-        Value::Vector(_) if x.check_key().is_ok() => Err(Error::Type("skipped".into())),
+        Value::Vector(_) if x.py_check_key().is_ok() => Err(Error::Type("skipped".into())),
         _ => f(x, y).map(drop),
     }
 }
