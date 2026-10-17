@@ -22,8 +22,17 @@ turns out wrong. Newest decisions at the top of each section.
   (another thread's computation, a callback's stack) raises `strong_count`, so nothing below it counts as owned.
   `RsDeal` / `RsMultiDeal` hold their deck's `Py<RsDeck>` (reported) plus the keep tuple / hand groups, and build
   the core value per call (`Deal::from_parts`, `MultiDeal::from_parts`): with a second clone of the cards neither
-  wrapper could report them. Still not collected (task R4b): cycles holding two wrappers that share core data (a
-  compound keep and its inner pools; a die and a pool of it). Tests: crates/icepool-py/tests/test_leaks.py (cycles
+  wrapper could report them. So do (R4b) `RsCompoundKeep` (its inners' `Py<RsPool>` / `Py<RsDeal>` /
+  `Py<RsCompoundKeep>`, or for a user's generator its source; the facade passes `_rust_inner(inner)`) and `RsPool`
+  (each `Pool(dice, times)` argument's `Py<RsDie>` with its count, zero counts included, a merged pool all its pools'
+  in turn; `Pool::from_parts(dice, keep_tuple)` = `Pool::new` with that keep tuple; `dice()` hands back the held
+  RsDie objects via `Die::ptr_eq`). Keeping and multiplying counts touch only the keep tuple; the rest remakes the
+  core value per call (cheap: cloning Arcs, merging and sorting the dice). A new pyclass deriving from another's
+  core value should do the same. Still not collected: cycles through two objects that share core data
+  *non-structurally*: a host outcome's `Arc<PyHost>` holds one Python reference, so two live dice sharing it (a die
+  and its popped die cached by the facade's `_popped_min`; a pool or deal and a source made from it) can't report
+  it. Fixing that would mean one Python reference per holder (a new `PyHost` per clone), a core design change. Dice
+  made by a callback (`map`) get new PyHosts and are fine. Tests: crates/icepool-py/tests/test_leaks.py (cycles
   per type, a shared outcome survives, a collection at every allocation changes no result, the review's loop
   stays flat). The upstream suite also passes with `gc.set_threshold(10, 2, 2)` (1716). JS: `Handle.release()` /
   `[Symbol.dispose]` (icepool.d.ts references lib esnext.disposable); `handleOf` throws a TypeError for a released
