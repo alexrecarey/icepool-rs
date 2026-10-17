@@ -45,6 +45,11 @@ const timeToTen: Fraction = d6.meanTimeToSum(10);
 const rounded: Die = d6.truediv(4).stochasticRound({ maxDenominator: 10 });
 const pools: Die = d6.mapToPool((x: number) => List.of(x, x)).sum().add(mapToPool((x: number) => List.of(x), d6).sum())
   .add(d6.explodeToPool(2, [6], { depth: 1 }).sum()).add(d6.rerollToPool(2, [1], { maxRerolls: 1 }).sum());
+{
+  using scratch = d(20).add(d6);
+  scratch.mean();
+}
+d6.add(1).release();
 
 export {
   quantities, items, mean, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,

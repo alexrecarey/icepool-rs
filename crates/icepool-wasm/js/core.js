@@ -4,7 +4,8 @@
 // layer, so the JS API computes exactly what the oracle-checked nodes compute.
 //
 // Values cross the WASM boundary as JSON ("JS-JSON", described in src/facade.rs); dice, pools, decks and expressions
-// stay in WASM memory as handles, released when their JS object is garbage-collected.
+// stay in WASM memory as handles, released when their JS object is garbage-collected, or at once by `release()` /
+// `Symbol.dispose` (`using die = d(6)`).
 //
 // Python types without a JS counterpart:
 //   int       a JS number when it is a safe integer, else a BigInt (both go in as ints)
@@ -206,7 +207,7 @@ function enc(x) {
       return `{"$fn":${registerFunction(x)},"n":${x.length}}`;
   }
   if (x === null) return "null";
-  if (x instanceof Handle) return `{"$h":${x._h}}`;
+  if (x instanceof Handle) return `{"$h":${handleOf(x)}}`;
   if (x instanceof List) return `{"$list":[${Array.from(x, enc).join(",")}]}`;
   if (Array.isArray(x)) return `[${x.map(enc).join(",")}]`;
   if (x instanceof Float) return `{"float":"${pyFloatRepr(x.value)}"}`;
@@ -408,7 +409,18 @@ const HOST = {
 // --- Handles ------------------------------------------------------------------------------------------------------
 
 const HANDLE = Symbol("handle"); // constructor token: wrap an existing handle
+// Frees the handle of a collected object. The registry is the only release for objects nobody releases, but the
+// collector frees an object when it likes (in a loop that makes many, the WASM memory grows meanwhile), and never
+// frees one a JS function the core holds refers to: such a function (a `mapCounts` callback, a multiset function)
+// sits in `functions` until the core drops it, and the core drops it only when the handle is released. Hence
+// `release()`.
 const registry = new FinalizationRegistry((h) => W && wasm(() => W.release(h)));
+
+/** The handle of `x`, which must not have been released. */
+function handleOf(x) {
+  if (x._h < 0) throw new TypeError("icepool: this object was released");
+  return x._h;
+}
 
 /** A core object (die, pool, deck, ...) held by JS. */
 export class Handle {
@@ -420,7 +432,20 @@ export class Handle {
   }
   /** The harness's wire encoding of this object (`{"ok": true, "die" | "value": ...}`), as JSON text. */
   toWire() {
-    return wasm(() => W.wire_result(this._h));
+    return wasm(() => W.wire_result(handleOf(this)));
+  }
+  /** Frees the object's WASM memory now rather than when it is garbage-collected. Using it afterwards throws a
+   * `TypeError`; releasing it again does nothing. Objects made from it (`die.add(1)`) are not affected. */
+  release() {
+    if (this._h < 0) return;
+    const h = this._h;
+    registry.unregister(this);
+    this._h = -1;
+    wasm(() => W.release(h));
+  }
+  /** `release()`, for `using die = d(6);` (runtimes without `Symbol.dispose` get Node's older name for it). */
+  [Symbol.dispose ?? Symbol.for("nodejs.dispose")]() {
+    this.release();
   }
 }
 
@@ -1503,4 +1528,6 @@ export const Again = Object.create(AgainExpression.prototype, {
       return againHandle._h;
     },
   },
+  // The one shared `Again` stays (a handle made again on use would be a different expression object anyway).
+  release: { value() {} },
 });

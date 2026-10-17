@@ -52,7 +52,13 @@ new Deck([1, 2, 3], 4).deal(2).sum();
   the core (a Rust panic, which traps the WASM instance) is an `IcepoolError` with `pythonType` `"PanicException"`;
   the instance and your objects stay usable afterwards. The low-level `run(programJson)` and `calculate(engineInput)`
   (khepri's engine) are exported with the same recovery: use them rather than the raw wasm-bindgen exports.
-- **Memory**: dice, pools and decks live in WASM memory and are freed when their JS objects are garbage-collected.
+- **Memory**: dice, pools, decks and expressions live in WASM memory. Each is freed when its JS object is
+  garbage-collected, or at once by `release()` (also `Symbol.dispose`, so `using die = d(6);` frees it at the end of
+  the block). Using an object after releasing it throws a `TypeError`; objects made from it are not affected. Release
+  explicitly in long loops (the collector frees WASM memory only when it gets round to the JS objects, so the memory
+  grows meanwhile), and always for an object whose JS callback refers back to it, such as a multiset function that
+  calls itself or a `mapCounts` function using its own expression. The core keeps such a callback in a global table
+  until the object is released, so the garbage collector never frees either.
 
 The TypeScript declarations are in `icepool.d.ts`.
 

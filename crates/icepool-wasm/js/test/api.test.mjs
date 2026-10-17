@@ -304,6 +304,59 @@ test("handles are released when their JS objects are collected", async () => {
   assert.ok(ip.liveHandles() < before + 100, `${ip.liveHandles() - before} handles still live`);
 });
 
+test("release() frees a handle at once; a released object throws a TypeError", () => {
+  const die = d(6).add(1);
+  const sum = die.add(die);
+  const live = ip.liveHandles();
+  die.release();
+  assert.equal(ip.liveHandles(), live - 1);
+  die.release(); // again: nothing
+  assert.throws(() => die.add(1), TypeError);
+  assert.throws(() => die.toWire(), TypeError);
+  assert.throws(() => d(6).add(die), TypeError);
+  assert.deepEqual(sum.outcomes().slice(0, 2), [4, 5]); // made from it, unaffected
+  const left = ip.liveHandles();
+  sum[Symbol.dispose]();
+  assert.equal(ip.liveHandles(), left - 1);
+  Again.release(); // the shared Again stays
+  assert.deepEqual(new Die([1, Again.add(1).add(1)]).outcomes(), [1, 3, 4]);
+});
+
+test("a long loop that releases what it makes holds nothing afterwards", () => {
+  // The robustness review's loop: a map with a callback holding a big default, then a pool sum.
+  const before = ip.liveHandles();
+  const big = Array.from({ length: 10000 }, (_, i) => i);
+  for (let i = 0; i < 20000; i++) {
+    const die = d(6);
+    const mapped = die.map((o) => (big.length ? o : o));
+    const pool = die.pool(3);
+    const sum = pool.sum();
+    for (const h of [die, mapped, pool, sum]) h.release();
+  }
+  assert.equal(ip.liveHandles(), before);
+});
+
+test("release() frees a JS function the core holds, which the garbage collector cannot", async () => {
+  // The function refers to its own multiset function, so the core's reference to the function (from the global
+  // table of callbacks) keeps the handle reachable: only release() breaks the cycle.
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc");
+  let captured;
+  (() => {
+    const payload = { data: new Array(1000).fill(1) };
+    captured = new WeakRef(payload);
+    const f = ip.multisetFunction((a) => (payload && f ? a.size() : a.size()));
+    assert.deepEqual(f.call(d(6).pool(2)).outcomes(), [2]);
+    f.release();
+  })();
+  // Not `deref()` meanwhile: it keeps the object alive until the end of the current job.
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    gc();
+  }
+  assert.equal(captured.deref(), undefined, "the function was not freed");
+});
+
 test("deep nesting raises RecursionError rather than overflowing the WASM stack", () => {
   const isRecursionError = (e) => e instanceof ip.IcepoolError && e.pythonType === "RecursionError";
   let again = Again;

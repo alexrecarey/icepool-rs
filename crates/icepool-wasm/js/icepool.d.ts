@@ -1,3 +1,4 @@
+/// <reference lib="esnext.disposable" />
 // TypeScript types of the JS facade (core.js; entry points node.js and web.js). Python's dynamic types map to:
 //   int -> number | bigint (out: number when safe, else bigint), float -> number | Float, tuple -> array,
 //   None -> null, Fraction / Vector / Symbols -> the classes below. Quantities are always bigint.
@@ -133,11 +134,15 @@ export function calculate(engineInput: object): {
   outcomes: { player: string; wounds: number; chance: number }[];
 };
 
-/** A core object held by JS (released when garbage-collected). */
-export class Handle {
+/** A core object held by JS: freed when garbage-collected, or at once by `release()` (or a `using` declaration). */
+export class Handle implements Disposable {
   protected constructor(token: never, handle: number);
   /** The harness's wire encoding of this object, as JSON text. */
   toWire(): string;
+  /** Frees the object's WASM memory now. Using it afterwards throws a `TypeError`; releasing it again does nothing. */
+  release(): void;
+  /** `release()`. */
+  [Symbol.dispose](): void;
 }
 
 // --- Operators ----------------------------------------------------------------------------------------------------
