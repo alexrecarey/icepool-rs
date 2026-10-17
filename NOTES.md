@@ -5,6 +5,37 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **The JS package's documentation (C6b, design section 7).** In `crates/icepool-wasm/js`: `README.md` (the npm
+  page), `docs/guide.md` (the guide; also shipped in the package), TSDoc on every public symbol, and the TypeDoc
+  reference (`build.sh --docs` = `npm run docs`, config `typedoc.json`, output `docs/api/`, gitignored).
+  - **Examples are tests.** `test/doc-examples.mjs` collects every fenced `ts` block of README.md, docs/*.md and
+    the TSDoc of src/*.ts; `test/doc-examples.test.mjs` runs each as its own ES module (node's
+    `module.stripTypeScriptTypes`, so erasable TypeScript only, and no `using`: node 22 cannot run it), with the
+    whole public API imported unless the block imports from "icepool-wasm" itself. `expr; //=> value` lines are
+    checked with `assert.deepStrictEqual`, `//=> throws ValueError` by the error's `name`. `build.sh --test` also
+    type-checks them (`node test/doc-examples.mjs emit test/.doc-examples` + tsc): annotate callback parameters
+    (`(a: MultisetExpression, b: MultisetExpression) =>`), since `Callback` parameters are `never`.
+  - **Coverage is a test.** doc-examples.test.mjs reads dist/*.d.ts (tsc keeps TSDoc; `@internal` is stripped):
+    every name index.ts exports and every public method of an exported class needs TSDoc with an `@example`;
+    fields, getters, constructors and interface members need a comment. When you add a public symbol, document it
+    with an example or the JS suite fails. TypeDoc's `validation.notDocumented` warnings say the same (more
+    strictly: it also counts parameters of inline types).
+  - **Tooling.** `typescript ~5.9` and `typedoc ^0.28` are devDependencies (package-lock.json committed); TypeDoc
+    needs TypeScript's JS API, which TypeScript 7 (the Go port on PATH here) does not have. build.sh prefers
+    js/node_modules/.bin/tsc, so after `npm install` the package builds with 5.9; both compile it.
+    `alwaysCreateEntryPointModule: false` in typedoc.json is needed: with a project document TypeDoc otherwise
+    wraps everything in an `index` module.
+  - **Expected values in examples** were computed by running them and checked against Python icepool
+    (`PYTHONPATH=$ICEPOOL_ORACLE/src python3 -c 'import icepool; ...'`). Note `probability()` returns a `Fraction`
+    (as Python), not a number as the design doc's table says; `Fraction`'s constructor does not normalise (the core
+    does when it goes in: `new Fraction(6n, 4n).toString()` is "6/4").
+  - **What documenting found** is task C6h (tasks.json): API discrepancies, loose types, dropped kwargs. Also:
+    `Deck.union/intersection/difference/additiveUnion` raise TypeError on the oracle's Python 3.13 (the port copies
+    it; DIVERGENCES.md logs it for Symbols only) but work on Python 3.14, so don't check those against a system
+    `python3` newer than the oracle's venv. Type-only names (`OrderValue`, `MultisetExpression`...) are not
+    auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
+    auto-import off for that example.
+
 - **The TypeScript API (C6, design section 6).** Rest in C6c-C6g (tasks.json); the docs are C6b.
   - **Layout.** `crates/icepool-wasm/js/src/*.ts` (compiled by tsc into `js/dist`, gitignored; the `.d.ts` are
     generated): `wasm.ts` (bind, the trap-recovering `wasm(f)` every call goes through, `run`/`calculate`),
