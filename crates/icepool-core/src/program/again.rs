@@ -131,7 +131,10 @@ pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
 /// each with `==` and `bool`). Two expressions in there compare by their own `__eq__`, so by `hash_key` again;
 /// an expression and anything else are unequal (the other side returns `NotImplemented`, and the expression's
 /// truth value is `False`).
+///
+/// Expressions nest (from JS, as deep as its calls make them): a level each (`value::recursion`).
 pub(super) fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
+    let _level = crate::value::recursion::level()?;
     match (x, y) {
         // `_func` is `None` and `_args` is `()` for both.
         (Again::Again { .. }, Again::Again { .. }) => Ok(true),

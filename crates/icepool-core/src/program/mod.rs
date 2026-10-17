@@ -126,6 +126,65 @@ pub(crate) fn raise<T>(e: Error) -> Result<T, PErr> {
     Err(e.into())
 }
 
+/// Raises `RecursionError` where a program value nests deeper than `value::recursion` allows: tuples, `Again`
+/// expressions, multiset expressions (operators, compound keeps), evaluations inside multiset functions. A host
+/// that keeps values between calls (the JS facade's handles) checks each one it keeps, so what calls build from
+/// them, one level deeper each, stays within the limit, and so does every recursion over it (dropping it too).
+/// Python builds such chains without recursing, and raises `RecursionError` when it evaluates them.
+pub fn check_nesting(v: &PValue) -> Result<(), PErr> {
+    use crate::value::recursion::level;
+    use expression::MExpr;
+    use pool::KeepGen;
+    fn value(v: &Value) -> Result<(), PErr> {
+        let _level = level()?;
+        match v {
+            Value::Tuple(items) => items.iter().try_for_each(value),
+            Value::Vector(x) => x.data().map_or(Ok(()), |d| d.iter().try_for_each(value)),
+            _ => Ok(()),
+        }
+    }
+    fn source(s: &crate::pool::MultisetSource<Value>) -> Result<(), PErr> {
+        let _level = level()?;
+        match s {
+            crate::pool::MultisetSource::CompoundKeep(c) => c.inner_sources().iter().try_for_each(source),
+            _ => Ok(()),
+        }
+    }
+    fn expr(e: &MExpr) -> Result<(), PErr> {
+        let _level = level()?;
+        match e {
+            MExpr::Gen(KeepGen::Compound(c)) | MExpr::Weightless(KeepGen::Compound(c)) => {
+                c.inner_sources().iter().try_for_each(source)
+            }
+            MExpr::Op(node) => node.children.iter().try_for_each(expr),
+            MExpr::TupleIndex(node) => expr(&node.0),
+            MExpr::TupleSlice(node) => expr(&node.0),
+            MExpr::Mixture(inners) => inners.iter().try_for_each(|(inner, _)| expr(inner)),
+            _ => Ok(()),
+        }
+    }
+    fn again(a: &again::AgainExpr) -> Result<(), PErr> {
+        let _level = level()?;
+        match a {
+            crate::again::Again::Again { .. } => Ok(()),
+            crate::again::Again::Apply { args, .. } => args.iter().try_for_each(|arg| match arg {
+                crate::again::AgainArg::Again(a) => again(a),
+                crate::again::AgainArg::Other(x) => check_nesting(x),
+            }),
+        }
+    }
+    let _level = level()?;
+    match v {
+        PValue::Value(x) => value(x),
+        PValue::List(xs) | PValue::Tuple(xs) => xs.iter().try_for_each(check_nesting),
+        PValue::Break(x) => check_nesting(x),
+        PValue::Again(a) => again(a),
+        PValue::Expr(e) => expr(e),
+        PValue::RawResult(r) => r.exprs().iter().try_for_each(expr),
+        _ => Ok(()),
+    }
+}
+
 /// Run one program. Never panics on bad input: errors are results too (`{"ok": false, "error": ...}`).
 pub fn run(program: &Json) -> Json {
     match eval(program) {

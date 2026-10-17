@@ -111,6 +111,8 @@ impl MExpr {
     /// `_prepare`: each way to prepare this expression (one, unless a mixture is inside): its dungeonlets (postfix
     /// order), the sources of its free variables and the weight.
     fn prepare(&self) -> Result<Vec<Part>, PErr> {
+        // Expressions nest (from JS, as deep as its calls make them): a level each (`value::recursion`).
+        let _level = crate::value::recursion::level()?;
         let one = |dungeonlet, sources| Ok(vec![(vec![dungeonlet], sources, Quantity::ONE)]);
         match self {
             MExpr::Gen(g) => one(Dungeonlet::FreeVariable, vec![g.source()?]),
@@ -1248,8 +1250,9 @@ fn address(class: &str) -> PErr {
     ))
 }
 
-/// `str(expression)`.
+/// `str(expression)`. A level each (`value::recursion`).
 fn expression_str(e: &MExpr) -> Result<String, PErr> {
+    let _level = crate::value::recursion::level()?;
     match e {
         MExpr::Gen(KeepGen::Pool(p)) => pool_str(p.dice(), p.keep_tuple()),
         MExpr::Gen(KeepGen::Deal(d)) => super::deck::deal_text(d.deck(), d.hand_size()),

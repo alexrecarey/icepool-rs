@@ -303,3 +303,17 @@ test("handles are released when their JS objects are collected", async () => {
   }
   assert.ok(ip.liveHandles() < before + 100, `${ip.liveHandles() - before} handles still live`);
 });
+
+test("deep nesting raises RecursionError rather than overflowing the WASM stack", () => {
+  const isRecursionError = (e) => e instanceof ip.IcepoolError && e.pythonType === "RecursionError";
+  let again = Again;
+  assert.throws(() => { for (let i = 0; i < 5000; i++) again = again.add(1); }, isRecursionError);
+  assert.deepEqual(new Die([1, Again.add(1).add(1)]).outcomes(), [1, 3, 4]);
+  let expr = d(2).pool(1);
+  assert.throws(() => { for (let i = 0; i < 5000; i++) expr = expr.or(d(2).pool(1)); }, isRecursionError);
+  let pools = d(2).pool(1);
+  assert.throws(() => { for (let i = 0; i < 5000; i++) pools = pools.additiveUnion(d(2).pool(1)); }, isRecursionError);
+  // A multiset function calling itself: Python's recursion limit, or JS's own stack.
+  const f = ip.multisetFunction((a) => f.call(a));
+  assert.throws(() => f.call(d(2).pool(1)), (e) => isRecursionError(e) || e instanceof RangeError);
+});

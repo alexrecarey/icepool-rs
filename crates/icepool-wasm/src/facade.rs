@@ -39,6 +39,7 @@ use icepool_core::evaluator::Final;
 use icepool_core::order::Order;
 use icepool_core::program::host::{HostEvaluator, HostFunction};
 use icepool_core::program::{self, PErr, PValue};
+use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{float_repr, HostError, HostObject, HostRef, Symbols, Vector};
 use icepool_core::Value;
 use serde_json::{json, Map, Value as Json};
@@ -265,8 +266,19 @@ fn int_js(digits: String) -> Json {
     }
 }
 
-/// A value as JS-JSON. Fraction parts are always strings (JS makes them BigInts).
+/// A level of recursion on nested values (`icepool_core::value::recursion`): `RecursionError` rather than
+/// overflowing the WASM stack.
+fn nest() -> Result<Level, PErr> {
+    level().map_err(PErr::Raise)
+}
+
+/// A value as JS-JSON. Fraction parts are always strings (JS makes them BigInts). Tuples and vectors nest, a level
+/// each.
 fn value_js(v: &Value) -> Result<Json, PErr> {
+    let _level = match v {
+        Value::Tuple(_) | Value::Vector(_) => Some(nest()?),
+        _ => None,
+    };
     Ok(match v {
         Value::None => Json::Null,
         Value::Bool(b) => Json::Bool(*b),
@@ -311,8 +323,18 @@ fn handle(v: &PValue, kind: &str) -> Json {
     json!({"$h": put(v.clone()), "kind": kind})
 }
 
-/// A program value as JS-JSON: values inline, the rest as new handles.
+/// A program value as JS-JSON: values inline, the rest as new handles. Lists, tuples and breaks nest (chained
+/// calls on handles nest them as deep as JS likes), a level each.
 fn to_js(v: &PValue) -> Result<Json, PErr> {
+    let _level = match v {
+        PValue::List(_) | PValue::Tuple(_) | PValue::Break(_) => Some(nest()?),
+        // A handle JS may build on, one level deeper each call: never deeper than the core recurses.
+        PValue::Again(_) | PValue::Expr(_) | PValue::RawResult(_) => {
+            program::check_nesting(v)?;
+            None
+        }
+        _ => None,
+    };
     Ok(match v {
         PValue::Value(x) => value_js(x)?,
         PValue::List(xs) => {

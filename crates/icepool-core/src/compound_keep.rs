@@ -4,6 +4,9 @@
 //!
 //! Python's generator holds its inner generators and makes their sources when evaluated; sources are immutable
 //! values here, so [`CompoundKeep`] holds the inner sources directly.
+//!
+//! A compound keep of compound keeps (`g = g + d6.pool(1)` in a loop) nests, and its sources recurse through the
+//! nesting: a level each (`value::recursion`), so a deep one raises `RecursionError` rather than overflowing.
 
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
@@ -16,6 +19,7 @@ use crate::keep_tuple::{
 use crate::order::{merge_order_preferences, Order, OrderReason};
 use crate::outcome::Outcome;
 use crate::pool::{Count, MultisetSource, Popped, Product};
+use crate::value::recursion::level;
 use crate::{Int, Quantity};
 
 /// `CompoundKeepGenerator(inners, keep_tuple)`.
@@ -114,6 +118,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
         if let Some(outcomes) = self.outcomes.get() {
             return Ok(outcomes);
         }
+        let _level = level()?;
         let inner = self
             .inner_sources
             .iter()
@@ -140,6 +145,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
     }
 
     pub fn is_resolvable(&self) -> Result<bool> {
+        let _level = level()?;
         for source in self.inner_sources.iter() {
             if !source.is_resolvable()? {
                 return Ok(false);
@@ -152,6 +158,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
     /// `Mandatory` preferences; no built-in source has one (a merge reaches `Mandatory` only together with
     /// `Order.Any`, which later merges skip), but a host source may.
     pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
+        let _level = level()?;
         let preferences = self
             .inner_sources
             .iter()
@@ -163,6 +170,7 @@ impl<O: Outcome> CompoundKeepSource<O> {
     /// Pops `outcome` off every inner source (`itertools.product` of their possibilities, the last varying
     /// fastest); the total count comes off the matching end of the keep tuple.
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
+        let _level = level()?;
         let pops = self
             .inner_sources
             .iter()

@@ -220,7 +220,13 @@ fn int_json(s: String) -> Json {
 
 /// `encode.enc` for a value. It raises where Python's does: iterating a `VectorWithTruthOnly`, or `str()` of a
 /// `Symbols` whose counts are not ints.
+///
+/// Tuples and vectors nest: a level each (`value::recursion`).
 pub fn enc(v: &Value) -> crate::Result<Json> {
+    let _level = match v {
+        Value::Tuple(_) | Value::Vector(_) => Some(crate::value::recursion::level()?),
+        _ => None,
+    };
     let tagged = |k: &str, x: Json| {
         let mut m = Map::new();
         m.insert(k.into(), x);
@@ -265,6 +271,7 @@ fn die_items(d: &Die<Value>) -> crate::Result<Vec<Json>> {
 /// `encode.enc` for any program value: `Ok(None)` for the ones the port cannot spell as Python does (lists,
 /// functions).
 fn enc_object(v: &PValue) -> crate::Result<Option<Json>> {
+    let _level = crate::value::recursion::level()?;
     Ok(Some(match v {
         // Encoding reads the data, which raises.
         PValue::DieWithTruthError(e, _) => return Err(e.clone()),

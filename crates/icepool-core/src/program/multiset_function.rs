@@ -87,6 +87,13 @@ pub struct RawResult {
     kwargs: Vec<(String, PValue)>,
 }
 
+impl RawResult {
+    /// The expressions evaluated.
+    pub(super) fn exprs(&self) -> &[MExpr] {
+        &self.exprs
+    }
+}
+
 impl std::fmt::Debug for RawResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MultisetFunctionRawResult({:?})", self.exprs)
@@ -346,6 +353,9 @@ fn prepare_leaf(leaf: &Leaf, exprs: &[MExpr]) -> Result<Vec<Prepared>, PErr> {
 
 /// `MultisetFunctionRawResult.prepare_inner`: the recorded evaluator's `_prepare`.
 fn prepare_raw(raw: &RawResult) -> Result<Vec<Prepared>, PErr> {
+    // Multiset functions calling multiset functions nest (a JS body may even call its own function): a level each
+    // (`value::recursion`), as Python's recursion limit stops them.
+    let _level = crate::value::recursion::level()?;
     match &raw.evaluator {
         RawEvaluator::Leaf(leaf) => prepare_leaf(leaf, &raw.exprs),
         RawEvaluator::Function(f) => prepare_function(f, &raw.exprs, &raw.kwargs),
