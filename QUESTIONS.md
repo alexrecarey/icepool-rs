@@ -83,3 +83,41 @@ The JS fixture suite does exactly this already (`crates/icepool-wasm/js/test/fix
 
    **C5b status (2026-10-17): waiting on this move.** C5b was scheduled twice with fixtures.rs still in
    icepool-core, so both attempts could only record that they are blocked. Please hold C5b until the move is done.
+
+## L202610172222: the long gate's "wasm build" step no longer warms run-wasm.sh's build (gate.sh is the loop's)
+
+Since C5 (2026-10-17 20:34) icepool-core's `khepri` engine is behind a feature. The long gate's "wasm build" step,
+`cargo build --release -p icepool-wasm --target wasm32-unknown-unknown`, builds icepool-core for wasm32 with
+`runner` only (icepool-wasm's default), but run-wasm.sh builds `--features runner,khepri`, which compiles
+icepool-core again: ~25 s here (`touch crates/icepool-core/src/lib.rs; cargo build --lib --release --target
+wasm32-unknown-unknown -p icepool-wasm --features runner,khepri`). The harness starts `$ICEPOOL_RUN` lazily on the
+first program and gives it 20 s, so whenever the node package is stale (after any merge that touches core) the
+first fixture of "fixtures through wasm" times out (long-20261017-2209: `s1b/die-methods-edge-cases.jsonl:1`, a
+plain `d6.zero()`; it passes once built). Earlier long gates only passed because some worktree had happened to
+build the package after main's files were written. Making `runner`/`khepri` default would put test code in a plain
+`wasm-pack build`, so the fix belongs in the gate. Please change the step to build what run-wasm.sh builds:
+
+```bash
+  step "wasm build" cargo build --release -p icepool-wasm --target wasm32-unknown-unknown --features runner,khepri --quiet
+```
+
+(check-production.sh already builds the npm package's feature set just before, so nothing else loses its warm
+cache.) With that, run-wasm.sh's own build is wasm-bindgen only (~1 s), as its header comment says.
+
+## L202610172222: complex `**` under WASM can be more than 2 ULP off (seed 21 of "fuzz through wasm")
+
+`complex(-0.00024988505290350285, -0.5) ** complex(-5.0, 2.5)` is `(1605.4982660299447-258.3902050878144j)` in
+Python and natively, `(1605.4982660299454-258.3902050878131j)` through WASM: 3 ULP off in the real part, 23 in the
+imaginary. Not a port bug: CPython's `_Py_c_pow` computes `phase = atan2(b, a) * br + bi * log(hypot(a, b))` and
+returns `len * cos(phase)`, `len * sin(phase)`. Rust's libm (what WASM gets) is 1 ULP off glibc in `hypot`, `pow`,
+`atan2`, `exp` and `log` for these inputs, and a 1-ULP change in `phase` (6.12) moves `len * sin(phase)` by about
+`len * cos(phase) * ulp(6.12)` = 1.4e-12 = 23 ULP of 258. No order of operations avoids it: only bit-exact
+transcendentals would, and B9 decided against porting libm again. The long gate's "fuzz through wasm" (seed 21,
+3000 programs) generates exactly this program, so that step stays red until one of:
+
+1. a looser tolerance for complex parts (e.g. relative error ~1e-14 of the complex's magnitude rather than ULPs of
+   each part) in compare.py and the JS suite's `complexParts`;
+2. accepting it as a known failure of the long gate (no fixture added: natively it already matches);
+3. bringing back exact libm ports for wasm32 only.
+
+The divergence is recorded in DIVERGENCES.md ("Floats under WASM").

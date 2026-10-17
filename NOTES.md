@@ -1159,7 +1159,12 @@ turns out wrong. Newest decisions at the top of each section.
   `run-wasm.sh` rebuilds the node package when any core/wasm source is newer, then speaks the icepool-run
   protocol. That package is `--no-opt` (under 1 s once cargo has built the wasm32 target): `wasm-opt -O3` took 6 to
   45 s under load, and the build must fit in the harness's 20 s per-program timeout (a cold cargo build does not:
-  build the wasm32 target first, as the long gate does). `--test` and `--bench` use the optimised build; `--test` checks
+  build the wasm32 target first, as the long gate does). **Since C5 the long gate's "wasm build" step builds
+  core without `khepri`, so a stale package costs ~25 s and the first wasm fixture times out** (QUESTIONS.md
+  L202610172222 asks for `--features runner,khepri` on that step; until then, warm it by hand before a long gate:
+  `echo '{"op":"d","sides":2}' | crates/icepool-wasm/run-wasm.sh`). Through WASM, complex `**` can be off by more
+  than 2 ULP (DIVERGENCES.md), so seed 21 of "fuzz through wasm" fails until Alex answers the other
+  L202610172222 question. `--test` and `--bench` use the optimised build; `--test` checks
   `calculate` against the 40 recorded `f2f.calculate` outputs, `--bench` times khepri. A panic is a trap in WASM
   (no unwinding): run-wasm.mjs answers like icepool-run's panic guard and reloads the instance.
 - **Float math (B9, 2026-10-17).** Transcendentals (`pow`, `log`, `log10`, `exp`, `sin`, `cos`, `atan2`, `hypot`)
