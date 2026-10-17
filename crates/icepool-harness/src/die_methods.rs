@@ -221,10 +221,14 @@ pub fn repr(die: PValue) -> Result<PValue, PErr> {
 /// `max_outcome()` / `is_empty()`.
 pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr> {
     use icepool_core::value::builtins::{getitem, Index};
-    let die = the_die(die)?;
     let PValue::Value(Value::Str(name)) = name else {
         return Err(PErr::Unimplemented("a die method that is not a str".into()));
     };
+    // A die program may give a plain value instead (`d.sequence(0)` is `()`): Python's protocol calls apply.
+    if let PValue::Value(x) = die {
+        return value_method(x, &name, arg);
+    }
+    let die = the_die(die)?;
     let int = |n: &icepool_core::Quantity| Value::Int(n.clone().into());
     // `self._mapping._keys` / `_values` / `_items`: tuples.
     let view = |v: &str| -> Value {
@@ -305,5 +309,45 @@ pub fn die_method(die: PValue, name: PValue, arg: PValue) -> Result<PValue, PErr
         }
         "is_empty" => value(Value::Bool(die.is_empty())),
         _ => Err(PErr::Unimplemented(format!("Die.{name}"))),
+    }
+}
+
+/// `die_method` on a plain value rather than a die: `len(x)`, `tuple(x)`, `x[arg]` and `arg in x` are Python's
+/// protocol calls on that value; the named methods (`keys()`, `min_outcome()`, ...) are attributes no plain value
+/// has. Except a `Symbols`, which is a `Mapping` (it has `keys()` and friends), and host objects: the port does not
+/// model those here.
+fn value_method(x: Value, name: &str, arg: PValue) -> Result<PValue, PErr> {
+    use icepool_core::value::builtins::{getitem, py_len, Index};
+    match (name, arg) {
+        ("len", _) => Ok(PValue::Value(Value::from(py_len(&x)? as i64))),
+        ("iter", _) => {
+            let items = super::ops::py_iter(PValue::Value(x))?;
+            let items = items
+                .into_iter()
+                .map(|item| match item {
+                    PValue::Value(v) => Ok(v),
+                    _ => Err(PErr::Unimplemented("tuple() of non-values".into())),
+                })
+                .collect::<Result<Vec<_>, PErr>>()?;
+            Ok(PValue::Value(Value::tuple(items)))
+        }
+        ("getitem", PValue::Value(key)) => Ok(PValue::Value(getitem(&x, &Index::Item(key))?)),
+        ("contains", PValue::Value(key)) => {
+            Ok(PValue::Value(Value::Bool(contains(&PValue::Value(x), &key)?)))
+        }
+        ("getitem" | "contains", _) => Err(PErr::Unimplemented(
+            "a plain value indexed or searched with a non-value".into(),
+        )),
+        _ if matches!(x, Value::Symbols(_) | Value::Host(_)) => Err(PErr::Unimplemented(
+            "Die methods on a Symbols or host object".into(),
+        )),
+        // `x.keys`, `x.keys_index` -> `x.keys`, `x.min_outcome`: the attribute lookup fails first.
+        (name, _) => {
+            let attribute = name.trim_end_matches("_index").trim_end_matches("_eq");
+            super::ops::missing_attribute(format!(
+                "'{}' object has no attribute '{attribute}'",
+                x.type_name()
+            ))
+        }
     }
 }
