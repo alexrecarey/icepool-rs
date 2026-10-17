@@ -1015,7 +1015,8 @@ turns out wrong. Newest decisions at the top of each section.
   they are gone, with QUESTIONS.md V1 (their LGPL licence) moot. Don't port libm functions again. compare.py
   gives the tolerance only to `{"float": ...}` leaves; a complex has no wire type and is compared by its repr
   (`{"repr": "complex: (a+bj)"}`), so 7 polar complex powers in fixtures/v1/complex-edge-cases.jsonl fail the long
-  gate's "fixtures through wasm" step (each part within 2 ULP). compare.py is protected: QUESTIONS.md "B9" asks
+  gate's "fixtures through wasm" step, and complex `standardized_moment` results its WASM fuzz (each part
+  within 2 ULP). compare.py is protected: QUESTIONS.md "B9" asks
   Alex to extend it. The JS fixture suite already parses complex reprs (fixtures.mjs `complexParts`).
 - **Measurements (K8)**, on this machine, inputs in `crates/icepool-wasm/bench-cases.json` (heavy = 6+2 vs 6+2,
   both EXP + Continuous: 536-bit denominator, heavier than ANALYSIS.md's 258-bit case):

@@ -30,7 +30,10 @@ With the glibc ports gone, 7 complex powers in `fixtures/v1/complex-edge-cases.j
 `...803j)`. A complex has no wire type: results encode it as `{"repr": "complex: (a+bj)"}`, which `compare.py`
 compares as text even with `ICEPOOL_FLOAT_ULPS=2`, so `gate.sh long`'s "fixtures through wasm" step fails on them
 (`ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN=crates/icepool-wasm/run-wasm.sh harness/core/tool fixtures verify --oracle-sample 0`:
-11555 checked, these 7 failures). compare.py is protected, so: please extend `_eq` to compare two complex repr
+11555 checked, these 7 failures). Its "fuzz through wasm" step will too: `fuzz --ops pow,truediv,entropy,
+standardized_moment,die,d,weights,die_typed --seed 21 --count 2000` through WASM gives 5 failures, all complex
+results of `standardized_moment` with a fractional k, each 1 ULP off in one part (no plain float fails).
+compare.py is protected, so: please extend `_eq` to compare two complex repr
 leaves part by part, e.g.
 
 ```python
