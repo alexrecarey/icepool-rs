@@ -329,8 +329,8 @@ const registry = new FinalizationRegistry<number>((h) => wasm((w) => w.release(h
 export const HANDLE: unique symbol = Symbol("handle");
 
 /** A core object (pool, deck, expression, ...) held by JS through the bridge. */
-export class Handle implements Encodable, Disposable {
-  /** The handle; -1 once freed. */
+export class Handle implements Disposable {
+  /** The handle; -1 once freed. @internal */
   protected handle: number;
 
   constructor(token: typeof HANDLE, handle: number) {
@@ -340,18 +340,19 @@ export class Handle implements Encodable, Disposable {
     if (handle >= 0) registry.register(this, handle, this);
   }
 
-  /** The handle, which must not have been freed. */
+  /** The handle, which must not have been freed. @internal */
   protected get h(): number {
     if (this.handle < 0) throw new TypeError("icepool: this object was freed");
     return this.handle;
   }
 
+  /** @internal */
   [ENCODE](): string {
     return `{"$h":${this.h}}`;
   }
 
   /** The harness's wire encoding of this object (`{"ok": true, "die" | "value": ...}`), as JSON text (for the
-   * fixture tests). */
+   * fixture tests). @internal */
   toWire(): string {
     const h = this.h;
     return wasm((w) => w.wire_result(h));
@@ -373,7 +374,7 @@ export class Handle implements Encodable, Disposable {
   }
 
   /** Adopts the handle of a freshly made object of class `cls` into this one (for `new Pool(...)` and friends,
-   * whose work is a node call). */
+   * whose work is a node call). @internal */
   protected adopt(made: unknown, cls: abstract new (...args: never[]) => Handle): void {
     if (!(made instanceof cls)) throw new TypeError(`icepool: expected a ${cls.name}`);
     registry.unregister(made);

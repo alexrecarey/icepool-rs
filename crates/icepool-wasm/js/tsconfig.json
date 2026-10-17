@@ -8,6 +8,7 @@
     "noImplicitOverride": true,
     "noUnusedLocals": true,
     "declaration": true,
+    "stripInternal": true,
     "rootDir": "src",
     "outDir": "dist",
     "skipLibCheck": true

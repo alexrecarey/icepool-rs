@@ -6,7 +6,7 @@ import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import type { AgainExpression } from "./again.js";
 import type { MultisetExpression, Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
-import { ENCODE, Handle, call, registerKind, type Encodable } from "./rpc.js";
+import { ENCODE, Handle, call, registerKind } from "./rpc.js";
 import { map, mapAndTime, meanTimeToAbsorb, ops } from "./functions.js";
 import {
   Break,
@@ -153,8 +153,8 @@ const UNARY: Record<UnaryName, keyof typeof import("../pkg-node/icepool_wasm.js"
 /** `icepool.Die`: `new Die([1, 2, 3])`, `new Die([d6, d8], [2, 1])`, `new Die(new Map([[1, 2n], [2, 1n]]))`;
  * options `{ againCount, againDepth, againEnd }` as in Python. Free it with `free()` or `using` when done with it
  * (else the garbage collector does, eventually). */
-export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable, Disposable {
-  /** The core's die; `null` once freed. */
+export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable {
+  /** The core's die; `null` once freed. @internal */
   protected core: WasmDie | null = null;
 
   constructor(outcomes: DieOutcomes, times?: Int | readonly Int[] | AgainOptions, options?: AgainOptions) {
@@ -165,19 +165,20 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
     this.core = made === undefined ? null : made.die;
   }
 
-  /** The core's die (throws once freed). */
+  /** The core's die (throws once freed). @internal */
   get w(): WasmDie {
     if (this.core === null) throw new TypeError("icepool: this die was freed");
     return this.core;
   }
 
-  /** Wraps a core die. */
+  /** Wraps a core die. @internal */
   static wrap(w: WasmDie): Die {
     const die = Object.create(Die.prototype) as Die;
     die.core = w;
     return die;
   }
 
+  /** @internal */
   [ENCODE](temps: number[] | null): string {
     const w = this.w;
     const h = wasm((m) => m.dieHandle(w, undefined));
@@ -755,7 +756,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
 
   // --- Formatting -----------------------------------------------------------------------------------------------
 
-  /** Python's `type(die).__name__`. */
+  /** Python's `type(die).__name__`. @internal */
   protected get typeName(): string {
     return "Die";
   }
@@ -790,11 +791,12 @@ function comparisonArgs(args: readonly unknown[]): [string | undefined, unknown]
 
 /** The result of `die.eq(x)` / `die.ne(x)`: a die of bools that also has a truth value (`equals`). */
 export class DieWithTruth extends Die<boolean> {
+  /** @internal */
   private truthValue = false;
-  /** The handle of a result whose data raised (kept so the error comes back when the data is used). */
+  /** The handle of a result whose data raised (kept so the error comes back when the data is used). @internal */
   private errorHandle = -1;
 
-  /** Wraps a core die with its truth value. */
+  /** Wraps a core die with its truth value. @internal */
   static wrapTruth(w: WasmDie, truth: boolean): DieWithTruth {
     const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
     die.core = w;
@@ -803,7 +805,7 @@ export class DieWithTruth extends Die<boolean> {
     return die;
   }
 
-  /** A result whose data raised: the data's error comes back from every use but `truth()` and `equals`. */
+  /** A result whose data raised: the data's error comes back from every use but `truth()` and `equals`. @internal */
   static failed(handle: number, truth: boolean): DieWithTruth {
     const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
     die.core = null;
@@ -813,6 +815,7 @@ export class DieWithTruth extends Die<boolean> {
     return die;
   }
 
+  /** @internal */
   override get w(): WasmDie {
     if (this.core === null && this.errorHandle >= 0) {
       const h = this.errorHandle;
@@ -822,6 +825,7 @@ export class DieWithTruth extends Die<boolean> {
     return super.w;
   }
 
+  /** @internal */
   override [ENCODE](temps: number[] | null): string {
     if (this.core === null && this.errorHandle >= 0) return `{"$h":${this.errorHandle}}`;
     const w = this.w;
@@ -842,6 +846,7 @@ export class DieWithTruth extends Die<boolean> {
     return this.truthValue;
   }
 
+  /** @internal */
   protected override get typeName(): string {
     return "DieWithTruth";
   }
