@@ -296,7 +296,14 @@ export const Ellipsis = new Special("Ellipsis");
  * last.evaluate(d(6).pool(1).forceOrder(Order.Ascending)).probability(6).toString(); //=> "1"
  * ```
  */
-export const Order = Object.freeze({ Ascending: 1, Descending: -1, Any: 0 } as const);
+export const Order = Object.freeze({
+  /** Lowest outcome first. */
+  Ascending: 1,
+  /** Highest outcome first. */
+  Descending: -1,
+  /** Either order: the evaluator works in both. */
+  Any: 0,
+} as const);
 /** `Order.Ascending` (1), `Order.Descending` (-1) or `Order.Any` (0).
  *
  * @example

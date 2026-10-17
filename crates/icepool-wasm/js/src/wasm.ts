@@ -91,7 +91,7 @@ export function run(programJson: string): string {
  * @example
  * ```ts
  * import type { KhepriResult } from "icepool-wasm";
- * const result: KhepriResult ={ rolls: 400n, outcomes: [{ player: "active", wounds: 1, chance: 0.25 }] };
+ * const result: KhepriResult = { rolls: 400n, outcomes: [{ player: "active", wounds: 1, chance: 0.25 }] };
  * result.outcomes[0].chance; //=> 0.25
  * ```
  */
@@ -100,7 +100,14 @@ export interface KhepriResult {
    * `to_js` converts a Python int). */
   rolls: number | bigint;
   /** One entry per (player, wounds) result; `chance` is `float(Fraction(quantity, denominator))`, bit for bit. */
-  outcomes: { player: string; wounds: number; chance: number }[];
+  outcomes: {
+    /** The player the result is for. */
+    player: string;
+    /** The wounds dealt. */
+    wounds: number;
+    /** The probability of this result. */
+    chance: number;
+  }[];
 }
 
 /** khepri's `f2f.calculate`: the engine input object in, `{rolls, outcomes: [{player, wounds, chance}, ...]}` out.

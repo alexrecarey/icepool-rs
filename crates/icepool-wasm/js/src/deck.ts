@@ -89,6 +89,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    *
    * @param f - A function returning the new outcome for each old outcome. The new outcomes may be decks, in which
    *   case one card is replaced with several (not recommended).
+   * @param options - Keyword arguments.
    * @param options.star - Whether outcomes are unpacked into separate arguments of `f`; `null` guesses from `f`.
    *
    * @example

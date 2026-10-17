@@ -1,6 +1,6 @@
 pkg-node/
 pkg-web/
 *.tgz
-node_modules/
+node_modules
 docs/api/
 test/.doc-examples/
