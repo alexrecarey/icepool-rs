@@ -277,9 +277,15 @@ pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue
         let mut list = Vec::new();
         for (k, v) in sizes {
             let n = match int_value(&v) {
-                Some(n) => usize::try_from(n).unwrap_or(0),
+                Some(n) if n < IBig::ZERO => 0,
+                Some(n) => u64::try_from(&n).unwrap_or(u64::MAX),
                 None => return type_error("can't multiply sequence by non-int"),
             };
+            // Python's `MemoryError` for a list no memory holds (the pool size limit comes after).
+            let n = crate::memory::check_len::<PValue, _>(
+                (list.len() as u64).checked_add(n),
+                "d_pool(die_sizes)",
+            )? - list.len();
             list.extend(std::iter::repeat_n(k, n));
         }
         list

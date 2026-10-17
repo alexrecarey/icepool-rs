@@ -354,7 +354,10 @@ impl<'a, O: Outcome, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
         // `itertools.product` over the sources' possibilities: the last source varies fastest.
         let mut result: Vec<RoomPop<O>> = vec![(Vec::new(), Vec::new(), Quantity::ONE)];
         for possibilities in &pops {
-            let mut next = Vec::with_capacity(result.len() * possibilities.len());
+            let mut next = crate::memory::try_with_capacity(
+                result.len().checked_mul(possibilities.len()),
+                "the sources' joint pops",
+            )?;
             for (sources, counts, weight) in &result {
                 for (source, count, w) in possibilities {
                     let mut sources = sources.clone();

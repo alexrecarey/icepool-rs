@@ -46,7 +46,9 @@ pub fn explode_counts<E: From<Error>>(
         _ => return Err(Error::Unsupported("a huge explode_to_pool depth".into()).into()),
     };
     let vector = |i: u32, n: i64| Value::Vector(Vector::new(vec![int(i), int(n)]));
-    let mut single_data = Vec::with_capacity(top as usize + 1);
+    let mut single_data = crate::memory::try_with_capacity(Some(top as u64 + 1), "explode_to_pool(depth)")?;
+    // Each weight is a product of `top` denominators.
+    crate::memory::check_pow(&(explode_den * die_den), top as usize, "explode_to_pool(depth)")?;
     for i in 0..top {
         let weight = explode_den.pow(i as usize) * die_den.pow((top - 1 - i) as usize) * not_explode_den;
         single_data.push((vector(i, 1), weight));

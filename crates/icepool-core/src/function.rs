@@ -6,6 +6,7 @@ use dashu_int::IBig;
 use crate::counts::Counts;
 use crate::die::Die;
 use crate::error::{value_error, Error, Result};
+use crate::memory::try_collect;
 use crate::outcome::Outcome;
 use crate::value::{BinOp, Vector};
 use crate::{Quantity, Value};
@@ -18,9 +19,9 @@ pub fn d<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
-    Ok(Die::from_counts(Counts::from_sorted(
-        (1..=sides).map(|i| (O::from(i), Quantity::ONE)).collect(),
-    )))
+    // `range(1, sides + 1)` as a list: Python's `MemoryError` where no machine holds it (`memory`).
+    let items = try_collect(Some(sides), (1..=sides).map(|i| (O::from(i), Quantity::ONE)), "d(sides)")?;
+    Ok(Die::from_counts(Counts::from_sorted(items)))
 }
 
 /// Merge sets into a sorted sequence (`sorted(set.union(*(set(arg) for arg in args)))`).
@@ -50,9 +51,8 @@ pub fn z<O: Outcome + From<i64>>(sides: i64) -> Result<Die<O>> {
     if sides < 1 {
         return value_error("sides must be at least 1.");
     }
-    Ok(Die::from_counts(Counts::from_sorted(
-        (0..sides).map(|i| (O::from(i), Quantity::ONE)).collect(),
-    )))
+    let items = try_collect(Some(sides), (0..sides).map(|i| (O::from(i), Quantity::ONE)), "z(sides)")?;
+    Ok(Die::from_counts(Counts::from_sorted(items)))
 }
 
 /// `pointwise_max` (`max` true) / `pointwise_min` once the dice are harmonized (`harmonize_denominators`).

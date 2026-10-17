@@ -50,9 +50,11 @@ pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
     let rolls = match rolls {
         PValue::Value(Value::Bool(b)) => b as usize,
         PValue::Value(Value::Int(i)) if i < IBig::ZERO => 0,
-        PValue::Value(Value::Int(i)) => {
-            usize::try_from(i).map_err(|_| PErr::Unimplemented("a huge sequence length".into()))?
-        }
+        // Python's tuple of `rolls` dice: `MemoryError` past what memory holds.
+        PValue::Value(Value::Int(i)) => crate::memory::check_len::<PValue, _>(
+            Some(u64::try_from(&i).unwrap_or(u64::MAX)),
+            "die.sequence(rolls)",
+        )?,
         PValue::Value(v) => {
             return type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
@@ -61,7 +63,8 @@ pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
         }
         _ => return type_error("object cannot be interpreted as an integer"),
     };
-    cartesian_product(PValue::List(vec![die; rolls]), true)
+    let dice = crate::memory::try_repeat(die, Some(rolls), "die.sequence(rolls)")?;
+    cartesian_product(PValue::List(dice), true)
 }
 
 /// `icepool.vectorize(*args)` (or `tupleize` when `tuple`), i.e. `cartesian_product(*args, outcome_type=...)`:
@@ -131,15 +134,17 @@ fn cartesian_parts(args: Vec<PValue>) -> Result<Vec<Vec<(Value, Quantity)>>, PEr
 /// `tuple(icepool.iter_cartesian_product(*args))`: `(outcomes, quantity)` pairs, one per joint outcome.
 pub fn iter_cartesian_product(args: PValue) -> Result<PValue, PErr> {
     let parts = cartesian_parts(py_iter(args)?)?;
-    Ok(PValue::tuple(
-        crate::expand::iter_cartesian_product(&parts)
-            .map(|(outcomes, quantity)| {
-                PValue::Value(Value::tuple(vec![
-                    Value::tuple(outcomes),
-                    Value::Int(quantity.into()),
-                ]))
-            })
-            .collect(),
+    let size = crate::expand::product_size(&parts);
+    Ok(PValue::tuple(crate::memory::try_collect(
+        size,
+        crate::expand::iter_cartesian_product(&parts).map(|(outcomes, quantity)| {
+            PValue::Value(Value::tuple(vec![
+                Value::tuple(outcomes),
+                Value::Int(quantity.into()),
+            ]))
+        }),
+        "iter_cartesian_product",
+    )?,
     ))
 }
 

@@ -28,6 +28,7 @@ pub mod khepri;
 pub mod lexi;
 pub mod map_tools;
 pub mod math;
+pub mod memory;
 pub mod multi_deal;
 pub mod operator;
 pub mod order;

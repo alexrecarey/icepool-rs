@@ -19,6 +19,8 @@ pub enum Error {
     Recursion(String),
     /// Python `OverflowError`, or a size the port cannot represent (Python would run out of memory or time).
     Overflow(String),
+    /// Python `MemoryError`: a size given by user input that no allocation can hold (`memory`), e.g. `d(2**40)`.
+    Memory(String),
     /// icepool `OrderError` (`ConflictingOrderError`): no pop order is compatible with the evaluation.
     Order(String),
     /// icepool `UnsupportedOrder`: an evaluator does not support the order it was given. The evaluation driver
@@ -46,6 +48,7 @@ impl Error {
             Error::ZeroDivision(_) => "ZeroDivisionError",
             Error::Recursion(_) => "RecursionError",
             Error::Overflow(_) => "OverflowError",
+            Error::Memory(_) => "MemoryError",
             Error::Order(_) => "ConflictingOrderError",
             Error::UnsupportedOrder(_) => "UnsupportedOrder",
             Error::NotImplemented(_) => "NotImplementedError",
@@ -63,6 +66,7 @@ impl Error {
             | Error::ZeroDivision(m)
             | Error::Recursion(m)
             | Error::Overflow(m)
+            | Error::Memory(m)
             | Error::Order(m)
             | Error::UnsupportedOrder(m)
             | Error::NotImplemented(m)

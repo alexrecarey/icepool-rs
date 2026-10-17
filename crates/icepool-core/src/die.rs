@@ -284,12 +284,16 @@ impl<O: Outcome> Die<O> {
     /// Roll this die several times and keep the lowest (`Die._lowest_single`, `rolls > 0`; the facade handles
     /// `rolls == 0`, which is `zero().simplify()`).
     pub fn lowest_single(&self, rolls: usize) -> Result<Self> {
+        // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
+        crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
         let cumulative = self.quantities_ge().iter().map(|x| x.pow(rolls)).collect();
         from_cumulative(self.outcomes().cloned().collect(), cumulative, true)
     }
 
     /// Roll this die several times and keep the highest (`Die._highest_single`, `rolls > 0`).
     pub fn highest_single(&self, rolls: usize) -> Result<Self> {
+        // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
+        crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
         let cumulative = self.quantities_le().iter().map(|x| x.pow(rolls)).collect();
         from_cumulative(self.outcomes().cloned().collect(), cumulative, false)
     }
@@ -319,6 +323,7 @@ impl<O: Outcome> Die<O> {
                 }
                 // A stopping outcome is reached after 0..=depth rerolls: the factor sums
                 // den**(depth - k) * rerolled**k over those, i.e. (den**(depth+1) - rerolled**(depth+1)) / stop.
+                crate::memory::check_pow(&denominator, depth as usize + 1, "a reroll depth")?;
                 let rerollable_factor = total_reroll_quantity.pow(depth as usize);
                 let stop_factor = (denominator.pow(depth as usize + 1)
                     - &rerollable_factor * &total_reroll_quantity)
@@ -463,6 +468,7 @@ impl<O: SumOutcome> Die<O> {
             .map_err(|_| Error::Overflow("die count too large".into()))?;
         let mut sums = SumCache::new(self);
         let denominator = self.denominator();
+        crate::memory::check_pow(&denominator, max_abs, "n @ die")?;
         let mut terms = Vec::with_capacity(counts.len());
         for (die_count, die_count_quantity) in counts {
             let abs = die_count.unsigned_abs() as usize;

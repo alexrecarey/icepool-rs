@@ -44,6 +44,14 @@ pub fn iter_cartesian_product<T: Clone>(
     })
 }
 
+/// How many joint outcomes `iter_cartesian_product(args)` yields, `None` past `usize`.
+pub fn product_size<T>(args: &[Vec<T>]) -> Option<usize> {
+    if args.iter().any(Vec::is_empty) {
+        return Some(0);
+    }
+    args.iter().try_fold(1usize, |n, arg| n.checked_mul(arg.len()))
+}
+
 /// `cartesian_product(*args, outcome_type=tuple)` when the population type is `Die`: a die of tuples, one per
 /// joint outcome of `args` (each given as for `iter_cartesian_product`).
 ///
@@ -76,6 +84,9 @@ pub fn cartesian_product_items(
     args: &[Vec<(Value, Quantity)>],
     outcome_type: impl Fn(Vec<Value>) -> Value,
 ) -> Result<Vec<(Value, Quantity)>> {
+    // The dict holds up to one item per joint outcome: refuse up front a product no memory holds (`MemoryError`),
+    // rather than abort when growing it fails.
+    crate::memory::check_len::<(Value, Quantity), _>(product_size(args), "a cartesian product")?;
     let mut data: Vec<(Value, Quantity)> = Vec::new();
     let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
     for (outcomes, quantity) in iter_cartesian_product(args) {

@@ -588,7 +588,8 @@ impl Die<Value> {
         let mut data: Vec<(Value, Quantity)> = Vec::new();
         let mut index: FxHashMap<Value, usize> = FxHashMap::default();
         for ((_, quantity), position) in self.items().iter().zip(positions) {
-            let mut value = vec![Value::Bool(false); len];
+            // `[False] * len(outcomes)`: `len` may be that of a huge sequence (`range(2**40)`).
+            let mut value = crate::memory::try_repeat(Value::Bool(false), Some(len), "[False] * len")?;
             if let Some(i) = *position {
                 let i = if i < 0 { i + len as i64 } else { i };
                 match usize::try_from(i).ok().filter(|&i| i < len) {

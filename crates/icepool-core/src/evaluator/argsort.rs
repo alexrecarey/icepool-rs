@@ -168,7 +168,9 @@ impl MultisetEvaluator<Value> for ArgsortEvaluator {
         if let (Some(limit), Some(pad)) = (self.limit, &self.limit_pad) {
             let append_count = limit - final_state.len() as i64;
             if append_count > 0 {
-                result.extend(std::iter::repeat_n(pad.clone(), append_count as usize));
+                // `(pad,) * append_count`: `limit` is the user's, so as large as an int goes.
+                let n = crate::keep_tuple::list_len(&Int::from(append_count))?;
+                result.extend(std::iter::repeat_n(pad.clone(), n));
             }
         }
         Ok(Final::Outcome(Value::tuple(result)))

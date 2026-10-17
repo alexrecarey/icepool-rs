@@ -15,7 +15,7 @@ use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
 use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{
-    PyAttributeError, PyIndexError, PyKeyError, PyNotImplementedError, PyOverflowError,
+    PyAttributeError, PyIndexError, PyKeyError, PyMemoryError, PyNotImplementedError, PyOverflowError,
     PyRecursionError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
@@ -431,6 +431,7 @@ pub fn to_py_err(e: Error) -> PyErr {
         Error::Key(m) => PyKeyError::new_err(m),
         Error::ZeroDivision(m) => PyZeroDivisionError::new_err(m),
         Error::Overflow(m) => PyOverflowError::new_err(m),
+        Error::Memory(m) => PyMemoryError::new_err(m),
         // Where icepool raises a plain `OrderError` (`sort_pair` without an inferrable size), the core says so.
         Error::Order(m) if m.starts_with("OrderError:") => icepool_error("OrderError", m),
         Error::Order(m) => icepool_error("ConflictingOrderError", m),

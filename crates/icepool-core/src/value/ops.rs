@@ -131,7 +131,12 @@ impl N {
 
 /// Python refuses to build integers this large (or would run out of memory or time doing it): the port raises
 /// instead of trying. (A `u64`: it does not fit a 32-bit `usize`, e.g. on wasm32.)
-const MAX_INT_BITS: u64 = 1 << 32;
+/// On wasm32 the whole instance has 4 GiB, and a product needs both operands and its result at once: 128 MiB ints.
+const MAX_INT_BITS: u64 = if cfg!(target_pointer_width = "32") {
+    1 << 30
+} else {
+    1 << 32
+};
 /// Repetition beyond this many elements raises (Python would raise `MemoryError` or take very long).
 const MAX_REPEAT: usize = 1 << 28;
 
@@ -685,6 +690,11 @@ fn repeat(seq: &Value, n: &Value) -> Result<Value> {
     if len.saturating_mul(n) > MAX_REPEAT {
         return too_large();
     }
+    // Within `MAX_REPEAT` only wasm32's lower allocation cap can refuse (`MemoryError`).
+    match seq {
+        Value::Str(s) => crate::memory::check_len::<u8, _>(s.len().checked_mul(n), "str * n")?,
+        _ => crate::memory::check_len::<Value, _>(len.checked_mul(n), "tuple * n")?,
+    };
     Ok(match seq {
         Value::Str(s) => Value::str(&s.repeat(n)),
         Value::Tuple(t) => Value::tuple(t.iter().cycle().take(len * n).cloned().collect()),
