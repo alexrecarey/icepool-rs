@@ -18,7 +18,7 @@ use rustc_hash::FxHashMap;
 
 use crate::error::{value_error, Error, Result};
 use crate::function::sorted_union;
-use crate::outcome::{self, OutcomeOrder};
+use crate::outcome::{infallible, ErrInto, Outcome, OutcomeOrder};
 use crate::value::builtins::{
     getattr, getitem, math_log, math_sqrt, py_len, py_sum, try_fraction, Index,
 };
@@ -60,7 +60,7 @@ fn invalid<T>(c: &Value) -> Result<T> {
 
 /// `bisect`'s binary search: the first index whose element does not `go_right`, probing midpoints as CPython's
 /// `_bisect` does (the comparisons may raise, and may not be a consistent order).
-fn bisect<T>(a: &[T], go_right: impl Fn(&T) -> Result<bool>) -> Result<usize> {
+fn bisect<T, E>(a: &[T], go_right: impl Fn(&T) -> std::result::Result<bool, E>) -> std::result::Result<usize, E> {
     let (mut lo, mut hi) = (0, a.len());
     while lo < hi {
         let mid = (lo + hi) / 2;
@@ -112,34 +112,41 @@ impl<O: OutcomeOrder> Die<O> {
         }
     }
 
-    /// The index of the nearest outcome fitting the comparison (`nearest`), or `None`; `Ok(Some((i, true)))` if
+    /// The index of the nearest outcome on the given side (`nearest`), or `None`; `Ok(Some((i, true)))` if
     /// `outcome in self` answered (Python then returns `outcome` itself).
-    fn nearest_index(&self, comparison: Comparison, outcome: &O) -> Result<Option<(usize, bool)>> {
+    fn nearest_index(&self, nearest: Nearest, outcome: &O) -> std::result::Result<Option<(usize, bool)>, O::Incomparable> {
         let items = self.items();
         // bisect_left compares `a[mid] < x`, bisect_right `x < a[mid]`.
-        let left = || bisect(items, |(o, _)| outcome::lt(o, outcome));
-        let right = || bisect(items, |(o, _)| Ok(!outcome::lt(outcome, o)?));
+        let left = || bisect(items, |(o, _)| o.try_lt(outcome));
+        let right = || bisect(items, |(o, _)| Ok(!outcome.try_lt(o)?));
         let below = |i: usize| i.checked_sub(1).map(|i| (i, false));
         let above = |i: usize| (i < items.len()).then_some((i, false));
-        Ok(match comparison {
-            Comparison::Le => match self.position(outcome) {
+        Ok(match nearest {
+            Nearest::Le => match self.position(outcome) {
                 Some(i) => Some((i, true)),
                 None => below(right()?),
             },
-            Comparison::Lt => below(left()?),
-            Comparison::Ge => match self.position(outcome) {
+            Nearest::Lt => below(left()?),
+            Nearest::Ge => match self.position(outcome) {
                 Some(i) => Some((i, true)),
                 None => above(left()?),
             },
-            Comparison::Gt => above(right()?),
-            Comparison::Eq | Comparison::Ne => return value_error("Invalid comparison"),
+            Nearest::Gt => above(right()?),
         })
     }
 
     /// The nearest outcome in this population fitting the comparison (`'<='`, `'<'`, `'>='`, `'>'`), or `None` if
     /// there is no such outcome. For `'<='` and `'>='`, an outcome that is in the population is returned as given.
-    pub fn nearest(&self, comparison: Comparison, outcome: &O) -> Result<Option<O>> {
-        Ok(match self.nearest_index(comparison, outcome)? {
+    /// `ValueError` for `'=='` and `'!='`.
+    pub fn try_nearest(&self, comparison: Comparison, outcome: &O) -> Result<Option<O>> {
+        let nearest = match comparison {
+            Comparison::Le => Nearest::Le,
+            Comparison::Lt => Nearest::Lt,
+            Comparison::Ge => Nearest::Ge,
+            Comparison::Gt => Nearest::Gt,
+            Comparison::Eq | Comparison::Ne => return value_error("Invalid comparison"),
+        };
+        Ok(match self.nearest_index(nearest, outcome).err_into()? {
             None => None,
             Some((_, true)) => Some(outcome.clone()),
             Some((i, false)) => Some(self.items()[i].0.clone()),
@@ -147,21 +154,25 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The total quantity fitting a comparison to a single outcome.
-    pub fn quantity(&self, comparison: Comparison, outcome: &O) -> Result<Quantity> {
+    pub fn try_quantity(&self, comparison: Comparison, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
         let get = || {
             self.position(outcome)
                 .map_or(Quantity::ZERO, |i| self.items()[i].1.clone())
         };
+        // `_cumulative_quantities[threshold]` of the nearest outcome below.
+        let cumulative = |nearest| -> std::result::Result<Quantity, O::Incomparable> {
+            Ok(match self.nearest_index(nearest, outcome)? {
+                None => Quantity::ZERO,
+                Some((i, _)) => self.cumulative_quantities()[i].clone(),
+            })
+        };
         Ok(match comparison {
             Comparison::Eq => get(),
             Comparison::Ne => self.denominator() - get(),
-            Comparison::Le | Comparison::Lt => match self.nearest_index(comparison, outcome)? {
-                None => Quantity::ZERO,
-                // `_cumulative_quantities[threshold]`.
-                Some((i, _)) => self.cumulative_quantities()[i].clone(),
-            },
-            Comparison::Ge => self.denominator() - self.quantity(Comparison::Lt, outcome)?,
-            Comparison::Gt => self.denominator() - self.quantity(Comparison::Le, outcome)?,
+            Comparison::Le => cumulative(Nearest::Le)?,
+            Comparison::Lt => cumulative(Nearest::Lt)?,
+            Comparison::Ge => self.denominator() - cumulative(Nearest::Lt)?,
+            Comparison::Gt => self.denominator() - cumulative(Nearest::Le)?,
         })
     }
 
@@ -211,8 +222,25 @@ impl<O: OutcomeOrder> Die<O> {
         }
         groups
             .into_iter()
-            .map(|(k, items)| Ok((k, Die::from_dict(items)?)))
+            .map(|(k, items)| Ok((k, Die::from_dict(items).err_into()?)))
             .collect()
+    }
+}
+
+/// Which nearest outcome `nearest` looks for: `'<='`, `'<'`, `'>='` or `'>'`.
+#[derive(Clone, Copy)]
+enum Nearest {
+    Le,
+    Lt,
+    Ge,
+    Gt,
+}
+
+/// The typed API: an [`Outcome`]'s comparisons cannot fail, so neither can these.
+impl<O: Outcome> Die<O> {
+    /// The total quantity fitting a comparison to a single outcome.
+    pub fn quantity(&self, comparison: Comparison, outcome: &O) -> Quantity {
+        infallible(self.try_quantity(comparison, outcome))
     }
 }
 
@@ -237,7 +265,7 @@ impl Die<Value> {
         outcome: &Value,
         percent: bool,
     ) -> Result<Value> {
-        let result = self.fraction(self.quantity(comparison, outcome)?)?;
+        let result = self.fraction(self.try_quantity(comparison, outcome)?)?;
         if percent {
             result.binary(BinOp::Mul, &Value::Float(100.0))
         } else {
@@ -294,7 +322,7 @@ impl Die<Value> {
         let target = n
             .binary(BinOp::Mul, &Value::Int(self.den()))?
             .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| {
+        let index = bisect(&cdf, |q| -> Result<bool> {
             Ok(!target.binary(BinOp::Lt, &int(q))?.truthy()?)
         })?;
         self.outcome_at(index)

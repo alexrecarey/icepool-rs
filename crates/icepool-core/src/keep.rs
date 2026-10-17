@@ -5,7 +5,7 @@
 use crate::die::{from_cumulative, Die};
 use crate::error::Result;
 use crate::function::sorted_union;
-use crate::outcome::{self, OutcomeOrder};
+use crate::outcome::{self, ErrInto, OutcomeOrder};
 use crate::Quantity;
 
 /// Roll all the dice and take the lowest single one (`_lowest_single`, at least one die, none empty).
@@ -19,18 +19,19 @@ pub fn lowest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let max_outcome = outcome::min(maxes)?.clone();
     let dice = dice
         .iter()
-        .map(|die| die.clip(None, Some(&max_outcome)))
-        .collect::<Result<Vec<_>>>()?;
+        .map(|die| die.try_clip(None, Some(&max_outcome)))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .err_into()?;
     let outcomes = sorted_union(dice.iter().map(Die::outcomes))?;
     let mut quantities_ge = Vec::with_capacity(outcomes.len());
     for outcome in &outcomes {
         let mut product = Quantity::ONE;
         for die in &dice {
-            product *= die.quantity_ge(outcome)?;
+            product *= die.try_quantity_ge(outcome).err_into()?;
         }
         quantities_ge.push(product);
     }
-    from_cumulative(outcomes, quantities_ge, true)
+    from_cumulative(outcomes, quantities_ge, true).err_into()
 }
 
 /// Roll all the dice and take the highest single one (`_highest_single`, at least one die, none empty).
@@ -44,16 +45,17 @@ pub fn highest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let min_outcome = outcome::max(mins)?.clone();
     let dice = dice
         .iter()
-        .map(|die| die.clip(Some(&min_outcome), None))
-        .collect::<Result<Vec<_>>>()?;
+        .map(|die| die.try_clip(Some(&min_outcome), None))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .err_into()?;
     let outcomes = sorted_union(dice.iter().map(Die::outcomes))?;
     let mut quantities_le = Vec::with_capacity(outcomes.len());
     for outcome in &outcomes {
         let mut product = Quantity::ONE;
         for die in &dice {
-            product *= die.quantity_le(outcome)?;
+            product *= die.try_quantity_le(outcome).err_into()?;
         }
         quantities_le.push(product);
     }
-    from_cumulative(outcomes, quantities_le, false)
+    from_cumulative(outcomes, quantities_le, false).err_into()
 }

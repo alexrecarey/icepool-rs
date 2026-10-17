@@ -1,8 +1,9 @@
 //! Rust port of [icepool](https://github.com/HighDiceRoller/icepool), pinned at the version in `oracle.lock`.
 //!
-//! The core is generic over [`OutcomeOrder`] (see docs/ANALYSIS.md "the design decisions"); the bindings instantiate it
-//! with the dynamic [`Value`], which carries Python's semantics. Module layout mirrors icepool's own files; see
-//! NOTES.md.
+//! The core is generic over [`OutcomeOrder`] (see docs/ANALYSIS.md "the design decisions" and
+//! design/library-architecture.md section 1): any `Ord` type is an [`Outcome`], whose comparisons cannot fail, so
+//! `Die<i64>` answers them with plain values; the bindings instantiate the core with the dynamic [`Value`], which
+//! carries Python's semantics (its comparisons can raise). Module layout mirrors icepool's own files; see NOTES.md.
 //!
 //! `program` runs the harness's JSON program language (see harness/core/grammar_api.py and docs/semantics.md):
 //! it is how every check drives this crate, and later the WASM entry point.

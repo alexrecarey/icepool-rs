@@ -78,7 +78,7 @@ pub fn from_cumulative(
             harmonize(PValue::List(cumulative), PValue::Value(Value::None))?
                 .iter()
                 .map(|die| {
-                    let q = die.quantity(Comparison::Ne, &Value::Bool(false))?;
+                    let q = die.try_quantity(Comparison::Ne, &Value::Bool(false))?;
                     Ok(PValue::Value(Value::Int(q.into())))
                 })
                 .collect::<Result<_, crate::Error>>()?

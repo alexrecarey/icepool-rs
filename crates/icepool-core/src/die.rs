@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHasher};
 use crate::counts::{Counts, OrderedMerge};
 use crate::creation_args::{expand_args_for_die, DieArg};
 use crate::error::{value_error, Error, Result};
-use crate::outcome::{self, OutcomeArith, OutcomeOrder};
+use crate::outcome::{infallible, ErrInto, Outcome, OutcomeArith, OutcomeOrder};
 use crate::Quantity;
 
 /// Dice are immutable; methods return new dice. Cloning is cheap (the items are shared).
@@ -144,7 +144,7 @@ impl<O: OutcomeOrder> Die<O> {
         for (outcome, quantity) in self.items() {
             data.add(op(outcome)?, quantity.clone());
         }
-        Self::from_mapping(data)
+        Self::from_mapping(data).err_into()
     }
 
     /// Performs the operation on pairs of outcomes (`Die.binary_operator`).
@@ -170,18 +170,18 @@ impl<O: OutcomeOrder> Die<O> {
                 );
             }
         }
-        Self::from_mapping(data)
+        Self::from_mapping(data).err_into()
     }
 
     /// `Die(data)` for a dict of outcome -> quantity (`self._new_type(data)` in icepool). `itemize` and
     /// `merge_weights_lcm` see denominator 1 for every outcome, so `weighted_lcm` passes the quantities through
     /// unchanged except that zero ones drop out; then `Counts` sorts what is left.
-    pub(crate) fn from_mapping(data: OrderedMerge<O>) -> Result<Self> {
+    pub(crate) fn from_mapping(data: OrderedMerge<O>) -> std::result::Result<Self, O::Incomparable> {
         Self::from_dict(data.into_items())
     }
 
     /// `Die(dict)` for items whose outcomes are already distinct.
-    pub fn from_dict(items: Vec<(O, Quantity)>) -> Result<Self> {
+    pub fn from_dict(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         let items = items.into_iter().filter(|(_, q)| !q.is_zero()).collect();
         Ok(Self::from_counts(Counts::new(items)?))
     }
@@ -296,15 +296,15 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// `quantity('>=', outcome)`: the denominator minus `quantity('<', outcome)`, which looks up the cumulative
     /// quantity of the nearest outcome below with `bisect_left`.
-    pub fn quantity_ge(&self, outcome: &O) -> Result<Quantity> {
-        let index = bisect(self.items(), |o| outcome::lt(o, outcome))?;
+    pub fn try_quantity_ge(&self, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
+        let index = bisect(self.items(), |o| o.try_lt(outcome))?;
         let below: Quantity = self.items()[..index].iter().map(|(_, q)| q).sum();
         Ok(self.denominator() - below)
     }
 
     /// `quantity('<=', outcome)`: the cumulative quantity of the nearest outcome at or below (`bisect_right`).
-    pub fn quantity_le(&self, outcome: &O) -> Result<Quantity> {
-        let index = bisect(self.items(), |o| Ok(!outcome::lt(outcome, o)?))?;
+    pub fn try_quantity_le(&self, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
+        let index = bisect(self.items(), |o| Ok(!outcome.try_lt(o)?))?;
         Ok(self.items()[..index].iter().map(|(_, q)| q).sum())
     }
 
@@ -314,7 +314,7 @@ impl<O: OutcomeOrder> Die<O> {
         // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
         crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
         let cumulative = self.quantities_ge().iter().map(|x| x.pow(rolls)).collect();
-        from_cumulative(self.outcomes().cloned().collect(), cumulative, true)
+        from_cumulative(self.outcomes().cloned().collect(), cumulative, true).err_into()
     }
 
     /// Roll this die several times and keep the highest (`Die._highest_single`, `rolls > 0`).
@@ -322,7 +322,7 @@ impl<O: OutcomeOrder> Die<O> {
         // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
         crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
         let cumulative = self.quantities_le().iter().map(|x| x.pow(rolls)).collect();
-        from_cumulative(self.outcomes().cloned().collect(), cumulative, false)
+        from_cumulative(self.outcomes().cloned().collect(), cumulative, false).err_into()
     }
 
     /// Rerolls the outcomes selected by `reroll` (one flag per outcome, as `items()`).
@@ -363,14 +363,14 @@ impl<O: OutcomeOrder> Die<O> {
                     .collect()
             }
         };
-        Self::from_dict(data)
+        Self::from_dict(data).err_into()
     }
 
     /// Splits this die into one containing the selected outcomes and another containing the rest.
     ///
     /// The sum of the denominators of the results is equal to the denominator of this die (zero quantities drop
     /// out of both).
-    pub fn split(&self, selected: &[bool]) -> Result<(Self, Self)> {
+    pub fn split(&self, selected: &[bool]) -> std::result::Result<(Self, Self), O::Incomparable> {
         let (sel, rest): (Vec<_>, Vec<_>) =
             self.items().iter().zip(selected).partition(|(_, &s)| s);
         let unflag =
@@ -386,15 +386,19 @@ impl<O: OutcomeOrder> Die<O> {
     /// The endpoints are included in the result if applicable. If one of the arguments is not provided, that side
     /// will not be truncated. This effectively rerolls outcomes outside the given range. If instead you want to
     /// replace those outcomes with the nearest endpoint, use `clip()`.
-    pub fn truncate(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Result<Self> {
+    pub fn try_truncate(
+        &self,
+        min_outcome: Option<&O>,
+        max_outcome: Option<&O>,
+    ) -> std::result::Result<Self, O::Incomparable> {
         let items = self.items();
         // bisect_left / bisect_right, making exactly the comparisons Python's bisect makes.
         let start = match min_outcome {
-            Some(x) => bisect(items, |o| outcome::lt(o, x))?,
+            Some(x) => bisect(items, |o| o.try_lt(x))?,
             None => 0,
         };
         let stop = match max_outcome {
-            Some(x) => bisect(items, |o| Ok(!outcome::lt(x, o)?))?,
+            Some(x) => bisect(items, |o| Ok(!x.try_lt(o)?))?,
             None => items.len(),
         };
         // `items()[start:stop]` is empty when start > stop.
@@ -407,17 +411,44 @@ impl<O: OutcomeOrder> Die<O> {
     /// will not be clipped. This is not the same as rerolling outcomes beyond this range; the outcome is simply
     /// adjusted to fit within the range. This will typically cause some quantity to bunch up at the endpoint(s).
     /// If you want to reroll outcomes beyond this range, use `truncate()`.
-    pub fn clip(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Result<Self> {
+    pub fn try_clip(
+        &self,
+        min_outcome: Option<&O>,
+        max_outcome: Option<&O>,
+    ) -> std::result::Result<Self, O::Incomparable> {
         let mut data = OrderedMerge::default();
         for (outcome, quantity) in self.items() {
             let new = match (min_outcome, max_outcome) {
-                (Some(min), _) if outcome::le(outcome, min)? => min,
-                (_, Some(max)) if outcome::ge(outcome, max)? => max,
+                (Some(min), _) if outcome.try_le(min)? => min,
+                (_, Some(max)) if outcome.try_ge(max)? => max,
                 _ => outcome,
             };
             data.add(new.clone(), quantity.clone());
         }
         Self::from_mapping(data)
+    }
+}
+
+/// The typed API: an [`Outcome`]'s comparisons cannot fail, so neither can these.
+impl<O: Outcome> Die<O> {
+    /// `quantity('>=', outcome)`: the total quantity of the outcomes at or above `outcome`.
+    pub fn quantity_ge(&self, outcome: &O) -> Quantity {
+        infallible(self.try_quantity_ge(outcome))
+    }
+
+    /// `quantity('<=', outcome)`: the total quantity of the outcomes at or below `outcome`.
+    pub fn quantity_le(&self, outcome: &O) -> Quantity {
+        infallible(self.try_quantity_le(outcome))
+    }
+
+    /// Truncates the outcomes of this die to the given range (see [`Die::try_truncate`]).
+    pub fn truncate(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Self {
+        infallible(self.try_truncate(min_outcome, max_outcome))
+    }
+
+    /// Clips the outcomes of this die to the given values (see [`Die::try_clip`]).
+    pub fn clip(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Self {
+        infallible(self.try_clip(min_outcome, max_outcome))
     }
 }
 
@@ -456,7 +487,7 @@ impl<O: OutcomeArith> Die<O> {
             .iter()
             .fold(Quantity::ZERO, |g, (_, q)| dashu_base::Gcd::gcd(g, q));
         if gcd <= Quantity::ONE {
-            return Self::from_dict(self.items().to_vec());
+            return Self::from_dict(self.items().to_vec()).err_into();
         }
         Self::from_dict(
             self.items()
@@ -464,6 +495,7 @@ impl<O: OutcomeArith> Die<O> {
                 .map(|(o, q)| (o.clone(), q / &gcd))
                 .collect(),
         )
+        .err_into()
     }
 
     /// Roll `counts` (the items of the left die of `@`, already checked to be integers), then roll this die that
@@ -479,7 +511,7 @@ impl<O: OutcomeArith> Die<O> {
                 data.add(outcome, quantity);
             }
         }
-        Self::from_mapping(data)
+        Self::from_mapping(data).err_into()
     }
 
     /// The terms `matmul` adds up, one per count in order: each outcome of the count's sum with its quantity
@@ -587,7 +619,7 @@ pub fn from_cumulative<O: OutcomeOrder>(
     mut outcomes: Vec<O>,
     mut cumulative: Vec<Quantity>,
     reverse: bool,
-) -> Result<Die<O>> {
+) -> std::result::Result<Die<O>, O::Incomparable> {
     if reverse {
         outcomes.reverse();
         cumulative.reverse();
@@ -603,7 +635,7 @@ pub fn from_cumulative<O: OutcomeOrder>(
 
 /// Python's `bisect` loop over sorted items: the first index whose outcome does not satisfy `go_right` (which must
 /// hold for a prefix of the items). `lo` moves right while `go_right(a[mid])`.
-fn bisect<O>(items: &[(O, Quantity)], go_right: impl Fn(&O) -> Result<bool>) -> Result<usize> {
+fn bisect<O, E>(items: &[(O, Quantity)], go_right: impl Fn(&O) -> std::result::Result<bool, E>) -> std::result::Result<usize, E> {
     let (mut lo, mut hi) = (0, items.len());
     while lo < hi {
         let mid = (lo + hi) / 2;
@@ -687,7 +719,7 @@ impl Die<crate::Value> {
             return value_error("mean_time_to_sum does not handle negative outcomes.");
         }
         let denominator = self.denominator();
-        let effect = &denominator - &self.quantity(crate::population::Comparison::Eq, &zero)?;
+        let effect = &denominator - &self.try_quantity(crate::population::Comparison::Eq, &zero)?;
         if effect.is_zero() {
             return Err(Error::ZeroDivision(format!("Fraction({denominator}, 0)")));
         }
@@ -778,5 +810,27 @@ fn list_index(x: &crate::Value) -> Option<usize> {
         crate::Value::Bool(b) => Some(*b as usize),
         crate::Value::Int(i) => usize::try_from(i).ok(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::population::Comparison;
+    use crate::{d, Die, Quantity};
+
+    /// The typed API on `Die<i64>` answers comparisons with plain values, as the `Value` path does with `Ok`.
+    #[test]
+    fn typed_comparisons_return_plain_values() {
+        let d6: Die<i64> = d(6).unwrap();
+        let q = |x: u8| Quantity::from(x);
+        assert_eq!(d6.quantity_le(&4), q(4));
+        assert_eq!(d6.quantity_ge(&4), q(3));
+        assert_eq!(d6.quantity(Comparison::Lt, &4), q(3));
+        assert_eq!(d6.quantity(Comparison::Ne, &7), q(6));
+        let clipped = d6.clip(Some(&2), Some(&5));
+        assert_eq!(clipped.items(), [(2, q(2)), (3, q(1)), (4, q(1)), (5, q(2))]);
+        let truncated = d6.truncate(Some(&5), None);
+        assert_eq!(truncated.items(), [(5, q(1)), (6, q(1))]);
+        assert_eq!(d6.try_clip(Some(&2), Some(&5)), Ok(clipped));
     }
 }

@@ -361,7 +361,7 @@ fn truncate(
     max_outcome: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<RsDie> {
     let (min, max) = (bound(min_outcome)?, bound(max_outcome)?);
-    RsDie::wrap(py, die.get().die.truncate(min.as_ref(), max.as_ref()))
+    RsDie::wrap(py, die.get().die.try_truncate(min.as_ref(), max.as_ref()))
 }
 
 /// `Die.clip(min_outcome, max_outcome)`.
@@ -374,7 +374,7 @@ fn clip(
     max_outcome: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<RsDie> {
     let (min, max) = (bound(min_outcome)?, bound(max_outcome)?);
-    RsDie::wrap(py, die.get().die.clip(min.as_ref(), max.as_ref()))
+    RsDie::wrap(py, die.get().die.try_clip(min.as_ref(), max.as_ref()))
 }
 
 /// `n.__matmul__(die)` once both are dice: roll `n`, then roll `die` that many times and sum. The counts'

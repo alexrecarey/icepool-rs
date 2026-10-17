@@ -14,7 +14,7 @@ use crate::counts::Counts;
 use crate::creation_args::{expand_args_for_deck, DieArg};
 use crate::die::Die;
 use crate::error::Result;
-use crate::outcome::OutcomeOrder;
+use crate::outcome::{ErrInto, OutcomeOrder};
 use crate::Quantity;
 
 /// A deck of cards. Immutable and cheap to clone (the cards are shared). Equality and hashing are structural, as
@@ -49,14 +49,14 @@ impl<O: OutcomeOrder> Deck<O> {
 
     /// `Deck(dict)` for items whose outcomes are distinct and whose quantities are ints: zero quantities drop out
     /// (`merge_duplicates`), then `Counts` sorts what is left.
-    pub fn from_dict(items: Vec<(O, Quantity)>) -> Result<Self> {
+    pub fn from_dict(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         let items = items.into_iter().filter(|(_, q)| !q.is_zero()).collect();
         Ok(Self::from_counts(Counts::new(items)?))
     }
 
     /// `Population.split` of a deck given the selection (one flag per outcome, the caller's `_select_outcomes`):
     /// the selected cards and the rest, each as `Deck(dict)` (zero quantities drop out).
-    pub fn split(&self, selected: &[bool]) -> Result<(Self, Self)> {
+    pub fn split(&self, selected: &[bool]) -> std::result::Result<(Self, Self), O::Incomparable> {
         let (sel, rest): (Vec<_>, Vec<_>) =
             self.items().iter().zip(selected).partition(|(_, &s)| s);
         let unflag =
@@ -125,7 +125,7 @@ impl<O: OutcomeOrder> Deck<O> {
     /// as they are. (The Python facade, whose `other` may hold dice or `Reroll`, gets [`Deck::counter_items`] and
     /// calls `Deck(...)` itself.)
     pub fn counter_op(&self, op: CounterOp, other: &Counter<O>) -> Result<Self> {
-        Self::from_dict(self.counter_items(op, other))
+        Self::from_dict(self.counter_items(op, other)).err_into()
     }
 
     /// The items of `+data` in [`Deck::counter_op`].
@@ -185,7 +185,7 @@ impl<O: crate::outcome::OutcomeArith> Deck<O> {
     /// `Deck(data)`; `ValueError` unless they resolve to a single outcome.
     pub fn zero(&self) -> Result<Self> {
         let zeros = self.cards.unary_operator(O::try_zero)?;
-        let result = Self::from_dict(zeros.items().to_vec())?;
+        let result = Self::from_dict(zeros.items().to_vec()).err_into()?;
         if result.len() != 1 {
             return crate::error::value_error("zero() did not resolve to a single outcome.");
         }

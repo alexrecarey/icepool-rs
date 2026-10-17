@@ -117,33 +117,29 @@ pub fn infallible<T>(result: std::result::Result<T, Infallible>) -> T {
     }
 }
 
-// Generic code returns the core's `Result` (it also fails for reasons that are not comparisons). `?` cannot turn
-// `O::Incomparable` into `Error` by itself (a `From` bound on an associated type is not carried along to users of
-// the trait), so generic code compares through these.
+/// Turns a comparison's refusal into the core's [`Error`], for `?` in generic code returning [`Result`] (it also
+/// fails for reasons that are not comparisons). `?` cannot do it by itself: a `From` bound on an associated type
+/// is not carried along to users of the trait.
+pub(crate) trait ErrInto<T> {
+    fn err_into(self) -> Result<T>;
+}
+
+impl<T, E: Into<Error>> ErrInto<T> for std::result::Result<T, E> {
+    fn err_into(self) -> Result<T> {
+        self.map_err(Into::into)
+    }
+}
+
+// The comparisons generic code makes, as the core's `Result`.
 
 /// `a < b`.
 pub(crate) fn lt<O: OutcomeOrder>(a: &O, b: &O) -> Result<bool> {
-    a.try_lt(b).map_err(Into::into)
-}
-
-/// `a <= b`.
-pub(crate) fn le<O: OutcomeOrder>(a: &O, b: &O) -> Result<bool> {
-    a.try_le(b).map_err(Into::into)
+    a.try_lt(b).err_into()
 }
 
 /// `a > b`.
 pub(crate) fn gt<O: OutcomeOrder>(a: &O, b: &O) -> Result<bool> {
-    a.try_gt(b).map_err(Into::into)
-}
-
-/// `a >= b`.
-pub(crate) fn ge<O: OutcomeOrder>(a: &O, b: &O) -> Result<bool> {
-    a.try_ge(b).map_err(Into::into)
-}
-
-/// Whether `outcome` may be a key (see [`OutcomeOrder::check_key`]).
-pub(crate) fn check_key<O: OutcomeOrder>(outcome: &O) -> Result<()> {
-    outcome.check_key().map_err(Into::into)
+    a.try_gt(b).err_into()
 }
 
 /// `sorted(items)`, comparing with `lt` (see [`OutcomeOrder::try_sort_by`]).
@@ -151,7 +147,7 @@ pub(crate) fn sort_by<O: OutcomeOrder, T>(
     items: Vec<T>,
     lt: impl Fn(&T, &T) -> std::result::Result<bool, O::Incomparable>,
 ) -> Result<Vec<T>> {
-    O::try_sort_by(items, lt).map_err(Into::into)
+    O::try_sort_by(items, lt).err_into()
 }
 
 /// `sorted(outcomes)`.

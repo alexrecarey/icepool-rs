@@ -4,7 +4,7 @@ use crate::counts::{Counts, OrderedMerge};
 use crate::die::Die;
 use crate::error::Result;
 use crate::math::weighted_lcm;
-use crate::outcome::OutcomeOrder;
+use crate::outcome::{ErrInto, OutcomeOrder};
 use crate::Quantity;
 
 /// One element of the `outcomes` passed to `Die(...)` or `Deck(...)`, after the facade has unpacked Python's dynamic
@@ -38,7 +38,7 @@ pub fn expand_args_for_die<O: OutcomeOrder>(
     args: &[DieArg<O>],
     times: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_weights_lcm(args, times)?)
+    Counts::new(merge_weights_lcm(args, times)?).err_into()
 }
 
 /// Merge for dice.
@@ -77,7 +77,7 @@ pub fn expand_args_for_deck<O: OutcomeOrder>(
     args: &[DieArg<O>],
     duplicates: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_duplicates(args, duplicates)?)
+    Counts::new(merge_duplicates(args, duplicates)?).err_into()
 }
 
 /// Merge for decks.

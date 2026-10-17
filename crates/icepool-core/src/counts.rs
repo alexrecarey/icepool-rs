@@ -2,7 +2,6 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::error::Result;
 use crate::outcome::{self, OutcomeOrder};
 use crate::Quantity;
 
@@ -16,11 +15,11 @@ impl<O: OutcomeOrder> Counts<O> {
     /// `Counts(items)`: sorts the items (as Python sorts `(key, value)` tuples: by key, then value for keys that
     /// are `==`), then merges equal keys (as a dict does), keeping the first. Raises `TypeError` if the keys are not mutually comparable;
     /// a single key is compared with itself so that even a one-outcome die checks its outcome is orderable.
-    pub fn new(items: Vec<(O, Quantity)>) -> Result<Self> {
+    pub fn new(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         if let [(k, _)] = items.as_slice() {
-            outcome::lt(k, k)?;
+            k.try_lt(k)?;
         }
-        let sorted = outcome::sort_by::<O, _>(items, |(ka, qa), (kb, qb)| {
+        let sorted = O::try_sort_by(items, |(ka, qa), (kb, qb)| {
             if ka.try_eq(kb)? {
                 Ok(qa < qb)
             } else {
@@ -29,7 +28,7 @@ impl<O: OutcomeOrder> Counts<O> {
         })?;
         let mut merged: Vec<(O, Quantity)> = Vec::with_capacity(sorted.len());
         for (k, q) in sorted {
-            outcome::check_key(&k)?;
+            k.check_key()?;
             // Sorted, so equal keys are adjacent.
             match merged.last_mut() {
                 Some((last, total)) if *last == k => *total += q,

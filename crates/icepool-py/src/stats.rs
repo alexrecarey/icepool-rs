@@ -99,7 +99,7 @@ pub fn quantity<'py>(
     let q = die
         .get()
         .die
-        .quantity(c, &from_py(outcome)?)
+        .try_quantity(c, &from_py(outcome)?)
         .map_err(to_py_err)?;
     quantity_to_py(py, &q)
 }
@@ -145,7 +145,7 @@ pub fn nearest<'py>(
     match die
         .get()
         .die
-        .nearest(c, &from_py(outcome)?)
+        .try_nearest(c, &from_py(outcome)?)
         .map_err(to_py_err)?
     {
         Some(o) => to_py(py, &o),

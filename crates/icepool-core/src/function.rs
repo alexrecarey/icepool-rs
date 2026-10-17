@@ -7,7 +7,7 @@ use crate::counts::Counts;
 use crate::die::Die;
 use crate::error::{value_error, Error, Result};
 use crate::memory::try_collect;
-use crate::outcome::OutcomeOrder;
+use crate::outcome::{ErrInto, OutcomeOrder};
 use crate::value::{BinOp, Vector};
 use crate::{Quantity, Value};
 
@@ -68,7 +68,7 @@ pub fn pointwise<O: OutcomeOrder>(dice: &[Die<O>], max: bool) -> Result<Die<O>> 
     for outcome in &outcomes {
         let mut best: Option<Quantity> = None;
         for die in dice {
-            let q = die.quantity_le(outcome)?;
+            let q = die.try_quantity_le(outcome).err_into()?;
             // `min(...)` / `max(...)` of ints: which of equal ones is kept does not matter.
             best = Some(match best {
                 Some(b) if (max && q < b) || (!max && q > b) => q,
@@ -78,7 +78,7 @@ pub fn pointwise<O: OutcomeOrder>(dice: &[Die<O>], max: bool) -> Result<Die<O>> 
         }
         cumulative.push(best.expect("an outcome comes from some die"));
     }
-    crate::die::from_cumulative(outcomes, cumulative, false)
+    crate::die::from_cumulative(outcomes, cumulative, false).err_into()
 }
 
 /// `math.gcd`'s / `range`'s view of an integer argument (`operator.index`): an `int` (a `bool` is one) or a host

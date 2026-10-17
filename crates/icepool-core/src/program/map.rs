@@ -398,9 +398,9 @@ pub fn clip_or_truncate(clip: bool, die: PValue, min: PValue, max: PValue) -> Re
     };
     let (min, max) = (bound(min)?, bound(max)?);
     let result = if clip {
-        die.clip(min.as_ref(), max.as_ref())?
+        die.try_clip(min.as_ref(), max.as_ref())?
     } else {
-        die.truncate(min.as_ref(), max.as_ref())?
+        die.try_truncate(min.as_ref(), max.as_ref())?
     };
     Ok(PValue::Die(result))
 }

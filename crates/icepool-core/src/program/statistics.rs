@@ -72,7 +72,7 @@ fn query(args: PValue) -> Result<(Comparison, Value), PErr> {
 pub fn quantity(die: PValue, args: PValue) -> Result<PValue, PErr> {
     let die = the_population(die)?;
     let (c, outcome) = query(args)?;
-    Ok(int(die.quantity(c, &outcome)?))
+    Ok(int(die.try_quantity(c, &outcome)?))
 }
 
 /// `die.probability(*args, percent=percent)`.
@@ -90,7 +90,7 @@ pub fn probability(die: PValue, args: PValue, percent: PValue) -> Result<PValue,
 pub fn nearest(die: PValue, comparison: PValue, outcome: PValue) -> Result<PValue, PErr> {
     let die = the_population(die)?;
     let c = Comparison::parse(&value(comparison)?)?;
-    let found = die.nearest(c, &value(outcome)?)?;
+    let found = die.try_nearest(c, &value(outcome)?)?;
     Ok(PValue::Value(found.unwrap_or(Value::None)))
 }
 
