@@ -16,6 +16,7 @@ mod number;
 pub mod ops;
 pub mod pow;
 pub mod pystr;
+pub mod recursion;
 mod repr;
 mod symbols;
 pub mod trig;
@@ -121,10 +122,19 @@ impl Value {
 
     /// Whether Python can hash this value: hashing a `VectorWithTruthOnly` raises `ValueError` (it reads `_data`),
     /// also inside a tuple or a vector.
+    ///
+    /// This is also where an outcome nested too deep raises `RecursionError` (`recursion.rs`): a die never holds
+    /// one, so the infallible recursions on its outcomes (`==`, `hash`) stay shallow.
     pub fn check_hashable(&self) -> Result<()> {
         match self {
-            Value::Vector(v) => v.data()?.iter().try_for_each(Value::check_hashable),
-            Value::Tuple(t) => t.iter().try_for_each(Value::check_hashable),
+            Value::Vector(v) => {
+                let _level = recursion::level()?;
+                v.data()?.iter().try_for_each(Value::check_hashable)
+            }
+            Value::Tuple(t) => {
+                let _level = recursion::level()?;
+                t.iter().try_for_each(Value::check_hashable)
+            }
             _ => Ok(()),
         }
     }
@@ -182,34 +192,44 @@ impl From<IBig> for Value {
 }
 
 /// Python's `==`. Never raises: values of unrelated kinds are simply unequal.
+///
+/// It recurses on tuples and vectors, so it keeps a small frame: everything else is `scalar_eq`'s (`recursion.rs`).
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        if let Some(h) = host::host_of(self, other) {
-            return h.eq(self, other);
-        }
         match (self, other) {
-            (Value::None, Value::None) => true,
-            (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
             }
-            (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi,
-            // As a dict sees them: a vector or a `Symbols` only ever equals its own kind. (Python's `==` also makes
-            // `Symbols('ab') == 'ab'`, but their hashes differ, so a dict never merges them; `eq_op` is the
-            // operator.)
             (Value::Vector(a), Value::Vector(b)) => a == b,
-            (Value::Symbols(a), Value::Symbols(b)) => a == b,
-            (Value::Vector(_) | Value::Symbols(_), _)
-            | (_, Value::Vector(_) | Value::Symbols(_)) => false,
-            // A complex number equals a real one when its imaginary part is zero.
-            (Value::Complex(re, im), x) | (x, Value::Complex(re, im)) => {
-                *im == 0.0 && x.as_num().is_some_and(|n| n == Num::Float(*re))
-            }
-            _ => match (self.as_num(), other.as_num()) {
-                (Some(a), Some(b)) => a.partial_cmp(&b) == Some(Ordering::Equal),
-                _ => false,
-            },
+            _ => scalar_eq(self, other),
         }
+    }
+}
+
+#[inline(never)]
+fn scalar_eq(this: &Value, other: &Value) -> bool {
+    if let Some(h) = host::host_of(this, other) {
+        return h.eq(this, other);
+    }
+    match (this, other) {
+        (Value::None, Value::None) => true,
+        (Value::Str(a), Value::Str(b)) => a == b,
+        (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi,
+        // As a dict sees them: a vector (two are `eq`'s) or a `Symbols` only ever equals its own kind. (Python's
+        // `==` also makes `Symbols('ab') == 'ab'`, but their hashes differ, so a dict never merges them; `eq_op`
+        // is the operator.)
+        (Value::Symbols(a), Value::Symbols(b)) => a == b,
+        (Value::Vector(_) | Value::Symbols(_), _) | (_, Value::Vector(_) | Value::Symbols(_)) => {
+            false
+        }
+        // A complex number equals a real one when its imaginary part is zero.
+        (Value::Complex(re, im), x) | (x, Value::Complex(re, im)) => {
+            *im == 0.0 && x.as_num().is_some_and(|n| n == Num::Float(*re))
+        }
+        _ => match (this.as_num(), other.as_num()) {
+            (Some(a), Some(b)) => a.partial_cmp(&b) == Some(Ordering::Equal),
+            _ => false,
+        },
     }
 }
 
@@ -308,10 +328,13 @@ impl Outcome for Value {
             (Value::Str(a), Value::Str(b)) => Ok(a < b),
             // Python's sequence comparison: the first position where the elements differ (by `==`) decides with
             // `<`, which may itself raise; if one is a prefix of the other, the shorter is smaller.
-            (Value::Tuple(a), Value::Tuple(b)) => match Value::first_difference(a, b)? {
-                Some((x, y)) => x.py_lt(y),
-                None => Ok(a.len() < b.len()),
-            },
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                let _level = recursion::level()?;
+                match Value::first_difference(a, b)? {
+                    Some((x, y)) => x.py_lt(y),
+                    None => Ok(a.len() < b.len()),
+                }
+            }
             _ => match (self.as_num(), other.as_num()) {
                 (Some(a), Some(b)) => Ok(a.partial_cmp(&b) == Some(Ordering::Less)),
                 _ => type_error(format!(
@@ -336,15 +359,21 @@ impl fmt::Display for Value {
             Value::Str(s) => write!(f, "{s:?}"),
             Value::Complex(re, im) => write!(f, "{}", ops::complex_repr(*re, *im)),
             Value::Host(h) => write!(f, "{}", h.repr()),
-            Value::Vector(v) => match v.repr_with(|x| Ok(x.to_string()), |x| Ok(x.to_string())) {
-                Ok(s) => write!(f, "{s}"),
-                Err(_) => write!(f, "Vector(?)"),
-            },
+            // Nested too deep for `recursion.rs`, where Python's `repr` raises: an ellipsis (this is for messages).
+            Value::Vector(_) | Value::Tuple(_) if recursion::level().is_err() => write!(f, "..."),
+            Value::Vector(v) => {
+                let _level = recursion::level();
+                match v.repr_with(|x| Ok(x.to_string()), |x| Ok(x.to_string())) {
+                    Ok(s) => write!(f, "{s}"),
+                    Err(_) => write!(f, "Vector(?)"),
+                }
+            }
             Value::Symbols(s) => match s.py_repr() {
                 Ok(r) => write!(f, "{r}"),
                 Err(_) => write!(f, "Symbols(?)"),
             },
             Value::Tuple(t) => {
+                let _level = recursion::level();
                 write!(f, "(")?;
                 for (i, x) in t.iter().enumerate() {
                     if i > 0 {

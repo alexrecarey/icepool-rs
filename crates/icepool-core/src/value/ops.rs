@@ -15,6 +15,7 @@ use dashu_base::{BitTest, DivRem, UnsignedAbs};
 use dashu_int::IBig;
 use dashu_ratio::RBig;
 
+use super::recursion::level;
 use super::{float_repr, int_to_f64, pow, ratio_to_f64, Value};
 use crate::error::{type_error, Error, Result};
 
@@ -169,6 +170,7 @@ impl Value {
             // Python's tuple comparison returns the comparison of the first elements that differ (by `==`) as is,
             // which for vectors is not a bool; equal prefixes compare the lengths.
             if let (Value::Tuple(x), Value::Tuple(y)) = (self, other) {
+                let _level = level()?;
                 return match Value::first_difference(x, y)? {
                     Some((p, q)) => p.binary(op, q),
                     None => compare(
@@ -230,7 +232,10 @@ impl Value {
                     Invert | Trunc | Floor | Ceil => bad(),
                 }
             }
-            Value::Vector(v) => return v.unary(op),
+            Value::Vector(v) => {
+                let _level = level()?;
+                return v.unary(op);
+            }
             Value::Symbols(s) => return s.unary(op).unwrap_or_else(bad),
             _ => {}
         }
@@ -274,8 +279,11 @@ impl Value {
                 ))
             }
         };
-        // `Vector.round(ndigits)`: `round(x, ndigits)` elementwise.
+        // `Vector.round(ndigits)`: `round(x, ndigits)` elementwise. Python calls `__round__` (which is `round`), then
+        // `unary_operator`.
         if let Value::Vector(v) = self {
+            let _level = level()?;
+            let _frames = super::recursion::frames(2)?;
             return v.map(|x| x.round(ndigits));
         }
         let Some(n) = N::of(self) else {
@@ -729,10 +737,13 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
         (Value::Str(x), Value::Str(y)) => Ok(by_ord(x.cmp(y))),
         // Sequence comparison: the first position where the elements differ (by `==`) decides with the same
         // operator; if one is a prefix of the other, the lengths decide.
-        (Value::Tuple(x), Value::Tuple(y)) => match Value::first_difference(x, y)? {
-            Some((p, q)) => compare(op, p, q),
-            None => Ok(by_ord(x.len().cmp(&y.len()))),
-        },
+        (Value::Tuple(x), Value::Tuple(y)) => {
+            let _level = level()?;
+            match Value::first_difference(x, y)? {
+                Some((p, q)) => compare(op, p, q),
+                None => Ok(by_ord(x.len().cmp(&y.len()))),
+            }
+        }
         _ => match (a.as_num(), b.as_num()) {
             // NaN compares false with everything.
             (Some(x), Some(y)) => Ok(x.partial_cmp(&y).is_some_and(by_ord)),
@@ -753,6 +764,7 @@ pub(super) fn compare(op: BinOp, a: &Value, b: &Value) -> Result<bool> {
 /// `__getitem__`), so without conversion specifiers it gives the string.
 fn collection_binary(op: BinOp, a: &Value, b: &Value) -> Result<Value> {
     use super::VecOp;
+    let _level = level()?;
     if let (BinOp::Mod, Value::Str(s)) = (op, a) {
         return str_format_mapping(s);
     }
@@ -810,6 +822,7 @@ impl Value {
         {
             return Ok(Value::Bool((self == other) != ne));
         }
+        let _level = level()?;
         for x in [self, other] {
             if let Value::Vector(v) = x {
                 v.data()?;

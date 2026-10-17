@@ -51,8 +51,33 @@ fn str_repr(s: &str) -> Result<String> {
     Ok(out)
 }
 
-/// Python's `repr(x)`.
+/// Python's `repr(x)`. Tuples and vectors nest, so this recurses: a level each (`recursion.rs`), and only through
+/// small frames (the other types are `scalar_repr`'s).
 pub fn py_repr(x: &Value) -> Result<String> {
+    match x {
+        Value::Tuple(t) => {
+            let _level = super::recursion::level()?;
+            tuple_repr(t)
+        }
+        Value::Vector(v) => {
+            let _level = super::recursion::level()?;
+            v.repr_with(py_repr, py_str)
+        }
+        _ => scalar_repr(x),
+    }
+}
+
+fn tuple_repr(t: &[Value]) -> Result<String> {
+    let items = t.iter().map(py_repr).collect::<Result<Vec<_>>>()?;
+    Ok(if items.len() == 1 {
+        format!("({},)", items[0])
+    } else {
+        format!("({})", items.join(", "))
+    })
+}
+
+#[inline(never)]
+fn scalar_repr(x: &Value) -> Result<String> {
     Ok(match x {
         Value::Int(i) => int_str(i)?,
         Value::Fraction(r) => format!(
@@ -61,17 +86,9 @@ pub fn py_repr(x: &Value) -> Result<String> {
             int_str(&IBig::from(r.denominator().clone()))?
         ),
         Value::Str(s) => str_repr(s)?,
-        Value::Tuple(t) => {
-            let items = t.iter().map(py_repr).collect::<Result<Vec<_>>>()?;
-            if items.len() == 1 {
-                format!("({},)", items[0])
-            } else {
-                format!("({})", items.join(", "))
-            }
-        }
         Value::Host(h) => h.py_repr()?,
-        Value::Vector(v) => v.repr_with(py_repr, py_str)?,
         Value::Symbols(s) => s.py_repr()?,
+        Value::Tuple(_) | Value::Vector(_) => py_repr(x)?,
         // None, bool, float, complex: `Display` is already Python's repr.
         _ => x.to_string(),
     })

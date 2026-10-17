@@ -1003,8 +1003,8 @@ fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<(), PErr> {
         if k > cached {
             let depth = k - cached + u64::from(*count < 0);
             if depth >= SURE_RECURSION_ERROR {
-                return raise(Error::Value(
-                    "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+                return raise(Error::Recursion(
+                "maximum recursion depth exceeded in _sum_all".into(),
                 ));
             }
             if depth > SAFE_RECURSION {
@@ -1123,8 +1123,8 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
         ),
         Value::Fraction(r) if r.denominator().is_one() => (r.numerator().clone(), CountKind::Int),
         Value::Float(_) | Value::Fraction(_) => {
-            return raise(Error::Value(
-                "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+            return raise(Error::Recursion(
+                "maximum recursion depth exceeded in _sum_all".into(),
             ))
         }
         // Only the Python facade has these (an `IntEnum` count, a numpy int): Python's answer depends on the type.
@@ -1137,8 +1137,8 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind), PErr> {
     };
     // Beyond i64, `_sum_all` recurses past Python's limit.
     let count = i64::try_from(int).map_err(|_| {
-        PErr::Raise(Error::Value(
-            "RecursionError: maximum recursion depth exceeded in _sum_all".into(),
+        PErr::Raise(Error::Recursion(
+                "maximum recursion depth exceeded in _sum_all".into(),
         ))
     })?;
     Ok((count, kind))

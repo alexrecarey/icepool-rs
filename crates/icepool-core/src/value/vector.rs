@@ -9,9 +9,16 @@
 //! The truth value is whatever `op(self._data, other._data)` returned, and Python's tuple comparison returns the
 //! comparison of the first differing elements *as is*: for vectors of vectors that is a vector, not a bool, and
 //! `bool()` then raises (`__bool__ should return bool`). So a die of nested vectors does not sort.
+//!
+//! These are Python methods in icepool, so nested vectors cost Python frames and raise `RecursionError` where
+//! Python's stack would overflow (`recursion.rs`): the operator (`__add__`) and `binary_operator`, then
+//! `Vector.__init__` and the generator expression it consumes around the elementwise results. The facade calls
+//! `binary_operator`, `reverse_binary_operator` and `map` from those Python methods, so only the elementwise frames
+//! are counted there; `binary`, `reverse_binary` and `unary` are the operator dispatch, which adds the others.
 
 use std::sync::Arc;
 
+use super::recursion::frames;
 use super::{BinOp, UnOp, Value};
 use crate::error::{Error, Result};
 
@@ -107,12 +114,17 @@ impl Vector {
 
     /// `Vector.unary_operator`: elementwise. (`round` goes through `map`.)
     pub fn unary(&self, op: UnOp) -> Result<Value> {
+        // `__neg__` and `unary_operator`.
+        let _frames = frames(2)?;
         self.map(|x| x.unary(op))
     }
 
     /// `Vector(f(x) for x in self)`.
     pub fn map(&self, f: impl Fn(&Value) -> Result<Value>) -> Result<Value> {
-        let items = self.data()?.iter().map(f).collect::<Result<Vec<_>>>()?;
+        let data = self.data()?;
+        // `Vector.__init__` and the generator expression.
+        let _frames = frames(2)?;
+        let items = data.iter().map(f).collect::<Result<Vec<_>>>()?;
         Ok(Value::Vector(Vector::new(items)))
     }
 
@@ -123,6 +135,8 @@ impl Vector {
             VecOp::Eq(ne) => Some(Value::Bool(ne)),
             _ => None,
         };
+        // `__add__` (or `__eq__`, ...) and `binary_operator`.
+        let _frames = frames(2)?;
         self.binary_operator(
             other,
             |x, y| op.apply(x, y),
@@ -146,6 +160,8 @@ impl Vector {
     ) -> Result<Value> {
         let data = self.data()?;
         let Value::Vector(o) = other else {
+            // `Vector.__init__` and the generator expression.
+            let _frames = frames(2)?;
             let items = data
                 .iter()
                 .map(|x| op(x, other))
@@ -162,6 +178,7 @@ impl Vector {
             None
         };
         if data.len() == odata.len() {
+            let _frames = frames(2)?;
             let items = data
                 .iter()
                 .zip(odata.iter())
@@ -197,6 +214,7 @@ impl Vector {
                     data.len()
                 )));
             }
+            let _frames = frames(2)?;
             let items = data
                 .iter()
                 .zip(odata.iter())
@@ -209,6 +227,8 @@ impl Vector {
 
     /// `other <op> self` for a standard arithmetic operator.
     pub fn reverse_binary(&self, op: BinOp, other: &Value) -> Result<Value> {
+        // `__radd__` and `reverse_binary_operator`.
+        let _frames = frames(2)?;
         self.reverse_binary_operator(other, |x, y| x.binary(op, y))
     }
 

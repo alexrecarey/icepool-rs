@@ -11,6 +11,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use dashu_int::{IBig, UBig};
+use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{BinOp, HostError, HostObject, HostRef, Symbols, UnOp, Vector};
 use icepool_core::{Error, Int, Value};
 use pyo3::exceptions::{
@@ -181,7 +182,62 @@ impl HostObject for PyHost {
 }
 
 /// Python object -> `Value` (see the module comment for which types are native).
+///
+/// Tuples and vectors nest, so this recurses: a level each (`recursion.rs`), and only through small frames (the
+/// other types convert in `scalar_from_py`), so a deep one raises `RecursionError` rather than overflowing.
 pub fn from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if x.is_exact_instance_of::<PyTuple>() {
+        let _level = py_level()?;
+        Ok(Value::Tuple(items_from_py(x.cast::<PyTuple>()?)?.into()))
+    } else if is_vector(x)? {
+        let _level = py_level()?;
+        vector_from_py(x)
+    } else {
+        scalar_from_py(x)
+    }
+}
+
+/// A level of recursion (`recursion.rs`), or `RecursionError`.
+#[inline(never)]
+fn py_level() -> PyResult<Level> {
+    level().map_err(|_| PyRecursionError::new_err("maximum recursion depth exceeded"))
+}
+
+#[inline(never)]
+fn is_vector(x: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let py = x.py();
+    let t = x.get_type();
+    Ok(t.is(vector_type(py)?) || t.is(truth_only_type(py)?))
+}
+
+#[inline(never)]
+fn items_from_py(t: &Bound<'_, PyTuple>) -> PyResult<Vec<Value>> {
+    let mut items = Vec::with_capacity(t.len());
+    for e in t.iter() {
+        items.push(from_py(&e)?);
+    }
+    Ok(items)
+}
+
+/// A `Vector` or `VectorWithTruthOnly`.
+#[inline(never)]
+fn vector_from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
+    let truth = x.getattr("_truth_value")?;
+    if !x.get_type().is(vector_type(x.py())?) {
+        return Ok(Value::Vector(Vector::truth_only(from_py(&truth)?)));
+    }
+    let items = items_from_py(x.getattr("_data")?.cast::<PyTuple>()?)?;
+    let truth = if truth.is_none() {
+        None
+    } else {
+        Some(from_py(&truth)?)
+    };
+    Ok(Value::Vector(Vector::from_parts(items, truth)))
+}
+
+/// `from_py` for everything but tuples and vectors.
+#[inline(never)]
+fn scalar_from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
     let py = x.py();
     Ok(if x.is_none() {
         Value::None
@@ -193,25 +249,6 @@ pub fn from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
         Value::Float(x.extract::<f64>()?)
     } else if x.is_exact_instance_of::<PyString>() {
         Value::str(x.cast::<PyString>()?.to_str()?)
-    } else if x.is_exact_instance_of::<PyTuple>() {
-        let t = x.cast::<PyTuple>()?;
-        Value::tuple(t.iter().map(|e| from_py(&e)).collect::<PyResult<_>>()?)
-    } else if x.get_type().is(vector_type(py)?) {
-        let data = x.getattr("_data")?;
-        let items = data
-            .cast::<PyTuple>()?
-            .iter()
-            .map(|e| from_py(&e))
-            .collect::<PyResult<Vec<_>>>()?;
-        let truth = x.getattr("_truth_value")?;
-        let truth = if truth.is_none() {
-            None
-        } else {
-            Some(from_py(&truth)?)
-        };
-        Value::Vector(Vector::from_parts(items, truth))
-    } else if x.get_type().is(truth_only_type(py)?) {
-        Value::Vector(Vector::truth_only(from_py(&x.getattr("_truth_value")?)?))
     } else if x.get_type().is(symbols_type(py)?) && symbols_from_py(x)?.is_some() {
         Value::Symbols(symbols_from_py(x)?.expect("checked"))
     } else if x.get_type().is(fraction_type(py)?) {
@@ -229,8 +266,49 @@ pub fn from_py(x: &Bound<'_, PyAny>) -> PyResult<Value> {
     })
 }
 
-/// `Value` -> Python object. A host object comes back as the very object that went in.
+/// `Value` -> Python object. A host object comes back as the very object that went in. Recurses like `from_py`.
 pub fn to_py<'py>(py: Python<'py>, v: &Value) -> PyResult<Bound<'py, PyAny>> {
+    match v {
+        Value::Tuple(t) => {
+            let _level = py_level()?;
+            Ok(PyTuple::new(py, items_to_py(py, t)?)?.into_any())
+        }
+        Value::Vector(v) => {
+            let _level = py_level()?;
+            vector_to_py(py, v)
+        }
+        _ => scalar_to_py(py, v),
+    }
+}
+
+fn items_to_py<'py>(py: Python<'py>, items: &[Value]) -> PyResult<Vec<Bound<'py, PyAny>>> {
+    let mut out = Vec::with_capacity(items.len());
+    for e in items {
+        out.push(to_py(py, e)?);
+    }
+    Ok(out)
+}
+
+fn vector_to_py<'py>(py: Python<'py>, v: &Vector) -> PyResult<Bound<'py, PyAny>> {
+    match v.data() {
+        Ok(items) => {
+            let items = PyTuple::new(py, items_to_py(py, items)?)?;
+            let kwargs = PyDict::new(py);
+            if let Some(t) = v.truth() {
+                kwargs.set_item("truth_value", to_py(py, t)?)?;
+            }
+            vector_type(py)?.call((items,), Some(&kwargs))
+        }
+        Err(_) => truth_only_type(py)?.call1((to_py(
+            py,
+            v.truth().expect("a VectorWithTruthOnly has a truth value"),
+        )?,)),
+    }
+}
+
+/// `to_py` for everything but tuples and vectors.
+#[inline(never)]
+fn scalar_to_py<'py>(py: Python<'py>, v: &Value) -> PyResult<Bound<'py, PyAny>> {
     Ok(match v {
         Value::None => py.None().into_bound(py),
         Value::Bool(b) => PyBool::new(py, *b).to_owned().into_any(),
@@ -241,34 +319,7 @@ pub fn to_py<'py>(py: Python<'py>, v: &Value) -> PyResult<Bound<'py, PyAny>> {
             int_to_py(py, &IBig::from(r.denominator().clone()))?,
         ))?,
         Value::Str(s) => PyString::new(py, s).into_any(),
-        Value::Tuple(t) => PyTuple::new(
-            py,
-            t.iter()
-                .map(|e| to_py(py, e))
-                .collect::<PyResult<Vec<_>>>()?,
-        )?
-        .into_any(),
         Value::Complex(re, im) => pyo3::types::PyComplex::from_doubles(py, *re, *im).into_any(),
-        Value::Vector(v) => match v.data() {
-            Ok(items) => {
-                let items = PyTuple::new(
-                    py,
-                    items
-                        .iter()
-                        .map(|e| to_py(py, e))
-                        .collect::<PyResult<Vec<_>>>()?,
-                )?;
-                let kwargs = PyDict::new(py);
-                if let Some(t) = v.truth() {
-                    kwargs.set_item("truth_value", to_py(py, t)?)?;
-                }
-                vector_type(py)?.call((items,), Some(&kwargs))?
-            }
-            Err(_) => truth_only_type(py)?.call1((to_py(
-                py,
-                v.truth().expect("a VectorWithTruthOnly has a truth value"),
-            )?,))?,
-        },
         Value::Symbols(s) => symbols_to_py(py, s)?,
         Value::Host(h) => h
             .as_any()
@@ -277,7 +328,25 @@ pub fn to_py<'py>(py: Python<'py>, v: &Value) -> PyResult<Bound<'py, PyAny>> {
             .obj
             .bind(py)
             .clone(),
+        Value::Tuple(_) | Value::Vector(_) => to_py(py, v)?,
     })
+}
+
+/// How many more frames Python's stack holds: `sys.getrecursionlimit()` minus the frames on it now. The core asks
+/// this when its emulation of icepool's `Vector` methods has many frames in use (`recursion.rs`).
+pub fn frame_budget() -> usize {
+    Python::attach(|py| -> PyResult<usize> {
+        let sys = py.import("sys")?;
+        let limit: usize = sys.call_method0("getrecursionlimit")?.extract()?;
+        let mut depth = 0;
+        let mut frame = sys.call_method1("_getframe", (0,)).ok();
+        while let Some(f) = frame.filter(|f| !f.is_none()) {
+            depth += 1;
+            frame = Some(f.getattr("f_back")?);
+        }
+        Ok(limit.saturating_sub(depth))
+    })
+    .unwrap_or(usize::MAX)
 }
 
 /// Python `int` -> `IBig`. Big ints go through hex: power-of-two bases are exempt from Python's limit on int/str
@@ -356,8 +425,7 @@ pub fn to_py_err(e: Error) -> PyErr {
         // Where Python raises AttributeError (`Reroll` expanded as a mapping), the core raises this.
         Error::Type(m) if m.starts_with("AttributeError:") => PyAttributeError::new_err(m),
         Error::Type(m) => PyTypeError::new_err(m),
-        // Where Python would exceed its recursion limit (`_sum_all` of a big count), the core raises this.
-        Error::Value(m) if m.starts_with("RecursionError:") => PyRecursionError::new_err(m),
+        Error::Recursion(m) => PyRecursionError::new_err(m),
         Error::Value(m) => PyValueError::new_err(m),
         Error::Index(m) => PyIndexError::new_err(m),
         Error::Key(m) => PyKeyError::new_err(m),

@@ -83,8 +83,8 @@ pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
     const SAFE_RECURSION: usize = 930;
     const SURE_RECURSION_ERROR: usize = 990;
     if outcomes >= SURE_RECURSION_ERROR {
-        return Err(Error::Value(
-            "RecursionError: maximum recursion depth exceeded in evaluate_backward".into(),
+        return Err(Error::Recursion(
+                "maximum recursion depth exceeded in evaluate_backward".into(),
         ));
     }
     if outcomes > SAFE_RECURSION {

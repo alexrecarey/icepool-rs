@@ -57,8 +57,8 @@ use crate::expression::{core_source, flat};
 fn depth_check(depth_budget: isize) -> impl Fn(usize) -> icepool_core::Result<()> {
     move |n| {
         if n as isize > depth_budget {
-            Err(Error::Value(
-                "RecursionError: maximum recursion depth exceeded".into(),
+            Err(Error::Recursion(
+                "maximum recursion depth exceeded".into(),
             ))
         } else {
             Ok(())

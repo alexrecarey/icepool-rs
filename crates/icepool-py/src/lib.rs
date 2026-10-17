@@ -510,6 +510,7 @@ fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    icepool_core::value::recursion::set_frame_budget(convert::frame_budget);
     m.add_class::<RsDie>()?;
     m.add_class::<pool::RsPool>()?;
     m.add_class::<pool::RsPoolSource>()?;

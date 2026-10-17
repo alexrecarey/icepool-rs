@@ -15,6 +15,8 @@ pub enum Error {
     Key(String),
     /// Python `ZeroDivisionError`.
     ZeroDivision(String),
+    /// Python `RecursionError`: Python's stack would overflow (`value::recursion`, `_sum_all` of a big count).
+    Recursion(String),
     /// Python `OverflowError`, or a size the port cannot represent (Python would run out of memory or time).
     Overflow(String),
     /// icepool `OrderError` (`ConflictingOrderError`): no pop order is compatible with the evaluation.
@@ -42,6 +44,7 @@ impl Error {
             Error::Index(_) => "IndexError",
             Error::Key(_) => "KeyError",
             Error::ZeroDivision(_) => "ZeroDivisionError",
+            Error::Recursion(_) => "RecursionError",
             Error::Overflow(_) => "OverflowError",
             Error::Order(_) => "ConflictingOrderError",
             Error::UnsupportedOrder(_) => "UnsupportedOrder",
@@ -58,6 +61,7 @@ impl Error {
             | Error::Index(m)
             | Error::Key(m)
             | Error::ZeroDivision(m)
+            | Error::Recursion(m)
             | Error::Overflow(m)
             | Error::Order(m)
             | Error::UnsupportedOrder(m)
