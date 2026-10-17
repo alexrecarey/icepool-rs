@@ -83,7 +83,12 @@ pub fn check_pow(base: &crate::Quantity, exp: usize, what: &str) -> Result<()> {
     if *base <= crate::Quantity::ONE {
         return Ok(());
     }
-    let bytes = (base.bit_len() as u64).checked_mul(exp as u64).map(|bits| bits / 8);
+    check_bits((base.bit_len() as u64).checked_mul(exp as u64), what)
+}
+
+/// A big integer of `bits` bits (`None`: the count overflowed): `MemoryError` past the cap.
+pub fn check_bits(bits: Option<u64>, what: &str) -> Result<()> {
+    let bytes = bits.map(|bits| bits / 8);
     check_len::<u8, u64>(bytes, what)
         .map(drop)
         .map_err(|_| Error::Memory(format!("{what}: a result of {} bytes", bytes.map_or("too many".into(), |b| b.to_string()))))

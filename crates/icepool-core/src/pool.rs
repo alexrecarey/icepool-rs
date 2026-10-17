@@ -10,6 +10,8 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use dashu_base::BitTest;
+
 use crate::compound_keep::CompoundKeepSource;
 use crate::deal::DealSource;
 use crate::die::Die;
@@ -61,10 +63,16 @@ fn sort_dice<O: Outcome>(dice_counts: Vec<(Die<O>, usize)>) -> Result<Dice<O>> {
 }
 
 /// `math.prod(die.denominator()**count for die, count in dice)`.
-fn denominator<O: Outcome>(dice: &[(Die<O>, usize)]) -> Quantity {
-    dice.iter()
-        .map(|(die, count)| die.denominator().pow(*count))
-        .product()
+///
+/// A pool holds up to `MAX_POOL_SIZE` dice, so the product can have `2**24` times as many bits as a die's
+/// denominator: `MemoryError` past the allocation cap (on wasm32 a die with a 129+-bit denominator would otherwise
+/// trap), where Python answers given memory.
+fn denominator<O: Outcome>(dice: &[(Die<O>, usize)]) -> Result<Quantity> {
+    let bits = dice.iter().try_fold(0u64, |total, (die, count)| {
+        (die.denominator().bit_len() as u64).checked_mul(*count as u64)?.checked_add(total)
+    });
+    crate::memory::check_bits(bits, "a pool's denominator")?;
+    Ok(dice.iter().map(|(die, count)| die.denominator().pow(*count)).product())
 }
 
 /// A pool of dice with a keep tuple (Python `Pool`, a `KeepGenerator`). Cloning is cheap.
@@ -140,7 +148,7 @@ impl<O: Outcome> Pool<O> {
         self.dice.iter().map(|(_, c)| c).sum()
     }
 
-    pub fn denominator(&self) -> Quantity {
+    pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
 
@@ -366,7 +374,7 @@ impl<O: Outcome> PoolSource<O> {
         &self.keep_tuple
     }
 
-    pub fn denominator(&self) -> Quantity {
+    pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
 
@@ -461,7 +469,7 @@ impl<O: Outcome> PoolSource<O> {
             if popped_pool.keep_tuple.iter().all(Int::is_zero) {
                 // Dump all dice in exchange for the denominator.
                 *skip_weight.get_or_insert(Quantity::ZERO) +=
-                    result_weight * popped_pool.denominator();
+                    result_weight * popped_pool.denominator()?;
                 continue;
             }
             result.push((popped_pool, result_count, result_weight));
@@ -545,5 +553,24 @@ impl<'a, T> Iterator for Product<'a, T> {
             index[k] = 0;
         }
         Some(item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::Value;
+
+    #[test]
+    fn a_huge_denominator_is_a_memory_error() {
+        // The cap allows `8 * MAX_ALLOC_BYTES` bits; a full pool of a die with a denominator of `2**bits` passes it.
+        let bits = 8 * crate::memory::MAX_ALLOC_BYTES / MAX_POOL_SIZE + 1;
+        let die = |q: Quantity| Die::from_dict(vec![(Value::from(1i64), q)]).unwrap();
+        let huge = Pool::new(vec![(die(Quantity::ONE << bits), MAX_POOL_SIZE)]).unwrap();
+        assert!(matches!(huge.denominator(), Err(Error::Memory(_))));
+        // A denominator of 1 is never too big; a smaller pool of the same die is answered.
+        assert_eq!(Pool::new(vec![(die(Quantity::ONE), MAX_POOL_SIZE)]).unwrap().denominator().unwrap(), Quantity::ONE);
+        let small = Pool::new(vec![(die(Quantity::ONE << bits), 2)]).unwrap();
+        assert_eq!(small.denominator().unwrap(), Quantity::ONE << (2 * bits));
     }
 }

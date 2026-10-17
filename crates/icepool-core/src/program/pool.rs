@@ -656,7 +656,7 @@ pub fn pool_info(pool: PValue) -> Result<PValue, PErr> {
         PValue::Value(int_tuple(pool.keep_tuple())),
         PValue::Value(int(pool.keep_size())),
         PValue::Value(int(pool.raw_size())),
-        PValue::Value(int(pool.denominator())),
+        PValue::Value(int(pool.denominator()?)),
         PValue::Value(Value::tuple(pool.outcomes().to_vec())),
         dice_tuple(pool.dice()),
     ]))

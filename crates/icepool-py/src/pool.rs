@@ -170,7 +170,7 @@ impl RsPool {
     }
 
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        quantity_to_py(py, &self.pool.denominator())
+        quantity_to_py(py, &self.pool.denominator().map_err(to_py_err)?)
     }
 
     /// `KeepGenerator.keep` for a keep tuple without negative counts (the facade checks), short of evaluating
@@ -231,7 +231,7 @@ impl RsPoolSource {
     }
 
     fn denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        quantity_to_py(py, &self.source.denominator())
+        quantity_to_py(py, &self.source.denominator().map_err(to_py_err)?)
     }
 
     /// `KeepSource.size`: `None` with negative counts.
