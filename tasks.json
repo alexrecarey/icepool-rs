@@ -491,5 +491,138 @@
     "deps": [],
     "milestone": null,
     "details": "Found while killing mutants (M202610160934). With E = die_pool(d2, 2): the oracle returns a result for mx_str(mx_binary(Again, '+', E)) (Again.__add__ makes an AgainExpression, which str() prints) and for mx_str(mx_binary(deck(...), '+', E)), but the port raises TypeError ('not a multiset expression', from mx_str) and Unimplemented ('a reflected multiset operator with this left operand', program/expression.rs binary_op) respectively. Port both as the oracle does, add fixtures and fuzz coverage (the multiset generators never put an Again or a Deck on the left of mx_binary)."
+  },
+  {
+    "id": "R1",
+    "title": "Robustness: recursion depth guard (no segfaults)",
+    "deps": [],
+    "milestone": null,
+    "details": "Deeply nested Vectors segfault through the Python facade where Python raises RecursionError: `t=1; for i in range(5000): t=Vector([t])` then `t+t` (also Die([t]), ==, str at depth 100000). Recursion without a depth guard in crates/icepool-py/src/convert.rs from_py/to_py and recursive Value ops/eq/format (value/ops.rs, vector.rs, format.rs). Add a depth limit everywhere user data drives recursion (conversion, Value ops, eq, hash, ordering, formatting, expression trees) that raises RecursionError (Python) / a proper error (Rust, JS). Audit every other recursion on user-controlled depth. Add fixtures/tests for each. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "R2",
+    "title": "Robustness: no aborts or traps on huge inputs; panic guards at every entry point",
+    "deps": [
+      "R1"
+    ],
+    "milestone": null,
+    "details": "`{\"op\":\"d\",\"sides\":8589934592}` aborts the process (allocation failure, uncatchable); sides=2**63-1 panics (function.rs:22, capacity overflow); die_sequence with huge rolls does vec![die; rolls] (program/collection.rs:64); JS d(2n**63n-1n) is a wasm trap. Move the size checks the Python facade does today into the core (d(), cartesian_product, every with_capacity / vec![x; n] / repeat sized by user input: audit all of them), returning a proper overflow/memory error; use try_reserve where sizes are large; cap below what wasm32's 4 GB address space can hold. Then catch_unwind (or equivalent) around every WASM export and PyO3 entry point as a backstop, converting panics to proper exceptions, and make sure thread-locals/RefCells (HANDLES, VARS) cannot stay poisoned after one. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "R3",
+    "title": "Robustness: Ctrl-C and the GIL during long computations",
+    "deps": [
+      "R2"
+    ],
+    "milestone": null,
+    "details": "`(d(100).pool(400).highest(200).sum()).mean()` ignores SIGINT for over a minute (the oracle raises KeyboardInterrupt in 0.2 s), and the GIL is held throughout, blocking other Python threads. Add an interrupt hook the core polls in long loops (evaluator DP, convolutions, map(repeat), Markov elimination, big constructions), e.g. a `&dyn Fn() -> Result<()>` or a cancellation token in the evaluation context; PyO3 implements it with py.check_signals(). Release the GIL (allow_threads/detach) around pure-Rust work that makes no Python callbacks. Test with a subprocess sending SIGINT, and a second Python thread making progress meanwhile. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "R4",
+    "title": "Robustness: leaks",
+    "deps": [
+      "R3"
+    ],
+    "milestone": null,
+    "details": "Investigate the possible leak: 20k iterations of d(6).map(lambda o, big=big: o) + pool(3).sum() grew maxrss 1.7 MB vs 0.77 MB in the oracle. Run long tracemalloc / RSS loops; callbacks held as Py<PyAny> inside Rust Arcs are invisible to Python's cycle GC: implement __traverse__/__clear__ where PyO3 objects can hold Python references. JS: handles are freed only by FinalizationRegistry; add explicit dispose (Symbol.dispose / release()) and document it. Add a leak regression test for both. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "B9",
+    "title": "Drop the glibc math ports; use Rust std float math",
+    "deps": [
+      "R4"
+    ],
+    "milestone": null,
+    "details": "Alex accepts Rust's built-in float math (2026-10-17). Remove value/trig.rs, value/trig_tables.rs, the glibc parts of value/libm.rs and the ported pow/log/exp in value/pow.rs (keep anything that is not a libm port); call f64::powf/ln/exp/sin/cos/atan2/hypot directly. Native builds are unaffected (std already calls the platform libm, i.e. what Python uses). Under WASM, results may differ from Python by 1-2 ULP: the gate now runs WASM checks with ICEPOOL_FLOAT_ULPS=2 (harness/core/compare.py); do the same in the JS fixture suite (crates/icepool-wasm/js/test). Delete the tests that compared the ports against the platform. Record the change in DIVERGENCES.md (WASM floats are within 2 ULP, not bit-exact) and resolve the V1 question in QUESTIONS.md. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "D1",
+    "title": "Design: typed core, Rust API, error types, crate layout, JS/TS API, production builds",
+    "deps": [
+      "B9"
+    ],
+    "milestone": "library design written: docs/design/library-architecture.md",
+    "details": "Write docs/design/library-architecture.md BEFORE any of the C tasks change code. Decide and specify, with code sketches:\n(1) Outcome trait: Ord + Hash + Clone for typed outcomes (i64, tuples, ...); Python's fallible comparison and semantics live in a Value-only layer (e.g. Value implements a separate PyOutcome/fallible trait, or the generic algorithms are written against a small trait both satisfy) - the core must not require py_lt/py_eq.\n(2) How evaluators (poker, keep, basic, lexi, argsort, comparison), map, explode/Again, formatting become generic so Die<i64> users get them; Value's Python behaviour as one implementation.\n(3) Error types: domain-named variants (EmptyDie, Incomparable, ConflictingOrder, Overflow, ...) in core; the Python exception mapping lives in icepool-py and the runner.\n(4) Public Rust API: std::ops on Die, typed constructors (d(6) for i64, from ranges/slices/weights), Display, iterators, curated re-exports, everything else pub(crate); what docs.rs shows.\n(5) Crate layout: icepool-core (the library, no serde_json, no runner), icepool-py (Python bindings), icepool-wasm (JS/TS bindings), and a separate harness crate (e.g. icepool-harness: JSON program runner, icepool-run binary, fixtures test) used only by tests. Host-callback traits consolidated in one core module. Feature flags, if any.\n(6) The JS/TypeScript API: its own idiomatic API, as close to Python icepool as possible (classes Die, Pool, Deck, MultisetEvaluator..., method names mirroring icepool's, camelCase or snake_case decision, operators as methods, BigInt quantities, iteration protocols, callbacks, evaluator subclassing in JS), NOT a JSON-op RPC. Mapping table Python API -> TS API.\n(7) Documentation plan for each binding: Rust (rustdoc + crate-level guide), Python (same docs as upstream, plus what differs), JS/TS (its own docs: a guide + generated API reference, e.g. TypeDoc, with examples).\n(8) Production builds: the Python wheel and the npm package contain no tests, fixtures, runner or harness code; how scripts/check-production.sh verifies it (the gate runs it once it exists).\n(9) Migration order for tasks C1-C8, keeping the gate green at every step (the harness crate keeps driving the oracle comparison throughout).\nKeep it concise and decisive. No production code changes in this task; it may add tasks or refine C1-C8 details in tasks.json. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C1",
+    "title": "Typed core: Outcome trait without Python semantics",
+    "deps": [
+      "D1"
+    ],
+    "milestone": null,
+    "details": "Implement D1's Outcome design: core Outcome is Ord + Hash + Clone; Python comparison/semantics move to the Value layer; pysort and py_* helpers become Value-only. Die<i64> comparisons return plain values, not Result. Follow docs/design/library-architecture.md; split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C2",
+    "title": "Generic evaluators and features usable from Die<i64>",
+    "deps": [
+      "C1"
+    ],
+    "milestone": null,
+    "details": "Per D1: built-in evaluators (evaluator/poker.rs, keep.rs, basic.rs, lexi.rs, argsort.rs, comparison.rs), map/map_tools, explode/Again, to_pool, expand and formatting become generic over the design's trait, with Value's Python behaviour as one implementation. Remove poker-evaluator boilerplate (one shared default-method trait or generic count-shape evaluator). Typed evaluator states (SmallVec<i64>) where the outcome type allows. Move khepri.rs out of the core crate (into icepool-wasm or a khepri feature/crate per D1). Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C3",
+    "title": "Idiomatic public Rust API and rustdoc",
+    "deps": [
+      "C2"
+    ],
+    "milestone": null,
+    "details": "Per D1: std::ops (Add, Sub, Mul, Neg, ...) on Die, typed constructors (d(6) -> Die<i64>, from ranges/weights), Display for Die/Pool, iterators, curated pub use in lib.rs with internals pub(crate) (program/pysort/trig etc. are currently pub). Crate-level docs with a usage guide and doctests on every public item (they double as tests). cargo doc builds without warnings (add #![warn(missing_docs)] for the public API). Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C4",
+    "title": "Domain error types",
+    "deps": [
+      "C3"
+    ],
+    "milestone": null,
+    "details": "Per D1: replace Error::{Type,Value,Index,...}(String) named after Python exceptions with domain variants; move python_type()/exception naming into icepool-py and the harness runner. No stringly-typed matching anywhere. Error implements std::error::Error with good messages. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C5",
+    "title": "Crate split: harness crate, clean facades, production builds without tests",
+    "deps": [
+      "C4"
+    ],
+    "milestone": null,
+    "details": "Per D1: move the JSON program runner (crates/icepool-core/src/program/), the icepool-run binary and tests/fixtures.rs into the harness crate (keep harness/core/*.py working: ICEPOOL_RUN path, cargo test of fixtures - you may not edit harness/core/ or crates/icepool-core/tests/fixtures.rs, so if they need to move, add QUESTIONS.md entry describing the exact move and keep a thin shim in the old location until Alex/the loop owner moves them). icepool-core drops serde_json. Consolidate host-callback traits into one core module. icepool-py and icepool-wasm depend on core only (not the runner) for production; their test-only paths go behind dev-dependencies/cfg(test)/features. Write scripts/check-production.sh: builds the release wheel (maturin build --release) and npm package (npm pack), lists their contents and symbols, and fails if any test, fixture, runner, harness or JSON-program code is included. Share one serialisation model between the facades where they still need one. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6",
+    "title": "TypeScript API: idiomatic, as close to icepool as possible",
+    "deps": [
+      "C5"
+    ],
+    "milestone": "TypeScript API mirrors icepool",
+    "details": "Per D1 section 6: replace the JSON-op RPC JS facade (crates/icepool-wasm/src/facade.rs call/evaluate/from_wire) with a real JS/TS API: classes and functions mirroring Python icepool (Die, d, Pool, Deck, Deal, MultiDeal, Again, Reroll, MultisetEvaluator subclassable in JS, multisetFunction, map/explode/reroll/keep/highest/lowest/..., statistics, formatting), operators as methods, BigInt quantities, iterables, proper TypeScript types (no any in the public surface), errors as Error subclasses, explicit dispose. Back it directly with wasm-bindgen exports of the core, not the program runner. Drive the JS test suite from the fixtures (a test-only adapter may translate fixture programs into calls of the public TS API, so the fixtures exercise the real API) plus hand-written API tests mirroring upstream's Python tests. Split into further tasks if needed. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6b",
+    "title": "TypeScript documentation",
+    "deps": [
+      "C6"
+    ],
+    "milestone": null,
+    "details": "Its own documentation for the JS/TS package: a guide (install, first dice, pools and evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python icepool), every public symbol with TSDoc comments and an example, and a generated API reference (TypeDoc or similar) built by a script; package README. Examples in the docs are executed as tests so they cannot rot. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C7",
+    "title": "Rust unit tests and doctests for the typed core",
+    "deps": [
+      "C6b"
+    ],
+    "milestone": null,
+    "details": "Behavioural coverage currently all goes through the JSON runner; die.rs, pool.rs, population.rs, the evaluators and map_tools have no Rust tests. Add typed Die<i64> unit tests and doctests for the public API (property tests where useful, e.g. proptest comparing typed paths against Value paths), runnable with plain `cargo test` without the Python oracle. Test-only code stays under cfg(test) / dev-dependencies so production builds exclude it. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C8",
+    "title": "Presentation: README, module map, CI, docs for all bindings",
+    "deps": [
+      "C7"
+    ],
+    "milestone": "library ready to show upstream: robustness fixed, typed core, Rust/Python/TS APIs with docs",
+    "details": "README.md for the project (what it is, the three bindings, install/usage snippets for Rust, Python, JS, parity story), docs/MODULE-MAP.md (python module -> rust module(s) -> py facade file -> TS file, status, oracle version) plus a script that lists upstream icepool changes between two tags against the map, Python binding docs (what differs from upstream icepool), GitHub Actions CI (cargo test, clippy, the fixture suite, the JS suite, check-production.sh; the oracle comparison jobs need the oracle checkout per oracle.lock). Split oversized files (program/ops.rs, program/expression.rs, value/ops.rs) by domain. Note: the loop machinery files at the repo root (PROGRESS.md, tasks.json, QUESTIONS.md, loop/, harness-out) are owned by the loop; propose their new layout in QUESTIONS.md rather than moving them. Background: docs/reviews/2026-10-17-library-review.md (the three library-wide reviews: robustness, performance, code quality). Parity with the oracle stays absolute for native and Python builds."
   }
 ]

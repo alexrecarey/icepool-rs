@@ -55,6 +55,12 @@ else
   step "khepri sweep: 5000" $H fuzz --ops khepri --seed 70 --count 5000
 fi
 
+# Production builds must not ship tests, fixtures, the JSON program runner or harness code. scripts/check-production.sh
+# (written by the loop, reviewed) builds the release Python wheel and npm package and inspects their contents.
+if [ -x scripts/check-production.sh ]; then
+  step "production builds contain no test code" scripts/check-production.sh
+fi
+
 # Checks that switch on as the port grows: each runs only once the thing it checks exists.
 if [ -f crates/icepool-py/Cargo.toml ] && [ -x harness/core/upstream_suite.sh ]; then
   step "upstream test suite through the facade" harness/core/upstream_suite.sh "$MODE"
@@ -64,14 +70,14 @@ if [ "$MODE" = long ] && [ -f crates/icepool-wasm/Cargo.toml ]; then
   # crates/icepool-wasm/run-wasm.sh speaks the icepool-run protocol (stdin/stdout JSON lines) through the WASM build
   # under node. Once it exists, every fixture and a fuzz run go through WASM too.
   if [ -x crates/icepool-wasm/run-wasm.sh ]; then
-    step "fixtures through wasm" env ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fixtures verify --oracle-sample 0
-    step "fuzz through wasm" env ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --seed 21 --count 3000
-    step "khepri sweep through wasm" env ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --ops khepri --seed 71 --count 500
+    step "fixtures through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fixtures verify --oracle-sample 0
+    step "fuzz through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --seed 21 --count 3000
+    step "khepri sweep through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --ops khepri --seed 71 --count 500
   fi
   # The JS facade's own suite: every fixture through the JS API, API tests, type check. Needs node >= 22.
   NODE22="$HOME/.local/node22/bin"
   if command -v wasm-pack > /dev/null && [ -x "$NODE22/node" ]; then
-    step "JS suite" env PATH="$NODE22:$PATH" crates/icepool-wasm/js/build.sh --test
+    step "JS suite" env ICEPOOL_FLOAT_ULPS=2 PATH="$NODE22:$PATH" crates/icepool-wasm/js/build.sh --test
   fi
 fi
 if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS_BASE:-}" ]; then
@@ -79,7 +85,8 @@ if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS
   echo "=== mutants (since $MUTANTS_BASE)"
   mkdir -p harness-out
   git diff "$MUTANTS_BASE" -- crates > harness-out/mutants.diff
-  cargo mutants --in-diff harness-out/mutants.diff -p icepool-core --timeout 300 --output harness-out \
+  # Capped: an uncapped run once took 7.5 hours and stalled the loop. Survivors found in time still become tasks.
+  timeout 90m cargo mutants --in-diff harness-out/mutants.diff -p icepool-core --timeout 300 --output harness-out \
     > harness-out/mutants.log 2>&1 || true
   tail -5 harness-out/mutants.log
 fi
