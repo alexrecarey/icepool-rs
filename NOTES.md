@@ -587,6 +587,8 @@ turns out wrong. Newest decisions at the top of each section.
   iteration, the `CountsKeysView` / `ValuesView` / `ItemsView` indexing, slicing and `==`, min/max_outcome,
   is_empty). `map_to_pool` has nodes since S3c. Fuzz `die_method` together with die nodes
   (`--ops die_method,d,die,...`): alone the generator cannot build its die argument and tests nothing.
+  A die program can give a plain value (`d.sequence(0)` is `()`): die_methods.rs `value_method` applies Python's
+  `len` / `tuple` / `[]` / `in` to it and raises AttributeError for the named methods (fixtures/c6b).
 - **icepool.d / icepool.z are `@functools.cache`d** (keyed by `==` for non-int arguments): in the long-lived fuzz
   oracle `z(True)` made `z(Fraction(1))` return a die. Nodes calling d / z run `basic.fresh_dz()` first
   (DIVERGENCES.md). Any new node calling them, or another `@cache`d upstream function, must clear the cache too.
