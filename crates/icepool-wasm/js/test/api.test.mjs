@@ -389,14 +389,16 @@ test("sizes no memory holds raise MemoryError rather than trapping", () => {
 });
 
 test("a trap is a PanicException, and the instance stays usable", () => {
-  // A JS callback throwing a RuntimeError stands in for a panic deep in the core: it abandons the WASM frames
-  // below it without running their destructors, just as a trap does.
+  // A JS callback the core calls (an evaluator's nextState) throwing a RuntimeError stands in for a panic deep in
+  // the core: it abandons the WASM frames below it without running their destructors, just as a trap does.
   const trap = () => { throw new WebAssembly.RuntimeError("simulated trap"); };
   const isPanic = (e) => e instanceof ip.IcepoolError && e.pythonType === "PanicException";
   const kept = d(4);
-  assert.throws(() => d(6).map(trap), isPanic);
+  const trapping = ip.evaluator({ nextState: trap });
+  assert.throws(() => trapping.evaluate(d(6).pool(2)), isPanic);
   // From a nested call into the core: the outer call is abandoned too.
-  assert.throws(() => d(6).map(() => d(2).map(trap)), isPanic);
+  const nesting = ip.evaluator({ nextState: () => trapping.evaluate(d(2).pool(1)) });
+  assert.throws(() => nesting.evaluate(d(6).pool(2)), isPanic);
   // Abandoned 40 calls deep in a multiset function calling itself, many times over: the levels and frames those
   // calls held would add up past the recursion limit if they were not reset.
   for (let i = 0; i < 100; i++) {

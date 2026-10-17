@@ -147,7 +147,7 @@ impl From<UnaryOp> for UnOp {
 }
 
 /// `x <op> y` on two outcomes.
-fn apply(op: BinaryOp, x: &Value, y: &Value) -> icepool_core::Result<Value> {
+pub(super) fn apply(op: BinaryOp, x: &Value, y: &Value) -> icepool_core::Result<Value> {
     let op = match op {
         BinaryOp::Eq => return x.eq_op(y, false),
         BinaryOp::Ne => return x.eq_op(y, true),
@@ -335,6 +335,64 @@ impl WasmDie {
     /// `die.equals(other, simplify=simplify)` for another die.
     pub fn equals(&self, other: &WasmDie, simplify: bool) -> JsResult<bool> {
         self.die.equals(&other.die, simplify).or_throw()
+    }
+
+    // --- Selections: the TypeScript `Die` computes which outcomes a `which` selects (calling JS functions, as
+    // population/base.py `_select_outcomes` calls Python ones) and passes one flag per outcome (`mask`, 0 or 1) ----
+
+    /// `outcome in collection` for each outcome (`_select_outcomes` given a collection): Python's `==` between the
+    /// collection's elements and the outcome, element by element.
+    pub fn memberships(&self, collection: Vec<JsValue>) -> JsResult<Vec<u8>> {
+        let items = collection.iter().map(value).collect::<JsResult<Vec<_>>>()?;
+        self.die
+            .outcomes()
+            .map(|o| {
+                for item in &items {
+                    if item.eq_op(o, false)?.truthy()? {
+                        return Ok(1);
+                    }
+                }
+                Ok(0)
+            })
+            .collect::<icepool_core::Result<_>>()
+            .or_throw()
+    }
+
+    /// `die.reroll(...)` once the selection is known: the selected outcomes are rerolled up to `depth` times
+    /// (`undefined`: until they stop coming up).
+    pub fn reroll(&self, mask: Vec<u8>, depth: Option<u32>) -> JsResult<WasmDie> {
+        Ok(WasmDie::new(self.die.reroll(&flags(&mask), depth).or_throw()?))
+    }
+
+    /// `die.split(...)` once the selection is known: `[selected, rest]`.
+    pub fn split(&self, mask: Vec<u8>) -> JsResult<Vec<WasmDie>> {
+        let (selected, rest) = self.die.split(&flags(&mask)).or_throw()?;
+        Ok(vec![WasmDie::new(selected), WasmDie::new(rest)])
+    }
+
+    /// `die.quantity_where(...)` once the selection is known.
+    #[wasm_bindgen(js_name = quantityWhere)]
+    pub fn quantity_where(&self, mask: Vec<u8>) -> JsValue {
+        quantity_to_js(&self.die.quantity_where(&flags(&mask)))
+    }
+
+    /// `die.probability_where(..., percent=percent)` once the selection is known.
+    #[wasm_bindgen(js_name = probabilityWhere)]
+    pub fn probability_where(&self, mask: Vec<u8>, percent: bool) -> JsResult<JsValue> {
+        js(self.die.probability_where(&flags(&mask), percent))
+    }
+
+    /// `die.group_by(...)` given each outcome's key (plain values): `[key, die]` pairs for each distinct key (by
+    /// Python's `==`), in order of first appearance.
+    #[wasm_bindgen(js_name = groupBy)]
+    pub fn group_by(&self, keys: Vec<JsValue>) -> JsResult<Vec<JsValue>> {
+        let keys = keys.iter().map(value).collect::<JsResult<Vec<_>>>()?;
+        self.die
+            .group_by(keys)
+            .or_throw()?
+            .into_iter()
+            .map(|(k, d)| Ok(JsValue::from(vec![value_to_js(&k).or_throw()?, WasmDie::new(d).into()])))
+            .collect()
     }
 
     // --- Quantities and outcomes --------------------------------------------------------------------------------
@@ -582,6 +640,11 @@ impl WasmDie {
             .or_throw()?;
         Ok(format!("{type_name}({{{}}})", items.join(", ")))
     }
+}
+
+/// A selection mask from JS (one byte per outcome, nonzero for selected).
+fn flags(mask: &[u8]) -> Vec<bool> {
+    mask.iter().map(|&m| m != 0).collect()
 }
 
 /// A truncate / clip bound: `null` for none.

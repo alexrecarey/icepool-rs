@@ -1,10 +1,11 @@
 // icepool's free functions (function.py, map_tools/, population/again.py, from_rv), and Python's operators on any
 // operands. INTERIM (task C6): through the bridge (rpc.ts) unless noted.
 
-import { Die, DieWithTruth, list, opts, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
+import { Die, DieWithTruth, list, opts, pyBool, unpacked, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
 import type { MultisetExpression } from "./multiset.js";
-import { call, callWith, enc, kwargsText } from "./rpc.js";
-import { Fraction, List, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
+import { Handle, call, callWith, enc, kwargsText } from "./rpc.js";
+import { Break, Fraction, List, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
+import { binary, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { wasm } from "./wasm.js";
 
 // --- Dice ---------------------------------------------------------------------------------------------------------
@@ -56,6 +57,10 @@ export function fromRv(rv: RandomVariable, outcomes: readonly Outcome[], denomin
  * to `f` as a keyword argument (a trailing options object in JS). */
 export function map(f: Repl, ...rest: unknown[]): Die {
   const [args, { star = null, repeat, ...kwargs }] = opts<{ star: boolean | null; repeat: Int; [kwarg: string]: unknown }>(rest);
+  if (repeat === undefined && typeof f === "function") {
+    const mapped = mapCallable(f as (...args: unknown[]) => unknown, args, star, kwargs);
+    if (mapped !== undefined) return mapped;
+  }
   const a = List.from(args);
   if (repeat !== undefined) {
     return call("map_repeat", { f, args: a, star, repeat: repeat === Infinity ? "inf" : repeat }) as Die;
@@ -64,6 +69,52 @@ export function map(f: Repl, ...rest: unknown[]): Die {
     return call("map_kw", { f, args: a, star, kwargs: List.from(Object.entries(kwargs)) }) as Die;
   }
   return call("map", { f, args: a, star }) as Die;
+}
+
+/** `icepool.map(f, *args, star=star, **kwargs)` for a JS function `f` (map_tools/function.py, core_impl.py
+ * `map_simple`): `f` is called with every joint outcome of the arguments (dice expand into their outcomes, zero
+ * quantities included, the first argument slowest; anything else is passed as it is), unpacking the first if
+ * `star` (inferred from `f.length`, as Python counts parameters), and the results become `Die(results,
+ * quantities)`: dice among them are mixed in, `Reroll` drops out, and a `Break` is unwrapped. `undefined` where
+ * the bridge must do it (multiset expression or deck arguments, an outcome a starred `f` cannot unpack). */
+function mapCallable(
+  f: (...args: unknown[]) => unknown,
+  args: unknown[],
+  star: unknown,
+  kwargs: Record<string, unknown>,
+): Die | undefined {
+  // Keyword arguments reach `f` as a trailing options object, when there are any.
+  const call = (xs: unknown[]) => (Object.keys(kwargs).length ? f(...xs, kwargs) : f(...xs));
+  // Without arguments: `Die([repl(**kwargs)])`, where a `Break` is not unwrapped.
+  if (args.length === 0) return new Die([call([]) as MapResult]);
+  if (args.some((a) => a instanceof Handle)) return undefined;
+  const starred = star === null || star === undefined ? f.length > args.length : pyBool(star);
+  const items = args.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]]));
+  if (starred && !items[0].every(([o]) => unpacked(o) !== undefined)) return undefined;
+  const results: MapResult[] = [];
+  const quantities: bigint[] = [];
+  for (const [outcomes, quantity] of cartesianProduct(items)) {
+    const xs = starred ? [...(unpacked(outcomes[0]) as unknown[]), ...outcomes.slice(1)] : outcomes;
+    let result = call(xs);
+    // `Break()` stands for the first outcome (before unpacking), `Break(x)` for `x`.
+    if (result instanceof Break) result = result.outcome === null ? outcomes[0] : result.outcome;
+    results.push(result as MapResult);
+    quantities.push(quantity);
+  }
+  return new Die(results, quantities);
+}
+
+/** `itertools.product` of `[outcome, quantity]` lists: each joint outcome with the product of the quantities,
+ * the last list varying fastest. */
+function* cartesianProduct(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
+  if (items.length === 0) {
+    yield [[], 1n];
+    return;
+  }
+  const [first, ...rest] = items;
+  for (const [outcome, quantity] of first) {
+    for (const [outcomes, q] of cartesianProduct(rest)) yield [[outcome, ...outcomes], quantity * q];
+  }
 }
 
 /** `icepool.map_and_time(f, initial, ...args, { star, repeat })`: a die of `[state, time to absorb]`. */
@@ -193,26 +244,19 @@ export function truth(x: unknown): boolean {
 
 // --- Python's operators on any operands ---------------------------------------------------------------------------
 
-type BinaryName =
-  | "add" | "sub" | "mul" | "truediv" | "floordiv" | "mod" | "pow" | "lshift" | "rshift" | "and" | "or" | "xor"
-  | "lt" | "le" | "gt" | "ge" | "eq" | "ne";
-type UnaryName = "neg" | "pos" | "abs" | "invert" | "trunc" | "floor" | "ceil";
-
 const BINARY: BinaryName[] = ["add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor", "lt", "le", "gt", "ge", "eq", "ne"];
 const UNARY: UnaryName[] = ["neg", "pos", "abs", "invert", "trunc", "floor", "ceil"];
 
-/** Python's operators on any operands (plain values, dice, Again expressions): `ops.add(3, die)` is `3 + die`.
- * A die on the left is its method; anything else goes through the bridge, which does Python's dispatch. */
+/** Python's operators on any operands (plain values, dice, Again expressions): `ops.add(3, die)` is `3 + die`. */
 export const ops = {
-  ...(Object.fromEntries(
-    BINARY.map((op) => [op, (a: unknown, b: unknown): unknown => (a instanceof Die ? a[op](b as Operand) : call(op, { a, b }))]),
-  ) as Record<BinaryName, (a: unknown, b: unknown) => unknown>),
-  ...(Object.fromEntries(
-    UNARY.map((op) => [op, (a: unknown): unknown => (a instanceof Die ? a[op]() : call(op, { a }))]),
-  ) as Record<UnaryName, (a: unknown) => unknown>),
+  ...(Object.fromEntries(BINARY.map((op) => [op, (a: unknown, b: unknown) => binary(op, a, b)])) as Record<
+    BinaryName,
+    (a: unknown, b: unknown) => unknown
+  >),
+  ...(Object.fromEntries(UNARY.map((op) => [op, (a: unknown) => unary(op, a)])) as Record<UnaryName, (a: unknown) => unknown>),
   /** `round(a, ndigits)`. */
   round(a: unknown, ndigits: Int | null = null): unknown {
-    return a instanceof Die ? a.round(ndigits) : call("round", { a, ndigits });
+    return round(a, ndigits);
   },
   /** `n @ die`. */
   matmul(n: unknown, die: unknown): Die {

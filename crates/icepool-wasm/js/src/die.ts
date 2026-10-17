@@ -5,7 +5,7 @@
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import type { AgainExpression } from "./again.js";
 import type { MultisetExpression, Pool } from "./multiset.js";
-import { ENCODE, call, registerKind, type Encodable } from "./rpc.js";
+import { ENCODE, Handle, call, registerKind, type Encodable } from "./rpc.js";
 import { map, mapAndTime, meanTimeToAbsorb, ops } from "./functions.js";
 import {
   Break,
@@ -18,6 +18,7 @@ import {
   Special,
   Symbols,
   Vector,
+  isPlainValue,
   type Ellipsis,
   type Int,
   type Outcome,
@@ -78,22 +79,6 @@ const isInt = (x: unknown): x is Int => typeof x === "bigint" || Number.isIntege
 /** `Infinity` as Python's `'inf'` (a depth or a count without a limit). */
 const inf = <T>(x: T): T | "inf" => (x === Infinity ? "inf" : x);
 
-/** A value with nothing in it the core cannot take as an outcome (no die, Again, sentinel, list, function...). */
-function isPlainValue(x: unknown): boolean {
-  switch (typeof x) {
-    case "number":
-    case "bigint":
-    case "string":
-    case "boolean":
-      return true;
-    case "object":
-      if (x === null) return true;
-      if (Array.isArray(x)) return !(x instanceof List) && x.every(isPlainValue);
-      return x instanceof Float || x instanceof Fraction || x instanceof Complex || x instanceof Vector || x instanceof Symbols;
-  }
-  return false;
-}
-
 /** `implicit_convert_to_die(x)` where the core can do it directly: a die as it is, `Reroll` the empty die, a plain
  * value `Die([x])`. `undefined` for the rest (an Again expression, a tuple holding dice, ...), which the caller
  * hands to the bridge. */
@@ -101,6 +86,48 @@ function nativeDie(x: unknown): WasmDie | undefined {
   if (x instanceof Die) return x.w;
   if (x === Reroll || x === Restart) return wasm((w) => w.WasmDie.empty());
   if (isPlainValue(x)) return wasm((w) => w.WasmDie.single(x));
+  return undefined;
+}
+
+/** Python's `bool(x)` of what a JS callback returned. */
+export function pyBool(x: unknown): boolean {
+  switch (typeof x) {
+    case "undefined":
+      return false;
+    case "boolean":
+      return x;
+    case "number":
+      return x !== 0; // NaN is true, as in Python
+    case "bigint":
+      return x !== 0n;
+    case "string":
+      return x.length > 0;
+  }
+  if (x === null) return false;
+  if (Array.isArray(x)) return x.length > 0;
+  if (x instanceof Float) return x.value !== 0;
+  if (x instanceof Fraction) return x.numerator !== 0n;
+  if (x instanceof Complex) return x.re !== 0 || x.im !== 0;
+  if (x instanceof DieWithTruth) return x.truth();
+  // A Vector or Symbols has its own truth value; a plain die raises, an Again expression has one too: the core
+  // says.
+  if (x instanceof Vector || x instanceof Symbols) return wasm((w) => w.valueTruth(x));
+  if (x instanceof Die || x instanceof Handle) return call("truth", { x }) as boolean;
+  return true; // any other object, as Python's default
+}
+
+/** `*x` for an outcome, where JS can unpack it as Python would (a tuple, a str); `undefined` otherwise. */
+export function unpacked(x: unknown): unknown[] | undefined {
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string") return [...x];
+  return undefined;
+}
+
+/** A reroll depth as the core takes it: a non-negative int, or `null` for no limit (Infinity, Python's 'inf');
+ * `undefined` for anything else, which the caller hands to the bridge (for Python's error). */
+function depthArg(depth: unknown): number | null | undefined {
+  if (depth === Infinity || depth === "inf") return null;
+  if (isInt(depth) && depth >= 0 && depth < 2 ** 32) return Number(depth);
   return undefined;
 }
 
@@ -277,13 +304,56 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
 
   // --- Selection and rerolls ------------------------------------------------------------------------------------
 
-  /** `die.reroll(which, star=, depth=)`. `which` a function, an array of outcomes, or null (Python's defaults);
+  /** `Population._select_outcomes(which, star)`: one flag per outcome. A function is called on each outcome in
+   * order (unpacked if `star`, which is inferred from its `length` as Python counts parameters); an array is a
+   * collection the outcome must be `in` (Python's `==`). `undefined` where the bridge must do it (a Map, an
+   * outcome a starred function cannot unpack, ...). */
+  private selection(which: unknown, star: unknown): Uint8Array | undefined {
+    if (typeof which === "function") {
+      const f = which as (...args: unknown[]) => unknown;
+      const starred = star === null || star === undefined ? f.length > 1 : pyBool(star);
+      const outcomes: unknown[] = this.outcomes();
+      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
+      if (args.some((a) => a === undefined)) return undefined;
+      return Uint8Array.from(args, (a) => (pyBool(f(...(a as unknown[]))) ? 1 : 0));
+    }
+    if (Array.isArray(which) && which.every(isPlainValue)) {
+      const w = this.w;
+      return Uint8Array.from(wasm(() => w.memberships(which)));
+    }
+    return undefined;
+  }
+
+  /** `die.reroll(which, star=, depth=)`. `which` a function, an array of outcomes, or null (the lowest outcome);
    * `depth` is required, as in Python: an int, or Infinity (Python's 'inf'). */
   reroll(which: Which = null, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
+    const d = depthArg(depth);
+    if (d !== undefined) {
+      const mask = which === null ? this.lowest1() : this.selection(which, star);
+      if (mask !== undefined) {
+        const w = this.w;
+        return Die.wrap(wasm(() => w.reroll(mask, d ?? undefined)));
+      }
+    }
     return call("reroll", { die: this, which: list(which), star, depth: inf(depth) }) as Die;
   }
+  /** `die.filter(which, star=, depth=)`: rerolls the outcomes `which` does not select. */
   filter(which: Which, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
+    const d = depthArg(depth);
+    const mask = d !== undefined && which !== null ? this.selection(which, star) : undefined;
+    if (mask !== undefined) {
+      const w = this.w;
+      return Die.wrap(wasm(() => w.reroll(mask.map((m) => 1 - m), d ?? undefined)));
+    }
     return call("filter", { die: this, which: list(which), star, depth: inf(depth) }) as Die;
+  }
+  /** The selection of the lowest outcome alone (`undefined` for an empty die: the bridge raises). */
+  private lowest1(): Uint8Array | undefined {
+    const n = this.size;
+    if (n === 0) return undefined;
+    const mask = new Uint8Array(n);
+    mask[0] = 1;
+    return mask;
   }
   truncate(min: Outcome = null, max: Outcome = null): Die {
     const w = this.w;
@@ -295,6 +365,12 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
   }
   /** `[selected, rest]`. */
   split(which: Which = null, { star = null }: { star?: boolean | null } = {}): [Die, Die] {
+    const mask = which === null ? undefined : this.selection(which, star);
+    if (mask !== undefined) {
+      const w = this.w;
+      const [selected, rest] = wasm(() => w.split(mask));
+      return [Die.wrap(selected), Die.wrap(rest)];
+    }
     return call("split", { die: this, which: list(which), star }) as [Die, Die];
   }
   explode(
@@ -322,17 +398,41 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
   timeToSum(target: Int, maxTime: Int | null = null, dnf: Int | typeof Reroll | null = null): Die {
     return call("time_to_sum", { die: this, target, max_time: maxTime, dnf }) as Die;
   }
+  /** The dice of the outcomes with the same key, by key (in order of first appearance; keys equal by Python's
+   * `==`). `key` is called on each outcome (unpacked if `star`), or a Map looked up with `key.get(o, o)`. */
   groupBy(key: Callback<Outcome> | Map<unknown, Outcome>, { star = null }: { star?: boolean | null } = {}): Map<Outcome, Die> {
+    if (typeof key === "function") {
+      const f = key as (...args: unknown[]) => unknown;
+      const starred = star === null || star === undefined ? f.length > 1 : pyBool(star);
+      const outcomes: unknown[] = this.outcomes();
+      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
+      if (!args.some((a) => a === undefined)) {
+        const keys = args.map((a) => f(...(a as unknown[])));
+        if (keys.every(isPlainValue)) {
+          const w = this.w;
+          const groups = wasm(() => w.groupBy(keys)) as [Outcome, WasmDie][];
+          return new Map(groups.map(([k, d]) => [k, Die.wrap(d)]));
+        }
+        // Keys the core cannot hold (dice, Reroll): the bridge groups by them, given as a Map of outcome -> key.
+        key = new Map(outcomes.map((o, i) => [o, keys[i] as Outcome]));
+      }
+    }
     return new Map(call("group_by", { die: this, key, star }) as [Outcome, Die][]);
   }
   groupByIndex(index: Int): Map<Outcome, Die> {
     return new Map(call("group_by_index", { die: this, index }) as [Outcome, Die][]);
   }
+  /** `die.is_in(outcomes)`: a die of whether each outcome is `in` the outcomes. */
   isIn(outcomes: readonly Outcome[]): Die {
-    return call("is_in", { die: this, outcomes: list(outcomes) }) as Die;
+    const mask = Array.isArray(outcomes) ? this.selection(outcomes, false) : undefined;
+    if (mask === undefined) return call("is_in", { die: this, outcomes: list(outcomes) }) as Die;
+    // `self.map(lambda x: x in outcomes)`.
+    return new Die(Array.from(mask, (m) => m === 1), this.quantities());
   }
+  /** `die.count(rolls, outcomes)`: how many of `rolls` rolls are `in` the outcomes. */
   count(rolls: Int, outcomes: readonly Outcome[]): Die {
-    return call("die_count", { die: this, rolls, outcomes: list(outcomes) }) as Die;
+    if (!Array.isArray(outcomes)) return call("die_count", { die: this, rolls, outcomes: list(outcomes) }) as Die;
+    return this.isIn(outcomes).rmatmul(rolls);
   }
   ifElse(ifTrue: Operand, ifFalse: Operand, { againCount = null, againDepth = null, againEnd = null }: AgainOptions = {}): Die {
     return call("if_else", {
@@ -568,11 +668,19 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Encodable,
   probabilities(comparison: Comparison | null = null, { percent = false }: { percent?: boolean } = {}): (Fraction | number)[] {
     return this.stat((w) => w.probabilities(comparison ?? undefined, percent)) as (Fraction | number)[];
   }
+  /** The total quantity of the outcomes `which` (a function) selects. */
   quantityWhere(which: Callback, { star = null }: { star?: boolean | null } = {}): bigint {
-    return BigInt(call("quantity_where", { die: this, which, star }) as Int);
+    const mask = typeof which === "function" ? this.selection(which, star) : undefined;
+    if (mask === undefined) return BigInt(call("quantity_where", { die: this, which, star }) as Int);
+    const w = this.w;
+    return wasm(() => w.quantityWhere(mask)) as bigint;
   }
+  /** The probability of the outcomes `which` (a function) selects. */
   probabilityWhere(which: Callback, { star = null, percent = false }: { star?: boolean | null; percent?: boolean } = {}): Fraction | number {
-    return call("probability_where", { die: this, which, star, percent }) as Fraction | number;
+    const mask = typeof which === "function" ? this.selection(which, star) : undefined;
+    if (mask === undefined) return call("probability_where", { die: this, which, star, percent }) as Fraction | number;
+    const w = this.w;
+    return wasm(() => w.probabilityWhere(mask, pyBool(percent))) as Fraction | number;
   }
 
   private stat(f: (w: WasmDie) => unknown): unknown {
@@ -772,7 +880,7 @@ function nativeDieArgs(outcomes: DieOutcomes, times: Int | readonly Int[] | unde
     base = [...outcomes.values()];
     const plainKey = (k: unknown) => typeof k === "string" || (typeof k === "number" && !Number.isNaN(k));
     if (!keys.every(plainKey) || !base.every((q) => isInt(q) && q >= 0)) return false;
-  } else if (Array.isArray(outcomes) && !(outcomes instanceof List)) {
+  } else if (Array.isArray(outcomes)) {
     keys = outcomes;
   } else {
     return false;

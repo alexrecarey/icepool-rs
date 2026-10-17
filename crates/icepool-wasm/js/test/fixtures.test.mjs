@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { check, fixtures, usage } from "./fixtures.mjs";
+import { bridgeCalls } from "../dist/internal.js";
 
 const only = process.argv[2];
 
@@ -21,6 +22,8 @@ test("every fixture through the JS API", () => {
   console.log(`${n} fixtures, ${failures.length} failing`);
   console.log(`idiomatic methods: ${top(usage.idiomatic)}`);
   console.log(`generic call(): ${top(usage.generic)}`);
+  // What the API still does through the JSON-op bridge (rpc.ts), generic calls included.
+  console.log(`bridge: ${top(bridgeCalls)}`);
   assert.ok(n > 0, "no fixtures found");
   assert.deepEqual(failures.slice(0, 40), [], `${failures.length} fixtures failed`);
 });

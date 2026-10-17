@@ -11,6 +11,8 @@ mod convert;
 mod die;
 mod error;
 mod host;
+mod value;
 
 pub use die::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};
+pub use value::{value_binary, value_round, value_truth, value_unary};
 pub(crate) use error::{kind as error_kind, python_type, to_js as to_js_error};

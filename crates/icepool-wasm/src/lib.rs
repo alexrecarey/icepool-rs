@@ -22,7 +22,9 @@ mod khepri;
 #[cfg(any(test, feature = "runner"))]
 mod runner;
 
-pub use api::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};
+pub use api::{
+    live_dice, value_binary, value_round, value_truth, value_unary, BinaryOp, DieBuilder, UnaryOp, WasmDie,
+};
 pub use facade::{die_handle, 
     call, evaluate, from_wire, live_handles, multiset_function, recover, release, wire_result,
 };

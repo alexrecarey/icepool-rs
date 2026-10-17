@@ -6,8 +6,10 @@
 //   tuple     a JS array (a Python list, where an argument must be one, is a `List`)
 //   Fraction, complex, Vector, Symbols: the classes below. None is null.
 
-import { call } from "./rpc.js";
 import type { Die } from "./die.js";
+import { binary, round, unary } from "./operators.js";
+import { call } from "./rpc.js";
+import { wasm } from "./wasm.js";
 
 /** Anything that can be an outcome. */
 export type Outcome =
@@ -207,7 +209,7 @@ export class Vector implements Iterable<Outcome> {
     return this.truediv(other);
   }
   round(ndigits: Int | null = null): Vector {
-    return call("coll_unary", { a: this, name: "round", ndigits }) as Vector;
+    return round(this, ndigits) as Vector;
   }
   append(x: Outcome): Vector {
     return call("vector_method", { v: this, name: "append", arg: x }) as Vector;
@@ -313,12 +315,12 @@ for (const cls of [Vector, Symbols]) {
   const proto = cls.prototype as unknown as Record<string, unknown>;
   for (const op of [...BINARY, ...COMPARE]) {
     proto[op] = function (this: Vector | Symbols, other: unknown) {
-      return call("coll_binary", { a: this, b: other, name: op });
+      return binary(op, this, other);
     };
   }
   for (const op of UNARY) {
     proto[op] = function (this: Vector | Symbols) {
-      return call("coll_unary", { a: this, name: op, ndigits: null });
+      return unary(op, this);
     };
   }
 }
@@ -333,5 +335,21 @@ export class SymbolsMapping {
 
 /** Python's `bool(x)` of a Vector (from a comparison) or Symbols. */
 export function valueTruth(x: Vector | Symbols): boolean {
-  return call("coll_truth", { x }) as boolean;
+  return wasm((w) => w.valueTruth(x));
+}
+
+/** A value with nothing in it the core cannot take as an outcome (no die, Again, sentinel, list, function...). */
+export function isPlainValue(x: unknown): boolean {
+  switch (typeof x) {
+    case "number":
+    case "bigint":
+    case "string":
+    case "boolean":
+      return true;
+    case "object":
+      if (x === null) return true;
+      if (Array.isArray(x)) return !(x instanceof List) && x.every(isPlainValue);
+      return x instanceof Float || x instanceof Fraction || x instanceof Complex || x instanceof Vector || x instanceof Symbols;
+  }
+  return false;
 }

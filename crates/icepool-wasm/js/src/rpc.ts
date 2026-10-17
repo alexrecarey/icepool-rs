@@ -203,8 +203,13 @@ export function callWith(f: (temps: number[]) => string): unknown {
   }
 }
 
+/** How many times each node was called through the bridge (the JS tests report it: what is left to move onto
+ * typed exports). */
+export const bridgeCalls = new Map<string, number>();
+
 /** Calls a node of the program language by name: `call("add", { a: d(6), b: 1 })`. */
 export function call(op: string, args: Record<string, unknown> = {}): unknown {
+  bridgeCalls.set(op, (bridgeCalls.get(op) ?? 0) + 1);
   return callWith((temps) => {
     const text = argsText(args, temps);
     return wasm((w) => w.call(op, text));
