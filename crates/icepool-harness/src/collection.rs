@@ -107,7 +107,7 @@ pub fn cartesian_product(args: PValue, tuple: bool) -> Result<PValue, PErr> {
         return Ok(PValue::Value(outcome_type(values(args)?)));
     };
     let parts = cartesian_parts(args)?;
-    let data = icepool_core::expand::cartesian_product_items(&parts, outcome_type)?;
+    let data = icepool_core::value::expand::cartesian_product_items(&parts, outcome_type)?;
     Ok(if is_deck {
         PValue::Deck(icepool_core::Deck::from_dict(data)?)
     } else {

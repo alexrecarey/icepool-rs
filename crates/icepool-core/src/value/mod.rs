@@ -14,6 +14,8 @@ mod die;
 pub mod evaluators;
 // Value-layer internals the bindings and the runner reach directly, hidden as in `lib.rs`.
 #[doc(hidden)]
+pub mod expand;
+#[doc(hidden)]
 pub mod format;
 #[doc(hidden)]
 pub mod function;

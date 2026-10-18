@@ -235,7 +235,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
             }
         });
     }
-    Ok(DieArg::Die(icepool_core::expand::tupleize_dice(&parts)?))
+    Ok(DieArg::Die(icepool_core::value::expand::tupleize_dice(&parts)?))
 }
 
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {

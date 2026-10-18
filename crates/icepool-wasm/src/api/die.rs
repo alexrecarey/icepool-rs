@@ -12,7 +12,7 @@ use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{PyDie, PyStatistics};
 use icepool_core::value::{matmul_dice, BinOp, Num, UnOp};
-use icepool_core::expand::tupleize_dice;
+use icepool_core::value::expand::tupleize_dice;
 use icepool_core::memory;
 use icepool_core::random::Random;
 use icepool_core::{function, DieArg, Die, Error, Quantity, Value};

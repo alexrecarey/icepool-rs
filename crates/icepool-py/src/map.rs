@@ -7,7 +7,8 @@
 //! to the Python callable (a host callback per joint outcome, in `itertools.product` order), and unwrapping
 //! `Break`.
 
-use icepool_core::expand::{iter_cartesian_product, tupleize_dice};
+use icepool_core::expand::iter_cartesian_product;
+use icepool_core::value::expand::tupleize_dice;
 use icepool_core::{Quantity, Value};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
@@ -82,7 +83,7 @@ pub fn tupleize(py: Python<'_>, args: Vec<(u8, Bound<'_, PyAny>)>) -> PyResult<R
 pub fn vectorize(py: Python<'_>, args: Vec<(u8, Bound<'_, PyAny>)>) -> PyResult<RsDie> {
     RsDie::wrap(
         py,
-        icepool_core::expand::vectorize_dice(&cartesian_parts(&args)?),
+        icepool_core::value::expand::vectorize_dice(&cartesian_parts(&args)?),
     )
 }
 

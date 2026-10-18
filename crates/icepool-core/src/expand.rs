@@ -1,7 +1,9 @@
-//! Port of icepool `expand.py`: Cartesian products of dice.
+//! Port of icepool `expand.py`: Cartesian products of dice, for any outcome type. Python's tuple and `Vector`
+//! outcomes (whose keys Python hashes) are `value::expand`'s.
 
 use crate::error::Result;
-use crate::{Die, Quantity, Value};
+use crate::outcome::{infallible, Outcome, OutcomeOrder};
+use crate::{Die, Quantity};
 
 /// Yields the independent joint distribution of the arguments (`iter_cartesian_product`).
 ///
@@ -53,47 +55,22 @@ pub fn product_size<T>(args: &[Vec<T>]) -> Option<usize> {
         .try_fold(1usize, |n, arg| n.checked_mul(arg.len()))
 }
 
-/// `cartesian_product(*args, outcome_type=tuple)` when the population type is `Die`: a die of tuples, one per
-/// joint outcome of `args` (each given as for `iter_cartesian_product`).
-///
-/// Python builds a dict `data[outcome_type(outcomes)] = final_quantity` (assignment, not `+=`: equal tuples such
-/// as `(1,)` and `(True,)` overwrite each other's quantity and keep the first key) and returns `Die(data)`, which
-/// drops zero quantities.
-pub fn tupleize_dice(args: &[Vec<(Value, Quantity)>]) -> Result<Die<Value>> {
-    cartesian_product_dice(args, Value::tuple)
-}
-
-/// `cartesian_product(*args, outcome_type=Vector)` (`vectorize`) where some argument is a die.
-pub fn vectorize_dice(args: &[Vec<(Value, Quantity)>]) -> Result<Die<Value>> {
-    cartesian_product_dice(args, |items| {
-        Value::Vector(crate::value::Vector::new(items))
-    })
-}
-
-/// `cartesian_product(*args, outcome_type=outcome_type)` where some argument is a die.
-fn cartesian_product_dice(
-    args: &[Vec<(Value, Quantity)>],
-    outcome_type: impl Fn(Vec<Value>) -> Value,
-) -> Result<Die<Value>> {
-    Die::from_dict(cartesian_product_items(args, outcome_type)?)
-}
-
-/// The `data` dict of `cartesian_product`: `data[outcome_type(outcomes)] = final_quantity` for each joint
-/// outcome of `args`, in `itertools.product` order. Assignment, not `+=`: equal keys such as `(1,)` and `(True,)`
-/// overwrite each other's quantity and keep the first key. The caller makes `Die(data)` or `Deck(data)` of it.
-pub fn cartesian_product_items(
-    args: &[Vec<(Value, Quantity)>],
-    outcome_type: impl Fn(Vec<Value>) -> Value,
-) -> Result<Vec<(Value, Quantity)>> {
+/// The `data` dict of `cartesian_product(*args, outcome_type=outcome_type)`: `data[outcome_type(outcomes)] =
+/// final_quantity` for each joint outcome of `args`, in `itertools.product` order. Assignment, not `+=`: equal keys
+/// such as Python's `(1,)` and `(True,)` overwrite each other's quantity and keep the first key. The caller makes
+/// `Die(data)` or `Deck(data)` of it (which drops zero quantities); `outcome_type` may refuse a key.
+pub fn cartesian_product_items<T: Clone, P: OutcomeOrder>(
+    args: &[Vec<(T, Quantity)>],
+    outcome_type: impl Fn(Vec<T>) -> Result<P>,
+) -> Result<Vec<(P, Quantity)>> {
     // The dict holds up to one item per joint outcome: refuse up front a product no memory holds (`MemoryError`),
     // rather than abort when growing it fails.
-    crate::memory::check_len::<(Value, Quantity), _>(product_size(args), "a cartesian product")?;
-    let mut data: Vec<(Value, Quantity)> = Vec::new();
-    let mut index: rustc_hash::FxHashMap<Value, usize> = rustc_hash::FxHashMap::default();
+    crate::memory::check_len::<(P, Quantity), _>(product_size(args), "a cartesian product")?;
+    let mut data: Vec<(P, Quantity)> = Vec::new();
+    let mut index: rustc_hash::FxHashMap<P, usize> = rustc_hash::FxHashMap::default();
     for (outcomes, quantity) in iter_cartesian_product(args) {
         crate::interrupt::poll()?;
-        let key = outcome_type(outcomes);
-        key.check_hashable()?;
+        let key = outcome_type(outcomes)?;
         match index.get(&key) {
             Some(&i) => data[i].1 = quantity,
             None => {
@@ -103,6 +80,46 @@ pub fn cartesian_product_items(
         }
     }
     Ok(data)
+}
+
+/// The typed `tupleize`: joint distributions of independent dice.
+impl<O: Outcome> Die<O> {
+    /// Python's `icepool.tupleize(self, other)`: the independent joint distribution of the two dice, as pairs.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let joint = d(2).tupleize(&Die::from_iter([true, false]));
+    /// assert_eq!(joint.outcomes().cloned().collect::<Vec<_>>(), [(1, false), (1, true), (2, false), (2, true)]);
+    /// ```
+    pub fn tupleize<P: Outcome>(&self, other: &Die<P>) -> Die<(O, P)> {
+        // Typed pairs of distinct outcomes are distinct keys, so the product has nothing to merge or overwrite.
+        let pairs = self.items().iter().flat_map(|(a, qa)| {
+            other
+                .items()
+                .iter()
+                .map(move |(b, qb)| ((a.clone(), b.clone()), qa * qb))
+        });
+        infallible(Die::from_dict(pairs.collect()))
+    }
+
+    /// Python's `icepool.tupleize(*dice)` for dice of one outcome type: the independent joint distribution, one
+    /// outcome of each die per `Vec` (Python's tuple).
+    ///
+    /// # Panics
+    ///
+    /// If the product has more outcomes than memory holds (Python's `MemoryError`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let joint = Die::cartesian_product(&[d(2), d(3)]);
+    /// assert_eq!(joint.len(), 6);
+    /// assert_eq!(joint.max_outcome().unwrap(), &vec![2, 3]);
+    /// ```
+    pub fn cartesian_product(dice: &[Die<O>]) -> Die<Vec<O>> {
+        let args: Vec<_> = dice.iter().map(|die| die.items().to_vec()).collect();
+        let items = cartesian_product_items(&args, Ok).expect("a product that fits in memory");
+        infallible(Die::from_dict(items))
+    }
 }
 
 #[cfg(test)]
@@ -123,6 +140,12 @@ mod tests {
                 (vec![2, 10], q(6)),
                 (vec![2, 20], q(0)),
             ]
+        );
+        // `icepool.tupleize(d2, d2)` keeps no zero quantities.
+        let zero = crate::Die::from_dict(vec![(1, q(1)), (2, q(0))]).unwrap();
+        assert_eq!(
+            crate::Die::cartesian_product(&[zero.clone(), zero]).len(),
+            1
         );
         assert_eq!(
             iter_cartesian_product::<i32>(&[]).collect::<Vec<_>>(),

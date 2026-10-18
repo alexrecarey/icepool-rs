@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use dashu_int::{IBig, UBig};
-use icepool_core::expand::{tupleize_dice, vectorize_dice};
+use icepool_core::value::expand::{tupleize_dice, vectorize_dice};
 use icepool_core::value::format::format_probability_inverse as core_format_probability_inverse;
 use icepool_core::value::builtins::{fraction, getitem, limit_denominator, py_min_max, Index};
 use icepool_core::value::BinOp;

@@ -11,7 +11,7 @@
 use dashu_int::IBig;
 
 use crate::error::Error;
-use crate::expand::tupleize_dice;
+use crate::value::expand::tupleize_dice;
 use crate::map_tools::{map_repeat, TransitionCache};
 use crate::Mapped;
 use crate::value::{BinOp, PyDie, Vector};
