@@ -86,15 +86,52 @@ turns out wrong. Newest decisions at the top of each section.
     (`PYTHONPATH=$ICEPOOL_ORACLE/src python3 -c 'import icepool; ...'`). Note `probability()` returns a `Fraction`
     (as Python), not a number as the design doc's table says; `Fraction`'s constructor does not normalise (the core
     does when it goes in: `new Fraction(6n, 4n).toString()` is "6/4").
-  - **What documenting found** is task C6h (tasks.json): API discrepancies, loose types, dropped kwargs. Also:
+  - **What documenting found** was task C6h (done: see "C6h" below). Also:
     `Deck.union/intersection/difference/additiveUnion` raise TypeError on the oracle's Python 3.13 (the port copies
     it; DIVERGENCES.md logs it for Symbols only) but work on Python 3.14, so don't check those against a system
     `python3` newer than the oracle's venv. Type-only names (`OrderValue`, `MultisetExpression`...) are not
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6h, C6i, C6j, C6k, then C6l (removing the bridge: the
+- **The TypeScript API (C6, design section 6).** Rest in C6i, C6j, C6k, then C6l (removing the bridge: the
   rest of C6g); the docs are C6b.
+  - **C6h (what documenting found).** Tests: `test/discrepancies.test.mjs` (one test per item, expected values from
+    the oracle); fixtures `fixtures/c6h/edge-cases.jsonl` (what the runner sees: messages are not compared by the
+    fixtures, the API test checks them).
+    - Errors: rpc.ts `unwrap` uses `makeError`, so a bridge error has its subclass. `OrderException` (exported) is
+      the base of `OrderError` and `UnsupportedOrder`, as Python's (`UnsupportedOrder` is no `OrderError`).
+    - `String(symbols)` asks the core for Python's `str` when the Symbols came from `new Symbols(string)` (its
+      `str` field is still the string as given).
+    - Types: `PyFloat = number | Float` for float results (sd, skewness, entropy, percentages, Deck.sd); Die's
+      operator methods (and eq/ne/matmul/rmatmul) have an `AgainExpression` overload; `ops` members are typed
+      (`BinaryOperator` / `UnaryOperator`: Again > die > outcome > unknown); `sequence(0)` is typed `[]` for a
+      literal 0; `tupleize`/`vectorize` of outcomes only are `Outcome[]` / `Vector`; `PoolContents` / `PoolRepl`
+      for mapToPool; `SortPairWhileExtra` adds Python's `'continue'`/`'break'`, and the While methods default to
+      `"break"` as Python (it shows in the uninferrable-size OrderError message); `RerollOptions` makes `depth`
+      required.
+    - Required keyword-only arguments: `missingKeyword(fname, name)` (die.ts) thrown from a destructuring default,
+      so it comes before anything else, as Python's binding (`Die.reroll`, `Die.filter`, `map_and_time`,
+      `Die.map_and_time`). highest/lowest/middle with no argument: Python's missing `arg0` TypeError; with one
+      argument it is the iterable (Python's `args = arg0`), sent to the bridge as is.
+    - Keyword arguments on the bridge paths: functions.ts `bindKwargs` wraps `f` to get them as a trailing options
+      object and resolves `star` from the unbound `f.length` first (the bridge would see length 0). A Map (and
+      Die.map_to_pool's `None`) becomes a function raising Python's `<qualname>() got an unexpected keyword
+      argument` when called (`transition_and_star.<locals>.<lambda>` / `Die.map_to_pool.<locals>.<lambda>`), so an
+      empty die raises nothing, as in Python. NB: a JS function never rejects an unexpected option the way a Python
+      function rejects an unexpected keyword (JS ignores extra arguments); nothing to do about that.
+    - Messages fixed in the core/harness (same type before): `nearest('==')` is `Invalid comparison ==`;
+      creation_args.rs `sorted_counts` turns `Counts`' `Incomparable` into Python's "Items do not appear to be
+      sortable." (Die and Deck construction only; `Die::from_dict` & co. still give the raw comparison error);
+      the harness's empty highest/lowest names the function.
+    - New: `sum(map)`, `largestCount({ wild, wildLow, wildHigh })`, `allStraightsReduceCounts(reducer)` run on the
+      core's `MappedSumEvaluator` / `LargestCountWithWildEvaluator` / `AllStraightsReduceCountsEvaluator` as
+      evaluate.rs built-ins (`sum_map`, `largest_count_wild`, `all_straights_reduce_counts`), whose JS-function
+      parameters the core calls through the new generic host import `callFunction(f, args)`. A wild function's
+      result goes over as it is (the core takes Python's lazy truth: fixtures/s5c/largest-count-wild-lazy-truth),
+      a non-plain result (a die) its truth at once; a collection goes over as an array the core hashes
+      (`frozenset`). `reducer`: omitted is `operator.mul`; anything else not callable (null too) raises once a
+      straight continues. `MultisetEvaluator.prototype.consecutive(outcomes)`; `multisetMixture(Map)` (weights;
+      an equal inner keeps the first key, the last weight, as a dict comprehension).
   - **C6g (the fallbacks no other task owned).** C6g's goal (no bridge in the npm package) needs C6h (7), C6i, C6j
     and C6k first, so C6g did the part none of them owns and C6l (deps on all of them) does the rest. Moved:
     - **Selections** (die.ts `selection` / `memberships`, used by reroll, filter, split, explode, isIn, count,
@@ -252,8 +289,8 @@ turns out wrong. Newest decisions at the top of each section.
     of expressions (a `DieWithTruth` whose data error is lazy: no JS method), a die on the left of a comparison.
     Building a deep expression no longer raises (as in Python); evaluating it does (api.test.mjs updated).
   - **New JS methods** (C6h (7) listed them as missing): `argsort`, `argsortGrouped`, `leximin`, `leximax` (the
-    `argsort` / `lexi` built-ins of evaluate.rs), plus `rfloordiv` and `toString`. Still missing (C6h): `sum(map)`,
-    `largestCount({ wild... })`, `allStraightsReduceCounts`. The rest of the multiset bridge traffic in this area
+    `argsort` / `lexi` built-ins of evaluate.rs), plus `rfloordiv` and `toString` (the rest of C6h (7) is done
+    there). The rest of the multiset bridge traffic in this area
     (`==` / `!=`, a die on the left, evaluator objects of built-in classes) is task C6j.
   - **C6c (Die, Again, the free functions).** Done natively: `new Die(...)` in full (creation_args' `itemize` in
     die.ts `makeDie` / `itemize` / `dictItems`: Maps keyed as Python dicts, tuples holding dice, any times, again
@@ -277,8 +314,8 @@ turns out wrong. Newest decisions at the top of each section.
     with methods the core calls are imported types (`Transition` in src/api/host.rs, `step(state, i)`), not js-sys.
   - **Python dict semantics** for Map keys: `dictKeys` (first equal key per key) and `dictLookup` (src/api/
     function.rs) over the core's `Value` hash/eq; dice keys compare with `equals`, Again keys by `hash_key`.
-  - C6h (5) is partly done here: `map` passes again options to the die (not to `f`), mapAndTime and
-    meanTimeToAbsorb pass extra options to `f` as keyword arguments. mapToPool still drops them.
+  - C6h (5) was partly done here: `map` passes again options to the die (not to `f`), mapAndTime and
+    meanTimeToAbsorb pass extra options to `f` as keyword arguments (C6h did mapToPool and the bridge paths).
   - Fixture adapter routes added (test/fixtures.mjs): weights, truth / again_truth / equals_self of an Again,
     vector, symbols, vector_method, symbols_method, consecutive, sorted_union, to_one_hot, the `spread: false` forms
     of pointwise / extreme_outcome, mx_counts `rmul` with an Again. `test/again-functions.test.mjs` checks each

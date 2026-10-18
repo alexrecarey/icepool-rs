@@ -105,6 +105,8 @@ d6.mean().toString(); //=> "7/2"
 d6.variance().toString(); //=> "35/12"
 d6.sd(); //=> 1.707825127659933
 d6.median(); //=> 3.5
+// Float results that happen to be integral come back as `Float` (Python's `0.0`): `Number()` gives the number.
+Number(d6.skewness()); //=> 0
 d6.mode(); //=> [1, 2, 3, 4, 5, 6]
 d6.quantities("<="); //=> [1n, 2n, 3n, 4n, 5n, 6n]
 ```
@@ -341,7 +343,8 @@ try {
 }
 ```
 
-Subclasses `OrderError`, `ConflictingOrderError` and `UnsupportedOrder` match Python's. An exception thrown by your
+Subclasses `OrderException`, `OrderError`, `ConflictingOrderError` and `UnsupportedOrder` match Python's (an
+`UnsupportedOrder` is an `OrderException`, not an `OrderError`). An exception thrown by your
 own callback reaches you unchanged. Sizes no memory holds throw a `MemoryError`:
 
 ```ts
