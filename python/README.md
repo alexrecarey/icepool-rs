@@ -60,4 +60,4 @@ ICEPOOL_BACKEND=rust PYTHONPATH=python uv run python -c 'import icepool; print(i
   `ICEPOOL_RUN=$PWD/crates/icepool-py/run-facade.sh uv run python -m harness.core.tool fixtures verify --oracle-sample 0`.
 
 When editing a module here, read the oracle's version of it first, keep upstream's code and docstrings, and mark
-every change `icepool-rs:` (AGENTS.md, NOTES.md "Python facade (S1)").
+every change `icepool-rs:` (AGENTS.md, dev/NOTES.md "Python facade (S1)").

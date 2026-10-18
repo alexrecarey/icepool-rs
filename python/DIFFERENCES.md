@@ -4,7 +4,7 @@
 `ICEPOOL_BACKEND=rust`. Results are meant to be upstream's exactly, down to the order of outcomes, the types and the
 integer quantities, and the port copies upstream's bugs rather than fixing them (DIVERGENCES.md at the repository
 root lists those). This page lists what still differs, and why. Written by hand (task C8, 2026-10-18) from
-DIVERGENCES.md, NOTES.md and [FACADE-AUDIT.md](../docs/FACADE-AUDIT.md), each claim checked against the code and the oracle; keep it current
+DIVERGENCES.md, dev/NOTES.md and [FACADE-AUDIT.md](../docs/FACADE-AUDIT.md), each claim checked against the code and the oracle; keep it current
 when a difference goes or a new one is found.
 
 ## Which icepool this is

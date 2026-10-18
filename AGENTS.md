@@ -29,10 +29,10 @@ writing Rust, and port its explanatory comments along with the code.
 | `harness/catalogue/` | named functions/evaluators usable in programs (Python side) | you |
 | `harness/upstream_shims/` | shims for upstream tests that read private internals (Phase S) | you, sparingly |
 | `fixtures/` | golden results computed by the oracle | **append-only**: add new files, never edit old ones |
-| `tasks.json` | the task queue (definitions; status lives in `loop/state.json`) | you may add tasks, never remove one |
-| `NOTES.md` | gotchas for future iterations | you: add what the next iteration must know |
+| `dev/tasks.json` | the task queue (definitions; status lives in `loop/state.json`) | you may add tasks, never remove one |
+| `dev/NOTES.md` | gotchas for future iterations | you: add what the next iteration must know |
 | `DIVERGENCES.md` | Python behaviour copied but thought wrong | you |
-| `PROGRESS.md`, `loop/`, `baselines/`, `oracle.lock`, this file, `.claude/` | the loop's own | **protected** |
+| `loop/PROGRESS.md`, `loop/`, `loop/baselines/`, `oracle.lock`, this file, `.claude/` | the loop's own | **protected** |
 
 `harness/core/guard.sh` rejects any iteration that touches a protected path, edits or deletes a fixture, turns a
 ported node back to pending, or changes a task's status. Then a separate reviewer reads your diff.
@@ -56,7 +56,7 @@ documented in `harness/core/grammar_api.py` and `harness/core/encode.py`; Python
 
 ## How to do a task
 
-1. Read your task in `tasks.json`, the last part of `PROGRESS.md`, `NOTES.md`, and `.loop/last-failure.md` if it
+1. Read your task in `dev/tasks.json`, the last part of `loop/PROGRESS.md`, `dev/NOTES.md`, and `.loop/last-failure.md` if it
    exists (your previous attempt failed: start from that).
 2. Read the Python you are porting in `$ICEPOOL_ORACLE/src/icepool/`.
 3. Implement it in Rust. Wire it into the runner (`crates/icepool-harness/src/`) so the grammar nodes run.
@@ -67,26 +67,26 @@ documented in `harness/core/grammar_api.py` and `harness/core/encode.py`; Python
    - add a fixtures file of hand-picked edge cases (`fixtures make`);
    - fuzz until clean, and import every failure you fixed as fixtures (`fixtures import-failures`).
 5. Run `harness/core/gate.sh fast` until GREEN. Commit in small, well-described steps.
-6. Write what the next iteration needs to know in `NOTES.md`.
+6. Write what the next iteration needs to know in `dev/NOTES.md`.
 
 **If the task is too big for one iteration:** do a coherent first part, then add the rest as new `todo` tasks in
-`tasks.json` (with `deps`). Never leave a ported node half-working: a node is `ported` only when it fuzzes clean.
+`dev/tasks.json` (with `deps`). Never leave a ported node half-working: a node is `ported` only when it fuzzes clean.
 
 **If you are stuck on a genuine question about intended behaviour** (rare: the oracle answers almost everything),
-add it to `QUESTIONS.md`, work around it, and continue.
+add it to `dev/QUESTIONS.md`, work around it, and continue.
 
 ## Readability over performance
 
 The library is fast enough. Alex's priorities (2026-10-17) are modularity, correctness, robustness and beautiful,
 readable code. **Never trade readability for speed**: no micro-optimisations, special-case fast paths, manual
 buffer reuse, unsafe, or clever data layouts unless a task explicitly asks for one. When two designs are correct,
-pick the clearer one. If something is genuinely too slow to use, note it in NOTES.md instead of optimising it.
+pick the clearer one. If something is genuinely too slow to use, note it in dev/NOTES.md instead of optimising it.
 
 ## Code rules
 
 - Stable Rust (see `rust-toolchain.toml`). `cargo clippy -D warnings` is part of the gate.
 - Allowed dependencies: serde/serde_json, a big-integer crate (dashu or num-bigint/num-rational, your call, note
-  why in NOTES.md), rustc-hash, smallvec, and later pyo3 and wasm-bindgen. Ask via QUESTIONS.md before adding others.
+  why in dev/NOTES.md), rustc-hash, smallvec, and later pyo3 and wasm-bindgen. Ask via dev/QUESTIONS.md before adding others.
 - Keep the core generic and static (see ANALYSIS.md "the design decisions"); Python dynamism belongs in the
   facades, never in the core.
 - Short code, well commented: explain *why*, and carry over icepool's own explanatory comments.

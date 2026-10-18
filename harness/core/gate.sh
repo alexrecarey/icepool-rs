@@ -83,12 +83,12 @@ fi
 if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS_BASE:-}" ]; then
   # Mutants in code changed since MUTANTS_BASE. Survivors are reported, not failed: the loop turns them into tasks.
   echo "=== mutants (since $MUTANTS_BASE)"
-  mkdir -p harness-out
-  git diff "$MUTANTS_BASE" -- crates > harness-out/mutants.diff
+  mkdir -p .loop/out
+  git diff "$MUTANTS_BASE" -- crates > .loop/out/mutants.diff
   # Capped: an uncapped run once took 7.5 hours and stalled the loop. Survivors found in time still become tasks.
-  timeout 90m cargo mutants --in-diff harness-out/mutants.diff -p icepool-core --test-workspace true --timeout 300 --output harness-out \
-    > harness-out/mutants.log 2>&1 || true
-  tail -5 harness-out/mutants.log
+  timeout 90m cargo mutants --in-diff .loop/out/mutants.diff -p icepool-core --test-workspace true --timeout 300 --output .loop/out \
+    > .loop/out/mutants.log 2>&1 || true
+  tail -5 .loop/out/mutants.log
 fi
 
 echo

@@ -312,7 +312,7 @@ The API mapping, by example (all of `icepool/__init__.py` is covered the same wa
 - **No `any` in the public types.** `Outcome` is a union type; `Die<T extends Outcome = Outcome>` is generic so
   `d(6)` is `Die<number>` in the types.
 - **What the runner does not model raises its `NotImplementedError`** (kind `Unported`) in the API too, rather than
-  computing an answer the port has nowhere else (NOTES.md, "C6l").
+  computing an answer the port has nowhere else (dev/NOTES.md, "C6l").
 - **Tests.** `js/test/fixtures.mjs` is a test-only adapter that translates every fixture program into calls of this
   public API (the few nodes with no public counterpart go through the bridge, section 5); `js/test/upstream-*.mjs`
   mirror upstream's Python tests; `api.test.mjs` checks that no public module imports the bridge. `js/build.sh
@@ -327,7 +327,7 @@ The API mapping, by example (all of `icepool/__init__.py` is covered the same wa
   `.github/workflows/ci.yml`. Provenance comments cite the Python file and function (no line numbers).
 - **Python:** upstream's documentation is the documentation: `python/icepool` keeps upstream's docstrings verbatim,
   so upstream's rendered docs apply. `python/README.md` describes the package; `python/DIFFERENCES.md` lists what
-  differs on the Rust backend, written by hand from DIVERGENCES.md, NOTES.md and docs/FACADE-AUDIT.md (keep it
+  differs on the Rust backend, written by hand from DIVERGENCES.md, dev/NOTES.md and docs/FACADE-AUDIT.md (keep it
   current when one of those changes).
 - **JS/TS:** `crates/icepool-wasm/js/README.md` and the guide `js/docs/guide.md` (install, first dice, pools and
   evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python

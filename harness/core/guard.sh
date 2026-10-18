@@ -9,8 +9,8 @@ cd "$(dirname "$0")/../.."
 BAD=0
 fail() { echo "GUARD: $*"; BAD=1; }
 
-PROTECTED=(harness/core harness/__init__.py crates/icepool-harness/tests/fixtures.rs loop baselines oracle.lock
-           AGENTS.md CLAUDE.md .claude rust-toolchain.toml pyproject.toml uv.lock docs/ANALYSIS.md docs/LOOP-PLAN.md docs/semantics.md docs/reviews PROGRESS.md)
+PROTECTED=(harness/core harness/__init__.py crates/icepool-harness/tests/fixtures.rs loop oracle.lock
+           AGENTS.md CLAUDE.md .claude rust-toolchain.toml pyproject.toml uv.lock docs/ANALYSIS.md docs/LOOP-PLAN.md docs/semantics.md docs/reviews)
 changed="$(git diff --name-only "$BASE" "$HEAD" -- "${PROTECTED[@]}")"
 [ -z "$changed" ] || fail "protected files changed:"$'\n'"$changed"
 
@@ -33,10 +33,10 @@ for op, st in s0.items():
         print(f"GUARD: grammar node {op!r} removed from status.json"); bad = True
     elif st == "ported" and s1[op] != "ported":
         print(f"GUARD: grammar node {op!r} went from ported back to {s1[op]!r}"); bad = True
-t0 = {t["id"] for t in load(base, "tasks.json", [])}
-t1 = {t["id"] for t in load(head, "tasks.json", [])}
+t0 = {t["id"] for t in (load(base, "dev/tasks.json", None) or load(base, "tasks.json", []))}
+t1 = {t["id"] for t in load(head, "dev/tasks.json", [])}
 for tid in sorted(t0 - t1):
-    print(f"GUARD: task {tid} removed from tasks.json"); bad = True
+    print(f"GUARD: task {tid} removed from dev/tasks.json"); bad = True
 sys.exit(1 if bad else 0)
 PY
 

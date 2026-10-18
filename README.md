@@ -9,7 +9,7 @@ that checks every result against Python icepool itself.
 - What and why: [docs/ANALYSIS.md](docs/ANALYSIS.md)
 - How the loop works: [docs/LOOP-PLAN.md](docs/LOOP-PLAN.md)
 - Rules for agents: [AGENTS.md](AGENTS.md)
-- Where it's at: [PROGRESS.md](PROGRESS.md), [tasks.json](tasks.json)
+- Where it's at: [loop/PROGRESS.md](loop/PROGRESS.md), [dev/tasks.json](dev/tasks.json)
 
 Nothing is published yet (no crate, wheel or npm package); everything below builds from this repository.
 
@@ -121,7 +121,7 @@ repository (`$ICEPOOL_ORACLE`). Nothing decides by itself that the port is right
 - **Fuzzer**: random programs run by both the oracle and the port, compared exactly (`harness/core`); failures are
   minimised and become fixtures.
 - **Upstream's test suite**, run unmodified through the Python facade with `ICEPOOL_BACKEND=rust` (1716 passing, as
-  on the oracle; `baselines/upstream-pass.txt` may only grow), and translated test by test into JS
+  on the oracle; `loop/baselines/upstream-pass.txt` may only grow), and translated test by test into JS
   (`crates/icepool-wasm/js/test/upstream-*.test.mjs`).
 - **Typed against `Value`**: property tests check that each typed `Die<i64>` path agrees with the `Value` path the
   fixtures check (`crates/icepool-core/tests/typed_vs_value.rs`).
@@ -145,11 +145,11 @@ to revisit.
 | `crates/icepool-harness/` | test only: the JSON program runner, the `icepool-run` binary, the fixture test |
 | `harness/` | the Python side of the checks: `core/` (gate, guard, comparison, fuzzer, fixture tools), `grammar/` (program nodes), `catalogue/`, `upstream_shims/` |
 | `fixtures/` | golden results computed by the oracle |
-| `baselines/` | the upstream tests known to pass through the facade |
+| `loop/baselines/` | the upstream tests known to pass through the facade |
 | `scripts/` | `check-production.sh` (no test code in what ships), `upstream_changes.py` |
 | `docs/` | analysis, loop plan, Python semantics the port copies, the library design, reviews |
 | `.github/workflows/` | CI |
-| `loop/`, `tasks.json`, `PROGRESS.md`, `NOTES.md`, `QUESTIONS.md` | the loop's machinery and records |
+| `loop/`, `dev/tasks.json`, `loop/PROGRESS.md`, `dev/NOTES.md`, `dev/QUESTIONS.md` | the loop's machinery and records |
 
 ## Building and testing
 
@@ -187,4 +187,4 @@ stay with the loop.
 - [DIVERGENCES.md](DIVERGENCES.md): Python behaviour copied but thought wrong
 - [FACADE-AUDIT.md](docs/FACADE-AUDIT.md): what of the Python facade still runs in Python, module by module
 - [docs/ANALYSIS.md](docs/ANALYSIS.md), [docs/LOOP-PLAN.md](docs/LOOP-PLAN.md), [AGENTS.md](AGENTS.md),
-  [NOTES.md](NOTES.md): the project and the loop that builds it
+  [dev/NOTES.md](dev/NOTES.md): the project and the loop that builds it

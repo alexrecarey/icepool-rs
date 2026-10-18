@@ -368,7 +368,7 @@ fn scalar_eq(this: &Value, other: &Value) -> bool {
 }
 
 /// Python's `==` is an equivalence on everything except float NaN, which Python also treats as unequal to itself
-/// (bar object identity, which the port does not model; see NOTES.md).
+/// (bar object identity, which the port does not model; see dev/NOTES.md).
 impl Eq for Value {}
 
 /// Agrees with `==`: equal numbers of any type hash alike (Python's numeric hash, `number::py_hash`).
@@ -390,7 +390,7 @@ impl Hash for Value {
             }
             // Python's hash, fed like a number's: a host object equal to a number (an `IntEnum`) hashes alike, as
             // Python requires. One equal to a `str` or a plain `tuple` (a `StrEnum`, a namedtuple) does not, so
-            // the two do not merge as they would in a Python dict (see NOTES.md).
+            // the two do not merge as they would in a Python dict (see dev/NOTES.md).
             Value::Host(h) => {
                 state.write_u8(0);
                 state.write_i64(h.hash_value());

@@ -48,7 +48,7 @@ from typing import Any, Mapping
 
 # Python frames that upstream's driver adds around its once-per-outcome recursion: `evaluate`,
 # `Dungeon.evaluate`, the done room's `evaluate_backward`, and the pop / next_state calls of the deepest room.
-# Calibrated against the oracle at the boundary (see NOTES.md, S1e).
+# Calibrated against the oracle at the boundary (see dev/NOTES.md, S1e).
 _DRIVER_FRAMES = 8
 
 

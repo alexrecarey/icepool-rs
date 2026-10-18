@@ -6,7 +6,7 @@
 // Design: the core is generic over `OutcomeOrder` (see docs/ANALYSIS.md "the design decisions" and
 // docs/design/library-architecture.md section 1): any `Ord` type is an `Outcome`, whose comparisons cannot fail, so
 // `Die<i64>` answers them with plain values; the bindings instantiate the core with the dynamic `Value`, which
-// carries Python's semantics (its comparisons can raise). Module layout mirrors icepool's own files; see NOTES.md.
+// carries Python's semantics (its comparisons can raise). Module layout mirrors icepool's own files; see dev/NOTES.md.
 
 // The public API (docs/design/library-architecture.md section 4): the typed dice at the root, plus the evaluator
 // trait with the built-in evaluators, multiset expressions, and `Value`, the dynamic outcome of the bindings.

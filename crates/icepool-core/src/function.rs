@@ -66,7 +66,7 @@ pub fn try_d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
 ///
 /// An outcome keeps the spelling of the first argument that has it (`set.union` adds later equal elements to the
 /// copy of the first set as no-ops). Python sorts the set in hash order, the port in first-seen order: the same
-/// result whenever the outcomes are totally ordered (see NOTES.md for the NaN / partially comparable gap).
+/// result whenever the outcomes are totally ordered (see dev/NOTES.md for the NaN / partially comparable gap).
 ///
 /// ```
 /// use icepool_core::value::sorted_union;

@@ -210,7 +210,7 @@ jobs:
         run: uv run python -m harness.core.tool fuzz --ops khepri --seed 7 --count 150
 
       # Upstream's own tests, unmodified, through python/icepool with ICEPOOL_BACKEND=rust. Every test in
-      # baselines/upstream-pass.txt must pass.
+      # loop/baselines/upstream-pass.txt must pass.
       - name: upstream test suite through the facade
         run: harness/core/upstream_suite.sh fast
 
@@ -218,6 +218,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: harness-out
+          name: .loop/out
           path: icepool-rs/harness-out/
           if-no-files-found: ignore

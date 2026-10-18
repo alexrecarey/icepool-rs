@@ -1,6 +1,6 @@
 """Which parts of the oracle do our tests never reach? Run from the repo root:
 
-    uv run --with coverage python -m harness.tools.oracle_coverage [--out harness-reports/coverage.md] [--fuzz SEED:COUNT:DEPTH ...]
+    uv run --with coverage python -m harness.tools.oracle_coverage [--out dev/reports/coverage.md] [--fuzz SEED:COUNT:DEPTH ...]
 
 Every fixture program, plus the programs the gate's fuzz runs generate (same seeds, counts and depths by default),
 is evaluated by the oracle (Python icepool) under coverage.py with branch coverage. The report lists, per oracle
@@ -202,7 +202,7 @@ def _oracle_commit():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--out", default=os.path.join(ROOT, "harness-reports", "coverage.md"))
+    ap.add_argument("--out", default=os.path.join(ROOT, "dev/reports", "coverage.md"))
     ap.add_argument("--fuzz", action="append", default=None,
                     help="SEED:COUNT[:DEPTH] or khepri:SEED:COUNT; repeatable (default: the gate's fixed seeds)")
     ap.add_argument("--timeout", type=int, default=TIMEOUT_S)

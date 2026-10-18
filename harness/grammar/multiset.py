@@ -218,7 +218,7 @@ def gen_expression(g, depth, budget=None, leaf=None):
         return {"op": "mx_filter", "expr": sub(), "invert": {"bool": r.random() < 0.5}, "target": target}
     if k < 0.67:
         # Functions of the counts only: their results are ints whatever the outcomes (add2 / max2 over bool or
-        # float outcomes would make bool / float counts, which the port does not model; see NOTES.md).
+        # float outcomes would make bool / float counts, which the port does not model; see dev/NOTES.md).
         f = fn_node(g, name=r.choice(["count_diff", "count_if_gt_k"]))[0]
         n = r.choice([1, 2, 2, 3])
         return {"op": "mx_map_counts", "args": [sub() for _ in range(n)], "function": f}

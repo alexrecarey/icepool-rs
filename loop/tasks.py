@@ -1,6 +1,6 @@
 """Task queue helper for loop.sh. PROTECTED.
 
-Task definitions live in tasks.json (the agent may add tasks). Their status and attempt counts live in
+Task definitions live in dev/tasks.json (the agent may add tasks). Their status and attempt counts live in
 loop/state.json, which only this script (via loop.sh, on main) writes: that keeps task branches and main from
 conflicting.
 
@@ -16,7 +16,7 @@ conflicting.
 import json
 import sys
 
-TASKS, STATE = "tasks.json", "loop/state.json"
+TASKS, STATE = "dev/tasks.json", "loop/state.json"
 
 
 def load(p):

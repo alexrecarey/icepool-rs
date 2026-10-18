@@ -72,7 +72,7 @@ def collected(make):
 
 # Each makes an object of the facade that holds `o` through the core. Still not collected: a cycle through two
 # objects sharing core data that is not structural, such as a die and its popped die (`_pop_min`, cached on both
-# sides), or a source (`_make_source()`) and the generator it came from; see NOTES.md.
+# sides), or a source (`_make_source()`) and the generator it came from; see dev/NOTES.md.
 CYCLES = {
     'die': 'Die([o, O(2)])',
     'mapped die': 'd(2).map(lambda x: o)',

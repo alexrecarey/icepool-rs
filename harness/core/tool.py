@@ -5,14 +5,14 @@
   check PROGRAM_JSON               both, plus the verdict
   fuzz [--seed N] [--count N] [--ops a,b] [--fresh] [--depth N]
                                    random programs from ported nodes, oracle vs port; minimised failures are
-                                   written to harness-out/failures.jsonl
+                                   written to .loop/out/failures.jsonl
   fixtures verify [--oracle-sample F]
                                    every fixture through the port (fixtures whose ops are not all ported are
                                    skipped and counted); a random fraction F re-checked against the oracle
   fixtures make NAME PROGRAMS.jsonl
                                    compute expected results WITH THE ORACLE and write fixtures/NAME.jsonl (new
                                    file only: fixtures are append-only)
-  fixtures import-failures NAME    turn harness-out/failures.jsonl into fixtures/NAME.jsonl (oracle recomputed)
+  fixtures import-failures NAME    turn .loop/out/failures.jsonl into fixtures/NAME.jsonl (oracle recomputed)
   ops                              list nodes and their status
 
 The Rust side is the `icepool-run` binary: one JSON program per stdin line in, one JSON result per stdout line out.
@@ -34,7 +34,7 @@ from harness.core.compare import same
 from harness.core.encode import error_of, result_of
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT = os.path.join(ROOT, "harness-out")
+OUT = os.path.join(ROOT, ".loop/out")
 FIXTURES = os.path.join(ROOT, "fixtures")
 ORACLE_TIMEOUT_S = 3
 PORT_TIMEOUT_S = int(os.environ.get("ICEPOOL_PORT_TIMEOUT", "20"))

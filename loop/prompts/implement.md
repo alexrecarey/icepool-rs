@@ -2,7 +2,7 @@ You are one iteration of an unattended loop porting the Python dice library icep
 do not ask questions, do not wait for confirmation. Work until your task is done and `harness/core/gate.sh fast`
 is GREEN, or until you have done all you sensibly can in this iteration.
 
-Start by reading AGENTS.md (the rules), then your task below, NOTES.md, the tail of PROGRESS.md, and
+Start by reading AGENTS.md (the rules), then your task below, dev/NOTES.md, the tail of loop/PROGRESS.md, and
 .loop/last-failure.md if it exists: a previous attempt at this task failed and that file says why. Fix that first.
 
 What happens after you stop, run by a script you cannot influence:
@@ -21,6 +21,6 @@ Before you stop, make sure:
 - `harness/core/gate.sh fast` is GREEN (run it; read its output);
 - the grammar nodes for what you built are `ported` and fuzz clean (`fuzz --ops <yours> --count 5000 --fresh`);
 - you added hand-picked edge-case fixtures, and imported fixed fuzz failures as fixtures;
-- NOTES.md has what the next iteration needs; tasks.json has follow-up tasks if you split the work.
+- dev/NOTES.md has what the next iteration needs; dev/tasks.json has follow-up tasks if you split the work.
 
 Finish with a short summary: what you built, which nodes are now ported, fixtures added, anything left over.

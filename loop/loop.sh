@@ -37,7 +37,7 @@ status() { echo "$(date '+%F %T') $*" > "$STATUS_FILE"; }
 notify() { "$REPO/loop/notify.sh" "$@" || true; }
 
 commit_main() {  # commit_main MESSAGE: commit loop bookkeeping on main and push
-  git add -A tasks.json loop/state.json PROGRESS.md baselines 2>/dev/null
+  git add -A dev/tasks.json loop/state.json loop/PROGRESS.md baselines 2>/dev/null
   git commit -q -m "$1" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" || true
   push_main
 }
@@ -93,10 +93,10 @@ long_gate() {
     T add-front "L$n" "Fix the long gate" "The long gate went red on main. Log: $(ls -t "$LOGS"/long-*.log | head -1). Failing steps: $(grep -- '--- .*FAILED' "$(ls -t "$LOGS"/long-*.log | head -1)" | tr '\n' ' '). Reproduce, fix the port (not the checks), import any fuzz failures as fixtures."
     log "long gate RED: added task L$n"
   fi
-  local missed="harness-out/mutants.out/missed.txt"
+  local missed=".loop/out/mutants.out/missed.txt"
   if [ -s "$missed" ]; then
     local n; n="$(date +%Y%m%d%H%M)"
-    T add-front "M$n" "Kill surviving mutants" "cargo-mutants found mutations no check catches (harness-out/mutants.out/missed.txt on carapace, copied here): $(head -40 "$missed" | tr '\n' ';'). For each: add fixtures (programs computed by the oracle) or grammar/fuzzer coverage that would fail on that mutation. Do not change the code under test unless a mutant reveals a real bug."
+    T add-front "M$n" "Kill surviving mutants" "cargo-mutants found mutations no check catches (.loop/out/mutants.out/missed.txt on carapace, copied here): $(head -40 "$missed" | tr '\n' ';'). For each: add fixtures (programs computed by the oracle) or grammar/fuzzer coverage that would fail on that mutation. Do not change the code under test unless a mutant reveals a real bug."
     log "mutants survived: added task M$n"
   fi
   T meta last_long "$(git rev-parse HEAD)"
@@ -177,13 +177,13 @@ BASE=$BASE  HEAD=$HEAD_SHA  task $ID: $(T field "$ID" title)") > "$LOGS/$TAG-rev
 
   if [ "$VERDICT" = APPROVE ]; then
     # Drop anything the reviewer may have touched: merge exactly what was checked.
-    git -C "$WT" reset -q --hard "$HEAD_SHA" && git -C "$WT" clean -fdq -e .venv -e .loop -e harness-out
+    git -C "$WT" reset -q --hard "$HEAD_SHA" && git -C "$WT" clean -fdq -e .venv -e .loop
     # Rebase onto main (only loop bookkeeping can have landed there), then fast-forward.
     if git -C "$WT" rebase -q main && git merge -q --ff-only "task/$ID"; then
       T status "$ID" done
       SUMMARY="$(result_text "$LOGS/$TAG-impl.jsonl" | tr '\n' ' ' | cut -c1-300)"
-      echo "- $(date '+%F %H:%M') **$ID** done (attempt $ATTEMPT, $(git rev-list --count "$BASE..HEAD") commits): $SUMMARY" >> PROGRESS.md
-      [ -f "$WT/harness-out/upstream-pass.txt" ] && sort -u "$WT/harness-out/upstream-pass.txt" baselines/upstream-pass.txt 2>/dev/null -o baselines/upstream-pass.txt
+      echo "- $(date '+%F %H:%M') **$ID** done (attempt $ATTEMPT, $(git rev-list --count "$BASE..HEAD") commits): $SUMMARY" >> loop/PROGRESS.md
+      [ -f "$WT/harness-out/upstream-pass.txt" ] && sort -u "$WT/harness-out/upstream-pass.txt" loop/baselines/upstream-pass.txt 2>/dev/null -o loop/baselines/upstream-pass.txt
       commit_main "loop: $ID done"
       git worktree remove --force "$WT"; git branch -q -D "task/$ID"
       log "task $ID merged"
@@ -212,11 +212,11 @@ BASE=$BASE  HEAD=$HEAD_SHA  task $ID: $(T field "$ID" title)") > "$LOGS/$TAG-rev
     } > "$REPORT"
     if [ "$N" -ge "$MAX_ATTEMPTS" ]; then
       T status "$ID" blocked
-      echo "- $(date '+%F %H:%M') **$ID** blocked after $N attempts: $VERDICT" >> PROGRESS.md
+      echo "- $(date '+%F %H:%M') **$ID** blocked after $N attempts: $VERDICT" >> loop/PROGRESS.md
       notify "icepool-rs: task $ID blocked" "$VERDICT"
       log "task $ID blocked: $VERDICT"
     else
-      echo "- $(date '+%F %H:%M') $ID attempt $N failed: $VERDICT" >> PROGRESS.md
+      echo "- $(date '+%F %H:%M') $ID attempt $N failed: $VERDICT" >> loop/PROGRESS.md
       log "task $ID attempt $N failed: $VERDICT"
     fi
     commit_main "loop: $ID attempt $N failed"

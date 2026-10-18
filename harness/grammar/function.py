@@ -42,7 +42,7 @@ def _gen_dz_attr(g, depth):
         try:
             if abs(int(name[1:])) > 99:
                 # Three digits: a die of up to 999 outcomes, which pooled lands in the band where Python's
-                # recursion limit is not knowable from the program (NOTES.md, "Python's recursion limit").
+                # recursion limit is not knowable from the program (dev/NOTES.md, "Python's recursion limit").
                 name = name[:-1]
         except ValueError:
             pass
