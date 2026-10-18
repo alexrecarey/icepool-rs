@@ -827,5 +827,14 @@
     ],
     "milestone": null,
     "details": "Design: design/library-architecture.md section 6. Left over from C6d (pools, keep, expressions and the built-in evaluations are native: multiset.ts's tree over src/api/multiset.rs and evaluate.rs; read NOTES.md 'The TypeScript API (C6)', C6d). (1) Python's `==` / `!=` of multiset expressions (node mx_compare with '==' / '!='): a `DieWithTruth` whose truth is `self.equals(other)` (hash keys: multiset.ts `sameExpression`) and whose data (IsEqualSetEvaluator / IsNotEqualSetEvaluator) raises only when used; the identity fallback when the other side cannot be converted. JS has no method for them yet: add `eq` / `ne` (design section 6's operator table) and a DieWithTruth that holds a JS error for its data. (2) A die on the left of an operator or comparison with an expression (`d6 < pool`, `d6 + pool`): Python's TypeError 'Items do not appear to be sortable.' (harness expression.rs `binary_op`, evaluate.rs `compare_operator`); today die.ts hands those to the bridge. (3) The evaluator objects of the built-in classes, which the fixture nodes keep_evaluate, straight_and_outcome_evaluate and builtin_evaluate call (no JS counterpart: decide whether the API needs them, e.g. as `MultisetEvaluator` instances of named built-ins, or whether they stay test-only routes through the bridge until C6g). Count the fixture test's `bridge:` line before and after. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C6k",
+    "title": "TypeScript API: reflected multiset operators (a sequence or tuple expression on the left)",
+    "deps": [
+      "C6f"
+    ],
+    "milestone": null,
+    "details": "Design: design/library-architecture.md section 6. Python's `MultisetExpression` has `__radd__`, `__rsub__`, `__rand__`, `__ror__`, `__rxor__`: `[1, 2] + deal`, `0 - pool` (TypeError), `md + pool` and `md | md2` with a MultiDeal on the left (a multiset tuple expression has no operators of its own, so the right operand's reflected one runs and the tuple counts flow into the operator). The JS `MultisetExpression` has none of these (only `rfloordiv`), so fixture programs with a non-expression on the left of mx_binary still go through the bridge (harness expression.rs `binary_op`, the `(None, Some(b))` arm: `KeepGenerator.__radd__` is `additive_union(self, other)`, `MultisetExpression.__radd__` is `additive_union(other, self)`, `^` is symmetric). Add them as `radd` / `rsub` / `rand` / `ror` / `rxor` (Die's naming), route mx_binary through them in test/fixtures.mjs, and count the fixture test's `bridge:` line before and after (at C6f: mx_binary 185, mostly this, the rest replays from C6j's nodes). Read NOTES.md 'The TypeScript API (C6)', C6d and C6f first. Add API tests (js/test/). Parity with the oracle stays absolute for native and Python builds."
   }
 ]

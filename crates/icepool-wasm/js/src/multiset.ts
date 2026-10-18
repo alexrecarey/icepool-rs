@@ -1488,7 +1488,8 @@ const isNative = (x: Input): boolean => x.node !== undefined;
 
 /** Thrown where the bridge would need a parameter of a multiset function traced natively: the bridge cannot take
  * one, so the function's call is made through the bridge instead (evaluator.ts `MultisetFunction.call`). INTERIM
- * (task C6f): only deals and multiset tuple expressions still need the bridge. @internal */
+ * (task C6g): only what the bridge alone has needs it (a callable of the bridge's, the fixtures' evaluator objects of
+ * built-in classes). @internal */
 export class BridgeNeeded extends Error {}
 
 /** `MultisetParameter`: an argument of a multiset function, while its body is traced. */

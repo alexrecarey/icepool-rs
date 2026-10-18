@@ -382,12 +382,6 @@ impl WasmMultiDeal {
         self.md.hand_sizes()
     }
 
-    /// The hand groups, `[hand_size, group_size, ...]` flat.
-    #[wasm_bindgen(js_name = handGroups)]
-    pub fn hand_groups(&self) -> Vec<usize> {
-        self.md.hand_groups().iter().flat_map(|&(h, g)| [h, g]).collect()
-    }
-
     /// `total_cards_dealt()`.
     #[wasm_bindgen(js_name = totalCardsDealt)]
     pub fn total_cards_dealt(&self) -> usize {
@@ -424,10 +418,5 @@ impl WasmMultiDeal {
         let repr = format!("MultiDeal({}, hand_groups={groups})", deck_repr(self.md.deck()).or_throw()?);
         let text = format!("MultiDeal of hand_groups={groups} from deck:\n{}", deck_format(self.md.deck(), "").or_throw()?);
         Ok(vec![repr, text])
-    }
-
-    /// Another handle on the same multi-deal.
-    pub fn copy(&self) -> WasmMultiDeal {
-        WasmMultiDeal { md: self.md.clone() }
     }
 }

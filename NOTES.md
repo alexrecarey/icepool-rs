@@ -36,9 +36,54 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6f, C6g, C6i, C6j (tasks.json); the docs are C6b.
-  - **C6e (JS evaluators, multisetFunction).** Both run natively over C6d's tree; only deals and multiset tuple
-    expressions (C6f) still take the bridge.
+- **The TypeScript API (C6, design section 6).** Rest in C6g, C6i, C6j, C6k (tasks.json); the docs are C6b.
+  - **C6f (Deck, Deal, MultiDeal, Wallenius).** All native: src/api/deck.rs (`WasmDeck`, `DeckBuilder`,
+    `WasmMultiDeal`), deals as `Generator::Deal` (multiset.rs), and in evaluate.rs MultiDeal sources, tuple
+    index/slice nodes (`Node::TupleItem`) and tuple parameters (`Node::Parameter { tuple_len }`). deck.ts does
+    Python's juggling: `Deck.__new__` (contains_again, `itemize`, a single deck with time 1 *is* that deck: the
+    constructor returns it; `expand_arg` via `tupleize`; `merge_duplicates` in `DeckBuilder`: a tuple holding Reroll
+    raises AttributeError before a non-int time's ValueError, as Python's merge does), `Counter(other)` for the
+    operators (deck/die quantities, Map values, elements of an array or str, a multiset expression iterated with
+    `keep(i)` until IndexError: deck.ts `counterOfExpression`, ported from the harness's `deck_op_expression`),
+    `map` (function or Map), `sequence` with Python's `_sequence_cache` (asking for no more cards than already
+    computed raises UnboundLocalError: `dealt`), Wallenius (wallenius.py over native decks/dice, `pySorted`,
+    `mixtureOf`; Map keys merged as a dict with `dictItems`). Statistics, items, `get`, str run on
+    `population()` (the cards as a WasmDie). New JS: `Deck.equals/eq/ne` (Python's `==` is plain equality for a
+    deck), `split`, `zero`, `repr`, `toString`, `radd/rsub/rand/ror/rmul`, `Deal.deck/keepTuple`,
+    `MultiDeal.deck`, `MultisetTupleExpression.length` and iteration (`const [a, b] = hands`, Python's `a, b =
+    hands`), static `MultisetExpression.additiveUnion/difference/intersection/union` (Python defines them as
+    `def union(*args)`: called on the class, a tuple expression may come first; the adapter's `mx_method` uses
+    them), type `MultisetOperand`.
+    - **Tuple expressions as operands.** `implicit_convert_to_expression` returns a multiset tuple expression as
+      it is, so multiset.ts's `implicit` does too (`Input` = expression or tuple expression; operator children are
+      `Input`s): operators over a whole MultiDeal get tuple counts in the core. `keep_outcomes(md)` keeps nothing
+      (`frozenset` of its `MultisetTupleIndex`es; needs `len()`, `tupleLen` / Rust `sliceLength` for a slice);
+      `max_pair_keep('==', md)` raises (no unary `+`). `Pool(deck)`, `Pool(multi_deal)` and `pool <op> deck` raise
+      Python's ValueError.
+    - **Cycles.** deck.ts imports multiset.ts, so multiset.ts knows deck.ts's classes only through
+      `registerDeckClasses({ Deal, Deck, MultisetTupleExpression })` (for `generator()`'s class, `instanceof`).
+    - **The bridge and native objects** (`Replayable`, multiset.ts): a native object the bridge needs gets a handle
+      made directly when there is a way (`bridgeHandle`: pools and deals `generatorHandle`, decks `deckHandle`,
+      MultiDeals `multiDealHandle`, facade.rs), else by replaying its bridge call. The bridge's pools, deals, decks
+      and MultiDeals come back native (`registerKind`: `WasmGenerator/WasmDeck/WasmMultiDeal.fromHandle`). `Deck`
+      stays a `Handle` subclass so the `instanceof Handle` checks in die.ts / functions.ts still send decks given
+      to `map` & co. to the bridge (C6i).
+    - Fixture adapter (test/fixtures.mjs): decks from anything, `deck_info` / `deal_info` / `multi_deal_info`,
+      `deck_split`, `deck_zero`, `pop_append` / `pop_remove` (dice too), reflected `deck_op` (not `^`: no
+      `__rxor__`), `r*`, `mx_tuple_evaluate`, `tuple_op_evaluate`, `mx_binary` / `mx_str` with a deck, `pool_slice`
+      of a tuple expression; results: decks, deals and MultiDeals encoded natively (`{"repr": "Deck: ..."}`).
+    - Left on the bridge in this area (no API counterpart): `None ^ deck` / `[..] ^ deck` (Python has no
+      `__rxor__`: TypeError), the private `deck_pop` / `deal_pop` / `multi_deal_pop`, `deck_map` with a catalogue
+      callable JS lacks, a non-expression on the left of a multiset operator (`[1, 2] + deal`, `md + pool`:
+      reflected multiset operators, task C6k), `Deck.toOneHot` and decks given to `map` & co. (C6i). Bridge counts
+      at C6f: deck 3141 -> 0, multi_deal 1351 -> 0, deal 433 -> 0, deal_groups 238 -> 0, wallenius_deal_expr 94 ->
+      0, deck_op 399 -> 6, mx_tuple_slice 73 -> 64 (all builtin_evaluate, C6j), mf_call_kw 80 -> 12, evaluate 36 ->
+      16 (fixtures' `MultisetExpression.<method>` on tuple self in bodies, catalogue names JS lacks); the
+      expression nodes' replays dropped with them (mx_binary 554 -> 185, die_pool 887 -> 2, pool 791 -> 73).
+    - Upstream tests translated: multi_deal_test.py, wallenius_test.py; deck_test.py compares with `Deck.eq` now.
+      API tests: test/deck.test.mjs (each checks it made no bridge call). Fixtures: fixtures/c6f/edge-cases.
+  - **C6e (JS evaluators, multisetFunction).** Both run natively over C6d's tree; so do deals and multiset tuple
+    expressions since C6f.
     - **JS evaluators**: `MultisetEvaluator.evaluate` converts the inputs (`implicitAll`), wraps the evaluator in a
       TS `HostEvaluator` (evaluator.ts: kwargs, Python's defaults for missing methods, `stateValue`) and calls
       `ExpressionBuilder.evaluateHost`; the core's `HostEvaluator` (src/api/evaluator.rs, `MultisetEvaluator<Value>`,
@@ -64,8 +109,9 @@ turns out wrong. Newest decisions at the top of each section.
     - **Parameters** are node kind `"parameter"` (class `Parameter`, `str()` its name, `sameExpression` by index).
       Their bridge handle getter throws `BridgeNeeded`: a body that needs the bridge (a deal inside, e.g.
       `a.add(deck.deal(1))`) aborts the native attempt, and `MultisetFunction.call` redoes the whole call through
-      the bridge (`mf_call_kw`, with the bridge's copy of the function made once, `bridgeFunction`). C6f should
-      remove this when deals are native.
+      the bridge (`mf_call_kw`, with the bridge's copy of the function made once, `bridgeFunction`). Since C6f
+      only what the bridge alone has (a callable of the bridge's, the fixtures' built-in evaluator objects) needs it;
+      a tuple parameter's handle getter throws it too.
     - **Callbacks** are held by the core as JS values now (no id registry): `countFunction(f, ...)` /
       `outcomePredicate(f, ...)`, and every callback envelope goes through wasm.ts `callback` (exception kept in
       `pending`) and `withCallbacks` (turns `Error::Callback` back into it; calls nest). multiset.ts `withInputs(inputs,
