@@ -196,6 +196,12 @@ pub trait OutcomeArith: OutcomeOrder {
     fn try_mul_count(&self, count: &Int) -> Result<Self>;
     /// `self * 0` (`Population.zero`, which zeros an outcome by multiplying it by `0`).
     fn try_zero(&self) -> Result<Self>;
+    /// `self // other`: Python's floor division, which rounds toward negative infinity (Rust's `/` truncates).
+    /// `Error::DivisionByZero` for a zero divisor.
+    fn try_floor_div(&self, other: &Self) -> Result<Self>;
+    /// `self ** other`. Python's `int ** negative int` is a `float`, which an integer outcome cannot hold: for the
+    /// primitive integers a negative exponent is `Error::InvalidArgument`.
+    fn try_pow(&self, other: &Self) -> Result<Self>;
 }
 
 /// "attempt to add with overflow", as Rust's own operators say in a debug build.
@@ -233,6 +239,37 @@ macro_rules! integer_arith {
 
             fn try_zero(&self) -> Result<Self> {
                 Ok(0)
+            }
+
+            fn try_floor_div(&self, other: &Self) -> Result<Self> {
+                if *other == 0 {
+                    // CPython's message for `int // 0`.
+                    return Err(Error::DivisionByZero("integer division or modulo by zero".into()));
+                }
+                // Only `MIN / -1` overflows.
+                let Some(quotient) = self.checked_div(*other) else {
+                    return overflow("divide");
+                };
+                // Truncation rounded toward zero; a remainder of the other sign than the divisor rounds down.
+                let rounded_up = self % other != 0 && ((*self < 0) != (*other < 0));
+                Ok(if rounded_up { quotient - 1 } else { quotient })
+            }
+
+            fn try_pow(&self, other: &Self) -> Result<Self> {
+                if *other < 0 {
+                    return Err(Error::InvalidArgument(
+                        "negative exponent: Python's ** gives a float, which an integer outcome cannot hold".into(),
+                    ));
+                }
+                match u32::try_from(*other) {
+                    Ok(exponent) => self.checked_pow(exponent).map_or_else(|| overflow("multiply"), Ok),
+                    // An exponent beyond `u32` only fits for a base of 0, 1 or -1.
+                    Err(_) => match *self {
+                        0 | 1 => Ok(*self),
+                        -1 => Ok(if *other % 2 == 0 { 1 } else { -1 }),
+                        _ => overflow("multiply"),
+                    },
+                }
             }
         }
     )*};
@@ -278,6 +315,18 @@ impl ToRatio for Ratio {
     }
 }
 
+/// The counts and sizes the evaluators produce (a die of `Int` from `LargestCountEvaluator`) are Python `int`s.
+///
+/// ```
+/// use icepool_core::{Int, Ratio, ToRatio};
+/// assert_eq!(Int::from(-4).to_ratio(), Ratio::from(-4));
+/// ```
+impl ToRatio for Int {
+    fn to_ratio(&self) -> Ratio {
+        Ratio::from(self.to_ibig())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +351,26 @@ mod tests {
         assert!(3i8.try_mul_count(&Int::from(1000)).is_err());
         assert_eq!(0i8.try_mul_count(&Int::from(1000)), Ok(0));
         assert_eq!(7i32.try_zero(), Ok(0));
+    }
+
+    #[test]
+    fn floor_div_and_pow_are_pythons() {
+        // Python: -7 // 2 == -4, 7 // -2 == -4, -7 // -2 == 3, 6 // -3 == -2.
+        for (a, b, q) in [(7i64, 2, 3), (-7, 2, -4), (7, -2, -4), (-7, -2, 3), (6, -3, -2), (0, -3, 0)] {
+            assert_eq!(a.try_floor_div(&b), Ok(q), "{a} // {b}");
+        }
+        assert!(matches!(1i64.try_floor_div(&0), Err(Error::DivisionByZero(_))));
+        assert!(i64::MIN.try_floor_div(&-1).is_err());
+        assert_eq!(2i64.try_pow(&10), Ok(1024));
+        assert_eq!((-3i8).try_pow(&3), Ok(-27));
+        assert_eq!(0i64.try_pow(&0), Ok(1));
+        assert!(2i8.try_pow(&7).is_err());
+        assert!(matches!(2i64.try_pow(&-1), Err(Error::InvalidArgument(_))));
+        // Exponents beyond u32.
+        assert_eq!((-1i64).try_pow(&(1 << 40)), Ok(1));
+        assert_eq!((-1i64).try_pow(&((1 << 40) + 1)), Ok(-1));
+        assert_eq!(1i64.try_pow(&(1 << 40)), Ok(1));
+        assert_eq!(0i64.try_pow(&(1 << 40)), Ok(0));
+        assert!(2i64.try_pow(&(1 << 40)).is_err());
     }
 }

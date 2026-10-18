@@ -131,4 +131,12 @@ impl OutcomeArith for Value {
     fn try_zero(&self) -> Result<Self> {
         self.binary(BinOp::Mul, &Value::from(0))
     }
+
+    fn try_floor_div(&self, other: &Self) -> Result<Self> {
+        self.binary(BinOp::FloorDiv, other)
+    }
+
+    fn try_pow(&self, other: &Self) -> Result<Self> {
+        self.binary(BinOp::Pow, other)
+    }
 }

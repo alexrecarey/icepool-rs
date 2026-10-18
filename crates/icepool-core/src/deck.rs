@@ -14,7 +14,8 @@ use crate::counts::Counts;
 use crate::creation_args::{expand_args_for_deck, DieArg};
 use crate::die::Die;
 use crate::error::Result;
-use crate::outcome::{ErrInto, OutcomeOrder};
+use crate::deal::Deal;
+use crate::outcome::{ErrInto, Outcome, OutcomeOrder};
 use crate::Quantity;
 
 /// A deck of cards. Immutable and cheap to clone (the cards are shared). Equality and hashing are structural, as
@@ -228,7 +229,73 @@ impl<O: crate::outcome::OutcomeArith> Deck<O> {
     }
 }
 
+/// The typed API (docs/design/library-architecture.md section 4): an [`Outcome`]'s comparisons cannot fail, so
+/// neither can these.
+impl<O: Outcome> Deck<O> {
+    /// A deck from `(card, quantity)` pairs (Python's `Deck({card: quantity, ...})`): the quantity is how many
+    /// copies of the card the deck holds. Equal cards add up; cards with zero quantity are dropped.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Four suits of 13 ranks.
+    /// let deck = Deck::from_weights((1..=13).map(|rank| (rank, 4u32)));
+    /// assert_eq!((deck.len(), deck.size().to_string()), (13, "52".to_string()));
+    /// assert_eq!(Deck::from_weights([(1, 2u32), (2, 0), (1, 1)]), Deck::from_iter([1, 1, 1]));
+    /// ```
+    pub fn from_weights<Q: Into<Quantity>>(items: impl IntoIterator<Item = (O, Q)>) -> Self {
+        Deck {
+            cards: Die::from_weights(items),
+        }
+    }
+
+    /// Deals `hand_size` cards from this deck (Python's `deck.deal(hand_size)`): a [`Deal`], which keeps and
+    /// evaluates as a pool does, drawing without replacement.
+    ///
+    /// # Panics
+    ///
+    /// If `hand_size` exceeds the size of the deck (Python raises `ValueError: The number of cards dealt cannot
+    /// exceed the size of the deck.`). [`Deal::new`] is the fallible form.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::LargestCountEvaluator;
+    /// use icepool_core::{Deck, Int};
+    /// // Two cards from a deck of two 1s and two 2s: a pair 2 times in 6.
+    /// let deal = Deck::from_iter([1, 1, 2, 2]).deal(2);
+    /// assert_eq!(deal.denominator().to_string(), "6");
+    /// let pairs = deal.evaluate(&LargestCountEvaluator).unwrap();
+    /// assert_eq!(pairs.quantity_ge(&Int::from(2)).to_string(), "2");
+    /// ```
+    pub fn deal(&self, hand_size: usize) -> Deal<O> {
+        Deal::new(self.clone(), &IBig::from(hand_size)).unwrap_or_else(|e| panic!("{e}"))
+    }
+}
+
+/// One copy of each card: equal cards add up (Python's `Deck([...])` of plain outcomes).
+///
+/// ```
+/// use icepool_core::Deck;
+/// let deck = Deck::from_iter(["ace", "king", "ace"]);
+/// assert_eq!(deck.repr().unwrap(), "Deck({'ace': 2, 'king': 1})");
+/// ```
+impl<O: Outcome> FromIterator<O> for Deck<O> {
+    fn from_iter<I: IntoIterator<Item = O>>(cards: I) -> Self {
+        Self::from_weights(cards.into_iter().map(|card| (card, Quantity::ONE)))
+    }
+}
+
 /// The binary operators of `Deck` (each also has a method form, e.g. `additive_union`, that reduces over `+`).
+///
+/// ```
+/// use icepool_core::value::{Counter, CounterOp};
+/// use icepool_core::{Deck, Quantity};
+///
+/// // `Deck([1, 2, 3]) - Counter([3, 4])` is `Deck([1, 2])`; `|` keeps the larger count of each card.
+/// let deck = Deck::from_dict(vec![(1, Quantity::ONE), (2, Quantity::ONE), (3, Quantity::ONE)]).unwrap();
+/// let other = Counter::from_elements([3, 4]);
+/// let outcomes = |op| deck.counter_items(op, &other).into_iter().map(|(o, _)| o).collect::<Vec<i64>>();
+/// assert_eq!(outcomes(CounterOp::Sub), [1, 2]);
+/// assert_eq!(outcomes(CounterOp::Or), [1, 2, 3, 4]);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CounterOp {
     /// `deck + other` (and `other + deck`: `__radd__ = __add__`, `self`'s cards still first).
@@ -247,6 +314,21 @@ pub enum CounterOp {
 
 /// Python's `collections.Counter` as deck arithmetic uses it: a dict of int counts in insertion order. A missing
 /// key counts 0 (without being inserted); setting an existing key keeps its first spelling (`True` before `1`).
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::Counter;
+/// use icepool_core::{Quantity, Value};
+///
+/// // `Counter([True, 1, 2])` is `Counter({True: 2, 2: 1})`: `1` counts as the `True` already there.
+/// let mut counter = Counter::from_elements([Value::Bool(true), Value::from(1), Value::from(2)]);
+/// assert_eq!(counter.items()[0].0.to_string(), "True");
+/// assert_eq!(counter.get(&Value::from(1)), IBig::from(2));
+/// assert_eq!(counter.get(&Value::from(5)), IBig::ZERO);
+/// // `+counter` drops the counts that are not positive.
+/// counter.set(Value::from(2), IBig::from(-1));
+/// assert_eq!(counter.positive(), [(Value::Bool(true), Quantity::from(2u8))]);
+/// ```
 #[derive(Clone, Debug)]
 pub struct Counter<O> {
     index: FxHashMap<O, usize>,

@@ -14,7 +14,8 @@ use crate::population::Comparison;
 use crate::value::format::format_probability_inverse;
 use crate::value::pystr::{format_float, int_str, str_repr, FloatFormat};
 use crate::value::ratio_to_f64;
-use crate::{Die, Ratio, Value};
+use crate::outcome::Outcome;
+use crate::{Deal, Deck, Die, Int, Pool, Quantity, Ratio, Value};
 
 /// How an outcome prints in icepool's tables: Python's `str()` of it, and the parts a `*o` column spec splits it
 /// into (`str(outcome[i])`, as Python splits tuples, and strs into their characters).
@@ -718,14 +719,154 @@ impl<O: OutcomeOrder + FormatOutcome> Die<O> {
     /// assert!(d(2).format("xml").is_err());
     /// ```
     pub fn format(&self, format_spec: &str) -> Result<String> {
-        match format(self, "Die", format_spec, false)? {
-            Formatted::Text(text) => Ok(text),
-            Formatted::CsvTable(..) => unreachable!("only asked for with csv_table"),
+        format_text(self, "Die", format_spec)
+    }
+
+    /// Python's `repr(die)`: `Die({outcome: quantity, ...})`, each outcome as Python's `repr`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(3).repr().unwrap(), "Die({1: 1, 2: 1, 3: 1})");
+    /// assert_eq!(Die::from_iter(["a".to_string()]).repr().unwrap(), "Die({'a': 1})");
+    /// ```
+    pub fn repr(&self) -> Result<String> {
+        population_repr("Die", self.items())
+    }
+}
+
+impl<O: OutcomeOrder + FormatOutcome> Deck<O> {
+    /// Python's `deck.format(format_spec)`: as [`Die::format`], with a `Deck` header.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// let deck = Deck::from_iter([1, 1, 2]);
+    /// assert_eq!(deck.format("csv:oq==").unwrap(), "Outcome,Quantity\r\n1,2\r\n2,1\r\n");
+    /// ```
+    pub fn format(&self, format_spec: &str) -> Result<String> {
+        format_text(self.population(), "Deck", format_spec)
+    }
+
+    /// Python's `repr(deck)`: `Deck({outcome: quantity, ...})`, each outcome as Python's `repr`.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// assert_eq!(Deck::from_iter([1, 1, 2]).repr().unwrap(), "Deck({1: 2, 2: 1})");
+    /// ```
+    pub fn repr(&self) -> Result<String> {
+        population_repr("Deck", self.items())
+    }
+}
+
+/// `Population.format(format_spec)` without CSV writer arguments: always text.
+fn format_text<O: OutcomeOrder + FormatOutcome>(
+    population: &Die<O>,
+    type_name: &str,
+    format_spec: &str,
+) -> Result<String> {
+    match format(population, type_name, format_spec, false)? {
+        Formatted::Text(text) => Ok(text),
+        Formatted::CsvTable(..) => unreachable!("only asked for with csv_table"),
+    }
+}
+
+/// die.py / deck.py `__repr__`: `type(self).__qualname__ + '({' + items_string + '})'`, where `items_string` joins
+/// `f'{repr(outcome)}: {quantity}'`.
+fn population_repr<O: FormatOutcome>(type_name: &str, items: &[(O, Quantity)]) -> Result<String> {
+    let items = items
+        .iter()
+        .map(|(o, q)| Ok(format!("{}: {}", o.repr_outcome()?, int_str(&IBig::from(q.clone()))?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(format!("{type_name}({{{}}})", items.join(", ")))
+}
+
+/// Python's `str(pool)` (pool.py `Pool.__str__`): a header with the number of dice and the keep tuple, then one
+/// line `  repr(die) : count,` per distinct die.
+fn pool_str<O: OutcomeOrder + FormatOutcome>(pool: &Pool<O>) -> Result<String> {
+    let mut text = format!(
+        "Pool of {} dice with keep_tuple={}\n",
+        pool.raw_size(),
+        keep_tuple_repr(pool.keep_tuple())
+    );
+    for (die, count) in pool.dice() {
+        text += &format!("  {} : {count},\n", die.repr()?);
+    }
+    Ok(text)
+}
+
+/// Python's `repr` of a tuple of ints: `(1, 1)`, and `(1,)` for one element.
+fn keep_tuple_repr(keep_tuple: &[Int]) -> String {
+    match keep_tuple {
+        [single] => format!("({single},)"),
+        _ => {
+            let parts: Vec<String> = keep_tuple.iter().map(Int::to_string).collect();
+            format!("({})", parts.join(", "))
         }
     }
 }
 
+/// The text of a `Display` impl, which can only say that it failed: where the port cannot print as Python (a
+/// non-ASCII str inside a tuple, whose `repr` needs Unicode's tables, or an integer of more than 4300 digits).
+fn write_or_fail(f: &mut std::fmt::Formatter<'_>, text: Result<String>) -> std::fmt::Result {
+    match text {
+        Ok(text) => f.write_str(&text),
+        Err(_) => Err(std::fmt::Error),
+    }
+}
+
+/// Python's `str(pool)`: a header with the number of dice and the keep tuple, then `repr(die) : count` for each
+/// distinct die. Fails (`fmt::Error`) only where [`Die`]'s `Display` does.
+///
+/// ```
+/// use icepool_core::d;
+/// assert_eq!(
+///     d(4).pool(3).highest(2).to_string(),
+///     "Pool of 3 dice with keep_tuple=(0, 1, 1)\n  Die({1: 1, 2: 1, 3: 1, 4: 1}) : 3,\n"
+/// );
+/// ```
+impl<O: Outcome + FormatOutcome> std::fmt::Display for Pool<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write_or_fail(f, pool_str(self))
+    }
+}
+
+/// Python's `str(deck)`: a markdown table, as a die's, with a `Deck` header. Fails (`fmt::Error`) only where
+/// [`Die`]'s `Display` does.
+///
+/// ```
+/// use icepool_core::Deck;
+/// let text = Deck::from_iter([1, 1, 2]).to_string();
+/// assert!(text.starts_with("Deck with denominator 3\n"));
+/// assert!(text.contains("|       1 |        2 |  66.666667% |"));
+/// ```
+impl<O: Outcome + FormatOutcome> std::fmt::Display for Deck<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write_or_fail(f, self.format(""))
+    }
+}
+
+/// Python's `str(deal)` (deal.py `Deal.__str__`): `Deal of hand_size=n from deck:` and the deck's table.
+///
+/// ```
+/// use icepool_core::Deck;
+/// let text = Deck::from_iter([1, 2, 3]).deal(2).to_string();
+/// assert!(text.starts_with("Deal of hand_size=2 from deck:\nDeck with denominator 3\n"));
+/// ```
+impl<O: Outcome + FormatOutcome> std::fmt::Display for Deal<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Deal of hand_size={} from deck:\n{}", self.hand_size(), self.deck())
+    }
+}
+
 /// What `Population.format` produces ([`format_population`](crate::value::format_population)).
+///
+/// ```
+/// use icepool_core::value::{format_population, Formatted};
+/// use icepool_core::d;
+/// // With `csv_table`, the CSV comes back as its header and rows.
+/// let Formatted::CsvTable(header, rows) = format_population(&d(2), "Die", "csv", true).unwrap() else { panic!() };
+/// assert_eq!(header, ["Outcome", "Quantity", "Probability"]);
+/// assert_eq!(rows[0], ["1", "1", "50.000000%"]);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Formatted {
     /// The formatted text.

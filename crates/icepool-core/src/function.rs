@@ -4,7 +4,7 @@ use crate::counts::Counts;
 use crate::die::Die;
 use crate::error::{invalid_argument, Result};
 use crate::memory::try_collect;
-use crate::outcome::{ErrInto, OutcomeOrder};
+use crate::outcome::{ErrInto, Outcome, OutcomeOrder};
 use crate::Quantity;
 
 /// A standard die, uniformly distributed from `1` to `sides` inclusive.
@@ -109,6 +109,75 @@ pub fn try_z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
     Ok(Die::from_counts(Counts::from_sorted(items)))
 }
 
+/// Selects the highest chance of rolling >= each outcome among the dice (Python's `icepool.pointwise_max`).
+///
+/// Specifically, for each outcome, the chance of the result rolling >= to that outcome is the same as the highest
+/// chance of rolling >= that outcome among the dice. Equivalently, any quantile in the result is the highest of
+/// that quantile among the dice. This is useful for selecting from several possible moves where you are trying to
+/// get >= a threshold that is known but could change depending on the situation.
+///
+/// The denominators are harmonized first (Python's `harmonize_denominators`), so the result's denominator is the
+/// least common multiple of theirs.
+///
+/// # Panics
+///
+/// Only if the result could not be held in memory.
+///
+/// ```
+/// use icepool_core::{d, pointwise_max, Die};
+/// // A d8, or a d4 + 2: the d4 + 2 is likelier to roll at least 3 to 6, the d8 at least 7 or 8.
+/// let best = pointwise_max(&[d(8), d(4) + 2]);
+/// assert_eq!(best, Die::from_weights([(3, 2u32), (4, 2), (5, 1), (6, 1), (7, 1), (8, 1)]));
+/// assert_eq!(best.denominator().to_string(), "8");
+/// ```
+pub fn pointwise_max<O: Outcome>(dice: &[Die<O>]) -> Die<O> {
+    pointwise(&harmonize_denominators(dice), true).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Selects the lowest chance of rolling >= each outcome among the dice (Python's `icepool.pointwise_min`).
+///
+/// Specifically, for each outcome, the chance of the result rolling >= to that outcome is the same as the lowest
+/// chance of rolling >= that outcome among the dice. Equivalently, any quantile in the result is the lowest of
+/// that quantile among the dice. This is useful for selecting from several possible moves where you are trying to
+/// get >= a threshold that is known but could change depending on the situation.
+///
+/// # Panics
+///
+/// Only if the result could not be held in memory.
+///
+/// ```
+/// use icepool_core::{d, pointwise_min, Die};
+/// let worst = pointwise_min(&[d(8), d(4) + 2]);
+/// assert_eq!(worst, Die::from_weights([(1, 1u32), (2, 1), (3, 1), (4, 1), (5, 2), (6, 2)]));
+/// ```
+pub fn pointwise_min<O: Outcome>(dice: &[Die<O>]) -> Die<O> {
+    pointwise(&harmonize_denominators(dice), false).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Python's `harmonize_denominators(dice)` without weights: each die's quantities scaled so that every
+/// denominator is the least common multiple of the (positive) denominators. math.py `weighted_lcm` gives a die
+/// of denominator 0 the scale factor 0, so it becomes the empty die (`Die` drops zero quantities).
+fn harmonize_denominators<O: OutcomeOrder>(dice: &[Die<O>]) -> Vec<Die<O>> {
+    // `math.lcm()` of nothing is 1.
+    let lcm = dice
+        .iter()
+        .map(Die::denominator)
+        .filter(|d| !d.is_zero())
+        .fold(Quantity::ONE, |lcm, d| crate::math::lcm(&lcm, &d));
+    dice.iter()
+        .map(|die| {
+            let denominator = die.denominator();
+            let items = if denominator.is_zero() {
+                Vec::new()
+            } else {
+                let scale = &lcm / denominator;
+                die.items().iter().map(|(o, q)| (o.clone(), q * &scale)).collect()
+            };
+            Die::from_counts(Counts::from_sorted(items))
+        })
+        .collect()
+}
+
 /// `pointwise_max` (`max` true) / `pointwise_min` once the dice are harmonized (`harmonize_denominators`).
 ///
 /// pointwise_max selects the highest chance of rolling >= each outcome among the arguments: for each outcome, the
@@ -150,6 +219,18 @@ pub fn pointwise<O: OutcomeOrder>(dice: &[Die<O>], max: bool) -> Result<Die<O>> 
 mod tests {
     use super::*;
     use crate::{Error, Value};
+
+    #[test]
+    fn pointwise_harmonizes_as_python() {
+        // Python's answers for pointwise_max / pointwise_min of these dice.
+        let empty = Die::<i64>::from_iter([]);
+        assert_eq!(pointwise_max(&[d(6), empty.clone()]), empty);
+        assert_eq!(pointwise_min(&[d(6), empty]), d(6));
+        let dice = [d(2), d(3) - 1, d(4) * 2];
+        assert_eq!(pointwise_max(&dice), Die::from_weights([(2, 3u32), (4, 3), (6, 3), (8, 3)]));
+        assert_eq!(pointwise_min(&dice), Die::from_weights([(0, 4u32), (1, 4), (2, 4)]));
+        assert_eq!(pointwise_max(&dice).denominator(), Quantity::from(12u8));
+    }
 
     #[test]
     fn huge_standard_dice_are_memory_errors() {

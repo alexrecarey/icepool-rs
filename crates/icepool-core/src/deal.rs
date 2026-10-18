@@ -18,8 +18,10 @@ use crate::keep_tuple::{
 };
 use crate::math::comb;
 use crate::order::{lo_hi_skip, Order, OrderReason};
-use crate::outcome::OutcomeOrder;
-use crate::pool::{Popped, MAX_POOL_SIZE};
+use crate::die::Die;
+use crate::evaluator::MultisetEvaluator;
+use crate::outcome::{Outcome, OutcomeOrder};
+use crate::pool::{MultisetSource, Popped, MAX_POOL_SIZE};
 use crate::{Int, Quantity};
 
 /// `Deal` (a `KeepGenerator`): a hand of `len(keep_tuple)` cards dealt from `deck`.
@@ -137,6 +139,65 @@ impl<O: OutcomeOrder> Deal<O> {
             outcomes,
             keep_tuple: self.keep_tuple.clone(),
         }
+    }
+}
+
+/// The typed API (docs/design/library-architecture.md section 4): keeping and evaluating as a [`Pool`] does.
+///
+/// [`Pool`]: crate::Pool
+impl<O: Outcome> Deal<O> {
+    /// Keeps the `keep` highest cards of the hand (Python's `deal.highest(keep)`); the others count zero times.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let best = Deck::from_iter(1..=10).deal(3).highest(1);
+    /// assert_eq!(best.keep_tuple(), [0, 0, 1].map(Int::from));
+    /// ```
+    pub fn highest(&self, keep: usize) -> Self {
+        self.keep_slice(keep_tuple::highest_slice(
+            Some(i64::try_from(keep).unwrap_or(i64::MAX)),
+            None,
+        ))
+    }
+
+    /// Keeps the `keep` lowest cards of the hand (Python's `deal.lowest(keep)`).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let worst = Deck::from_iter(1..=10).deal(3).lowest(2);
+    /// assert_eq!(worst.keep_tuple(), [1, 1, 0].map(Int::from));
+    /// ```
+    pub fn lowest(&self, keep: usize) -> Self {
+        self.keep_slice(keep_tuple::lowest_slice(
+            Some(i64::try_from(keep).unwrap_or(i64::MAX)),
+            None,
+        ))
+    }
+
+    fn keep_slice(&self, slice: Result<keep_tuple::Slice>) -> Self {
+        slice
+            .and_then(|slice| self.keep(&KeepIndex::Slice { slice, step: false }))
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Evaluates this deal (Python's `evaluator.evaluate(deal)`): the die of the evaluator's final outcomes, each
+    /// weighted by how many hands give it.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::{Deck, Die};
+    /// // Two cards from 1, 2, 3: the sums of the 3 hands {1, 2}, {1, 3}, {2, 3}.
+    /// let sums = Deck::from_iter([1, 2, 3]).deal(2).evaluate(&SumEvaluator).unwrap();
+    /// assert_eq!(sums, Die::from_iter([3, 4, 5]));
+    /// ```
+    pub fn evaluate<E>(&self, evaluator: &E) -> Result<Die<E::Final>>
+    where
+        E: MultisetEvaluator<O>,
+        E::Final: Outcome,
+    {
+        // `Die(final_outcomes, final_weights)`: plain outcomes, so equal ones simply add up.
+        let finals = crate::evaluator::evaluate(evaluator, &[MultisetSource::Deal(self.source())])?;
+        Ok(Die::from_weights(finals))
     }
 }
 

@@ -44,7 +44,15 @@ assert_eq!(d(6).sum_rolls(3), &two_d6 + d(6));       // Python's 3 @ d6
 
 Integer overflow panics, in release builds too (`attempt to add with overflow`): the operators use checked
 arithmetic, because a silently wrapped outcome would be a wrong probability. `/` and `%` are Rust's operators
-(they truncate; Python's `//` floors).
+(they truncate). Python's operators that Rust lacks are methods: `//` is [`Die::floor_div`] (it floors), `**` is
+[`Die::pow`] and `@` is [`Die::sum_rolls`].
+
+```
+use icepool_core::{d, Die};
+
+assert_eq!((-d(3)).floor_div(2), Die::from_iter([-1, -1, -2]));  // Python's -d(3) // 2
+assert_eq!(d(3).pow(2), Die::from_iter([1, 4, 9]));
+```
 
 Comparisons are methods that return dice of `bool`; `==` compares two dice as distributions (Python's
 `die.equals`).
@@ -78,6 +86,31 @@ for (outcome, quantity) in &d4 {
 assert_eq!(d4.quantities().count(), 4);
 assert_eq!(d4.quantity_ge(&3).to_string(), "2");
 assert!(d4.to_string().starts_with("Die with denominator 4"));
+```
+
+## Statistics
+
+Means, variances and probabilities are exact fractions, [`Ratio`] (Python's `Fraction`); comparisons are named
+by [`Comparison`].
+
+```
+use icepool_core::{d, Comparison, Ratio};
+
+let three_d6 = d(6).sum_rolls(3);
+assert_eq!(three_d6.mean(), Ratio::from_parts(21.into(), 2u8.into()));
+assert_eq!(three_d6.variance().to_string(), "35/4");
+assert_eq!(three_d6.probability(Comparison::Ge, &15).to_string(), "5/54");
+assert_eq!(three_d6.standard_deviation(), 2.958039891549808);           // the same float as Python's
+```
+
+[`pointwise_max`] and [`pointwise_min`] pick, for every outcome, the best or worst chance of rolling at least it
+among several dice: useful to choose between moves when the target number may change.
+
+```
+use icepool_core::{d, pointwise_max, Ratio};
+
+let best = pointwise_max(&[d(8), d(4) + 2]);
+assert_eq!(best.mean(), Ratio::from(5));
 ```
 
 ## Pools and evaluators
@@ -131,6 +164,79 @@ assert_eq!(best_three.quantity_ge(&18).to_string(), "21");
 
 The evaluator remembers every intermediate state, so a pool of many dice costs about as much as its distinct
 states, not its rolls.
+
+## Map, reroll, explode and `Again`
+
+[`Die::map`] applies a function to each outcome. Python's mapping functions may also return a die, reroll, or
+stop a repeated map: in Rust that is [`Die::try_map`] with [`Mapped`], and rerolling has its own methods, which
+reroll up to a [`Depth`].
+
+```
+use icepool_core::{d, Depth, Die, Ratio};
+
+// Reroll 1s, once: a 1 now needs two 1s in a row.
+let rerolled = d(6).reroll(|&x| x == 1, Depth::Finite(1)).unwrap();
+assert_eq!(rerolled, Die::from_weights([(1, 1u32), (2, 7), (3, 7), (4, 7), (5, 7), (6, 7)]));
+assert_eq!(rerolled.mean(), Ratio::from_parts(47.into(), 12u8.into()));
+```
+
+[`Die::explode`] rolls again and adds when the outcome is one of the chosen ones, up to a depth; past the depth,
+[`AgainEnd`] says what the last roll is (here zero, Python's default).
+
+```
+use icepool_core::{d, AgainEnd, Ratio};
+
+let exploding = d(6).explode(|&x| x == 6, 2, AgainEnd::Zero).unwrap();
+assert_eq!(exploding.denominator().to_string(), "216");
+assert_eq!(exploding.mean(), Ratio::from_parts(301.into(), 72u8.into()));
+assert_eq!(exploding.max_outcome().unwrap(), &18);
+```
+
+[`Again`] is the general form: an expression standing for the die rolled again, built with the arithmetic
+operators. [`Die::map_again`] maps outcomes to plain outcomes or such expressions; [`Die::with_again_depth`]
+builds a die from them directly.
+
+```
+use icepool_core::{d, Again, AgainEnd, AgainOutcome, Die};
+
+// A d6 whose 6 is "6 + roll again": the exploding d6 above, once.
+let six_again = d(6).map_again(
+    |&x| if x == 6 { (6i64 + Again::new()).into() } else { AgainOutcome::from(x) },
+    1,
+    AgainEnd::Zero,
+);
+assert_eq!(six_again.unwrap(), d(6).explode(|&x| x == 6, 1, AgainEnd::Zero).unwrap());
+```
+
+## Decks
+
+A [`Deck`] holds cards; a [`Deal`] is a hand of cards dealt from it without replacement, which keeps and evaluates
+as a pool does.
+
+```
+use icepool_core::evaluator::poker::LargestCountEvaluator;
+use icepool_core::{Comparison, Deck, Int};
+
+// Five cards from a standard deck: at least a pair in 1,281,072 of the 2,598,960 hands.
+let deck = Deck::from_weights((1..=13).map(|rank| (rank, 4u32)));
+let hand = deck.deal(5);
+assert_eq!(hand.denominator().to_string(), "2598960");
+let largest = hand.evaluate(&LargestCountEvaluator).unwrap();
+assert_eq!(largest.quantity_ge(&Int::from(2)).to_string(), "1281072");
+assert_eq!(largest.probability(Comparison::Ge, &Int::from(2)).to_string(), "2053/4165");
+```
+
+Pools, decks and deals print as Python prints them (`str(pool)`, `str(deck)`).
+
+```
+use icepool_core::{d, Deck};
+
+assert_eq!(
+    d(4).pool(3).highest(2).to_string(),
+    "Pool of 3 dice with keep_tuple=(0, 1, 1)\n  Die({1: 1, 2: 1, 3: 1, 4: 1}) : 3,\n"
+);
+assert!(Deck::from_iter([1, 1, 2]).to_string().starts_with("Deck with denominator 3\n"));
+```
 
 ## Exact quantities
 

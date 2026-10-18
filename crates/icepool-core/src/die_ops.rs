@@ -253,6 +253,41 @@ impl<O: Outcome + OutcomeArith> Die<O> {
     pub fn sum_rolls(&self, rolls: i64) -> Die<O> {
         checked(self.matmul(&[(rolls, Quantity::ONE)]))
     }
+
+    /// Python's `die // other`: floor division of every pair of outcomes, rounding toward negative infinity
+    /// (Rust's `/` on a die truncates toward zero, as Rust's integers do).
+    ///
+    /// # Panics
+    ///
+    /// On division by zero (Python's `ZeroDivisionError`) or overflow (`i64::MIN // -1`), as the operators do;
+    /// [`Die::try_binary`] with [`OutcomeArith::try_floor_div`] is the fallible form.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(6).floor_div(2), Die::from_iter([0, 1, 1, 2, 2, 3]));
+    /// // -3 // 2 is -2 in Python; -3 / 2 is -1 in Rust.
+    /// assert_eq!((-d(3)).floor_div(2), Die::from_iter([-1, -1, -2]));
+    /// assert_eq!((-d(3)) / 2, Die::from_iter([0, -1, -1]));
+    /// ```
+    pub fn floor_div(&self, other: impl IntoDie<O>) -> Die<O> {
+        self.binary(&other.into_die(), |a, b| checked(a.try_floor_div(b)))
+    }
+
+    /// Python's `die ** other`: every outcome raised to every exponent outcome.
+    ///
+    /// # Panics
+    ///
+    /// On overflow, as the operators do, or for a negative exponent of an integer outcome (where Python's answer
+    /// is a `float`); [`Die::try_binary`] with [`OutcomeArith::try_pow`] is the fallible form.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(3).pow(2), Die::from_iter([1, 4, 9]));
+    /// assert_eq!(Die::single(2).pow(d(3)), Die::from_iter([2, 4, 8]));
+    /// ```
+    pub fn pow(&self, other: impl IntoDie<O>) -> Die<O> {
+        self.binary(&other.into_die(), |a, b| checked(a.try_pow(b)))
+    }
 }
 
 /// One of each outcome: equal outcomes add up (Python's `Die([...])` of plain outcomes).

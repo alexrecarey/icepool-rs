@@ -23,7 +23,7 @@ pub use die_map::{Mapped, Target};
 pub use die_ops::IntoDie;
 pub use error::{Error, Result};
 pub use format::FormatOutcome;
-pub use function::{d, try_d, try_z, z};
+pub use function::{d, pointwise_max, pointwise_min, try_d, try_z, z};
 pub use int::Int;
 pub use multi_deal::MultiDeal;
 pub use order::Order;
