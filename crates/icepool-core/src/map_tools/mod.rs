@@ -91,3 +91,91 @@ where
     let slice = Index::Slice(core_impl::int(1), Value::None, Value::None);
     Ok(transition_die.unary_operator(|o| getitem(o, &slice))?)
 }
+
+#[cfg(test)]
+mod tests {
+    //! The repeated maps with transition functions written in Rust. The expected dice are Python icepool's answers;
+    //! the comment above each gives the Python.
+
+    use super::*;
+    use crate::value::BinOp;
+    use crate::Quantity;
+
+    type Result<T> = crate::Result<T>;
+
+    fn die(outcomes: impl IntoIterator<Item = Value>) -> Die<Value> {
+        let mut data = crate::counts::OrderedMerge::default();
+        for o in outcomes {
+            data.add(o, Quantity::ONE);
+        }
+        Die::from_dict(data.into_items()).unwrap()
+    }
+
+    fn ints(xs: impl IntoIterator<Item = i64>) -> Die<Value> {
+        die(xs.into_iter().map(Value::from))
+    }
+
+    /// `(outcome repr, quantity)` pairs.
+    fn items(die: &Die<Value>) -> Vec<(String, u32)> {
+        die.items()
+            .iter()
+            .map(|(o, q)| (o.to_string(), u32::try_from(q).unwrap()))
+            .collect()
+    }
+
+    /// `lambda x: x + 1 if x < 6 else x`: climbs to 6 and stays there.
+    fn climb(x: &Value, _: usize) -> Result<Next> {
+        let six = Value::from(6);
+        let next = if x.binary(BinOp::Lt, &six)?.truthy()? {
+            x.binary(BinOp::Add, &Value::from(1))?
+        } else {
+            x.clone()
+        };
+        Ok(Next::Go(Target::Outcome(next)))
+    }
+
+    /// `lambda x: (x + d(2)).clip(None, 4)`: a die of next states, absorbed at 4.
+    fn step_d2(x: &Value, _: usize) -> Result<Next> {
+        let d2 = ints([1, 2]);
+        let sum = die([x.clone()]).binary_operator(&d2, |a, b| a.binary(BinOp::Add, b))?;
+        Ok(Next::Go(Target::Die(
+            sum.try_clip(None, Some(&Value::from(4)))?,
+        )))
+    }
+
+    #[test]
+    fn map_with_a_repeat_count() {
+        // `d(6).map(lambda x: x + 1 if x < 6 else x, repeat=2)`
+        let mut cache = TransitionCache::new(climb, vec![Quantity::ONE]);
+        let result: Result<_> = map_repeat(&mut cache, &ints(1..=6), Some(2));
+        let expected = [("3", 1), ("4", 1), ("5", 1), ("6", 3)].map(|(o, q)| (o.to_string(), q));
+        assert_eq!(items(&result.unwrap()), expected);
+        // `range(repeat)` raises for a repeat that is not an int.
+        let result: Result<_> = map_repeat(&mut cache, &ints(1..=6), None);
+        assert!(matches!(result, Err(Error::WrongType(_))));
+    }
+
+    #[test]
+    fn map_to_absorption() {
+        // `icepool.map(lambda x: x + 1 if x < 6 else x, d(6), repeat='inf')`
+        let mut cache = TransitionCache::new(climb, vec![Quantity::ONE]);
+        let result: Result<_> = absorbing_markov_chain(&mut cache, &ints(1..=6));
+        assert_eq!(items(&result.unwrap().0), [("6".to_string(), 1)]);
+        // `icepool.mean_time_to_absorb(lambda x: (x + d(2)).clip(None, 4), 0)`
+        let mut cache = TransitionCache::new(step_d2, vec![Quantity::ONE]);
+        let (absorbed, mean_time) =
+            absorbing_markov_chain::<_, Error>(&mut cache, &ints([0])).unwrap();
+        assert_eq!(items(&absorbed), [("4".to_string(), 1)]);
+        assert_eq!(mean_time.unwrap().to_string(), "23/8");
+    }
+
+    #[test]
+    fn map_and_time_counts_the_steps() {
+        // `icepool.map_and_time(lambda x: (x + d(2)).clip(None, 4), 0, repeat=10)`
+        let mut cache = TransitionCache::new(step_d2, vec![Quantity::ONE]);
+        let result: Result<_> = map_and_time(&mut cache, &ints([0]), Some(10));
+        let expected =
+            [("(4, 2)", 4), ("(4, 3)", 10), ("(4, 4)", 2)].map(|(o, q)| (o.to_string(), q));
+        assert_eq!(items(&result.unwrap()), expected);
+    }
+}

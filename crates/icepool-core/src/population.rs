@@ -759,4 +759,108 @@ mod tests {
             ));
         }
     }
+
+    // The statistics on dice of `Value`s. Each expected string is `repr()` of Python icepool's answer, which also
+    // checks its type: `7` is an int, `7.0` a float, `Fraction(35, 6)` a Fraction.
+
+    fn value_die(outcomes: impl IntoIterator<Item = i64>) -> Die<Value> {
+        let mut data = crate::counts::OrderedMerge::default();
+        for o in outcomes {
+            data.add(Value::from(o), Quantity::ONE);
+        }
+        Die::from_dict(data.into_items()).unwrap()
+    }
+
+    fn d(sides: i64) -> Die<Value> {
+        value_die(1..=sides)
+    }
+
+    fn two(sides: i64) -> Die<Value> {
+        d(sides)
+            .binary_operator(&d(sides), |a, b| a.binary(BinOp::Add, b))
+            .unwrap()
+    }
+
+    fn py(v: Result<Value>) -> String {
+        v.unwrap().to_string()
+    }
+
+    #[test]
+    fn moments() {
+        // `(d(6) + d(6)).mean()`, `.variance()`; `d(6).standard_deviation()`
+        assert_eq!(py(two(6).mean()), "Fraction(7, 1)");
+        assert_eq!(py(two(6).variance()), "Fraction(35, 6)");
+        assert_eq!(py(d(6).standard_deviation()), "1.707825127659933");
+        // `(d(6) + d(4)).skewness()`, `d(6).excess_kurtosis()`
+        let d6_d4 = d(6)
+            .binary_operator(&d(4), |a, b| a.binary(BinOp::Add, b))
+            .unwrap();
+        assert_eq!(py(d6_d4.skewness()), "0.0");
+        assert_eq!(py(d(6).excess_kurtosis()), "-1.2685714285714282");
+        // `d(4).entropy()` (base 2)
+        assert_eq!(py(d(4).entropy(&Value::from(2))), "2.0");
+    }
+
+    #[test]
+    fn modes_and_quantiles() {
+        // `(d(4) + d(4)).modal_quantity()`, `.mode()`
+        assert_eq!(two(4).modal_quantity().unwrap(), Quantity::from(4u8));
+        assert_eq!(two(4).mode(), [Value::from(5)]);
+        // `(d(6) + d(6)).quantile_low(1, 2)`, `.quantile_high(1, 2)`, `.median()`: the median averages the two.
+        let (one, half) = (Value::from(1), Value::from(2));
+        assert_eq!(py(two(6).quantile_low(&one, &half)), "7");
+        assert_eq!(py(two(6).quantile_high(&one, &half)), "7");
+        assert_eq!(py(two(6).quantile(&one, &half)), "7.0");
+        // `d(6).quantile(1, 3)` is 2.5, between quantile_low 2 and quantile_high 3.
+        let third = Value::from(3);
+        assert_eq!(py(d(6).quantile_low(&one, &third)), "2");
+        assert_eq!(py(d(6).quantile_high(&one, &third)), "3");
+        assert_eq!(py(d(6).quantile(&one, &third)), "2.5");
+    }
+
+    #[test]
+    fn probabilities_and_nearest() {
+        // `d(6).probability('>=', 5)`, and with `percent=True`
+        let five = Value::from(5);
+        assert_eq!(
+            py(d(6).probability(Comparison::Ge, &five, false)),
+            "Fraction(1, 3)"
+        );
+        assert_eq!(
+            py(d(6).probability(Comparison::Ge, &five, true)),
+            "33.33333333333333"
+        );
+        // `d(6).nearest('<=', 0)`, `d(6).nearest('<=', 3.5)`, `d(6).nearest('>', 3)`
+        let nearest = |c, x: Value| d(6).try_nearest(c, &x).unwrap();
+        assert_eq!(nearest(Comparison::Le, Value::from(0)), None);
+        assert_eq!(
+            nearest(Comparison::Le, Value::Float(3.5)),
+            Some(Value::from(3))
+        );
+        assert_eq!(
+            nearest(Comparison::Gt, Value::from(3)),
+            Some(Value::from(4))
+        );
+        assert!(matches!(
+            d(6).try_nearest(Comparison::Eq, &Value::from(3)),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn distances_between_dice() {
+        // `d(6).kolmogorov_smirnov(d(4))`, `d(6).cramer_von_mises(d(4))`
+        assert_eq!(py(d(6).kolmogorov_smirnov(&d(4))), "Fraction(1, 3)");
+        assert_eq!(py(d(6).cramer_von_mises(&d(4))), "Fraction(17, 72)");
+    }
+
+    #[test]
+    fn group_by_keeps_first_appearance_order() {
+        // `d(6).group_by(lambda x: x % 3)`: keys 1, 2, 0 in order of first appearance.
+        let keys = (1..=6).map(|x| x % 3).collect();
+        let groups = d(6).group_by(keys).unwrap();
+        let keys: Vec<i64> = groups.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, [1, 2, 0]);
+        assert_eq!(groups[2].1, value_die([3, 6]));
+    }
 }
