@@ -1,6 +1,7 @@
 // Pools and multiset expressions (generator/pool.py, generator/keep.py, expression/multiset_expression.py).
 // INTERIM (task C6): held through the bridge (rpc.ts) until they move onto typed exports.
 
+import { AgainExpression } from "./again.js";
 import { list, opts, type Comparison, type Die, type Operand } from "./die.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
 import { List, Order, type Ellipsis, type Int, type OrderValue, type Outcome } from "./values.js";
@@ -770,6 +771,13 @@ function mxMethod(name: string, args: unknown[]): Expression {
   return call("mx_method", { name, args: List.from(args.map(list)), keep_negative_counts: false }) as Expression;
 }
 function mxCounts(expr: MultisetExpression, o: string, comparison: Comparison | null, n: Int | null): MultisetExpression {
+  // `__mul__` and `__mod__` return `NotImplemented` for anything but an int, so an Again expression's reflected
+  // operator makes an expression of the two.
+  if ((n as unknown) instanceof AgainExpression && (o === "mul" || o === "mod")) {
+    const again = n as unknown as AgainExpression;
+    const operand = expr as unknown as Operand;
+    return (o === "mul" ? again.rmul(operand) : again.rmod(operand)) as unknown as MultisetExpression;
+  }
   return call("mx_counts", { expr, o, comparison, n }) as MultisetExpression;
 }
 function mxEvaluate(expr: MultisetExpression, method: string): Die {

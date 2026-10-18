@@ -186,6 +186,11 @@ const IDIOMATIC = {
   again_count: ({ outcomes, count, depth, end }) =>
     isList(outcomes) && count !== null && ok(new ip.Die(outcomes, { againCount: count, againDepth: depth, againEnd: end })),
   tuple: ({ items }) => isList(items) && ok(Array.from(items)),
+  // `Die({k: v, ...})`: a JS Map, whose keys `Die` compares as Python's dict does.
+  weights: ({ items }) => isPairs(items) && ok(new ip.Die(new Map(items))),
+  truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
+  again_truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
+  equals_self: ({ x }) => x instanceof ip.AgainExpression && ok(x.equals(x)),
   // The factories' own arity is checked by the core's catalogue (a TypeError). The "mapping" dict is a JS Map
   // (whose keys the core compares as Python's dict does).
   fn: ({ name, params }) => {
@@ -357,6 +362,8 @@ const IDIOMATIC = {
     if (!isExpr(expr)) return undefined;
     switch (o) {
       case "neg": case "pos": return ok(expr[o]());
+      // `n * expr` for an Again expression (the bridge does the rest).
+      case "rmul": return n instanceof ip.AgainExpression ? ok(ip.ops.mul(n, expr)) : undefined;
       case "keep_counts": return ok(expr.keepCounts(comparison, n));
       case "mul": case "floordiv": case "mod": case "unique": case "multiply_counts": case "divide_counts":
       case "modulo_counts":

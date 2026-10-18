@@ -1,12 +1,53 @@
-// icepool's free functions (function.py, map_tools/, population/again.py, from_rv), and Python's operators on any
-// operands. INTERIM (task C6): through the bridge (rpc.ts) unless noted.
+// icepool's free functions (function.py, expand.py, map_tools/, from_rv), and Python's operators on any operands.
+// As the Python facade does (python/icepool/function.py), the TypeScript does each one's argument juggling and calls
+// typed exports (crates/icepool-wasm/src/api/function.rs) for the work. INTERIM (task C6): `repeat`, `mapAndTime`,
+// `meanTimeToAbsorb`, `mapToPool`, `fromRv` and `highest` / `lowest` / `middle` still go through the bridge (rpc.ts).
 
-import { Die, DieWithTruth, list, opts, pyBool, unpacked, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
+import { AgainExpression } from "./again.js";
+import { Die, DieWithTruth, dictItems, opts, pyBool, unpacked, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
+import { IcepoolError } from "./errors.js";
 import type { MultisetExpression } from "./multiset.js";
 import { Handle, call, callWith, enc, kwargsText } from "./rpc.js";
-import { Break, Fraction, List, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
-import { binary, round, unary, type BinaryName, type UnaryName } from "./operators.js";
+import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
+import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { wasm } from "./wasm.js";
+
+/** Python's `isinstance(x, int)` (a bool is one). */
+const isPyInt = (x: unknown): x is Int | boolean => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
+
+/** `implicit_convert_to_die(x)`: a die as it is, anything else `Die([x])`; an Again expression cannot be. */
+function toDie(x: unknown): Die {
+  if (x instanceof Die) return x;
+  if (x instanceof AgainExpression) {
+    throw new IcepoolError("WrongType", "ImplicitConversionError", "Again expression cannot be implicitly converted to a Die.");
+  }
+  return new Die([x as MapResult]);
+}
+
+/** A die argument for a typed export (`DiceArgs`): each die and plain outcome, in order. */
+function diceArgs(args: readonly unknown[]): import("../pkg-node/icepool_wasm.js").DiceArgs {
+  const built = wasm((w) => new w.DiceArgs());
+  try {
+    for (const arg of args) {
+      if (arg instanceof Die) wasm(() => built.die(arg.w));
+      else wasm(() => built.outcome(arg));
+    }
+  } catch (e) {
+    built.free();
+    throw e;
+  }
+  return built;
+}
+
+/** Runs `f` on a `DiceArgs` of `args`, then frees it. */
+function withDiceArgs<T>(args: readonly unknown[], f: (built: import("../pkg-node/icepool_wasm.js").DiceArgs) => T): T {
+  const built = diceArgs(args);
+  try {
+    return wasm(() => f(built));
+  } finally {
+    built.free();
+  }
+}
 
 // --- Dice ---------------------------------------------------------------------------------------------------------
 
@@ -27,7 +68,14 @@ import { wasm } from "./wasm.js";
  * ```
  */
 export function coin(n: Int | number | Fraction, d: Int = 1, { maxDenominator = null }: { maxDenominator?: Int | null } = {}): Die {
-  return call("coin", { n, d, max_denominator: maxDenominator }) as Die;
+  if (!isPyInt(n)) {
+    if (pyBool(binary("ne", d, 1))) {
+      throw new IcepoolError("InvalidArgument", "ValueError", "If a non-int numerator is provided, a denominator must not be provided.");
+    }
+    // `Fraction(n)`, limited to `max_denominator` if given.
+    [n, d] = wasm((w) => w.fractionParts(n, maxDenominator)) as [Int, Int];
+  }
+  return new Die(new Map(wasm((w) => w.coinData(n, d)) as [Outcome, Int][]));
 }
 /** `icepool.one_hot(sides)`: a die of `Vector` outcomes with one element set to `true` uniformly at random and the
  * rest `false`.
@@ -43,7 +91,7 @@ export function coin(n: Int | number | Fraction, d: Int = 1, { maxDenominator = 
  * ```
  */
 export function oneHot(sides: Int): Die {
-  return call("one_hot", { sides }) as Die;
+  return Die.wrap(wasm((w) => w.oneHot(sides)));
 }
 /** `icepool.stochastic_round(x, max_denominator=None)`: randomly rounds a value up or down to the nearest integer
  * according to the two distances.
@@ -60,7 +108,9 @@ export function oneHot(sides: Int): Die {
  * ```
  */
 export function stochasticRound(x: number | Fraction | Float, { maxDenominator = null }: { maxDenominator?: Int | null } = {}): Die {
-  return call("stochastic_round", { x, max_denominator: maxDenominator }) as Die;
+  const integerPart = unary("floor", x);
+  const fractionalPart = binary("sub", x, integerPart);
+  return binary("add", integerPart, coin(fractionalPart as number, 1, { maxDenominator })) as Die;
 }
 /** `icepool.from_cumulative(outcomes, cumulative, reverse=False)`: a die from a sequence of cumulative values.
  *
@@ -80,7 +130,30 @@ export function stochasticRound(x: number | Fraction | Float, { maxDenominator =
  * ```
  */
 export function fromCumulative(outcomes: readonly Outcome[], cumulative: readonly (Int | Die)[], { reverse = false }: { reverse?: boolean } = {}): Die {
-  return call("from_cumulative", { outcomes: list(outcomes), cumulative: list(cumulative), reverse }) as Die;
+  if (outcomes.length === 0) return new Die(new Map());
+  if (reverse) [outcomes, cumulative] = [[...outcomes].reverse(), [...cumulative].reverse()];
+  let prev: unknown = 0;
+  const d = new Map<unknown, unknown>();
+  if (cumulative.length === 0) throw new IcepoolError("IndexOutOfRange", "IndexError", "list index out of range");
+  const first = cumulative[0];
+  if (first instanceof Die) {
+    const dice = harmonizeDenominators(cumulative as Operand[]);
+    outcomes.forEach((outcome, i) => {
+      if (i >= dice.length) return;
+      const quantity = dice[i].quantity("!=", false);
+      d.set(outcome, binary("sub", quantity, prev));
+      prev = quantity;
+    });
+  } else if (isPyInt(first)) {
+    outcomes.forEach((outcome, i) => {
+      if (i >= cumulative.length) return;
+      d.set(outcome, binary("sub", cumulative[i], prev));
+      prev = cumulative[i];
+    });
+  } else {
+    throw new IcepoolError("WrongType", "TypeError", "Unsupported type <class 'list'> for cumulative values.");
+  }
+  return new Die(d as Map<unknown, Int>);
 }
 
 /** A random variable as `fromRv` takes it (duck-typed like `scipy.stats`): `cdf` of a sequence; a `pdf` makes it
@@ -180,13 +253,18 @@ export function fromRv(rv: RandomVariable, outcomes: readonly Outcome[], denomin
  * ```
  */
 export function map(f: Repl, ...rest: unknown[]): Die {
-  const [args, { star = null, repeat, ...kwargs }] = opts<{ star: boolean | null; repeat: Int; [kwarg: string]: unknown }>(rest);
-  if (repeat === undefined && typeof f === "function") {
-    const mapped = mapCallable(f as (...args: unknown[]) => unknown, args, star, kwargs);
+  const [args, options] = opts<{ star: boolean | null; repeat: Int; [kwarg: string]: unknown } & AgainOptions>(rest);
+  const { star = null, repeat = null, againCount = null, againDepth = null, againEnd = null, ...kwargs } = options;
+  if (repeat === null) {
+    const mapped = mapSimple(f, args, star, kwargs, { againCount, againDepth, againEnd });
     if (mapped !== undefined) return mapped;
+    if (againCount !== null || againDepth !== null || againEnd !== null) {
+      throw new IcepoolError("Unported", "NotImplementedError", "map of multiset expressions or decks with again options");
+    }
   }
   const a = List.from(args);
-  if (repeat !== undefined) {
+  // With `repeat` Python ignores the again options.
+  if (repeat !== null) {
     return call("map_repeat", { f, args: a, star, repeat: repeat === Infinity ? "inf" : repeat }) as Die;
   }
   if (Object.keys(kwargs).length) {
@@ -195,49 +273,81 @@ export function map(f: Repl, ...rest: unknown[]): Die {
   return call("map", { f, args: a, star }) as Die;
 }
 
-/** `icepool.map(f, *args, star=star, **kwargs)` for a JS function `f` (map_tools/function.py, core_impl.py
- * `map_simple`): `f` is called with every joint outcome of the arguments (dice expand into their outcomes, zero
- * quantities included, the first argument slowest; anything else is passed as it is), unpacking the first if
- * `star` (inferred from `f.length`, as Python counts parameters), and the results become `Die(results,
- * quantities)`: dice among them are mixed in, `Reroll` drops out, and a `Break` is unwrapped. `undefined` where
+/** map_tools/core_impl.py `map_simple(repl, *args, star=star, **kwargs)` with the again options: `f` (a JS
+ * function, or a Map: `mapping.get(outcome, outcome)`, as common.py `transition_and_star` makes it) is called with
+ * every joint outcome of the arguments (dice expand into their outcomes, zero quantities included, the first
+ * argument slowest; anything else is passed as it is), unpacking the first if `star` (inferred from `f.length`, as
+ * Python counts parameters), and the results become `Die(results, quantities, again options)`: dice among them are
+ * mixed in, `Reroll` drops out, Again expressions are rolled again, and a `Break` is unwrapped. `undefined` where
  * the bridge must do it (multiset expression or deck arguments, an outcome a starred `f` cannot unpack). */
-function mapCallable(
-  f: (...args: unknown[]) => unknown,
+function mapSimple(
+  f: Repl,
   args: unknown[],
   star: unknown,
   kwargs: Record<string, unknown>,
+  again: AgainOptions,
 ): Die | undefined {
-  // Keyword arguments reach `f` as a trailing options object, when there are any.
-  const call = (xs: unknown[]) => (Object.keys(kwargs).length ? f(...xs, kwargs) : f(...xs));
-  // Without arguments: `Die([repl(**kwargs)])`, where a `Break` is not unwrapped.
-  if (args.length === 0) return new Die([call([]) as MapResult]);
+  const hasKwargs = Object.keys(kwargs).length > 0;
+  if (args.length === 0) {
+    if (f instanceof Map) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repl must be a callable.");
+    // `Die([repl(**kwargs)])`, where a `Break` is not unwrapped.
+    const fn = f as (...args: unknown[]) => unknown;
+    return new Die([(hasKwargs ? fn(kwargs) : fn()) as MapResult]);
+  }
   if (args.some((a) => a instanceof Handle)) return undefined;
-  const starred = star === null || star === undefined ? f.length > args.length : pyBool(star);
   const items = args.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]]));
-  if (starred && !items[0].every(([o]) => unpacked(o) !== undefined)) return undefined;
+  let transition: (xs: unknown[]) => unknown;
+  let starred = false;
+  if (f instanceof Map) {
+    if (args.length !== 1) throw new IcepoolError("InvalidArgument", "ValueError", "If a mapping is provided for repl, len(args) must be 1.");
+    if (hasKwargs) {
+      throw new IcepoolError("WrongType", "TypeError", `<lambda>() got an unexpected keyword argument '${Object.keys(kwargs)[0]}'`);
+    }
+    const values = mappingGet(f, items[0].map(([o]) => o));
+    transition = (xs) => values.get(xs[0]);
+  } else if (typeof f === "function") {
+    const fn = f as (...args: unknown[]) => unknown;
+    // Keyword arguments reach `f` as a trailing options object, when there are any.
+    transition = (xs) => (hasKwargs ? fn(...xs, kwargs) : fn(...xs));
+    starred = star === null || star === undefined ? fn.length > args.length : pyBool(star);
+    if (starred && !items[0].every(([o]) => unpacked(o) !== undefined)) return undefined;
+  } else {
+    // Anything else (a callable of the bridge's): the bridge says.
+    return undefined;
+  }
   const results: MapResult[] = [];
   const quantities: bigint[] = [];
-  for (const [outcomes, quantity] of cartesianProduct(items)) {
+  for (const [outcomes, quantity] of jointItems(items)) {
     const xs = starred ? [...(unpacked(outcomes[0]) as unknown[]), ...outcomes.slice(1)] : outcomes;
-    let result = call(xs);
+    let result = transition(xs);
     // `Break()` stands for the first outcome (before unpacking), `Break(x)` for `x`.
     if (result instanceof Break) result = result.outcome === null ? outcomes[0] : result.outcome;
     results.push(result as MapResult);
     quantities.push(quantity);
   }
-  return new Die(results, quantities);
+  return new Die(results, quantities, again);
+}
+
+/** `mapping.get(outcome, outcome)` for each of `outcomes`, a Python dict lookup (keys compared with Python's `==`
+ * and hash: `1`, `1.0` and `true` are one key), as a JS Map from each outcome (by identity) to its value. */
+function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]): Map<unknown, unknown> {
+  const [keys, values] = dictItems(mapping);
+  // An outcome is never equal to a die or an Again expression: only the other keys can match.
+  const plain = keys.flatMap((k, i) => (k instanceof Die || k instanceof AgainExpression ? [] : [i]));
+  const found = wasm((w) => w.dictLookup(plain.map((i) => keys[i]), outcomes));
+  return new Map(outcomes.map((o, j) => [o, found[j] < 0 ? o : values[plain[found[j]]]]));
 }
 
 /** `itertools.product` of `[outcome, quantity]` lists: each joint outcome with the product of the quantities,
  * the last list varying fastest. */
-function* cartesianProduct(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
+function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
   if (items.length === 0) {
     yield [[], 1n];
     return;
   }
   const [first, ...rest] = items;
   for (const [outcome, quantity] of first) {
-    for (const [outcomes, q] of cartesianProduct(rest)) yield [[outcome, ...outcomes], quantity * q];
+    for (const [outcomes, q] of jointItems(rest)) yield [[outcome, ...outcomes], quantity * q];
   }
 }
 
@@ -323,14 +433,11 @@ export function mapToPool(f: Repl, ...rest: unknown[]): MultisetExpression {
  * ```
  */
 export function mapFunction(f: Callback<MapResult>, { star = null, ...kwargs }: { star?: boolean | null; [kwarg: string]: unknown } = {}): (...args: unknown[]) => Die {
-  return (...args: unknown[]) =>
-    call("map_function", {
-      f,
-      args: List.from(args),
-      star,
-      kwargs: List.from(Object.entries(kwargs)),
-      decorator: true,
-    }) as Die;
+  // `partial(map, function, star=star, **kwargs)`: keyword arguments of the call override the bound ones.
+  return (...rest: unknown[]) => {
+    const [args, options] = opts<Record<string, unknown>>(rest);
+    return map(f, ...args, { star, ...kwargs, ...options });
+  };
 }
 
 /** `icepool.reduce(function, dice, initial=None)`: applies a function of two arguments cumulatively to a sequence of
@@ -346,7 +453,9 @@ export function mapFunction(f: Callback<MapResult>, { star = null, ...kwargs }: 
  * ```
  */
 export function reduce(f: Callback<MapResult>, dice: readonly Operand[], { initial = null }: { initial?: Operand | null } = {}): Die {
-  return call("reduce", { f, dice: list(dice), initial }) as Die;
+  const [result, rest] = reduceStart(dice, initial);
+  if (result === undefined) throw new IcepoolError("InvalidArgument", "StopIteration", "");
+  return rest.reduce((acc: Die, die) => map(f, acc, die), result);
 }
 /** `icepool.accumulate(function, dice, initial=None)`: as {@link reduce}, but returning each intermediate result
  * (Python's `itertools.accumulate`, with no default function and `reduce`'s parameter order). There is one result
@@ -359,7 +468,18 @@ export function reduce(f: Callback<MapResult>, dice: readonly Operand[], { initi
  * ```
  */
 export function accumulate(f: Callback<MapResult>, dice: readonly Operand[], { initial = null }: { initial?: Operand | null } = {}): Die[] {
-  return call("accumulate", { f, dice: list(dice), initial }) as Die[];
+  const [first, rest] = reduceStart(dice, initial);
+  if (first === undefined) return [];
+  const results = [first];
+  for (const die of rest) results.push(map(f, results[results.length - 1], die));
+  return results;
+}
+
+/** The start of `reduce` / `accumulate`: `initial` (or else the first die) as a die, and the dice after it. */
+function reduceStart(dice: readonly Operand[], initial: Operand | null): [Die | undefined, unknown[]] {
+  const all = iterable(dice);
+  if (initial !== null) return [toDie(initial), all];
+  return all.length ? [toDie(all[0]), all.slice(1)] : [undefined, []];
 }
 
 // --- Several dice -------------------------------------------------------------------------------------------------
@@ -463,7 +583,7 @@ export const middle: (...args: (Operand | MiddleOptions)[]) => Die = keepFunctio
  * ```
  */
 export function tupleize(...args: Operand[]): Die {
-  return call("tupleize", { args: List.from(args) }) as Die;
+  return cartesianProduct(args, "tuple") as Die;
 }
 /** `icepool.vectorize(*args)`: the Cartesian product of the arguments (dice and single outcomes) as a die of
  * `Vector`s, which add, multiply and compare element by element. If no argument is a die, the result is a plain
@@ -477,7 +597,19 @@ export function tupleize(...args: Operand[]): Die {
  * ```
  */
 export function vectorize(...args: Operand[]): Die {
-  return call("vectorize", { args: List.from(args) }) as Die;
+  return cartesianProduct(args, "vector") as Die;
+}
+
+/** expand.py `cartesian_product(*args, outcome_type=...)`: `Reroll` (or `Restart`) if an argument is one; the
+ * outcome itself (a tuple or `Vector` of the arguments) if none is a population; else the die of the joint
+ * outcomes. */
+function cartesianProduct(args: readonly unknown[], type: "tuple" | "vector"): unknown {
+  const reroll = args.find((arg) => arg === Reroll || arg === Restart);
+  if (reroll !== undefined) return reroll;
+  // Decks and multiset expressions expand too: the bridge has those.
+  if (args.some((arg) => arg instanceof Handle)) return call(type === "tuple" ? "tupleize" : "vectorize", { args: List.from(args) });
+  if (!args.some((arg) => arg instanceof Die)) return type === "tuple" ? [...args] : new Vector(args as Outcome[]);
+  return Die.wrap(withDiceArgs(args, (built) => (type === "tuple" ? built.tupleize() : built.vectorize())));
 }
 /** `icepool.pointwise_max(*args)`: selects the highest chance of rolling >= each outcome among the dice (naming not
  * finalized in icepool).
@@ -493,7 +625,18 @@ export function vectorize(...args: Operand[]): Die {
  * ```
  */
 export function pointwiseMax(...dice: Die[]): Die {
-  return call("pointwise", { args: List.from(dice), max: true, spread: true }) as Die;
+  return pointwise(dice, true);
+}
+
+/** `pointwise_max(arg0, *more_args)` / `pointwise_min`: the dice (a single argument is iterated over)
+ * harmonized, then the core's pointwise extreme. */
+function pointwise(dice: readonly Operand[], max: boolean): Die {
+  if (dice.length === 0) {
+    const name = max ? "pointwise_max" : "pointwise_min";
+    throw new IcepoolError("WrongType", "TypeError", `${name}() missing 1 required positional argument: 'arg0'`);
+  }
+  const harmonized = harmonizeDenominators(dice.length === 1 ? (iterable(dice[0]) as Operand[]) : dice);
+  return Die.wrap(withDiceArgs(harmonized, (built) => built.pointwise(max)));
 }
 /** `icepool.pointwise_min(*args)`: selects the highest chance of rolling <= each outcome among the dice (naming not
  * finalized in icepool).
@@ -508,7 +651,7 @@ export function pointwiseMax(...dice: Die[]): Die {
  * ```
  */
 export function pointwiseMin(...dice: Die[]): Die {
-  return call("pointwise", { args: List.from(dice), max: false, spread: true }) as Die;
+  return pointwise(dice, false);
 }
 /** `icepool.max_outcome(*args)`: the maximum possible outcome among the dice and single outcomes.
  *
@@ -518,7 +661,21 @@ export function pointwiseMin(...dice: Die[]): Die {
  * ```
  */
 export function maxOutcome(...args: Operand[]): Outcome {
-  return call("extreme_outcome", { args: List.from(args), max: true, spread: true }) as Outcome;
+  return wasm((w) => w.minMax(iterOutcomes(args), true)) as Outcome;
+}
+
+/** function.py `_iter_outcomes(*args)`: the outcomes of each die among the arguments, the other arguments as they
+ * are (a single argument is iterated over). */
+function iterOutcomes(args: readonly unknown[]): unknown[] {
+  const iterated = args.length === 1 ? iterable(args[0]) : args;
+  return iterated.flatMap((arg) => (arg instanceof Die ? arg.outcomes() : [arg]));
+}
+
+/** Python's `iter(x)` for a sequence argument: an array's elements, a die's outcomes, a str's characters. */
+function iterable(x: unknown): unknown[] {
+  if (Array.isArray(x) || typeof x === "string") return [...x];
+  if (x instanceof Die) return x.outcomes();
+  throw new IcepoolError("WrongType", "TypeError", "object is not iterable");
 }
 /** `icepool.min_outcome(*args)`: the minimum possible outcome among the dice and single outcomes.
  *
@@ -528,7 +685,7 @@ export function maxOutcome(...args: Operand[]): Outcome {
  * ```
  */
 export function minOutcome(...args: Operand[]): Outcome {
-  return call("extreme_outcome", { args: List.from(args), max: false, spread: true }) as Outcome;
+  return wasm((w) => w.minMax(iterOutcomes(args), false)) as Outcome;
 }
 /** `icepool.consecutive(*args)`: a minimal sequence of consecutive ints covering the argument sets (empty if they
  * are all empty).
@@ -539,7 +696,10 @@ export function minOutcome(...args: Operand[]): Outcome {
  * ```
  */
 export function consecutive(...args: readonly Int[][]): Int[] {
-  return call("consecutive", { args: List.from(args.map(list)) }) as Int[];
+  // `itertools.chain(*args)`, twice: the second chain only if the first had something.
+  const first = args.flatMap(iterable);
+  const second = first.length ? args.flatMap(iterable) : [];
+  return wasm((w) => w.consecutive(first, second)) as Int[];
 }
 /** `icepool.sorted_union(*args)`: merges sets of outcomes into a sorted sequence without duplicates.
  *
@@ -549,7 +709,8 @@ export function consecutive(...args: readonly Int[][]): Int[] {
  * ```
  */
 export function sortedUnion(...args: readonly Outcome[][]): Outcome[] {
-  return call("sorted_union", { args: List.from(args.map(list)) }) as Outcome[];
+  if (args.length === 0) return [];
+  return wasm((w) => w.sortedUnion(args.map(iterable))) as Outcome[];
 }
 /** `icepool.harmonize_denominators(dice, weights=None)`: scales the quantities of the dice so that the
  * denominators are proportional to the given weights.
@@ -563,7 +724,13 @@ export function sortedUnion(...args: readonly Outcome[][]): Outcome[] {
  * ```
  */
 export function harmonizeDenominators(dice: readonly Operand[], weights: readonly Int[] | null = null): Die[] {
-  return call("harmonize_denominators", { dice: list(dice), weights: list(weights) }) as Die[];
+  const converted = iterable(dice).map(toDie);
+  // Python zips the weights with the denominators twice (`zip` stops at the shorter).
+  const denominators = converted.map((die) => die.denominator());
+  const ws = weights === null ? converted.map(() => 1) : iterable(weights);
+  const zipped = ws.slice(0, denominators.length);
+  const scaleFactors = wasm((w) => w.weightedLcm(denominators, zipped, zipped));
+  return converted.slice(0, scaleFactors.length).map((die, i) => die.multiplyQuantities(scaleFactors[i] as Int));
 }
 /** `icepool.format_probability_inverse(probability, int_start=20)` (EXPERIMENTAL in icepool): formats the inverse
  * of a probability as "1 in N", or "n/a" outside (0, 1].
@@ -579,7 +746,7 @@ export function harmonizeDenominators(dice: readonly Operand[], weights: readonl
  * ```
  */
 export function formatProbabilityInverse(probability: number | Fraction, intStart: Int = 20): string {
-  return call("format_probability_inverse", { probability, args: List.of(intStart) }) as string;
+  return wasm((w) => w.formatProbabilityInverse(probability, intStart));
 }
 
 /** Python's `bool(x)` of a Vector, Symbols, a `DieWithTruth` or an `Again` expression (from `eq` / `ne`): JS has no
@@ -595,6 +762,7 @@ export function formatProbabilityInverse(probability: number | Fraction, intStar
 export function truth(x: unknown): boolean {
   if (x instanceof DieWithTruth) return x.truth();
   if (x instanceof Vector || x instanceof Symbols) return valueTruth(x);
+  if (x instanceof AgainExpression) return pyBool(x);
   return call("truth", { x }) as boolean;
 }
 
@@ -640,8 +808,6 @@ export const ops = {
   },
   /** `n @ die`. */
   matmul(n: unknown, die: unknown): Die {
-    if (die instanceof Die) return die.rmatmul(n as Int | Die);
-    if (n instanceof Die) return n.matmul(die as Operand);
-    return call("matmul", { n, die }) as Die;
+    return matmul(n, die) as Die;
   },
 };

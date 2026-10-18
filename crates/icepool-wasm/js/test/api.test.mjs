@@ -376,8 +376,10 @@ test("free() frees a JS function the core holds, which the garbage collector can
 
 test("deep nesting raises RecursionError rather than overflowing the WASM stack", () => {
   const isRecursionError = (e) => e instanceof ip.IcepoolError && e.pythonType === "RecursionError";
+  // Building a deep Again expression is fine (as in Python); evaluating it raises.
   let again = Again;
-  assert.throws(() => { for (let i = 0; i < 5000; i++) again = again.add(1); }, isRecursionError);
+  for (let i = 0; i < 5000; i++) again = again.add(1);
+  assert.throws(() => new Die([1, again]), isRecursionError);
   assert.deepEqual(new Die([1, Again.add(1).add(1)]).outcomes(), [1, 3, 4]);
   let expr = d(2).pool(1);
   assert.throws(() => { for (let i = 0; i < 5000; i++) expr = expr.or(d(2).pool(1)); }, isRecursionError);

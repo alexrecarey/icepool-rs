@@ -2,7 +2,7 @@
 //! juggling (population/die.py, population/base.py) and calls these for the work.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use dashu_int::IBig;
 use icepool_core::format::{common_outcome_length, format as format_population, Formatted};
@@ -10,6 +10,9 @@ use icepool_core::population::{Comparison, Data};
 use icepool_core::value::builtins::Index;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{matmul_dice, BinOp, Num, UnOp};
+use icepool_core::expand::tupleize_dice;
+use icepool_core::memory;
+use icepool_core::random::Random;
 use icepool_core::{function, DieArg, Die, Error, Quantity, Value};
 use wasm_bindgen::prelude::*;
 
@@ -21,6 +24,8 @@ use super::error::{JsResult, OrThrow};
 #[wasm_bindgen]
 pub struct WasmDie {
     pub(crate) die: Die<Value>,
+    /// Python's `Die._mean_time_to_sum_cache`: the mean times computed so far, for targets 0, 1, ...
+    mean_time_to_sum_cache: RefCell<Vec<Value>>,
 }
 
 thread_local! {
@@ -31,7 +36,7 @@ thread_local! {
 impl WasmDie {
     pub(crate) fn new(die: Die<Value>) -> WasmDie {
         LIVE.with(|n| n.set(n.get() + 1));
-        WasmDie { die }
+        WasmDie { die, mean_time_to_sum_cache: RefCell::default() }
     }
 }
 
@@ -48,7 +53,8 @@ pub fn live_dice() -> usize {
 }
 
 /// `Die(outcomes, times)` once the TypeScript `Die` has itemized its arguments (creation_args.py `itemize`): each
-/// element of `outcomes` with its weight, a non-negative int. `build` mixes them (`expand_args_for_die`).
+/// element of `outcomes` with its weight (a time as `itemize` leaves it: a non-negative number, which must be an int
+/// unless it is zero). `build` mixes them (`expand_args_for_die`).
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct DieBuilder {
@@ -86,12 +92,37 @@ impl DieBuilder {
 
 impl DieBuilder {
     fn push(&mut self, arg: DieArg<Value>, weight: &JsValue) -> JsResult<()> {
-        let weight = Quantity::try_from(int_from_js(weight, "weight").or_throw()?)
-            .map_err(|_| Error::InvalidArgument("times cannot have negative values.".into()))
-            .or_throw()?;
+        let weight = die_weight(&arg, &value(weight)?).or_throw()?;
         self.args.push(arg);
         self.weights.push(weight);
         Ok(())
+    }
+}
+
+/// One weight given to `Die` (a time of `itemize`, already checked to be a non-negative number), following what
+/// Python does with it in `merge_weights_lcm`: an `int` (or `bool`) is the quantity; another number (`float`,
+/// `Fraction`) only survives if it can never reach `math.gcd`: when it is zero, or when the argument is an empty
+/// die (denominator 0). Either way it then contributes nothing, exactly like a 0.
+fn die_weight(arg: &DieArg<Value>, t: &Value) -> icepool_core::Result<Quantity> {
+    let negative = || Error::InvalidArgument("times cannot have negative values.".into());
+    match t {
+        Value::Int(i) => Quantity::try_from(i.clone()).map_err(|_| negative()),
+        Value::Bool(b) => Ok(Quantity::from(*b as u8)),
+        _ => {
+            let zero = Num::Int(Cow::Owned(IBig::ZERO));
+            if t.as_num().is_some_and(|n| n < zero) {
+                return Err(negative());
+            }
+            let empty_die = matches!(arg, DieArg::Die(d) if d.denominator().is_zero());
+            if t.as_num().is_some_and(|n| n == zero) || empty_die {
+                Ok(Quantity::ZERO)
+            } else {
+                Err(Error::WrongType(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    t.type_name()
+                )))
+            }
+        }
     }
 }
 
@@ -633,6 +664,84 @@ impl WasmDie {
     #[wasm_bindgen(js_name = marginalsLength)]
     pub fn marginals_length(&self) -> JsResult<usize> {
         self.die.marginals_len().or_throw()
+    }
+
+    // --- Again, processes, sampling -------------------------------------------------------------------------------
+
+    /// population/again.py `evaluate_agains_using_count` once the TypeScript has checked `again_count`, built
+    /// `not_again_die` (the outcomes that are not `Again`), its `zero` outcome, `step_die` (one tupleized step
+    /// outcome per face) and `again_end_die` (ignored when `restart`, for `again_end=Restart`).
+    #[wasm_bindgen(js_name = evaluateAgainsUsingCount)]
+    pub fn evaluate_agains_using_count(
+        step_die: &WasmDie,
+        not_again_die: &WasmDie,
+        zero: JsValue,
+        again_count: u32,
+        again_end_die: &WasmDie,
+        restart: bool,
+    ) -> JsResult<WasmDie> {
+        let end = (!restart).then_some(&again_end_die.die);
+        // `n @ die` with an int `n` is `Die([n]) @ die` (`Die.__rmatmul__`).
+        let matmul = |n: &Value, die: &Die<Value>| {
+            let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
+            matmul_dice(&n, die)
+        };
+        let die = icepool_core::again::evaluate_agains_using_count(
+            &step_die.die,
+            &not_again_die.die,
+            &value(&zero)?,
+            u64::from(again_count),
+            end,
+            matmul,
+        )
+        .or_throw()?;
+        Ok(WasmDie::new(die))
+    }
+
+    /// `die.sequence(rolls)` for `rolls >= 1`: the die of the tuples of `rolls` rolls in order (`MemoryError` past
+    /// what memory holds).
+    pub fn sequence(&self, rolls: JsValue) -> JsResult<WasmDie> {
+        let rolls = int_from_js(&rolls, "rolls").or_throw()?;
+        let what = "die.sequence(rolls)";
+        let n = memory::check_len::<Die<Value>, _>(Some(u64::try_from(&rolls).unwrap_or(u64::MAX)), what).or_throw()?;
+        let parts = memory::try_repeat(self.die.items().to_vec(), Some(n), what).or_throw()?;
+        Ok(WasmDie::new(tupleize_dice(&parts).or_throw()?))
+    }
+
+    /// `die.mean_time_to_sum(target)`, extending this die's cache as Python's loop does.
+    #[wasm_bindgen(js_name = meanTimeToSum)]
+    pub fn mean_time_to_sum(&self, target: JsValue) -> JsResult<JsValue> {
+        let target = value(&target)?;
+        let mut cache = self.mean_time_to_sum_cache.borrow_mut();
+        // A `cached_property` starting as `[Fraction(0)]`.
+        if cache.is_empty() {
+            cache.push(Value::Fraction(dashu_ratio::RBig::ZERO));
+        }
+        js(self.die.mean_time_to_sum(&mut cache, &target))
+    }
+
+    /// `[die.sample() for _ in range(n)]` after Python's `random.seed(seed)` (an int seed).
+    pub fn sample(&self, seed: JsValue, n: u32) -> JsResult<Vec<JsValue>> {
+        let mut random = Random::new(&int_from_js(&seed, "seed").or_throw()?);
+        let denominator = self.die.denominator();
+        (0..n)
+            .map(|_| {
+                let r = random.randrange(&denominator)?;
+                value_to_js(&self.die.sample_at(&r)?)
+            })
+            .collect::<icepool_core::Result<_>>()
+            .or_throw()
+    }
+
+    /// `die.to_one_hot(outcomes)` once the TypeScript has looked each of this die's outcomes up in `outcomes`
+    /// (Python's `in` and `index`): `positions` holds the index of each, or -1 for one not there; `len` is
+    /// `len(outcomes)`.
+    #[wasm_bindgen(js_name = toOneHot)]
+    pub fn to_one_hot(&self, len: usize, positions: Vec<i32>) -> JsResult<WasmDie> {
+        let positions: Vec<Option<i64>> =
+            positions.iter().map(|&p| (p >= 0).then_some(i64::from(p))).collect();
+        let items = self.die.one_hot_items(len, &positions).or_throw()?;
+        Ok(WasmDie::new(Die::from_dict(items).or_throw()?))
     }
 
     // --- Formatting ---------------------------------------------------------------------------------------------

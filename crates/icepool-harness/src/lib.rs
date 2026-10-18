@@ -27,9 +27,6 @@ mod multiset_function;
 mod ops;
 mod pool;
 mod population;
-// Python's seeded `random.Random`: only the runner samples with its own seed (the bindings draw from the host's
-// generator and call `Die::sample_at`).
-mod random;
 mod statistics;
 mod to_pool;
 pub mod wire;

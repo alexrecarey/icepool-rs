@@ -1057,3 +1057,28 @@ export function isPlainValue(x: unknown): boolean {
   }
   return false;
 }
+
+/** Python's `type(x).__name__` for a JS value (for Python's error messages). @internal */
+export function pyTypeName(x: unknown): string {
+  switch (typeof x) {
+    case "number":
+      return Number.isInteger(x) ? "int" : "float";
+    case "bigint":
+      return "int";
+    case "string":
+      return "str";
+    case "boolean":
+      return "bool";
+    case "undefined":
+      return "NoneType";
+    case "function":
+      return "function";
+  }
+  if (x === null) return "NoneType";
+  if (x instanceof List) return "list";
+  if (Array.isArray(x)) return "tuple";
+  if (x instanceof Float) return "float";
+  if (x instanceof Complex) return "complex";
+  if (x instanceof Special) return x.name === "Ellipsis" ? "ellipsis" : "RerollType";
+  return (x as object).constructor?.name ?? "object";
+}

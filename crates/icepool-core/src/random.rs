@@ -1,12 +1,13 @@
 //! Python's `random.Random` as far as `Population.sample` uses it: `seed(int)` and `randrange(n)`, consuming the
 //! Mersenne Twister exactly as CPython does (Modules/_randommodule.c and Lib/random.py), so a seeded program samples
-//! the same outcomes as Python. The Python facade does not use this: it must draw from Python's own (global,
-//! user-seeded) generator, and passes the drawn number to `Die::sample_at`.
+//! the same outcomes as Python. The JS facade's seeded `sample` and the program runner use it; the Python facade
+//! does not: it must draw from Python's own (global, user-seeded) generator, and passes the drawn number to
+//! `sample_at`.
 
 use dashu_base::{BitTest, UnsignedAbs};
 use dashu_int::{IBig, UBig};
 
-use icepool_core::{Error, Result};
+use crate::{Error, Result};
 
 const N: usize = 624;
 const M: usize = 397;

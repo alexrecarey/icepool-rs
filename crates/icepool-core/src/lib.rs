@@ -12,6 +12,7 @@
 pub mod evaluator;
 pub mod expression;
 pub mod host;
+pub mod random;
 pub mod value;
 
 pub use deal::Deal;

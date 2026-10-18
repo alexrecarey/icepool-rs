@@ -42,6 +42,20 @@ extern "C" {
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = makeError)]
     pub(super) fn make_error(kind: &str, python_type: &str, message: &str) -> JsValue;
 
+    /// An `AgainExpression` (js/src/again.ts) as `[func, args, isAdditive]` (`func` the name of its function, or
+    /// null for `Again` itself); `[]` for anything else.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = againParts)]
+    pub(super) fn again_parts(x: &JsValue) -> Vec<JsValue>;
+
+    /// An Again expression's function (by name) applied to evaluated arguments with Python's operator dispatch:
+    /// `[true, result]`, or `[false, exception]` for what it threw.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = againApply)]
+    pub(super) fn again_apply(function: &JsValue, args: Vec<JsValue>) -> Vec<JsValue>;
+
+    /// `new Die(objects, times)`, the TypeScript constructor: `[true, die]` or `[false, exception]`.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = againDie)]
+    pub(super) fn again_die(objects: Vec<JsValue>, times: &JsValue) -> Vec<JsValue>;
+
     /// `String(x)`: a BigInt's decimal digits.
     #[wasm_bindgen(js_name = String)]
     pub(super) fn js_string(x: &JsValue) -> String;

@@ -6,7 +6,7 @@ use super::catalogue::truthy;
 use super::collection::attribute_error;
 use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
-use crate::random::Random;
+use icepool_core::random::Random;
 use icepool_core::format::{
     common_outcome_length as outcome_length, format as format_population, Formatted,
 };

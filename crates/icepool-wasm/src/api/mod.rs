@@ -7,9 +7,11 @@
 //! moved yet still goes through the JSON-op bridge in `crate::facade`, which converts a `WasmDie` to a handle and
 //! back (`facade::die_handle`, `WasmDie::from_handle`).
 
+mod again;
 mod convert;
 mod die;
 mod error;
+mod function;
 mod host;
 mod value;
 

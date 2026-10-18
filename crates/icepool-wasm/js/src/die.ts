@@ -3,11 +3,11 @@
 // options object (`die.reroll([1], { depth: 2 })`), quantities are BigInts.
 
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
-import type { AgainExpression } from "./again.js";
+import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDepth } from "./again.js";
 import type { MultisetExpression, Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
-import { map, mapAndTime, meanTimeToAbsorb, ops } from "./functions.js";
+import { map, mapAndTime, meanTimeToAbsorb, ops, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
   Complex,
@@ -20,6 +20,7 @@ import {
   Symbols,
   Vector,
   isPlainValue,
+  pyTypeName,
   type Ellipsis,
   type Int,
   type Outcome,
@@ -161,6 +162,18 @@ function nativeDie(x: unknown): WasmDie | undefined {
   return undefined;
 }
 
+/** `die <op> expr` (`reflected`: `expr <op> die`) for an Again expression: dice return `NotImplemented` for one, so
+ * Python calls the expression's reflected operator (a comparison swaps sides: `die < expr` is `expr > die`). */
+function againOperator(expr: AgainExpression, name: BinaryName, die: Die, reflected: boolean): AgainExpression {
+  const methods = expr as unknown as Record<string, (x: unknown) => AgainExpression>;
+  if (reflected) return methods[name](die);
+  const swapped = { lt: "gt", le: "ge", gt: "lt", ge: "le" } as Record<string, string>;
+  return methods[swapped[name] ?? `r${name}`](die);
+}
+
+/** Python's `x < 0` (a `TypeError` for anything but a number). */
+const isNegative = (x: unknown) => pyBool(ops.lt(x, 0));
+
 /** Python's `bool(x)` of what a JS callback returned. */
 export function pyBool(x: unknown): boolean {
   switch (typeof x) {
@@ -181,8 +194,14 @@ export function pyBool(x: unknown): boolean {
   if (x instanceof Fraction) return x.numerator !== 0n;
   if (x instanceof Complex) return x.re !== 0 || x.im !== 0;
   if (x instanceof DieWithTruth) return x.truth();
-  // A Vector or Symbols has its own truth value; a plain die raises, an Again expression has one too: the core
-  // says.
+  // Only an Again expression from `==` or `!=` has a truth value.
+  if (x instanceof AgainExpression) {
+    if (x.truthValue === null) {
+      throw new IcepoolError("InvalidArgument", "ValueError", "An `Again` only has a truth value if it is the result of == or !=.");
+    }
+    return x.truthValue;
+  }
+  // A Vector or Symbols has its own truth value; a plain die raises: the core says.
   if (x instanceof Vector || x instanceof Symbols) return wasm((w) => w.valueTruth(x));
   if (x instanceof Die || x instanceof Handle) return call("truth", { x }) as boolean;
   return true; // any other object, as Python's default
@@ -319,6 +338,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
 
   /** `self <op> other`, natively where the other operand converts to a die directly. */
   private binary(name: BinaryName, other: unknown, reflected = false): Die {
+    // Dice return `NotImplemented` for an Again expression, so its own (reflected) operator makes an expression.
+    if (other instanceof AgainExpression) return againOperator(other, name, this, reflected) as unknown as Die;
     const o = nativeDie(other);
     if (o === undefined) return call(name, reflected ? { a: other, b: this } : { a: this, b: other }) as Die;
     const op = raw().BinaryOp[BINARY[name]];
@@ -565,6 +586,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   ne(other: Operand): DieWithTruth { return this.equality(other, true); }
 
   private equality(other: unknown, ne: boolean): DieWithTruth {
+    // `==` reflects to itself: the expression's `__eq__` with the die as its operand.
+    if (other instanceof AgainExpression) return (ne ? other.ne(this) : other.eq(this)) as DieWithTruth;
     const o = nativeDie(other);
     const viaBridge = () => call(ne ? "ne" : "eq", { a: this, b: other }) as DieWithTruth;
     if (o === undefined) return viaBridge();
@@ -658,6 +681,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   matmul(other: Operand): Die {
+    if (other instanceof AgainExpression) return other.rmatmul(this) as unknown as Die;
     const o = nativeDie(other);
     if (o === undefined) return call("matmul", { n: this, die: other }) as Die;
     const w = this.w;
@@ -671,6 +695,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   rmatmul(n: Int | Die): Die {
+    if (n instanceof AgainExpression) return n.matmul(this) as unknown as Die;
     const o = nativeDie(n);
     if (o === undefined) return call("matmul", { n, die: this }) as Die;
     const w = this.w;
@@ -704,9 +729,11 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
       if (args.some((a) => a === undefined)) return undefined;
       return Uint8Array.from(args, (a) => (pyBool(f(...(a as unknown[]))) ? 1 : 0));
     }
-    if (Array.isArray(which) && which.every(isPlainValue)) {
+    // A collection the outcome must be `in`: an array, or a Map (Python's dict: its keys).
+    const collection = which instanceof Map ? [...which.keys()] : which;
+    if (Array.isArray(collection) && collection.every(isPlainValue)) {
       const w = this.w;
-      return Uint8Array.from(wasm(() => w.memberships(which)));
+      return Uint8Array.from(wasm(() => w.memberships(collection)));
     }
     return undefined;
   }
@@ -842,7 +869,23 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     which: Which = null,
     { star = null, depth = 9, end = null }: { star?: boolean | null; depth?: Int; end?: Operand | typeof Reroll | null } = {},
   ): Die {
-    return call("explode", { die: this, which: list(which), star, depth, end }) as Die;
+    // `outcome_set`: by default the max outcome alone (which raises for an empty die).
+    let selected: Uint8Array | undefined;
+    if (which === null) {
+      this.maxOutcome();
+      selected = new Uint8Array(this.size);
+      selected[this.size - 1] = 1;
+    } else {
+      selected = this.selection(which, star);
+    }
+    if (selected === undefined) return call("explode", { die: this, which: list(which), star, depth, end }) as Die;
+    if (isNegative(depth)) throw new IcepoolError("InvalidArgument", "ValueError", "depth cannot be negative.");
+    if (pyBool(ops.eq(depth, 0))) return this;
+    // `self.map(map_final, again_depth=depth, again_end=end)`, where `map_final` adds `Again` to the selected
+    // outcomes (every item, zero quantities included).
+    const items = this.items();
+    const outcomes = items.map(([outcome], i) => (selected[i] ? ops.add(outcome, Again) : outcome)) as MapResult[];
+    return new Die(outcomes, items.map(([, q]) => q), { againDepth: depth, againEnd: end });
   }
 
   // --- map and friends: `die.map(f, ...extraArgs, { star, repeat })` is `map(f, die, ...extraArgs, ...)` --------
@@ -903,7 +946,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   meanTimeToSum(target: Int): Fraction {
-    return (call("mean_time_to_sum", { die: this, targets: List.of(target) }) as Fraction[])[0];
+    const w = this.w;
+    return wasm(() => w.meanTimeToSum(target)) as Fraction;
   }
   /** `die.time_to_sum(target, max_time=None, dnf=None)`: a die of the number of rolls until the running total is
    * at least `target`.
@@ -1003,14 +1047,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   ifElse(ifTrue: Operand, ifFalse: Operand, { againCount = null, againDepth = null, againEnd = null }: AgainOptions = {}): Die {
-    return call("if_else", {
-      die: this,
-      if_true: ifTrue,
-      if_false: ifFalse,
-      count: againCount,
-      depth: againDepth,
-      end: againEnd,
-    }) as Die;
+    // `self.map(lambda x: bool(x)).map({True: outcome_if_true, False: outcome_if_false}, again_count=...)`.
+    const truths = this.map((x: unknown) => pyBool(x)).items();
+    const outcomes = truths.map(([truth]) => (truth ? ifTrue : ifFalse));
+    return new Die(outcomes, truths.map(([, q]) => q), { againCount, againDepth, againEnd });
   }
 
   // --- Rolling several ------------------------------------------------------------------------------------------
@@ -1129,7 +1169,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   sequence(rolls: Int): Die {
-    return call("die_sequence", { die: this, rolls }) as Die;
+    // `cartesian_product(*(self for _ in range(rolls)), outcome_type=tuple)`: of no dice, `()`.
+    if (rangeCount(rolls) === 0) return [] as unknown as Die;
+    const w = this.w;
+    return Die.wrap(wasm(() => w.sequence(rolls)));
   }
   /** `Die.pool(rolls=1)`: a {@link Pool} of copies of this die.
    *
@@ -1350,7 +1393,15 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   toOneHot(outcomes: readonly Outcome[] | null = null): Die {
-    return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Die;
+    const w = this.w;
+    if (outcomes === null) return Die.wrap(wasm(() => w.toOneHot(this.size, Int32Array.from(this.outcomes(), (_, i) => i))));
+    if (!Array.isArray(outcomes) || !outcomes.every(isPlainValue)) {
+      return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Die;
+    }
+    // `outcomes.index(outcome)` for each outcome in `outcomes` (Python's `==`), else -1; `[False] * len(outcomes)`
+    // is made for each outcome, so an empty die never asks for the length.
+    const positions = this.outcomes().map((o) => outcomes.findIndex((x) => pyBool(ops.eq(x, o))));
+    return Die.wrap(wasm(() => w.toOneHot(this.isEmpty() ? 0 : outcomes.length, Int32Array.from(positions))));
   }
   /** `Die.unary_operator(op)`: performs `op` on each outcome; outcomes that map to the same result have their
    * quantities merged. This is what the unary operators (`neg`, `abs`, `round`, ...) do, so it is mostly useful
@@ -1464,7 +1515,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   stochasticRound({ maxDenominator = null }: { maxDenominator?: Int | null } = {}): Die {
-    return call("die_stochastic_round", { die: this, max_denominator: maxDenominator }) as Die;
+    return this.map((x: number | Fraction | Float) => stochasticRound(x, { maxDenominator }));
   }
   /** `Die.equals(other, *, simplify=False)`: `true` iff both dice have the same outcomes and quantities.
    *
@@ -2016,7 +2067,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    */
   sample(options: { seed?: Int; n: Int }): T[];
   sample({ seed = Math.floor(Math.random() * 2 ** 32), n }: { seed?: Int; n?: Int } = {}): T | T[] {
-    const rolls = call("sample", { die: this, seed, n: n ?? 1 }) as T[];
+    const w = this.w;
+    // `n <= 0` samples nothing, as Python's loop.
+    const count = Math.max(0, Math.min(Number(n ?? 1), 2 ** 32 - 1));
+    const rolls = wasm(() => w.sample(seed, count)) as T[];
     return n === undefined ? rolls[0] : rolls;
   }
 
@@ -2215,79 +2269,151 @@ class WasmDieBox {
   }
 }
 
-/** `Die(outcomes, times, again options)`: a new core die, an existing die (Python returns `Die([die])` itself), or
- * the bridge's result for what the core cannot take directly. */
+/** `Die(outcomes, times, again options)` (population/die.py `Die.__new__`): a new core die, or an existing die
+ * (Python returns `Die([die])` itself, and the die an Again evaluation made). */
 function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined, again: AgainOptions): WasmDieBox | Die {
-  const { againCount, againDepth, againEnd } = again;
-  const hasAgain = againCount !== undefined || againDepth !== undefined || againEnd !== undefined;
-  const native = !hasAgain && nativeDieArgs(outcomes, times);
-  if (native) {
-    const [args, weights] = native;
-    // A single die with weight 1 is returned as it is.
-    if (args.length === 1 && args[0] instanceof Die && BigInt(weights[0]) === 1n) return args[0];
-    const builder = wasm((w) => new w.DieBuilder());
-    try {
-      args.forEach((arg, i) => {
-        const weight = weights[i];
-        if (arg instanceof Die) wasm(() => builder.die(arg.w, weight));
-        else if (arg === Reroll || arg === Restart) wasm(() => builder.reroll(weight));
-        else wasm(() => builder.outcome(arg, weight));
-      });
-      return new WasmDieBox(wasm(() => builder.build()));
-    } finally {
-      builder.free();
+  // Pools, decks and multiset expressions among the outcomes: the bridge (they are not typed objects yet).
+  if (holdsHandle(outcomes)) return bridgeDie(outcomes, times);
+  const items = itemize(outcomes, times);
+  const { againCount = null, againDepth = null, againEnd = null } = again;
+  if (items.outcomes.some((o) => o instanceof AgainExpression)) {
+    if (againCount !== null) {
+      if (againDepth !== null) {
+        throw new IcepoolError("InvalidArgument", "ValueError", "At most one of again_count and again_depth may be used.");
+      }
+      return evaluateAgainsUsingCount(items, againCount, againEnd);
+    }
+    return evaluateAgainsUsingDepth(items, againDepth ?? 1, againEnd);
+  }
+  // Agains have been replaced by this point.
+  const { outcomes: args, times: weights } = items;
+  if (args.length === 1 && args[0] instanceof Die && isOne(weights[0])) return args[0];
+  // `expand_args_for_die`: each argument expanded (`expand_arg`), then mixed by the core (`merge_weights_lcm`).
+  const builder = wasm((w) => new w.DieBuilder());
+  try {
+    args.forEach((arg, i) => {
+      const weight = weights[i];
+      // A tuple holding dice is the die of their Cartesian product (`tupleize`); a plain tuple stays as it is.
+      const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Operand[])) : arg;
+      // Python's `expand_arg` takes the `Reroll` of a tuple holding one for a population, whose `values()` then
+      // raises in `merge_weights_lcm`.
+      if (Array.isArray(arg) && (expanded === Reroll || expanded === Restart)) {
+        throw new IcepoolError("MissingAttribute", "AttributeError", "'RerollType' object has no attribute 'values'");
+      }
+      if (expanded instanceof Die) wasm(() => builder.die(expanded.w, weight));
+      else if (expanded === Reroll || expanded === Restart) wasm(() => builder.reroll(weight));
+      else wasm(() => builder.outcome(expanded, weight));
+    });
+    return new WasmDieBox(wasm(() => builder.build()));
+  } finally {
+    builder.free();
+  }
+}
+
+/** creation_args.py `itemize(keys, times)`: the keys (a sequence's elements; a mapping's keys, whose values
+ * multiply the times) and one time per key, checked to be non-negative numbers. */
+function itemize(outcomes: DieOutcomes, times: unknown): { outcomes: unknown[]; times: unknown[] } {
+  let keys: unknown[];
+  let base: unknown[] | undefined;
+  if (outcomes instanceof Die) {
+    // A die is a mapping: its outcomes are the keys, its quantities multiply the times.
+    const items = outcomes.items();
+    keys = items.map(([o]) => o);
+    base = items.map(([, q]) => q);
+  } else if (outcomes instanceof Map) {
+    [keys, base] = dictItems(outcomes);
+  } else if (Array.isArray(outcomes) || typeof outcomes === "string") {
+    keys = [...outcomes];
+  } else {
+    throw new IcepoolError("WrongType", "TypeError", "Argument appears not to be a mapping or sequence.");
+  }
+  let each: unknown[];
+  if (times === undefined) {
+    each = keys.map(() => 1);
+  } else if (isInt(times) || typeof times === "boolean") {
+    // `isinstance(times, int)`: one factor for every key.
+    each = keys.map(() => times);
+  } else {
+    // Otherwise any sequence of the same length.
+    each = sequence(times);
+    if (each.length !== keys.length) {
+      throw new IcepoolError(
+        "InvalidArgument",
+        "ValueError",
+        `The number of times (${each.length}) must equal the number of keys (${keys.length}).`,
+      );
     }
   }
-  return bridgeDie(outcomes, times, again, hasAgain);
+  return { outcomes: keys, times: wasm((w) => w.itemizeTimes(base, each)) };
 }
 
-/** The outcomes and weights, when the core can take them directly: an array of plain values, dice and
- * `Reroll`s, or a Map of plain keys (strings or numbers, which a JS Map and a Python dict key alike), with int
- * times. `false` for anything else (Again, tuples holding dice, odd times), which the bridge handles. */
-function nativeDieArgs(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined): [unknown[], Int[]] | false {
-  let keys: unknown[];
-  let base: Int[] | null = null;
-  if (outcomes instanceof Map) {
-    if (times !== undefined) return false;
-    keys = [...outcomes.keys()];
-    base = [...outcomes.values()];
-    const plainKey = (k: unknown) => typeof k === "string" || (typeof k === "number" && !Number.isNaN(k));
-    if (!keys.every(plainKey) || !base.every((q) => isInt(q) && q >= 0)) return false;
-  } else if (Array.isArray(outcomes)) {
-    keys = outcomes;
-  } else {
-    return false;
-  }
-  const arg = (x: unknown) => x instanceof Die || x === Reroll || x === Restart || isPlainValue(x);
-  if (!keys.every(arg)) return false;
-  let weights: Int[];
-  if (times === undefined) weights = keys.map(() => 1n);
-  else if (isInt(times)) weights = keys.map(() => times);
-  else if (Array.isArray(times) && times.length === keys.length && times.every(isInt)) weights = [...times];
-  else return false;
-  if (!weights.every((t) => t >= 0)) return false;
-  if (base !== null) weights = weights.map((t, i) => BigInt(t) * BigInt((base as Int[])[i]));
-  return [keys, weights];
+/** Python's `list(x)` of a sequence (`len(x)` raises `TypeError` for anything else). */
+function sequence(x: unknown): unknown[] {
+  if (Array.isArray(x) || typeof x === "string") return [...x];
+  if (x instanceof Die) return x.outcomes();
+  throw new IcepoolError("WrongType", "TypeError", `object of type '${pyTypeName(x)}' has no len()`);
 }
 
-/** `Die(...)` through the bridge (the runner's nodes do Python's juggling for the cases above). */
-function bridgeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined, again: AgainOptions, hasAgain: boolean): Die {
-  const nul = <X>(x: X | undefined): X | null => (x === undefined ? null : x);
+/** A dict literal's keys and values from a JS Map: keys equal in Python (`1`, `1.0` and `true`; arrays with equal
+ * elements; dice that `equals`; the same Again expression) are one key, spelt as the first and valued as the
+ * last. @internal */
+export function dictItems(map: Map<unknown, unknown>): [unknown[], unknown[]] {
+  const entries = [...map];
+  // Each entry's first equal key: plain keys by the core's dict, dice and Again expressions by their `==`.
+  const plain = entries.flatMap(([k], i) => (k instanceof Die || k instanceof AgainExpression ? [] : [i]));
+  const firstPlain = wasm((w) => w.dictKeys(plain.map((i) => entries[i][0])));
+  const first: number[] = [];
+  plain.forEach((i, j) => (first[i] = plain[firstPlain[j]]));
+  entries.forEach(([k], i) => {
+    if (k instanceof Die) first[i] = entries.findIndex(([e]) => e instanceof Die && e.equals(k));
+    else if (k instanceof AgainExpression) first[i] = entries.findIndex(([e]) => e instanceof AgainExpression && pyBool(e.eq(k)));
+  });
+  const keys: unknown[] = [];
+  const values: unknown[] = [];
+  const slots = new Map<number, number>();
+  entries.forEach(([, v], i) => {
+    const slot = slots.get(first[i]);
+    if (slot !== undefined) {
+      values[slot] = v;
+    } else {
+      slots.set(first[i], keys.length);
+      keys.push(entries[first[i]][0]);
+      values.push(v);
+    }
+  });
+  return [keys, values];
+}
+
+/** Python's `t == 1` for a time (so `1.0` and `True` count too). */
+function isOne(t: unknown): boolean {
+  if (t instanceof Float) return t.value === 1;
+  if (t instanceof Fraction) return t.numerator === 1n && t.denominator === 1n;
+  return t === 1 || t === 1n || t === true;
+}
+
+/** Whether the outcomes hold a pool, deck or expression (directly, as a Map key, or in a tuple). */
+function holdsHandle(outcomes: DieOutcomes): boolean {
+  const holds = (x: unknown): boolean => x instanceof Handle || (Array.isArray(x) && x.some(holds));
+  if (outcomes instanceof Map) return [...outcomes.keys()].some(holds);
+  return Array.isArray(outcomes) && outcomes.some(holds);
+}
+
+/** `Die(...)` through the bridge, for outcomes holding objects the bridge still holds. */
+function bridgeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined): Die {
   if (outcomes instanceof Map) {
-    if (times !== undefined || hasAgain) throw new TypeError("icepool: a Map of quantities takes no times or again");
+    if (times !== undefined) throw new TypeError("icepool: a Map of quantities holding pools takes no times");
     return call("weights", { items: List.from(Array.from(outcomes, ([k, v]) => [k, v])) }) as Die;
   }
   const xs = list(outcomes);
-  if (hasAgain) {
-    if (times !== undefined) throw new TypeError("icepool: times together with again options are not supported");
-    const { againCount, againDepth, againEnd } = again;
-    if (againCount !== undefined && againCount !== null) {
-      return call("again_count", { outcomes: xs, count: againCount, depth: nul(againDepth), end: nul(againEnd) }) as Die;
-    }
-    return call("again", { outcomes: xs, depth: nul(againDepth), end: nul(againEnd) }) as Die;
-  }
   if (times !== undefined) return call("die_times", { outcomes: xs, times: list(times) }) as Die;
   return call("die", { outcomes: xs }) as Die;
+}
+
+/** Python's `range(n)` length: an int (negative is empty), else `TypeError`. */
+function rangeCount(n: unknown): number {
+  if (typeof n === "boolean") return Number(n);
+  if (!isInt(n)) throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(n)}' object cannot be interpreted as an integer`);
+  return Math.max(0, Number(n));
 }
 
 /** `icepool.Die(outcomes, times, options)` without `new`: the same arguments and result as `new Die(...)`.
