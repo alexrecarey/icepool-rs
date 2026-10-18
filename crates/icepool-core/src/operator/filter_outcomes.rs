@@ -8,15 +8,48 @@ use crate::error::Result;
 use crate::Int;
 
 /// A callable returning `True` iff the outcome should be kept (Python calls `bool()` on its result).
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::expression::{OutcomeFilter, OutcomePredicate};
+/// use icepool_core::Result;
+///
+/// struct Even;
+/// impl OutcomePredicate<i64> for Even {
+///     fn test(&self, outcome: &i64) -> Result<bool> {
+///         Ok(outcome % 2 == 0)
+///     }
+/// }
+/// assert!(Even.test(&4).unwrap());
+/// let _filter = OutcomeFilter::Function(Arc::new(Even));
+/// ```
 pub trait OutcomePredicate<O> {
+    /// `bool(func(outcome))`.
     fn test(&self, outcome: &O) -> Result<bool>;
 }
 
 /// `MultisetFilterOutcomes`'s target: a callable, or a collection of outcomes (Python makes it a `frozenset`
 /// and tests `outcome in target_set`).
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{Operator, OutcomeFilter, Statelet};
+/// use icepool_core::Int;
+///
+/// // `keep_outcomes([2, 4])`: an outcome outside the set counts 0.
+/// let filter = OutcomeFilter::Set(vec![2, 4].into());
+/// let op = Operator::FilterOutcomes { filter, invert: false };
+/// let three = [Count::Int(Int::from(3))];
+/// let (_, count) = op.next_state(&Statelet::None, Order::Ascending, &5, &three).unwrap();
+/// assert_eq!(count, Count::Int(Int::ZERO));
+/// let (_, count) = op.next_state(&Statelet::None, Order::Ascending, &4, &three).unwrap();
+/// assert_eq!(count, Count::Int(Int::from(3)));
+/// ```
 #[derive(Clone)]
 pub enum OutcomeFilter<O> {
+    /// A callable: the outcome is kept iff it returns true.
     Function(Arc<dyn OutcomePredicate<O> + Send + Sync>),
+    /// A collection of outcomes: the outcome is kept iff it is one of them.
     Set(Arc<[O]>),
 }
 

@@ -48,8 +48,8 @@ turns out wrong. Newest decisions at the top of each section.
     (`Fraction(7, 1)`, not `7`). Raw `evaluator::evaluate` returns finals in evaluation order, unsorted and
     unmerged: build a die before comparing.
   - Doctests: every method of `Die` (both impls) and the `Pool`, `Deck`, `Deal` accessors. Not covered: the
-    `PoolSource`/`MultisetSource`/`DealSource` plumbing, `Die::new`/`Deck::new` (their `DieArg` is
-    `#[doc(hidden)]`), `MultiDeal`, `Int`, `Order`, and the `#[doc(hidden)]` modules; task C7b.
+    `PoolSource`/`MultisetSource`/`DealSource` plumbing, `Die::new`/`Deck::new`, `MultiDeal`, `Int`, `Order`;
+    task C7b. (The binding items C3b made visible each have an example.)
   - `cargo fmt` reformats files beyond yours (and the guard rejects any change to protected files): run
     `rustfmt --edition 2021 <file>` on the files you touched instead, and `--check` a `mod.rs` first (it recurses).
 
@@ -318,7 +318,8 @@ turns out wrong. Newest decisions at the top of each section.
     Python test (helpers in `test/upstream.mjs`); `{ todo: "API: ..." }` marks a known API discrepancy.
 
 - **Crates and production builds (C5, C5b, design sections 5 and 8).** Follow-up: C6c-C6l (JS API off the
-  runner), C2f (khepri crate), C3d (the runner off core's hidden modules).
+  runner), C2f (khepri crate), C3d (the runner off core's hidden modules: already done by C3b, which moved the
+  runner and khepri too; C3d only has to confirm `grep -rn "doc(hidden)" crates/icepool-core/src` is empty).
   - `crates/icepool-harness` (`publish = false`, test-only) is the JSON program runner (`src/`, was
     icepool-core's `src/program/` until C5b; its `mod.rs` is now `lib.rs`), the `icepool-run` binary (same name, so
     `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and the protected fixtures test
@@ -326,9 +327,8 @@ turns out wrong. Newest decisions at the top of each section.
     JS `sample` uses it; the Python facade draws from Python's own generator and calls `sample_at`). Feature `khepri` (default): the `khepri` node. **Never `cargo fmt` this crate**: it would reformat the
     protected tests/fixtures.rs (C4 attempt 1 failed that way); `rustfmt --edition 2021 crates/icepool-harness/src/lib.rs`
     formats the runner alone (it follows `mod`s, so revert any unrelated file it touches elsewhere).
-  - The runner is a client of icepool-core: `icepool_core::{root, value, host, evaluator, expression}` plus the same
-    `#[doc(hidden)] pub mod`s the bindings still reach (again, expand, memory, format, to_pool, operator, ...;
-    task C3d, after C3b, moves it onto deliberate APIs). C5b only had to make public what was private: lexi.py's
+  - The runner is a client of icepool-core: `icepool_core::{root, value, host, evaluator, expression}` only (C3b
+    moved it, with the bindings and khepri, off the former hidden modules). C5b only had to make public what was private: lexi.py's
     helpers (`evaluator::lexi::compute_lexi_tuple*`, re-exported from the private `lexi`) and
     `Error::is_wrong_kind`. Never widen a private module for it.
   - icepool-core has **no features** (khepri's engine moved to crates/icepool-khepri in C2f). The
@@ -363,14 +363,36 @@ turns out wrong. Newest decisions at the top of each section.
     The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with
     `python-source` and `ICEPOOL_BACKEND` defaulting to rust is not done yet.
 
-- **Public Rust API (C3, design section 4).** Rest in C3b (bindings off the hidden modules) and C3c (Display for
+- **Bindings through deliberate APIs (C3b, design sections 4 and 5).** icepool-core has **no `#[doc(hidden)]`
+  modules left**: every module but `evaluator`, `expression`, `host`, `random`, `value` is a private `mod`. What
+  icepool-py, icepool-wasm, icepool-harness (the runner) and icepool-khepri need is re-exported, documented with an
+  example each, where it belongs; renamed where the bare name would mislead:
+  - `value` (binding building blocks, grouped by icepool file in value/mod.rs): `DieArg`, `Counts`,
+    `OrderedMerge`, `expand_args_for_die`; Again's `AgainExpression`, `AgainArg`, `StepOutcome`,
+    `evaluate_agains_using_depth/_count`, `step_outcomes`; `iter_cartesian_product`, `product_size`,
+    `cartesian_product_items`, `tupleize_dice`, `vectorize_dice`; `format_population` (was `format::format`),
+    `Formatted`, `common_outcome_length`, `format_probability_inverse`; `pointwise`, `sorted_union`, `coin_data`,
+    `consecutive`, `one_hot`, `weighted_lcm`; `highest_single`, `lowest_single`; `map_repeat`, `map_and_time`,
+    `absorbing_markov_chain`, `TransitionCache`, `MapState`, `Transition`; `explode_counts`,
+    `reroll_composition`; `check_public_attr`; `check_len`, `try_collect`, `try_repeat` (memory.rs).
+  - `evaluator`: `CompoundKeep`, `CompoundKeepSource`, `WeightlessSource`; keep tuples `KeepIndex`, `Slice`, `Tie`,
+    `lowest_slice`, `highest_slice`, `middle_slice`, `keep_tuple_keep` (was `keep_tuple::keep`),
+    `multiply_counts`, `list_len`.
+  - `expression`: `Operator`, `Statelet`, `BinaryOperator`, `CountFunction`, `KeepCountsComparison`,
+    `MultisetKeepIndex`, `OutcomeFilter`, `OutcomePredicate`.
+  - `host`: `Traverse`, `Owners`, `owned_hosts` (ownership.rs), `set_interrupt_check` (was `interrupt::set_check`).
+  - root: `try_d`, `try_z`. `DieArg` moved from the (hidden) root to `value`; the hidden `infallible` re-export and
+    `AgainOp` (typed Again's private op enum) are gone.
+  - **A binding (or the runner) that needs a core item adds a documented `pub use` in one of those modules**, never
+    a `pub mod`. missing_docs now covers everything visible, fields and variants too.
+
+- **Public Rust API (C3, design section 4).** Rest in C3b (done, above) and C3c (Display for
   Pool/Deck, Deck constructors, Again, statistics, doctests on evaluator/expression/value).
   - `lib.rs`: the crate docs are `crates/icepool-core/README.md` (the usage guide; its examples are doctests).
     `#![warn(missing_docs)]` is on, and clippy's `-D warnings` makes it an error: **every new visible public item
-    needs a doc comment**. Visible = the root re-exports and `pub mod evaluator / expression / value`. Modules the
-    bindings, `icepool-run` or the protected tests still reach are `#[doc(hidden)] pub mod` (missing_docs skips
-    hidden items, also items defined in a hidden module and re-exported at the root, which is why `pool`, `order`,
-    `error`, `deck`, `deal`, `multi_deal`, `die`, `outcome`, `int` are private `mod`s). The bindings reach the source
+    needs a doc comment**. Visible = the root re-exports and `pub mod evaluator / expression / host / random / value`. (missing_docs skips
+    `#[doc(hidden)]` items, also items defined in a hidden module and re-exported elsewhere: one more reason C3b
+    made every internal module private rather than hidden.) The bindings reach the source
     types through `icepool_core::evaluator::{Order, OrderReason, Count, MultisetSource, PoolSource, DealSource,
     MultiDealSource, HandGroup, Popped, SourcePopped}`, Deck's `Counter`/`CounterOp` through `value`, `Error`/`Result`
     at the root. `RUSTDOCFLAGS="-D warnings" cargo doc -p icepool-core --no-deps` must stay clean (no links to
@@ -444,7 +466,7 @@ turns out wrong. Newest decisions at the top of each section.
   - **khepri** is its own crate since C2f: `crates/icepool-khepri` (`publish = false`; deps icepool-core,
     serde_json, dashu-int, rustc-hash), `src/lib.rs` was core's `src/khepri.rs`, with tests/khepri_calculate.rs
     (+ json; it now runs in every `cargo test --workspace`, no feature). It is a client of icepool-core like the
-    runner, reaching the hidden `counts` and `keep_tuple` modules (C3d's list). Users: icepool-harness's `khepri`
+    runner, through `value::Counts` and `evaluator::{KeepIndex, highest_slice}` (C3b). Users: icepool-harness's `khepri`
     feature (default; `dep:icepool-khepri`, the runner's `khepri` node) and icepool-wasm's `khepri` feature
     (`calculate`; also a dev-dependency so its unit tests always build). icepool-core has **no features and no
     serde_json at all** now; check-production.sh fails if icepool-py or icepool-wasm (built alone) has
@@ -2113,7 +2135,7 @@ turns out wrong. Newest decisions at the top of each section.
     fail (rename to `try_x`, add `x` to the typed impl), else keep the core `Result`.
   - C1b: `grep -rn 'py_' crates/icepool-core/src --include='*.rs' | grep -v '^crates/icepool-core/src/value/'` is
     empty; keep it so. The Value-layer code that used Python's helpers moved into `value/`: `value/format.rs` and
-    `value/to_pool.rs` (whole files, still `#[doc(hidden)] pub`), `value/die.rs` (`cmp_die`, `mean_time_to_sum`,
+    `value/to_pool.rs` (whole files, private since C3b; their items re-exported from `value`), `value/die.rs` (`cmp_die`, `mean_time_to_sum`,
     `sign`), `value/statistics.rs` (`mean` .. `correlation`, `marginal*`), `value/function.rs` (`weighted_lcm`,
     `coin_data`, `consecutive`, `one_hot`); `py_min_max` is now `value::builtins::py_min_max`. Renamed, as not
     Python-only: `HostObject::{hash_value, try_len, try_repr, try_str}` (were `py_*`; wasm implements them too) and

@@ -28,7 +28,19 @@ thread_local! {
 }
 
 /// The host's check for an interrupt: the error it returns (e.g. `Error::Callback` holding a `KeyboardInterrupt`) stops
-/// the computation. Set once, by the Python facade.
+/// the computation. Set once, by the Python facade (later calls are ignored). Public as
+/// `host::set_interrupt_check`, for language bindings.
+///
+/// ```
+/// use icepool_core::host::set_interrupt_check;
+///
+/// // A host without signals to look at: nothing ever interrupts.
+/// fn never() -> icepool_core::Result<()> {
+///     Ok(())
+/// }
+/// set_interrupt_check(never);
+/// assert_eq!(icepool_core::d(6).sum_rolls(10).len(), 51);
+/// ```
 pub fn set_check(check: fn() -> Result<()>) {
     let _ = CHECK.set(check);
 }

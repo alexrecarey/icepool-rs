@@ -10,6 +10,13 @@ use crate::outcome::{Outcome, OutcomeOrder};
 
 /// `TransitionType` with the state it applies to. `TransitionType` is an `IntEnum` (`DEFAULT = 0`, `BREAK = 1`,
 /// `RESTART = 2`), so the variants are in that order.
+///
+/// ```
+/// use icepool_core::value::Transition;
+/// assert_eq!(Transition::new(true, 3), Transition::Break(3));
+/// assert!(Transition::Default(9) < Transition::Break(1)); // by type first, as Python's tuples
+/// assert_eq!(Transition::<i64>::Restart.state(), None);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Transition<S> {
     /// The process goes on from this state.
@@ -43,6 +50,14 @@ impl<S> Transition<S> {
 /// the transition dice built over it.
 ///
 /// Implemented for every [`Outcome`] (with [`Transition`] and tuples) and for `Value` (with Python's tuples).
+///
+/// ```
+/// use icepool_core::value::{MapState, Transition};
+/// // A typed state's transition dice have `Transition` outcomes.
+/// assert_eq!(<i64 as MapState>::transition(Transition::Break(3)), Transition::Break(3));
+/// assert_eq!(i64::read_transition(&Transition::Default(2)), Transition::Default(&2));
+/// assert_eq!(i64::with_time(Transition::Break(3), 2).unwrap(), (3, 2));
+/// ```
 pub trait MapState: OutcomeOrder {
     /// `(transition_type, state)`.
     type Transition: OutcomeOrder;

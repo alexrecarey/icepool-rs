@@ -7,6 +7,10 @@
 //!
 //! - icepool's `Vector` and `Symbols` are variants too (`vector.rs`, `symbols.rs`); objects of the host language
 //!   the core has no variant for are `Host` (`crate::host`).
+//!
+//! For language bindings, this module also holds the pieces icepool's Python methods are assembled from (die
+//! construction from `Die(...)` arguments, `Again` evaluation, cartesian products, formatting, `map(repeat=...)`,
+//! the free functions of function.py): a binding keeps Python's argument handling and calls these for the work.
 
 pub mod builtins;
 mod complex;

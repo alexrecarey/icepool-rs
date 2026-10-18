@@ -100,6 +100,19 @@ fn eliminate(rows: &mut [Row], i: usize, pivot_index: usize) {
 /// `Restart` was possible).
 ///
 /// `initial_die` is `Die([initial_state])`. Any state that leads only to itself is considered absorbing.
+///
+/// For language bindings (`map(repeat='inf')`, `mean_time_to_absorb`):
+///
+/// ```
+/// use icepool_core::value::{absorbing_markov_chain, TransitionCache};
+/// use icepool_core::{d, Die, Error, Mapped, Quantity, Ratio};
+/// // `map(lambda x: (x + d(2)).clip(None, 4), 3, repeat='inf')`: absorbed at 4 after one step.
+/// let step = |&x: &i64, _| Ok::<_, Error>(Mapped::Die((d(2) + x).clip(None, Some(&4))));
+/// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+/// let (die, mean_time) = absorbing_markov_chain(&mut cache, &Die::single(3)).unwrap();
+/// assert_eq!(die, Die::single(4));
+/// assert_eq!(mean_time, Some(Ratio::ONE));
+/// ```
 pub fn absorbing_markov_chain<S, F, E>(
     transition_cache: &mut TransitionCache<S, F>,
     initial_die: &Die<S>,

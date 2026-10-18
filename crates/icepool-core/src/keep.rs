@@ -11,6 +11,14 @@ use crate::Quantity;
 /// Roll all the dice and take the lowest single one (`_lowest_single`, at least one die, none empty).
 ///
 /// The maximum outcome is equal to the least maximum outcome among all input dice.
+///
+/// ```
+/// use icepool_core::value::lowest_single;
+/// use icepool_core::{d, Die};
+/// // The lower of a d4 and a d6.
+/// let lowest = lowest_single(&[d(4), d(6)]).unwrap();
+/// assert_eq!(lowest, Die::from_weights([(1, 9u32), (2, 7), (3, 5), (4, 3)]));
+/// ```
 pub fn lowest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let maxes = dice
         .iter()
@@ -37,6 +45,13 @@ pub fn lowest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
 /// Roll all the dice and take the highest single one (`_highest_single`, at least one die, none empty).
 ///
 /// The minimum outcome is equal to the greatest minimum outcome among all input dice.
+///
+/// ```
+/// use icepool_core::value::highest_single;
+/// use icepool_core::{d, Die};
+/// // The higher of two d2s.
+/// assert_eq!(highest_single(&[d(2), d(2)]).unwrap(), Die::from_weights([(1, 1u32), (2, 3)]));
+/// ```
 pub fn highest_single<O: OutcomeOrder>(dice: &[Die<O>]) -> Result<Die<O>> {
     let mins = dice
         .iter()

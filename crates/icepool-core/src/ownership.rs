@@ -24,11 +24,52 @@ use rustc_hash::FxHashMap;
 /// Implemented by every core value that can hold host objects: lists its `Arc` children ([`Owners::arc`]) and
 /// its host objects ([`Owners::host`]), each once per clone it holds. A field it leaves out only makes the walk
 /// report less, which is safe (see the module comment); one listed twice would report too much.
+///
+/// For language bindings: a binding's own containers implement it to hand their core values to [`owned_hosts`].
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::host::{owned_hosts, Owners, Traverse};
+///
+/// /// Holds one host object (here a `String`).
+/// struct Holder(Arc<String>);
+/// impl Traverse for Holder {
+///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+///         owners.host(&self.0, &*self.0);
+///     }
+/// }
+/// let holder = Holder(Arc::new("outcome".to_string()));
+/// assert_eq!(owned_hosts(&holder).len(), 1);
+/// ```
 pub trait Traverse {
+    /// Lists this value's `Arc` children and host objects into `owners`.
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>);
 }
 
 /// The graph of `Arc`s below a root, built by [`Traverse::traverse`].
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::host::{owned_hosts, Owners, Traverse};
+///
+/// /// Holds a list of host objects behind one `Arc`.
+/// struct Holder(Arc<Vec<Arc<String>>>);
+/// impl Traverse for Holder {
+///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+///         owners.arc_with(&self.0, |owners, list| {
+///             for object in list {
+///                 owners.host(object, &**object);
+///             }
+///         });
+///     }
+/// }
+/// let shared = Arc::new("shared".to_string());
+/// let holder = Holder(Arc::new(vec![Arc::new("own".to_string()), shared.clone()]));
+/// // `shared` is also held outside the holder, so only the other object is the holder's alone.
+/// let owned = owned_hosts(&holder);
+/// assert_eq!(owned.len(), 1);
+/// assert_eq!(owned[0].downcast_ref::<String>().unwrap(), "own");
+/// ```
 pub struct Owners<'a> {
     nodes: Vec<Node<'a>>,
     /// Node index by `Arc` pointer: each `Arc` is one node however many clones of it are held.
@@ -89,7 +130,26 @@ impl<'a> Owners<'a> {
     }
 }
 
-/// The host objects `root` alone owns (see the module comment), each once.
+/// The host objects `root` alone owns, each once. A host object whose `Arc` (or any `Arc` on the way to it) is
+/// also held from outside `root` is not reported: reporting a shared one to a cycle collector could free an
+/// object still in use, while reporting too little only leaks a cycle.
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::host::{owned_hosts, Owners, Traverse};
+///
+/// struct Holder(Arc<String>);
+/// impl Traverse for Holder {
+///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+///         owners.host(&self.0, &*self.0);
+///     }
+/// }
+/// let holder = Holder(Arc::new("outcome".to_string()));
+/// assert_eq!(owned_hosts(&holder).len(), 1);
+/// let elsewhere = holder.0.clone();
+/// assert!(owned_hosts(&holder).is_empty());
+/// # drop(elsewhere);
+/// ```
 pub fn owned_hosts<T: Traverse + ?Sized>(root: &T) -> Vec<&dyn Any> {
     let mut owners = Owners {
         nodes: vec![Node {

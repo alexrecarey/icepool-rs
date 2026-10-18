@@ -44,7 +44,7 @@ pub fn z(sides: i64) -> Die<i64> {
 /// is less than 1. (Python's `TypeError` for a non-`int` `sides` is the facade's job.)
 ///
 /// ```
-/// use icepool_core::{function::try_d, Die, Value};
+/// use icepool_core::{try_d, Die, Value};
 /// let d6: Die<Value> = try_d(6).unwrap();
 /// assert_eq!(d6.len(), 6);
 /// assert_eq!(try_d::<i64>(0).unwrap_err().to_string(), "sides must be at least 1.");
@@ -67,6 +67,12 @@ pub fn try_d<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
 /// An outcome keeps the spelling of the first argument that has it (`set.union` adds later equal elements to the
 /// copy of the first set as no-ops). Python sorts the set in hash order, the port in first-seen order: the same
 /// result whenever the outcomes are totally ordered (see NOTES.md for the NaN / partially comparable gap).
+///
+/// ```
+/// use icepool_core::value::sorted_union;
+/// let union = sorted_union([&[3, 1][..], &[2, 3][..]]).unwrap();
+/// assert_eq!(union, [1, 2, 3]);
+/// ```
 pub fn sorted_union<'a, O, I>(args: impl IntoIterator<Item = I>) -> Result<Vec<O>>
 where
     O: OutcomeOrder + 'a,
@@ -87,7 +93,7 @@ where
 /// [`z`] for any outcome type made from an `i64`, as a `Result` (see [`try_d`]).
 ///
 /// ```
-/// use icepool_core::{function::try_z, Die};
+/// use icepool_core::{try_z, Die};
 /// let z6: Die<i64> = try_z(6).unwrap();
 /// assert_eq!(z6.outcomes().next(), Some(&0));
 /// ```
@@ -110,6 +116,17 @@ pub fn try_z<O: OutcomeOrder + From<i64>>(sides: i64) -> Result<Die<O>> {
 /// among the arguments (equivalently, any quantile in the result is the highest of that quantile among the
 /// arguments). So its cumulative quantity `<=` each outcome is the *least* of the dice's; pointwise_min takes the
 /// greatest. Each die's cumulative quantities never decrease, so neither do their min / max.
+///
+/// ```
+/// use icepool_core::value::pointwise;
+/// use icepool_core::{d, Die};
+/// // d4 and d6 harmonized to the denominator 12 first.
+/// let d4 = Die::from_weights((1..=4).map(|i| (i, 3u32)));
+/// let d6 = Die::from_weights((1..=6).map(|i| (i, 2u32)));
+/// assert_eq!(pointwise(&[d4.clone(), d6.clone()], true).unwrap(), d6);
+/// assert_eq!(pointwise(&[d4.clone(), d6], false).unwrap(), d4);
+/// # let _ = d(1);
+/// ```
 pub fn pointwise<O: OutcomeOrder>(dice: &[Die<O>], max: bool) -> Result<Die<O>> {
     let outcomes = sorted_union(dice.iter().map(Die::outcomes))?;
     let mut cumulative = Vec::with_capacity(outcomes.len());

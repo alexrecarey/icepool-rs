@@ -6,6 +6,14 @@ use crate::pool::Count;
 use crate::Int;
 
 /// The `MultisetBinaryOperator` subclasses. Given more than two children, the counts are `reduce`d.
+///
+/// ```
+/// use icepool_core::expression::BinaryOperator;
+///
+/// assert_eq!(BinaryOperator::AdditiveUnion.symbol(), "+");
+/// // Both differences print as `-`.
+/// assert_eq!(BinaryOperator::DifferenceKeepNegative.symbol(), "-");
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
     /// `MultisetIntersection`, `&`: `min(left, right)`.

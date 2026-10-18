@@ -46,6 +46,14 @@ impl FormatOutcome for Value {
 /// integer. Otherwise it be formatted as a float with precision at least 1 part in `int_start`.
 ///
 /// Every step is Python's operator on the given objects (`Value::binary`), so any number type behaves as there.
+///
+/// ```
+/// use icepool_core::value::format_probability_inverse;
+/// use icepool_core::Value;
+/// let ten = Value::from(10);
+/// assert_eq!(format_probability_inverse(&Value::Float(0.25), &ten).unwrap(), "1 in 4.0");
+/// assert_eq!(format_probability_inverse(&Value::from(0), &ten).unwrap(), "n/a");
+/// ```
 pub fn format_probability_inverse(probability: &Value, int_start: &Value) -> Result<String> {
     let max_precision = float_ceil(math_log10(int_start)?)?;
     let cmp = |op, x: &Value, y: i64| -> Result<bool> { x.binary(op, &Value::from(y))?.truthy() };

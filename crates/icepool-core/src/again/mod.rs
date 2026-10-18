@@ -46,27 +46,60 @@ fn descend<T, E: From<Error>>(
 }
 
 /// An expression indicating that the die should be rolled again (`AgainExpression`).
+///
+/// For language bindings, whose `Again` this is: `F` is the binding's operation, `L` its object type. Typed dice
+/// use [`Again`](crate::Again) instead.
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::value::{AgainArg, AgainExpression};
+/// // `Again + 10`, with `char` operations over `i64` objects.
+/// let again = Arc::new(AgainExpression::Again { is_additive: true });
+/// let plus_ten: AgainExpression<char, i64> = AgainExpression::Apply {
+///     function: '+',
+///     args: vec![AgainArg::Again(again), AgainArg::Other(10)],
+///     is_additive: true,
+/// };
+/// assert!(matches!(plus_ten, AgainExpression::Apply { function: '+', .. }));
+/// ```
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum AgainExpression<F, L> {
     /// An expression without a function: represents the again roll directly. The `Again` symbol is
     /// `AgainExpression(is_additive=True)`; one made by hand as `AgainExpression()` is not additive, and count mode
     /// rejects it like any other non-additive expression (only the top-level flag is ever checked).
-    Again { is_additive: bool },
+    Again {
+        /// Whether the expression is compatible with `again_count`.
+        is_additive: bool,
+    },
     /// `function(*args)`, where any args that are themselves `Again` expressions resolve first. These are
     /// considered to be at the same level for purposes of `again_depth`. `is_additive`: whether the expression is
     /// compatible with `again_count`; the facade sets it as the Python dunder that built the expression would
     /// (`+` of additive expressions, `x @ Again` for a non-negative `x`; see `AgainExpression`).
     Apply {
+        /// The operation (Python's `operator.add` & co.), applied by the facade's `apply`.
         function: F,
+        /// Its arguments, in order.
         args: Vec<AgainArg<F, L>>,
+        /// Whether the expression is compatible with `again_count`.
         is_additive: bool,
     },
 }
 
 /// One argument of an `AgainExpression::Apply`: another expression, or any other object, passed as-is.
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::value::{AgainArg, AgainExpression};
+/// // The outcomes of `Die([1, Again])`.
+/// let outcomes: Vec<AgainArg<char, i64>> =
+///     vec![AgainArg::Other(1), AgainArg::Again(Arc::new(AgainExpression::Again { is_additive: true }))];
+/// assert!(matches!(outcomes[0], AgainArg::Other(1)));
+/// ```
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum AgainArg<F, L> {
+    /// An `Again` expression.
     Again(Arc<AgainExpression<F, L>>),
+    /// Any other object (an outcome, a die, `Reroll`).
     Other(L),
 }
 
@@ -141,6 +174,38 @@ impl<F, L: Clone> AgainExpression<F, L> {
 /// replaces `Again` with the die built by the level below: `Die(outcomes, times, again_depth=0, again_end=tail)`.
 ///
 /// `die` builds `Die(objects, times)` from one object per outcome; `apply` applies one operation.
+///
+/// For language bindings (typed dice: [`Die::with_again_depth`](crate::Die::with_again_depth)):
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::value::{evaluate_agains_using_depth, AgainArg, AgainExpression, DieArg};
+/// use icepool_core::{Die, Error, Quantity};
+/// // `Die([1, 2, Again + 10], again_depth=1, again_end=0)`, the objects being `DieArg<i64>`s.
+/// let again = Arc::new(AgainExpression::Again { is_additive: true });
+/// let plus_ten = AgainExpression::Apply {
+///     function: '+',
+///     args: vec![AgainArg::Again(again), AgainArg::Other(DieArg::Outcome(10))],
+///     is_additive: true,
+/// };
+/// let outcomes = vec![
+///     AgainArg::Other(DieArg::Outcome(1)),
+///     AgainArg::Other(DieArg::Outcome(2)),
+///     AgainArg::Again(Arc::new(plus_ten)),
+/// ];
+/// let die = |objects| Die::new(objects, vec![Quantity::ONE; 3]).map(DieArg::Die);
+/// let add = |_: &char, args: Vec<DieArg<i64>>| -> Result<DieArg<i64>, Error> {
+///     Ok(match (&args[0], &args[1]) {
+///         (DieArg::Outcome(a), DieArg::Outcome(b)) => DieArg::Outcome(a + b),
+///         (DieArg::Die(a), DieArg::Outcome(b)) => DieArg::Die(a + *b),
+///         _ => unreachable!("only `Again + 10` here"),
+///     })
+/// };
+/// let end = DieArg::Outcome(0);
+/// let result = evaluate_agains_using_depth(&outcomes, 1, Some(&end), &DieArg::Reroll, die, add).unwrap();
+/// let DieArg::Die(result) = result else { unreachable!() };
+/// assert_eq!(result, Die::from_weights([(1, 3u32), (2, 3), (11, 1), (12, 1), (20, 1)]));
+/// ```
 pub fn evaluate_agains_using_depth<F, L: Clone, E: From<Error>>(
     outcomes: &[AgainArg<F, L>],
     again_depth: u64,
@@ -177,18 +242,58 @@ pub fn evaluate_agains_using_depth<F, L: Clone, E: From<Error>>(
 
 /// One element of count mode's step die before the facade tupleizes it (`make_step_outcome`, "add_flat,
 /// add_not_again, add_again").
+///
+/// For language bindings: what [`step_outcomes`](crate::value::step_outcomes) hands its `make` callback.
+///
+/// ```
+/// use icepool_core::value::StepOutcome;
+/// let step: StepOutcome<i64> = StepOutcome::Again { flat: 3, count: 1 };
+/// assert!(matches!(step, StepOutcome::Again { flat: 3, .. }));
+/// ```
 pub enum StepOutcome<L> {
     /// Any outcome that is not an `Again` expression (a `Reroll` or a die too, as in Python):
     /// `tupleize(zero, 1, -1)`.
     NotAgain,
     /// An additive expression: `tupleize(flat, 0, count - 1)`, with `flat = outcome._evaluate(zero)` and
     /// `count = outcome._again_count()`.
-    Again { flat: L, count: L },
+    Again {
+        /// The expression evaluated with `zero` in place of `Again`.
+        flat: L,
+        /// How many `Again`s it holds (`_again_count`).
+        count: L,
+    },
 }
 
 /// `[make_step_outcome(outcome) for outcome in outcomes]` of `evaluate_agains_using_count`: `zero` is the
 /// not-again die's zero outcome (what `Again` evaluates to), `one` and `nought` the ints `_again_count` counts
 /// with. `make` tupleizes each one, in order, as Python does.
+///
+/// For language bindings:
+///
+/// ```
+/// use std::sync::Arc;
+/// use icepool_core::value::{step_outcomes, AgainArg, AgainExpression, BinOp, StepOutcome};
+/// use icepool_core::{Error, Value};
+/// // The step outcomes of `Die([1, 3 + Again])`.
+/// let again = Arc::new(AgainExpression::Again { is_additive: true });
+/// let three_plus = AgainExpression::Apply {
+///     function: BinOp::Add,
+///     args: vec![AgainArg::Other(Value::from(3)), AgainArg::Again(again)],
+///     is_additive: true,
+/// };
+/// let outcomes = [AgainArg::Other(Value::from(1)), AgainArg::Again(Arc::new(three_plus))];
+/// let apply = |op: &BinOp, args: Vec<Value>| args[0].binary(*op, &args[1]);
+/// let make = |step| -> Result<Value, Error> {
+///     Ok(match step {
+///         StepOutcome::NotAgain => Value::tuple(vec![Value::from(0), Value::from(1), Value::from(-1)]),
+///         StepOutcome::Again { flat, count } => Value::tuple(vec![flat, Value::from(0), count]),
+///     })
+/// };
+/// let (zero, one, nought) = (Value::from(0), Value::from(1), Value::from(0));
+/// let steps = step_outcomes(&outcomes, &zero, &one, &nought, apply, make).unwrap();
+/// let three = Value::tuple(vec![Value::from(3), Value::from(0), Value::from(1)]);
+/// assert_eq!(steps[1], three); // flat 3, one `Again`
+/// ```
 pub fn step_outcomes<F, L: Clone, E: From<Error>>(
     outcomes: &[AgainArg<F, L>],
     zero: &L,
@@ -272,6 +377,24 @@ fn step(state: &Value, roll: &Value, repeat: &Value, restart: bool) -> Result<St
 /// pending. After `again_count + 1` steps, the result is `flat + not_again @ not_again_die + again @
 /// again_end_die`: pending rolls past the limit count as `again_end`. With `Restart`, any state whose rolls could
 /// pass the limit restarts the whole roll instead. `matmul` is the facade's `n @ die` (Python types of `n`).
+///
+/// For language bindings (typed dice: [`Die::with_again_count`](crate::Die::with_again_count)):
+///
+/// ```
+/// use icepool_core::value::{evaluate_agains_using_count, matmul_dice};
+/// use icepool_core::{Die, Error, Quantity, Value};
+/// let int = |i: i64| Value::from(i);
+/// let die = |outcomes: Vec<Value>| Die::from_dict(outcomes.into_iter().map(|o| (o, Quantity::ONE)).collect());
+/// let step = |flat, not_again, again| Value::tuple(vec![int(flat), int(not_again), int(again)]);
+/// // `Die([1, 2, 3 + Again], again_count=1)`: the step die of `step_outcomes`, tupleized.
+/// let step_die = die(vec![step(0, 1, -1), step(0, 1, -1), step(3, 0, 0)]).unwrap();
+/// let not_again_die = die(vec![int(1), int(2)]).unwrap();
+/// let again_end_die = die(vec![int(0)]).unwrap();
+/// let matmul = |n: &Value, d: &Die<Value>| -> Result<Die<Value>, Error> { matmul_dice(&die(vec![n.clone()])?, d) };
+/// let result = evaluate_agains_using_count(&step_die, &not_again_die, &int(0), 1, Some(&again_end_die), matmul);
+/// let expected = [(1, 3u8), (2, 3), (4, 1), (5, 1), (6, 1)].map(|(o, q)| (int(o), Quantity::from(q)));
+/// assert_eq!(result.unwrap(), Die::from_dict(expected.to_vec()).unwrap());
+/// ```
 pub fn evaluate_agains_using_count<E: From<Error>>(
     step_die: &Die<Value>,
     not_again_die: &Die<Value>,

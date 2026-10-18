@@ -35,6 +35,16 @@ fn index_arg(x: &Value) -> Result<IBig> {
 /// Python zips the weights with the denominators twice, once for the lcm and once for the results: `weights` is
 /// what the first `zip` takes, `weights_again` what the second does (the same for a sequence; for an iterator the
 /// second pass gets what the first left, often nothing).
+///
+/// ```
+/// use icepool_core::value::weighted_lcm;
+/// use icepool_core::{Quantity, Value};
+/// // A d4 and a d6, equally weighted: scale them to 12.
+/// let denominators = [Quantity::from(4u8), Quantity::from(6u8)];
+/// let weights = [Value::from(1), Value::from(1)];
+/// let factors = weighted_lcm(&denominators, &weights, &weights).unwrap();
+/// assert_eq!(factors, [Value::from(3), Value::from(2)]);
+/// ```
 pub fn weighted_lcm(
     denominators: &[Quantity],
     weights: &[Value],
@@ -69,6 +79,13 @@ pub fn weighted_lcm(
 /// The data of `coin(n, d)` once `n` and `d` are known (a non-`int` numerator has already become a `Fraction`'s
 /// numerator and denominator): `{False: min(d - n, d)}` if `n < d`, then `True: min(n, d)` if `n > 0`, as Python
 /// `Value`s for `Die(data)` to check (a non-`int` `d` makes non-`int` quantities, which it refuses).
+///
+/// ```
+/// use icepool_core::value::coin_data;
+/// use icepool_core::Value;
+/// let data = coin_data(&Value::from(1), &Value::from(3)).unwrap();
+/// assert_eq!(data, [(Value::Bool(false), Value::from(2)), (Value::Bool(true), Value::from(1))]);
+/// ```
 pub fn coin_data(n: &Value, d: &Value) -> Result<Vec<(Value, Value)>> {
     let mut data = Vec::new();
     if n.binary(BinOp::Lt, d)?.truthy()? {
@@ -90,6 +107,15 @@ const MAX_RANGE: usize = 1 << 20;
 ///
 /// Python chains the arguments twice, once for `min(..., default=None)` and once for `max`: `first` and `second`
 /// are what each chain yields (an iterator argument is exhausted by the first, so the second `max` may raise).
+///
+/// ```
+/// use icepool_core::value::consecutive;
+/// use icepool_core::Value;
+/// let all = vec![Value::from(4), Value::from(2)];
+/// let ints = |r: std::ops::RangeInclusive<i64>| Value::tuple(r.map(Value::from).collect());
+/// assert_eq!(consecutive(all.clone(), all).unwrap(), ints(2..=4));
+/// assert_eq!(consecutive(vec![], vec![]).unwrap(), Value::tuple(vec![]));
+/// ```
 pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
     if first.is_empty() {
         return Ok(Value::tuple(vec![]));
@@ -124,6 +150,15 @@ pub fn consecutive(first: Vec<Value>, second: Vec<Value>) -> Result<Value> {
 /// `False`. This is an easy (if somewhat expensive) way of representing how many dice in a pool rolled each
 /// number: the outcomes of `10 @ one_hot(6)` are the `(ones, twos, threes, fours, fives, sixes)` rolled in 10d6.
 /// `range(sides)` takes any index (an empty range gives the empty die).
+///
+/// ```
+/// use icepool_core::value::{one_hot, Vector};
+/// use icepool_core::Value;
+/// let die = one_hot(&Value::from(3)).unwrap();
+/// assert_eq!(die.len(), 3);
+/// let first = Value::Vector(Vector::new(vec![Value::Bool(false), Value::Bool(false), Value::Bool(true)]));
+/// assert_eq!(die.min_outcome().unwrap(), &first);
+/// ```
 pub fn one_hot(sides: &Value) -> Result<Die<Value>> {
     let sides = index_arg(sides)?;
     if sides > IBig::from(4096) {

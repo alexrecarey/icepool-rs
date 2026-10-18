@@ -9,22 +9,59 @@ use crate::Int;
 /// The function of `MultisetMapCounts`: takes `outcome, *counts` and produces a combined count. Python's is any
 /// callable (a host callback for the facade), given `int` or tuple counts; a result that is neither an `int` nor
 /// a tuple of them is `Unsupported`.
+///
+/// ```
+/// use icepool_core::evaluator::Count;
+/// use icepool_core::expression::CountFunction;
+/// use icepool_core::{Int, Result};
+///
+/// /// `lambda outcome, a, b: a + b`, for counts that are ints.
+/// struct Total;
+/// impl CountFunction<i64> for Total {
+///     fn call(&self, _outcome: &i64, counts: &[Count]) -> Result<Count> {
+///         let total = counts.iter().map(|c| match c {
+///             Count::Int(n) => n.clone(),
+///             Count::Tuple(_) => Int::ZERO,
+///         });
+///         Ok(Count::Int(total.sum()))
+///     }
+/// }
+/// let counts = [Count::Int(Int::from(1)), Count::Int(Int::from(2))];
+/// assert_eq!(Total.call(&6, &counts).unwrap(), Count::Int(Int::from(3)));
+/// ```
 pub trait CountFunction<O> {
+    /// `function(outcome, *counts)`.
     fn call(&self, outcome: &O, counts: &[Count]) -> Result<Count>;
 }
 
 /// The comparison of `MultisetKeepCounts` (the constructor raises `ValueError` for any other string).
+///
+/// ```
+/// use icepool_core::expression::KeepCountsComparison;
+///
+/// let comparison = KeepCountsComparison::parse(">=").unwrap();
+/// assert_eq!(comparison, KeepCountsComparison::Ge);
+/// assert_eq!(comparison.symbol(), ">=");
+/// assert!(KeepCountsComparison::parse("=>").is_err());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum KeepCountsComparison {
+    /// `'=='`.
     Eq,
+    /// `'!='`.
     Ne,
+    /// `'<='`.
     Le,
+    /// `'<'`.
     Lt,
+    /// `'>='`.
     Ge,
+    /// `'>'`.
     Gt,
 }
 
 impl KeepCountsComparison {
+    /// The constructor's reading of the `comparison` string: `ValueError` for anything but the six comparisons.
     pub fn parse(comparison: &str) -> Result<Self> {
         Ok(match comparison {
             "==" => KeepCountsComparison::Eq,

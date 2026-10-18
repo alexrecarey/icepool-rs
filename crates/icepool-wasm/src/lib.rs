@@ -15,7 +15,8 @@
 //! `IcepoolError` ("PanicException", as the Python facade raises). Call `run` / `calculate` through wasm.ts's
 //! wrappers of the same name (or recover.mjs's, as run-wasm.mjs and test-calculate.mjs do), not raw, to get that
 //! recovery. Sizes from user input are
-//! checked before allocating (`icepool_core::memory`), so huge inputs are a `MemoryError`, not a trap.
+//! checked before allocating (`icepool_core::value::{check_len, try_repeat}`), so huge inputs are a `MemoryError`,
+//! not a trap.
 
 mod api;
 mod facade;

@@ -6,6 +6,18 @@ use crate::outcome::{self, OutcomeOrder};
 use crate::Quantity;
 
 /// Sorted `(outcome, quantity)` items, exactly as icepool's `Counts` keeps them. Zero quantities are kept.
+///
+/// For language bindings: the data of a die or deck (`Die::from_counts`), built once the binding has unpacked
+/// Python's arguments.
+///
+/// ```
+/// use icepool_core::value::Counts;
+/// use icepool_core::{Die, Quantity};
+/// let q = Quantity::from;
+/// let counts = Counts::new(vec![(3, q(1u8)), (1, q(2u8)), (3, q(1u8))]).unwrap();
+/// assert_eq!(counts.items(), &[(1, q(2u8)), (3, q(2u8))]);
+/// assert_eq!(Die::from_counts(counts), Die::from_weights([(1, 2u32), (3, 2)]));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Counts<O> {
     items: Vec<(O, Quantity)>,
@@ -46,14 +58,17 @@ impl<O: OutcomeOrder> Counts<O> {
         Counts { items }
     }
 
+    /// The `(outcome, quantity)` items, in ascending order of the outcomes.
     pub fn items(&self) -> &[(O, Quantity)] {
         &self.items
     }
 
+    /// The number of outcomes (zero quantities included).
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    /// Whether there are no outcomes at all.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -66,6 +81,18 @@ impl<O: OutcomeOrder> Counts<O> {
 
 /// A Python `defaultdict(int)` keyed by outcome: `add` is `data[outcome] += quantity`. Iteration is in insertion
 /// order and an outcome equal to an earlier one (e.g. `1` after `True`) adds to it, keeping the earlier key.
+///
+/// ```
+/// use icepool_core::value::OrderedMerge;
+/// use icepool_core::{Quantity, Value};
+/// let q = Quantity::from;
+/// let mut merge = OrderedMerge::default();
+/// merge.add(Value::Bool(true), q(1u8));
+/// merge.add(Value::from(2), q(1u8));
+/// merge.add(Value::from(1), q(3u8)); // `1 == True`: adds to `True`
+/// let expected = vec![(Value::Bool(true), q(4u8)), (Value::from(2), q(1u8))];
+/// assert_eq!(merge.into_items(), expected);
+/// ```
 #[derive(Debug)]
 pub struct OrderedMerge<O> {
     index: FxHashMap<O, usize>,
@@ -82,6 +109,7 @@ impl<O: OutcomeOrder> Default for OrderedMerge<O> {
 }
 
 impl<O: OutcomeOrder> OrderedMerge<O> {
+    /// `data[outcome] += quantity`.
     pub fn add(&mut self, outcome: O, quantity: Quantity) {
         match self.index.get(&outcome) {
             Some(&i) => self.items[i].1 += quantity,
@@ -92,6 +120,7 @@ impl<O: OutcomeOrder> OrderedMerge<O> {
         }
     }
 
+    /// The merged items, in the order their outcomes were first added.
     pub fn into_items(self) -> Vec<(O, Quantity)> {
         self.items
     }

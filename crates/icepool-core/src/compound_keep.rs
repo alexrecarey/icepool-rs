@@ -23,7 +23,22 @@ use crate::pool::{Count, MultisetSource, Popped, Product};
 use crate::value::recursion::level;
 use crate::{Int, Quantity};
 
-/// `CompoundKeepGenerator(inners, keep_tuple)`.
+/// `CompoundKeepGenerator(inners, keep_tuple)`. For language bindings, whose `pool + pool` (of keep generators)
+/// builds one.
+///
+/// ```
+/// use icepool_core::evaluator::{CompoundKeep, KeepIndex, MultisetSource, Slice};
+/// use icepool_core::{d, Int};
+///
+/// // `d6.pool(2) + d4.pool(1)`, then the highest two of the three dice.
+/// let inners = vec![MultisetSource::Pool(d(6).pool(2).source()), MultisetSource::Pool(d(4).pool(1).source())];
+/// let all = CompoundKeep::new(inners, vec![Int::ONE; 3]);
+/// let index = KeepIndex::Slice { slice: Slice::new(Some(-2), None), step: false };
+/// let highest = all.keep(&index).unwrap();
+/// assert_eq!(highest.keep_tuple(), [Int::ZERO, Int::ONE, Int::ONE]);
+/// assert_eq!(highest.keep_size(), Int::from(2));
+/// assert_eq!(highest.source().unwrap().outcomes().unwrap(), [1, 2, 3, 4, 5, 6]);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CompoundKeep<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
@@ -45,10 +60,12 @@ impl<O: OutcomeOrder> CompoundKeep<O> {
         }
     }
 
+    /// The keep tuple over the elements of all the inner generators together, in ascending order of the rolls.
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
+    /// The sources of the inner generators.
     pub fn inner_sources(&self) -> &[MultisetSource<O>] {
         &self.inner_sources
     }
@@ -58,6 +75,7 @@ impl<O: OutcomeOrder> CompoundKeep<O> {
         sum_counts(&self.keep_tuple)
     }
 
+    /// Whether any count of the keep tuple is negative.
     pub fn has_negative_keeps(&self) -> bool {
         self.keep_tuple.iter().any(Int::is_negative)
     }
@@ -88,6 +106,18 @@ impl<O: OutcomeOrder> CompoundKeep<O> {
 
 /// `CompoundKeepSource`. Equality and hashing follow its `hash_key` `(CompoundKeepSource, inner_sources,
 /// keep_tuple)`.
+///
+/// ```
+/// use icepool_core::evaluator::{CompoundKeep, MultisetSource};
+/// use icepool_core::{d, Int};
+///
+/// // `d6.pool(1) + d6.pool(1)`, keeping both.
+/// let inner = || MultisetSource::Pool(d(6).pool(1).source());
+/// let source = CompoundKeep::new(vec![inner(), inner()], vec![Int::ONE; 2]).source().unwrap();
+/// assert_eq!(source.size(), Some(Int::from(2)));
+/// assert!(source.is_resolvable().unwrap());
+/// assert_eq!(source.inner_sources().len(), 2);
+/// ```
 #[derive(Clone, Debug)]
 pub struct CompoundKeepSource<O> {
     inner_sources: Arc<[MultisetSource<O>]>,
@@ -130,6 +160,7 @@ impl<O: OutcomeOrder> CompoundKeepSource<O> {
         })
     }
 
+    /// `outcomes()`: the sorted union of the inner sources' outcomes.
     pub fn outcomes(&self) -> Result<&[O]> {
         if let Some(outcomes) = self.outcomes.get() {
             return Ok(outcomes);
@@ -144,10 +175,12 @@ impl<O: OutcomeOrder> CompoundKeepSource<O> {
         Ok(self.outcomes.get_or_init(|| outcomes.into()))
     }
 
+    /// The keep tuple over the elements of all the inner sources together, in ascending order of the rolls.
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
+    /// The inner sources.
     pub fn inner_sources(&self) -> &[MultisetSource<O>] {
         &self.inner_sources
     }
@@ -160,6 +193,7 @@ impl<O: OutcomeOrder> CompoundKeepSource<O> {
         Some(sum_counts(&self.keep_tuple))
     }
 
+    /// `is_resolvable()`: whether every inner source is.
     pub fn is_resolvable(&self) -> Result<bool> {
         let _level = level()?;
         for source in self.inner_sources.iter() {

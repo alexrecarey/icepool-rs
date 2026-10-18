@@ -16,6 +16,19 @@ use crate::pool::{Count, MultisetSource, SourcePopped};
 use crate::Quantity;
 
 /// `WeightlessSource(wrapped)`. Equal (and hashed) as Python's `hash_key` `(WeightlessSource, wrapped.hash_key)`.
+/// For language bindings, whose `generator.weightless()` makes one from the generator's source.
+///
+/// ```
+/// use icepool_core::evaluator::{MultisetSource, Order, WeightlessSource};
+/// use icepool_core::{d, Quantity};
+///
+/// let source = WeightlessSource::new(MultisetSource::Pool(d(6).pool(2).source()));
+/// assert_eq!(source.outcomes().unwrap(), [1, 2, 3, 4, 5, 6]);
+/// // Popping the 6s: none, one or both of the two dice, each with weight 1.
+/// let popped = source.pop(Order::Descending, &6).unwrap();
+/// assert_eq!(popped.len(), 3);
+/// assert!(popped.iter().all(|(_, _, weight)| *weight == Quantity::ONE));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WeightlessSource<O> {
     wrapped: Arc<MultisetSource<O>>,
@@ -28,16 +41,19 @@ impl<O: OutcomeOrder + Traverse> Traverse for WeightlessSource<O> {
 }
 
 impl<O: OutcomeOrder> WeightlessSource<O> {
+    /// The weightless form of `wrapped`.
     pub fn new(wrapped: MultisetSource<O>) -> Self {
         WeightlessSource {
             wrapped: Arc::new(wrapped),
         }
     }
 
+    /// The wrapped source.
     pub fn wrapped(&self) -> &MultisetSource<O> {
         &self.wrapped
     }
 
+    /// The wrapped source's outcomes.
     pub fn outcomes(&self) -> Result<&[O]> {
         self.wrapped.outcomes()
     }
@@ -69,14 +85,17 @@ impl<O: OutcomeOrder> WeightlessSource<O> {
             .collect())
     }
 
+    /// The wrapped source's size.
     pub fn size(&self) -> Result<Option<Count>> {
         self.wrapped.size()
     }
 
+    /// The wrapped source's order preference.
     pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
         self.wrapped.order_preference()
     }
 
+    /// Whether the wrapped source is resolvable.
     pub fn is_resolvable(&self) -> Result<bool> {
         self.wrapped.is_resolvable()
     }

@@ -522,7 +522,7 @@ fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 #[pymodule]
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     icepool_core::value::recursion::set_frame_budget(convert::frame_budget);
-    // Ctrl-C during a long computation (`icepool_core::interrupt`).
+    // Ctrl-C during a long computation (`icepool_core::host::set_interrupt_check`).
     icepool_core::host::set_interrupt_check(convert::check_signals);
     // PyO3 guards every entry point with `catch_unwind`: a panic in the core (a bug) unwinds to it and is raised as
     // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's

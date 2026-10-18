@@ -8,13 +8,23 @@ use crate::error::{Error, Result};
 use crate::Int;
 
 /// A Python slice `start:stop` (step must be `None`: see `KeepIndex::Slice`).
+///
+/// ```
+/// use icepool_core::evaluator::Slice;
+///
+/// // `[-2:]` of 5 elements is `[3:5]`.
+/// assert_eq!(Slice::new(Some(-2), None).canonical(5), (3, 5));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slice {
+    /// The start, `None` for none.
     pub start: Option<i64>,
+    /// The stop, `None` for none.
     pub stop: Option<i64>,
 }
 
 impl Slice {
+    /// `slice(start, stop)`.
     pub fn new(start: Option<i64>, stop: Option<i64>) -> Self {
         Slice { start, stop }
     }
@@ -47,12 +57,27 @@ impl Slice {
 }
 
 /// The argument of `KeepGenerator.keep` / `pool[index]`.
+///
+/// ```
+/// use icepool_core::evaluator::{keep_tuple_keep, KeepIndex};
+/// use icepool_core::Int;
+///
+/// // `pool[..., 1, 1]`: the highest two of three dice.
+/// let index = KeepIndex::Seq(vec![None, Some(Int::ONE), Some(Int::ONE)]);
+/// let keep_tuple = keep_tuple_keep(&[Int::ONE; 3], &index).unwrap();
+/// assert_eq!(keep_tuple, [Int::ZERO, Int::ONE, Int::ONE]);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeepIndex {
     /// An `int`: only the roll at that index counts, and the result is a `Die` rather than a generator.
     Int(i64),
-    /// A `slice`: the selected dice are counted once each. `step` is whether a step was given (never supported).
-    Slice { slice: Slice, step: bool },
+    /// A `slice`: the selected dice are counted once each.
+    Slice {
+        /// The slice.
+        slice: Slice,
+        /// Whether a step was given (never supported).
+        step: bool,
+    },
     /// A sequence of one count per die, `None` standing for at most one `...` (`Ellipsis`).
     Seq(Vec<Option<Int>>),
 }
@@ -201,6 +226,18 @@ pub fn compose_keep_tuples(base: &[Int], apply: &[Int]) -> Vec<Int> {
 /// `KeepGenerator.keep` on a keep tuple: the keep tuple for `index` relative to the elements counted so far,
 /// composed on top of `keep_tuple`. If any of the current counts are negative, Python falls back to the
 /// less-capable `MultisetExpression` version and the result is not a keep generator: not ported yet.
+///
+/// Public as `evaluator::keep_tuple_keep`, for language bindings (a pool's or compound keep's `keep`).
+///
+/// ```
+/// use icepool_core::evaluator::{keep_tuple_keep, KeepIndex, Slice};
+/// use icepool_core::Int;
+///
+/// // `pool.highest(2)` of a pool that already drops its lowest die: `(0, 1, 1, 1)` becomes `(0, 0, 1, 1)`.
+/// let keep_tuple = [Int::ZERO, Int::ONE, Int::ONE, Int::ONE];
+/// let index = KeepIndex::Slice { slice: Slice::new(Some(-2), None), step: false };
+/// assert_eq!(keep_tuple_keep(&keep_tuple, &index).unwrap(), [Int::ZERO, Int::ZERO, Int::ONE, Int::ONE]);
+/// ```
 pub fn keep(keep_tuple: &[Int], index: &KeepIndex) -> Result<Vec<Int>> {
     if keep_tuple.iter().any(Int::is_negative) {
         return Err(Error::Unported(
@@ -230,6 +267,15 @@ fn keep_size_as_len(keep_size: &Int, index: &KeepIndex) -> Result<usize> {
 
 /// The length of a list of `n` elements Python builds (`[0] * n`, `(x,) * n`), within the limits of
 /// `keep_size_as_len`: empty for `n <= 0`, but `OverflowError` for any `n` beyond 64 bits, negative too.
+///
+/// ```
+/// use icepool_core::evaluator::list_len;
+/// use icepool_core::Int;
+///
+/// assert_eq!(list_len(&Int::from(3)).unwrap(), 3);
+/// assert_eq!(list_len(&Int::from(-3)).unwrap(), 0);
+/// assert!(list_len(&(Int::from(i64::MAX) * Int::from(4))).is_err());
+/// ```
 pub fn list_len(n: &Int) -> Result<usize> {
     match n.to_len("a list repeated")? {
         n if n <= MAX_KEEP_SIZE as u64 => Ok(n as usize),
@@ -248,6 +294,14 @@ pub const MAX_KEEP_SIZE: usize = crate::pool::MAX_POOL_SIZE;
 pub const MEMORY_ERROR_SIZE: u64 = 1 << 36;
 
 /// `KeepGenerator.multiply_counts`: every count multiplied by `constant` (`-g` is `-1 * g`).
+///
+/// ```
+/// use icepool_core::evaluator::multiply_counts;
+/// use icepool_core::Int;
+///
+/// let negated = multiply_counts(&[Int::ZERO, Int::ONE], &Int::from(-1));
+/// assert_eq!(negated, [Int::ZERO, Int::from(-1)]);
+/// ```
 pub fn multiply_counts(keep_tuple: &[Int], constant: &Int) -> Vec<Int> {
     keep_tuple.iter().map(|n| n * constant).collect()
 }
@@ -262,6 +316,14 @@ fn check_non_negative(name: &str, x: Option<i64>) -> Result<()> {
 }
 
 /// Converts keep and drop lowest into a slice.
+///
+/// ```
+/// use icepool_core::evaluator::{lowest_slice, Slice};
+///
+/// // `lowest(keep=2, drop=1)`: `[1:3]`.
+/// assert_eq!(lowest_slice(Some(2), Some(1)).unwrap(), Slice::new(Some(1), Some(3)));
+/// assert!(lowest_slice(Some(-1), None).is_err());
+/// ```
 pub fn lowest_slice(keep: Option<i64>, drop: Option<i64>) -> Result<Slice> {
     check_non_negative("keep", keep)?;
     check_non_negative("drop", drop)?;
@@ -272,6 +334,14 @@ pub fn lowest_slice(keep: Option<i64>, drop: Option<i64>) -> Result<Slice> {
 }
 
 /// Converts keep and drop highest into a slice.
+///
+/// ```
+/// use icepool_core::evaluator::{highest_slice, Slice};
+///
+/// // `highest()`: the highest one, `[-1:]`; `highest(drop=1)`: all but it, `[:-1]`.
+/// assert_eq!(highest_slice(None, None).unwrap(), Slice::new(Some(-1), None));
+/// assert_eq!(highest_slice(None, Some(1)).unwrap(), Slice::new(None, Some(-1)));
+/// ```
 pub fn highest_slice(keep: Option<i64>, drop: Option<i64>) -> Result<Slice> {
     check_non_negative("keep", keep)?;
     check_non_negative("drop", drop)?;
@@ -295,6 +365,17 @@ pub fn highest_slice(keep: Option<i64>, drop: Option<i64>) -> Result<Slice> {
 }
 
 /// The `tie` argument of `middle`: what to do if `keep` is odd but the keep size is even, or vice versa.
+///
+/// ```
+/// use icepool_core::evaluator::{middle_slice, Slice, Tie};
+/// use icepool_core::Int;
+///
+/// // The middle 1 of 4 elements is ambiguous.
+/// let (four, one) = (Int::from(4), Int::ONE);
+/// assert!(middle_slice(&four, &one, Tie::Error).is_err());
+/// assert_eq!(middle_slice(&four, &one, Tie::High).unwrap(), Slice::new(Some(2), Some(3)));
+/// assert_eq!(middle_slice(&four, &one, Tie::Low).unwrap(), Slice::new(Some(1), Some(2)));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tie {
     /// The default: raises `IndexError`.
@@ -311,6 +392,15 @@ pub enum Tie {
 ///
 /// When `keep` exceeds `keep_size` with the same parity, `start` is negative and Python's slice then counts it from
 /// the end (so not everything is kept, despite the docstring). Copied as is.
+///
+/// ```
+/// use icepool_core::evaluator::{middle_slice, Slice, Tie};
+/// use icepool_core::Int;
+///
+/// // `middle(3)` of 5 elements: `[1:4]`.
+/// let slice = middle_slice(&Int::from(5), &Int::from(3), Tie::Error).unwrap();
+/// assert_eq!(slice, Slice::new(Some(1), Some(4)));
+/// ```
 pub fn middle_slice(keep_size: &Int, keep: &Int, tie: Tie) -> Result<Slice> {
     if keep.is_negative() {
         return Err(Error::InvalidArgument(format!(

@@ -14,14 +14,30 @@ use crate::Int;
 
 /// The `index` of `MultisetKeep`: a `slice` (whose bounds are `int`s or `None`) or a sequence of `int`s with
 /// `...` (`None` here) at one end.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{MultisetKeepIndex, Operator};
+/// use icepool_core::Int;
+///
+/// // `expression[:2]`: the lowest two elements, so the size is 2 once the child's (3) is known.
+/// let index = MultisetKeepIndex::Slice { start: None, stop: Some(2), step: false };
+/// let op = Operator::<i64>::Keep(index);
+/// let (_, size) = op.initial_state(Order::Ascending, &[1, 2], &[Some(Count::Int(Int::from(3)))]).unwrap();
+/// assert_eq!(size, Some(Count::Int(Int::from(2))));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetKeepIndex {
+    /// A `slice` `start:stop`.
     Slice {
+        /// The slice's start (`None` for none).
         start: Option<i64>,
+        /// The slice's stop (`None` for none).
         stop: Option<i64>,
         /// Whether a step was given (never supported).
         step: bool,
     },
+    /// A sequence of counts, `None` standing for `...`.
     Seq(Vec<Option<Int>>),
     /// Anything else (neither a slice nor a sequence), by its Python type name: only rejected when evaluated.
     Invalid(Arc<str>),

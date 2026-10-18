@@ -2,9 +2,10 @@
 
     uv run python -m pytest crates/icepool-py/tests -q -p no:cacheprovider
 
-The core polls `icepool_core::interrupt` in its long loops, which the facade answers with `PyErr_CheckSignals`, and
-releases the GIL around pure-Rust work (built-in evaluators, `@`, built-in operators on native dice). Each case runs
-in a subprocess, so a signal or a stuck computation cannot take the test run with it.
+The core polls the check set with `icepool_core::host::set_interrupt_check` in its long loops, which the facade
+answers with `PyErr_CheckSignals`, and releases the GIL around pure-Rust work (built-in evaluators, `@`, built-in
+operators on native dice). Each case runs in a subprocess, so a signal or a stuck computation cannot take the test
+run with it.
 """
 import os
 import signal

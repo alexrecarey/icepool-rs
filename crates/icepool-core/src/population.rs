@@ -257,6 +257,13 @@ impl<O: Outcome> Die<O> {
 
 /// The guard of `_Marginals.__getattr__` and `_GroupBy.__getattr__`: `if key[0] == '_': raise AttributeError(key)`
 /// (and `key[0]` of an empty name raises IndexError).
+///
+/// ```
+/// use icepool_core::value::check_public_attr;
+/// assert!(check_public_attr("mean").is_ok());
+/// assert!(check_public_attr("_private").is_err());
+/// assert!(check_public_attr("").is_err());
+/// ```
 pub fn check_public_attr(name: &str) -> Result<()> {
     match name.chars().next() {
         None => Err(Error::IndexOutOfRange("string index out of range".into())),

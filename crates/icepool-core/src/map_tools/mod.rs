@@ -31,6 +31,18 @@ use crate::{Die, Quantity, Ratio};
 ///
 /// `repeat` is `None` where Python's `range(repeat)` raises (a non-int that passed the facade's checks on
 /// `repeat`): only after the initial self-loop die is built, as there.
+///
+/// For language bindings (typed dice: `Die::map_repeat`):
+///
+/// ```
+/// use icepool_core::value::{map_repeat, TransitionCache};
+/// use icepool_core::{d, Die, Error, Mapped, Quantity};
+/// // `d(6).map(lambda x: x + 1 if x < 6 else x, repeat=2)`
+/// let climb = |&x: &i64, _| Ok::<_, Error>(Mapped::Outcome(if x < 6 { x + 1 } else { x }));
+/// let mut cache = TransitionCache::new(climb, vec![Quantity::ONE]);
+/// let result = map_repeat(&mut cache, &d(6), Some(2)).unwrap();
+/// assert_eq!(result, Die::from_weights([(3, 1u32), (4, 1), (5, 1), (6, 3)]));
+/// ```
 pub fn map_repeat<S, F, E>(
     transition_cache: &mut TransitionCache<S, F>,
     initial_die: &Die<S>,
@@ -81,6 +93,17 @@ pub(crate) fn final_map<S: MapState>(transition_die: &Die<S::Transition>) -> Res
 /// outcome that only leads to itself), or `repeat`, whichever is lesser.
 ///
 /// `repeat` as for `map_repeat` (a negative one is `Some(0)`: `range` is then empty).
+///
+/// For language bindings:
+///
+/// ```
+/// use icepool_core::value::{map_and_time, TransitionCache};
+/// use icepool_core::{Die, Error, Mapped, Quantity};
+/// // `map_and_time(lambda x: min(x + 1, 3), 1, repeat=5)`: 3 is absorbing, reached after 2 steps.
+/// let mut cache = TransitionCache::new(|&x: &i64, _| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3))), vec![Quantity::ONE]);
+/// let result = map_and_time(&mut cache, &Die::single(1), Some(5)).unwrap();
+/// assert_eq!(result, Die::single((3, 2)));
+/// ```
 pub fn map_and_time<S, F, E>(
     transition_cache: &mut TransitionCache<S, F>,
     initial_die: &Die<S>,

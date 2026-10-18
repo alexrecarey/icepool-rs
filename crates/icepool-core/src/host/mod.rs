@@ -8,6 +8,8 @@
 //! - [`HostSourceObject`] (held as a [`HostSource`] in
 //!   [`MultisetSource::Host`](crate::evaluator::MultisetSource::Host)): a user's `MultisetSource`.
 //! - [`HostOperator`] (in a multiset expression's operator nodes): a user's `MultisetOperator`.
+//! - [`Traverse`] / [`owned_hosts`]: which host objects a core value alone owns, for the host's cycle collector;
+//!   [`set_interrupt_check`]: the host's check (Ctrl-C) that the core's long loops poll.
 //!
 //! Their arguments and results are core types only. (The JS facade's callables and evaluators, `HostFunction` and
 //! `HostEvaluator`, still live with the program runner in icepool-harness, whose values they take: until task C6e

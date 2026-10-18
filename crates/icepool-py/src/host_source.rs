@@ -1,6 +1,6 @@
 //! Sources the core has no variant for, on the core driver: a user's `MultisetGenerator` subclass makes a
 //! `MultisetSource` (or `MultisetTupleSource`) of its own, whose methods are called back here
-//! (`icepool_core::host_source`). Python's driver calls the same methods: `is_resolvable()`,
+//! (`icepool_core::host::HostSourceObject`). Python's driver calls the same methods: `is_resolvable()`,
 //! `order_preference()` and `outcomes()` before evaluating (outside its `try`, so an `UnsupportedOrder` there is
 //! not the retry signal), `size()` and `pop(order, outcome)` while evaluating (inside it).
 //!

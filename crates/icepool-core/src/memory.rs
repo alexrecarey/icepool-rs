@@ -29,7 +29,14 @@ pub fn memory_error(what: &str, n: impl std::fmt::Display) -> Error {
 }
 
 /// `n` (any integer type, or a `checked_mul` that overflowed as `None`) as a length of `T`s the port may allocate:
-/// `MemoryError` if `n * size_of::<T>()` passes [`MAX_ALLOC_BYTES`].
+/// `MemoryError` if `n * size_of::<T>()` passes `MAX_ALLOC_BYTES` (256 MiB on wasm32, 64 GiB natively).
+///
+/// ```
+/// use icepool_core::value::check_len;
+/// assert_eq!(check_len::<u64, i64>(Some(10), "a list").unwrap(), 10);
+/// assert!(check_len::<u64, u64>(Some(u64::MAX), "a list").is_err());
+/// assert!(check_len::<u64, u64>(None, "a list").is_err());
+/// ```
 pub fn check_len<T, N>(n: Option<N>, what: &str) -> Result<usize>
 where
     N: TryInto<usize> + Copy + std::fmt::Display,
@@ -60,6 +67,12 @@ where
 }
 
 /// `[x] * n` as a `Vec`, or `MemoryError`.
+///
+/// ```
+/// use icepool_core::value::try_repeat;
+/// assert_eq!(try_repeat('x', Some(3), "a list").unwrap(), ['x', 'x', 'x']);
+/// assert!(try_repeat('x', Some(u64::MAX), "a list").is_err());
+/// ```
 pub fn try_repeat<T: Clone, N>(x: T, n: Option<N>, what: &str) -> Result<Vec<T>>
 where
     N: TryInto<usize> + Copy + std::fmt::Display,
@@ -71,6 +84,12 @@ where
 }
 
 /// `iter` collected into a `Vec` of exactly `n` elements reserved up front, or `MemoryError`.
+///
+/// ```
+/// use icepool_core::value::try_collect;
+/// assert_eq!(try_collect(Some(3), 1..=3, "a range").unwrap(), [1, 2, 3]);
+/// assert!(try_collect(Some(u64::MAX), 1..=3, "a range").is_err());
+/// ```
 pub fn try_collect<T, N>(
     n: Option<N>,
     iter: impl IntoIterator<Item = T>,

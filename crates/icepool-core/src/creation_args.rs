@@ -12,6 +12,15 @@ use crate::Quantity;
 ///
 /// Tuples containing dice are `tupleize`d into a `Die` by the facade before they get here (the core does not know
 /// about tuple outcomes). (`Again` is a later addition: it becomes a variant here.)
+///
+/// ```
+/// use icepool_core::value::DieArg;
+/// use icepool_core::{d, Die, Quantity};
+/// // `Die([1, d(2), Reroll])`
+/// let args = vec![DieArg::Outcome(1), DieArg::Die(d(2)), DieArg::Reroll];
+/// let die = Die::new(args, vec![Quantity::ONE; 3]).unwrap();
+/// assert_eq!(die, Die::from_weights([(1, 3u32), (2, 1)]));
+/// ```
 #[derive(Clone, Debug)]
 pub enum DieArg<O> {
     /// A plain outcome: `expand_arg` makes it `{outcome: 1}`.
@@ -33,7 +42,17 @@ impl<O: OutcomeOrder> DieArg<O> {
     }
 }
 
-/// `expand_args_for_die`: `Counts(merge_weights_lcm(subdatas, times).items())`.
+/// `expand_args_for_die`: `Counts(merge_weights_lcm(subdatas, times).items())`. Each argument gets total weight
+/// proportional to its element of `times`, the dice scaled to a common denominator first.
+///
+/// ```
+/// use icepool_core::value::{expand_args_for_die, DieArg};
+/// use icepool_core::{d, Quantity};
+/// let q = Quantity::from;
+/// // `Die([d(2), 5], times=[1, 2])`: d(2) has denominator 2, so 5 weighs 2 * 2.
+/// let counts = expand_args_for_die(&[DieArg::Die(d(2)), DieArg::Outcome(5)], &[q(1u8), q(2u8)]).unwrap();
+/// assert_eq!(counts.items(), &[(1, q(1u8)), (2, q(1u8)), (5, q(4u8))]);
+/// ```
 pub fn expand_args_for_die<O: OutcomeOrder>(
     args: &[DieArg<O>],
     times: &[Quantity],

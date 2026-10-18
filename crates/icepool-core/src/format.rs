@@ -303,6 +303,14 @@ pub fn split_format_spec(col_spec: &str) -> Result<Vec<Token>> {
 
 /// `Population.common_outcome_length`: the common length of all outcomes; `None` if outcomes have no lengths or
 /// different lengths (or one is a `Mapping`).
+///
+/// ```
+/// use icepool_core::value::common_outcome_length;
+/// use icepool_core::{d, Die};
+/// assert_eq!(common_outcome_length(&d(6)).unwrap(), None);
+/// let pairs = Die::cartesian_product(&[d(2), d(3)]);
+/// assert_eq!(common_outcome_length(&pairs).unwrap(), Some(2));
+/// ```
 pub fn common_outcome_length<O: OutcomeOrder + FormatOutcome>(
     population: &Die<O>,
 ) -> Result<Option<usize>> {
@@ -717,9 +725,10 @@ impl<O: OutcomeOrder + FormatOutcome> Die<O> {
     }
 }
 
-/// What `Population.format` produces.
+/// What `Population.format` produces ([`format_population`](crate::value::format_population)).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Formatted {
+    /// The formatted text.
     Text(String),
     /// A CSV table for the caller's own `csv` writer (`format` was given writer arguments).
     CsvTable(Vec<String>, Vec<Vec<String>>),
@@ -729,6 +738,16 @@ pub enum Formatted {
 /// columns (`|` separators are dropped). The default columns are `*oq==%==`, without the quantities if any of them
 /// is 10**30 or greater. With `csv_table`, CSV output is returned as its table (Python passes `**kwargs` to
 /// `csv.writer`).
+///
+/// For language bindings: `type_name` is the population's class name (`Die`, `Deck`) for the table header.
+///
+/// ```
+/// use icepool_core::value::{format_population, Formatted};
+/// use icepool_core::d;
+/// let Formatted::Text(csv) = format_population(&d(2), "Die", "csv", false).unwrap() else { panic!() };
+/// assert_eq!(csv, "Outcome,Quantity,Probability\r\n1,1,50.000000%\r\n2,1,50.000000%\r\n");
+/// assert!(format_population(&d(2), "Die", "tex", false).is_err());
+/// ```
 pub fn format<O: OutcomeOrder + FormatOutcome>(
     population: &Die<O>,
     type_name: &str,

@@ -1,4 +1,4 @@
-//! function.py's free functions on the core (`icepool_core::function`): the facade keeps each one's argument
+//! function.py's free functions on the core (`icepool_core::value`): the facade keeps each one's argument
 //! juggling (`_iter_outcomes`, `Fraction(n)` and `limit_denominator`, `implicit_convert_to_die`, the
 //! `multiply_quantities` calls) and calls in here for the work.
 

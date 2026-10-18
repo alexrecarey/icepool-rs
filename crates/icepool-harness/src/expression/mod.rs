@@ -5,7 +5,7 @@
 //!
 //! Python's argument juggling and dispatch (which class's `__add__` runs, implicit conversion of lists into
 //! pools, what raises at construction and what only when evaluated) happens here; the operators themselves are
-//! the core's (`icepool_core::operator`).
+//! the core's (`icepool_core::expression::Operator`).
 //!
 //! This file holds the expression tree ([`MExpr`]) and its conversions from program values; the rest is by area:
 //! `operators` (building expressions), `keep` (keeping and ordering), `mixture`, `identity` (`hash_key`

@@ -21,6 +21,18 @@ use crate::outcome::ErrInto;
 use crate::{Die, Quantity};
 
 /// Helper class for caching a transition function for `map(repeat)`.
+///
+/// For language bindings, which wrap their callable as `transition(state, i)` and hand the cache to
+/// [`map_repeat`](crate::value::map_repeat) & co.:
+///
+/// ```
+/// use icepool_core::value::{map_repeat, TransitionCache};
+/// use icepool_core::{d, Die, Error, Mapped, Quantity};
+/// // `d(3).map(lambda x: min(x + 1, 3), repeat=1)`
+/// let mut cache = TransitionCache::new(|&x: &i64, _| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3))), vec![Quantity::ONE]);
+/// let result = map_repeat(&mut cache, &d(3), Some(1)).unwrap();
+/// assert_eq!(result, Die::from_weights([(2, 1u32), (3, 2)]));
+/// ```
 pub struct TransitionCache<S: MapState, F> {
     transition: F,
     /// The joint quantities of the extra arguments, one per index the transition function takes.

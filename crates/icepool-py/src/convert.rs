@@ -96,8 +96,8 @@ pub struct PyHost {
 /// `__traverse__` for an `icepool_rs` object holding the core value `root`: tells Python's cycle collector about
 /// the Python objects (host outcomes, user sources) only `root` holds, so that a cycle through one (an outcome
 /// object referring back to the die it is an outcome of) is collected as it is on the Python backend. Objects
-/// shared with another core value are not reported (`icepool_core::ownership`: reporting a shared one could free
-/// it while in use). The classes are frozen, and immutable references need no `__clear__`: every cycle passes
+/// shared with another core value are not reported (`icepool_core::host::owned_hosts`: reporting a shared one
+/// could free it while in use). The classes are frozen, and immutable references need no `__clear__`: every cycle passes
 /// through a mutable Python object, which Python clears.
 pub fn traverse(
     root: &(impl Traverse + ?Sized),
@@ -373,7 +373,7 @@ pub fn frame_budget() -> usize {
     .unwrap_or(usize::MAX)
 }
 
-/// Runs Python's signal handlers, for the core's long loops (`icepool_core::interrupt`): Ctrl-C raises
+/// Runs Python's signal handlers, for the core's long loops (`icepool_core::host::set_interrupt_check`): Ctrl-C raises
 /// `KeyboardInterrupt` from there, as it would between two bytecodes of pure-Python icepool. Python runs signal
 /// handlers on the main thread only; elsewhere this does nothing. Takes the GIL back if the computation released it.
 pub fn check_signals() -> icepool_core::Result<()> {

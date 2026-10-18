@@ -30,6 +30,22 @@ fn quantity_value(q: &Quantity) -> Value {
 /// `depth` times: `Vector((i, 1))` is `i` explosions followed by a roll that does not explode, and `Vector((depth
 /// + 1, 0))` the chain that explodes every time. `die_den`, `explode_den` and `not_explode_den` are the
 /// denominators of the die and of its two halves after `split`.
+///
+/// For language bindings:
+///
+/// ```
+/// use icepool_core::value::{explode_counts, matmul_dice};
+/// use icepool_core::{Die, Error, Quantity, Value};
+/// let matmul = |n: &Value, d: &Die<Value>| -> Result<Die<Value>, Error> {
+///     matmul_dice(&Die::from_dict(vec![(n.clone(), Quantity::ONE)])?, d)
+/// };
+/// // `d6.explode_to_pool(1, depth=1)`: a 6 (1 of 6) explodes, the other five (5 of 6) do not.
+/// let q = Quantity::from;
+/// let counts = explode_counts(&q(6u8), &q(1u8), &q(5u8), &Value::from(1), 1, matmul).unwrap();
+/// // `Vector((0, 1))`: no explosion (30 of 36); `(1, 1)`: one, then a stop (5); `(2, 0)`: two (1).
+/// let weights: Vec<_> = counts.items().iter().map(|(_, w)| w.clone()).collect();
+/// assert_eq!(weights, vec![q(30u8), q(5u8), q(1u8)]);
+/// ```
 pub fn explode_counts<E: From<Error>>(
     die_den: &Quantity,
     explode_den: &Quantity,
@@ -75,6 +91,25 @@ pub fn explode_counts<E: From<Error>>(
 /// denominator `die_den**(rolls + max_rerolls)`. `rerollable_den` is the denominator of the rerollable half of
 /// the die. The counts are Python ints (or bools, which `rolls @ coin` keeps for one roll), so all arithmetic on
 /// them is `Value`'s.
+///
+/// For language bindings:
+///
+/// ```
+/// use icepool_core::value::{matmul_dice, reroll_composition};
+/// use icepool_core::{Die, Error, Quantity, Value};
+/// let matmul = |n: &Value, d: &Die<Value>| -> Result<Die<Value>, Error> {
+///     matmul_dice(&Die::from_dict(vec![(n.clone(), Quantity::ONE)])?, d)
+/// };
+/// // `d2.reroll_to_pool(1, [1], 1)`: one die, its 1 (1 of 2) rerolled at most once.
+/// let (q, int) = (Quantity::from, Value::from);
+/// let composition = reroll_composition(&q(2u8), &q(1u8), &int(1), &int(1), &int(1), matmul).unwrap();
+/// assert_eq!(composition.denominator(), q(4u8)); // `die_den**(rolls + max_rerolls)`
+/// // Not rerolled (2 of 4), or rerollable and rerolled, to a 2 or to a 1 again (1 each).
+/// let t = |r: bool, d: bool, a: Value| Value::tuple(vec![Value::Bool(r), Value::Bool(d), a]);
+/// let expected = [(t(false, false, int(0)), q(2u8)), (t(true, true, Value::Bool(false)), q(1u8)),
+///     (t(true, true, Value::Bool(true)), q(1u8))];
+/// assert_eq!(composition.items(), &expected[..]);
+/// ```
 pub fn reroll_composition<E: From<Error>>(
     die_den: &Quantity,
     rerollable_den: &Quantity,

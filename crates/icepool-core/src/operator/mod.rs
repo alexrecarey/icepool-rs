@@ -38,7 +38,21 @@ pub use binary::BinaryOperator;
 pub use filter_outcomes::{OutcomeFilter, OutcomePredicate};
 pub use keep::MultisetKeepIndex;
 
-/// One operator node of a multiset expression, with its parameters (the `_expression_key` of each class).
+/// One operator node of a multiset expression, with its parameters (the `_expression_key` of each class). For
+/// language bindings, which build an expression's nodes from their own expression objects.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{BinaryOperator, Operator, Statelet};
+/// use icepool_core::Int;
+///
+/// // `a & b` for one outcome where `a` has 3 and `b` has 2 of it.
+/// let op = Operator::<i64>::Binary(BinaryOperator::Intersection);
+/// let counts = [Count::Int(Int::from(3)), Count::Int(Int::from(2))];
+/// let (state, count) = op.next_state(&Statelet::None, Order::Ascending, &5, &counts).unwrap();
+/// assert_eq!((state, count), (Statelet::None, Count::Int(Int::from(2))));
+/// assert_eq!(op.format_str(&["a".into(), "b".into()], None).unwrap(), "(a & b)");
+/// ```
 #[derive(Clone)]
 pub enum Operator<O> {
     /// `MultisetIntersection`, `MultisetDifferenceDropNegative`, ... (operator/binary.py): the counts of all
@@ -58,41 +72,64 @@ pub enum Operator<O> {
     KeepCounts(KeepCountsComparison, Int),
     /// `MultisetFilterOutcomes`: the count if the outcome passes the filter (`!= invert`), else 0.
     FilterOutcomes {
+        /// The outcomes to keep (or drop).
         filter: OutcomeFilter<O>,
+        /// Whether the filter says which outcomes to drop (`drop_outcomes`) rather than keep.
         invert: bool,
     },
     /// `MultisetFilterOutcomesBinary`: the first child's count if the second child's is positive (`!= invert`).
-    FilterOutcomesBinary { invert: bool },
+    FilterOutcomesBinary {
+        /// Whether a positive second count drops the first's (`drop_outcomes`) rather than keeps it.
+        invert: bool,
+    },
     /// `MultisetKeep`: keep some of the lowest or highest elements.
     Keep(MultisetKeepIndex),
     /// `MultisetSortPair`. `sort_order` is already `Descending` if `Any` was given (as the constructor does).
     SortPair {
+        /// The comparison of each pair that keeps the left element (`'=='`, `'<='`, ...).
         comparison: Arc<str>,
+        /// The order both sides are sorted in (`Order` as an int: 1 ascending, -1 descending).
         sort_order: i64,
+        /// What happens to left elements without a pair (`'early'`, `'late'`, `'low'`, `'high'`, `'equal'`,
+        /// `'keep'`, `'drop'`).
         extra: Arc<str>,
     },
     /// `MultisetSortPairWhile`.
     SortPairWhile {
+        /// If true, elements are kept as long as the comparison holds and the rest dropped; else dropped as long
+        /// as it holds and the rest kept.
         keep: bool,
+        /// The comparison to keep or drop while.
         comparison: Arc<str>,
+        /// The order both sides are sorted in (`Order` as an int: 1 ascending, -1 descending).
         sort_order: i64,
+        /// How left elements without a pair compare (as for `SortPair`).
         extra: Arc<str>,
     },
     /// `MultisetMaxPairLate`.
     MaxPairLate {
+        /// The order in which elements are paired (`Order` as an int: 1 ascending, -1 descending).
         order: i64,
+        /// Whether equal elements pair with each other (`tie`).
         pair_equal: bool,
+        /// Whether the paired elements are kept (`max_pair_keep`) or dropped (`max_pair_drop`).
         keep: bool,
     },
     /// `MultisetMaxPairEarly`.
     MaxPairEarly {
+        /// The order in which elements are paired (`Order` as an int: 1 ascending, -1 descending).
         order: i64,
+        /// Whether equal elements pair with each other (`tie`).
         pair_equal: bool,
+        /// Whether the paired elements are kept (`max_pair_keep`) or dropped (`max_pair_drop`).
         keep: bool,
     },
     /// `MultisetVersus`.
     Versus {
+        /// Whether left elements are kept if they appear before, at the same time as, and after right elements
+        /// (in the preferred order).
         lexi_tuple: (i64, i64, i64),
+        /// The preferred order in which to consider the outcomes (`Order` as an int).
         order: i64,
     },
     /// `MultisetForceOrder` (operator/debug.py).
@@ -135,31 +172,56 @@ impl<O> Operator<O> {
 }
 
 /// The local state of an operator node (`None` for the stateless ones), part of the evaluation's room key.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{Operator, Statelet};
+/// use icepool_core::Int;
+///
+/// // `count * 2` keeps no state, and knows its size from its child's.
+/// let op = Operator::<i64>::MultiplyCounts(Int::from(2));
+/// let (state, size) = op.initial_state(Order::Ascending, &[1, 2], &[Some(Count::Int(Int::from(3)))]).unwrap();
+/// assert_eq!(state, Statelet::None);
+/// assert_eq!(size, Some(Count::Int(Int::from(6))));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Statelet {
+    /// A stateless operator's (Python's `None`).
     None,
     /// `(keep_tuple, keep_more)`: a keep tuple that pops from the left regardless of order, and whether items are
     /// kept after running out of it.
     Keep {
+        /// The keep tuple, popped from the left whatever the order.
         keep_tuple: Arc<[Int]>,
+        /// Whether items are kept after running out of `keep_tuple`.
         keep_more: bool,
     },
     /// `(lexi_tuple, countdown)`.
     Versus {
+        /// Whether a left element is kept before, at the same time as, and after a right one, in this order.
         lexi_tuple: (i64, i64, i64),
+        /// The right elements still to be passed (counting down from the right side's size).
         countdown: Int,
     },
     /// `(lexi_tuple, forward_order, left_lead, countdown)`.
     SortPair {
+        /// Whether a left element is kept, by how it compares with its pair (`compute_lexi_tuple_with_extra`).
         lexi_tuple: [i64; 4],
+        /// Whether the evaluation runs in the operator's sort order.
         forward_order: bool,
+        /// The lead of the left elements over the right ones so far.
         left_lead: Int,
+        /// The right elements to pair before the remaining left ones count as extra (`None` if extras need no
+        /// counting).
         countdown: Option<Int>,
     },
     /// `(lexi_tuple, left_lead, countdown)`; `lexi_tuple` and `left_lead` become `None` once the "while" ends.
     SortPairWhile {
+        /// As for `SortPair`, while the comparison still holds.
         lexi_tuple: Option<[i64; 4]>,
+        /// As for `SortPair`, while the comparison still holds.
         left_lead: Option<Int>,
+        /// As for `SortPair`.
         countdown: Option<Int>,
     },
     /// `prev_pairable`.

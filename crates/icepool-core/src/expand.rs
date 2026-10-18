@@ -11,6 +11,16 @@ use crate::{Die, Quantity};
 /// single `(arg, 1)` for an argument that is not a die, which is passed through as-is. Yields one outcome per
 /// argument and the joint quantity, in `itertools.product` order (the last argument varies fastest). No arguments
 /// yield a single empty product with quantity 1.
+///
+/// For language bindings, which hand over each argument's items in their own object type.
+///
+/// ```
+/// use icepool_core::{value::iter_cartesian_product, Quantity};
+/// let q = |n: u8| Quantity::from(n);
+/// let args = vec![vec![('a', q(1)), ('b', q(2))], vec![('x', q(3))]];
+/// let product: Vec<_> = iter_cartesian_product(&args).collect();
+/// assert_eq!(product, [(vec!['a', 'x'], q(3)), (vec!['b', 'x'], q(6))]);
+/// ```
 pub fn iter_cartesian_product<T: Clone>(
     args: &[Vec<(T, Quantity)>],
 ) -> impl Iterator<Item = (Vec<T>, Quantity)> + '_ {
@@ -47,6 +57,14 @@ pub fn iter_cartesian_product<T: Clone>(
 }
 
 /// How many joint outcomes `iter_cartesian_product(args)` yields, `None` past `usize`.
+///
+/// ```
+/// use icepool_core::value::product_size;
+/// assert_eq!(product_size(&[vec![1, 2], vec![3, 4, 5]]), Some(6));
+/// assert_eq!(product_size(&[vec![1, 2], vec![]]), Some(0));
+/// let huge = vec![(); usize::MAX];
+/// assert_eq!(product_size(&[huge.clone(), huge]), None);
+/// ```
 pub fn product_size<T>(args: &[Vec<T>]) -> Option<usize> {
     if args.iter().any(Vec::is_empty) {
         return Some(0);
@@ -59,6 +77,9 @@ pub fn product_size<T>(args: &[Vec<T>]) -> Option<usize> {
 /// final_quantity` for each joint outcome of `args`, in `itertools.product` order. Assignment, not `+=`: equal keys
 /// such as Python's `(1,)` and `(True,)` overwrite each other's quantity and keep the first key. The caller makes
 /// `Die(data)` or `Deck(data)` of it (which drops zero quantities); `outcome_type` may refuse a key.
+///
+/// [`value::cartesian_product_items`](crate::value::cartesian_product_items) is this with Python's hashing of
+/// `Value` keys.
 pub fn cartesian_product_items<T: Clone, P: OutcomeOrder>(
     args: &[Vec<(T, Quantity)>],
     outcome_type: impl Fn(Vec<T>) -> Result<P>,
