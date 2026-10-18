@@ -56,9 +56,21 @@ turns out wrong. Newest decisions at the top of each section.
     (`PYTHONPATH=$ICEPOOL_ORACLE/src uv run python -c '...'`). `Value`'s `Display` is Python's `repr`
     (`Fraction(7, 1)`, not `7`). Raw `evaluator::evaluate` returns finals in evaluation order, unsorted and
     unmerged: build a die before comparing.
-  - Doctests: every method of `Die` (both impls) and the `Pool`, `Deck`, `Deal` accessors. Not covered: the
-    `PoolSource`/`MultisetSource`/`DealSource` plumbing, `Die::new`/`Deck::new`, `MultiDeal`, `Int`, `Order`;
-    task C7b. (The binding items C3b made visible each have an example.)
+  - Doctests: since C7b **every public item and method of icepool-core has an example** (713 doctests);
+    `python3 scripts/doctest-coverage.py <json>` (no module list = the whole crate) exits 1 if one is missing:
+    run it when you add public API (see "Doctest coverage" below for building the JSON). Notes from C7b:
+    - There is no `#[doc(hidden)]` left (C3d): `value::DieArg` and `evaluator::KeepIndex` are public, so
+      `Die::new`, `Deck::new` and `Pool::keep` are documented with them (the C7b task text said otherwise).
+    - Examples sharing a long setup (the toy host impls of `host/object.rs`, `host/source.rs`) keep it once in
+      `crates/icepool-core/doctest/*.rs` and pull it into hidden lines with `# include!("../../doctest/x.rs");`
+      followed by `# fn main() {` ... `# }`: `include!` of items fails in statement position, so the include
+      sits at item level and the example needs an explicit `main`. The trait's own example shows the toy in full;
+      keep the copy in step.
+    - `Display for Value` spells a `Str` as Rust's `{:?}` (`"a"`), not Python's repr (`'a'`); `py_repr` is
+      Python's. So error messages built with `{value}` differ from Python's: `Comparison::parse` says
+      `Invalid comparison "=<"` where Python says `Invalid comparison =<`. `Random::randrange(0)` says
+      "empty range in randrange(0)", CPython "empty range for randrange()". The harness compares exception types
+      only, so neither fails a check; neither is in DIVERGENCES.md yet.
   - `cargo fmt` reformats files beyond yours (and the guard rejects any change to protected files): run
     `rustfmt --edition 2021 <file>` on the files you touched instead, and `--check` a `mod.rs` first (it recurses).
 
@@ -592,8 +604,8 @@ turns out wrong. Newest decisions at the top of each section.
   - `ToRatio for Int`: a `Die<Int>` from an evaluator has typed `mean` / `probability`.
   - The README has statistics, map/reroll/explode/Again and decks sections.
   - **Doctest coverage:** `scripts/doctest-coverage.py` (rustdoc JSON, nightly) lists public items without an
-    example. C3c covered every top-level item of evaluator, expression and value; their *methods* (about 250) are
-    mostly without examples still (`-m` lists them): task C3e. Point it at a private `CARGO_TARGET_DIR`: the shared
+    example. C3c covered every top-level item of evaluator, expression and value, C7 and C7b the rest: none is
+    missing now. So task C3e's doctest half is done; what is left of it is the typed `Deck::deal_hands`. Point it at a private `CARGO_TARGET_DIR`: the shared
     target's `doc/` is overwritten by other worktrees' doc builds.
   - `#![warn(missing_debug_implementations)]` is on: every public type needs `Debug` (a derive, or a manual impl
     where a field is a closure).

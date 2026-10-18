@@ -4,11 +4,12 @@
 Reads rustdoc's JSON (nightly only):
 
     RUSTDOCFLAGS="-Z unstable-options --output-format json" cargo +nightly doc -p icepool-core --no-deps
-    python3 scripts/doctest-coverage.py $CARGO_TARGET_DIR/doc/icepool_core.json evaluator,expression,value [-v] [-m]
+    python3 scripts/doctest-coverage.py $CARGO_TARGET_DIR/doc/icepool_core.json [evaluator,expression,value] [-v] [-m]
 
-The second argument names the root modules to walk (re-exports followed to their definitions, each item counted
-once). Prints the number of top-level items and of inherent and trait methods without an example; `-v` lists the
-items, `-m` the methods.
+The optional second argument names the root modules to walk; without it the whole crate is walked, the root's
+own items included (re-exports followed to their definitions, each item counted once). Prints the number of
+top-level items and of inherent and trait methods without an example; `-v` lists the items, `-m` the methods.
+Exits with status 1 if any is missing (since C7b every public item has an example).
 """
 import json,sys
 j=json.load(open(sys.argv[1])); idx=j['index']
@@ -51,10 +52,13 @@ def visit_item(id_, p, use):
             if mi.get('visibility')=='public':
                 methods.append((p+'::'+mi['name'],has_ex(mi)))
 root=idx[str(j['root'])]
-for c in root['inner']['module']['items']:
+modules=sys.argv[2].split(',') if len(sys.argv)>2 and not sys.argv[2].startswith('-') else None
+if modules is None:
+    visit_item(j['root'], 'icepool_core', None)
+for c in root['inner']['module']['items'] if modules else []:
     it=idx[str(c)]
     n=it['name']
-    if kind(it)=='module' and n in sys.argv[2].split(','):
+    if kind(it)=='module' and n in modules:
         visit_item(c, n, None)
 miss=[t for t in top if not t[2]]; mm=[m for m in methods if not m[1]]
 print('top',len(top),'missing',len(miss)); print('methods',len(methods),'missing',len(mm))
@@ -62,3 +66,4 @@ if '-v' in sys.argv:
     for t in miss: print('T',t[0],t[1],'%s:%s'%(t[3],t[4]))
 if '-m' in sys.argv:
     for m in mm: print('M',m[0])
+sys.exit(1 if miss or mm else 0)
