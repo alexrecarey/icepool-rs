@@ -15,8 +15,13 @@ use icepool_core::evaluator::poker::{
 use icepool_core::evaluator::{self, Final, MultisetEvaluator, MultisetSource, Order};
 use icepool_core::value::TransitionCache;
 use icepool_core::value::evaluators::IntoValue;
-use icepool_core::value::{matmul_dice, BinOp, UnOp};
-use icepool_core::{AgainEnd, Depth, Die, Int, Mapped, Outcome, Pool, Quantity, Result, Value};
+use icepool_core::evaluator::basic::SumEvaluator;
+use icepool_core::value::evaluators::PyEvaluator;
+use icepool_core::value::{explode_counts, matmul_dice, reroll_composition, BinOp, DieArg, UnOp};
+use icepool_core::{
+    AgainEnd, Depth, Die, Int, KeepGenerator, Mapped, Outcome, Pool, PoolMixture, Quantity, RerollMode, Result,
+    Value,
+};
 
 /// How many random cases each property tries.
 const CASES: usize = 300;
@@ -572,5 +577,184 @@ fn tupleize_agrees_with_value_tupleize() {
             &python,
             &format!("case {case}"),
         );
+    });
+}
+
+/// `n @ die` with a Python int `n`, as the bindings compute it (`Die([n]) @ die`).
+fn value_rmatmul(n: &Value, die: &Die<Value>) -> Result<Die<Value>> {
+    matmul_dice(&Die::from_dict(vec![(n.clone(), Quantity::ONE)])?, die)
+}
+
+/// `pool.highest(n)` / `pool.lowest(n)` on a `Value` keep generator, as the bindings slice it.
+fn value_keep_slice(generator: KeepGenerator<Value>, n: &Value, highest: bool) -> KeepGenerator<Value> {
+    let n = match n {
+        Value::Int(n) => i64::try_from(n).unwrap(),
+        Value::Bool(b) => *b as i64,
+        _ => unreachable!("counts are ints"),
+    };
+    let slice = if highest {
+        evaluator::highest_slice(Some(n), None)
+    } else {
+        evaluator::lowest_slice(Some(n), None)
+    };
+    let index = evaluator::KeepIndex::Slice { slice: slice.unwrap(), step: false };
+    generator.keep(&index).unwrap()
+}
+
+/// `die.pool(n)` for a Python int (or bool) `n`.
+fn value_die_pool(die: &Die<Value>, n: &Value) -> KeepGenerator<Value> {
+    let n = match n {
+        Value::Int(n) => usize::try_from(n).unwrap(),
+        Value::Bool(b) => *b as usize,
+        _ => unreachable!("counts are ints"),
+    };
+    Pool::new(vec![(die.clone(), n)]).unwrap().into()
+}
+
+/// `evaluator.evaluate(mixture)` on a `Value` mixture as the bindings run it: each inner's finals make a die of
+/// Python values, and the dice are mixed by weight.
+fn value_mixture_sum(mixture: &PoolMixture<Value>) -> Result<Die<Value>> {
+    let mut dice = Vec::new();
+    let mut weights = Vec::new();
+    for (inner, weight) in mixture.inners() {
+        let finals = evaluator::evaluate(&PyEvaluator(SumEvaluator), &[inner.source()?])?;
+        let (outcomes, quantities): (Vec<_>, Vec<_>) =
+            finals.into_iter().map(|(o, q)| (DieArg::Outcome(o), q)).unzip();
+        dice.push(DieArg::Die(Die::new(outcomes, quantities)?));
+        weights.push(weight.clone());
+    }
+    Die::new(dice, weights)
+}
+
+/// Asserts that a typed mixture and a `Value` one have the same inners (kind, dice, keep tuple) and weights, in
+/// order, and the same sum.
+#[track_caller]
+fn assert_same_mixture(typed: &PoolMixture<i64>, value: &PoolMixture<Value>, case: &str) {
+    assert_eq!(typed.inners().len(), value.inners().len(), "{case}");
+    for ((t, tw), (v, vw)) in typed.inners().iter().zip(value.inners()) {
+        assert_eq!(tw, vw, "{case}");
+        assert_eq!(t.keep_tuple(), v.keep_tuple(), "{case}");
+        match (t, v) {
+            (KeepGenerator::Pool(t), KeepGenerator::Pool(v)) => {
+                let typed_dice: Vec<_> = t.dice().iter().map(|(d, n)| (spelled(&to_value(d)), *n)).collect();
+                let value_dice: Vec<_> = v.dice().iter().map(|(d, n)| (spelled(d), *n)).collect();
+                assert_eq!(typed_dice, value_dice, "{case}");
+                let typed_outcomes: Vec<_> = t.outcomes().iter().map(|o| format!("{:?}", o.into_value())).collect();
+                let value_outcomes: Vec<_> = v.outcomes().iter().map(|o| format!("{o:?}")).collect();
+                assert_eq!(typed_outcomes, value_outcomes, "{case}");
+            }
+            (KeepGenerator::CompoundKeep(t), KeepGenerator::CompoundKeep(v)) => {
+                assert_eq!(t.inner_sources().len(), v.inner_sources().len(), "{case}");
+            }
+            _ => panic!("{case}: {t:?} vs {v:?}"),
+        }
+    }
+    match (typed.evaluate(&SumEvaluator), value_mixture_sum(value)) {
+        (Ok(typed), Ok(value)) => assert_same(&typed, &value, case),
+        (typed, value) => assert_eq!(typed.err(), value.err(), "{case}"),
+    }
+}
+
+#[test]
+fn explode_to_pool_agrees_with_value_counts() {
+    for_cases(15, |rng, case| {
+        let die = rng.die(1, 5);
+        let (rolls, depth, which) = (rng.range(0, 3), rng.range(1, 3), rng.range(1, 5));
+        let case = format!("case {case}: {die:?}.explode_to_pool({rolls}, [{which}], depth={depth})");
+        let typed = die.explode_to_pool(rolls as usize, |&x| x >= which, depth as u32).unwrap();
+        // The bindings: `split`, `explode_counts`, then `[explode] * x + [not_explode] * nx` per count.
+        let value = to_value(&die);
+        let mask: Vec<bool> = die.outcomes().map(|&x| x >= which).collect();
+        let value_mixture = if !mask.contains(&true) {
+            PoolMixture::from(Pool::new(vec![(value, rolls as usize)]).unwrap())
+        } else {
+            let (explode, not_explode) = value.split(&mask).unwrap();
+            let counts = explode_counts(
+                &value.denominator(),
+                &explode.denominator(),
+                &not_explode.denominator(),
+                &Value::from(rolls),
+                depth,
+                value_rmatmul,
+            )
+            .unwrap();
+            PoolMixture::new(counts.items().iter().map(|(counts, quantity)| {
+                let Value::Vector(v) = counts else { unreachable!("vectors") };
+                let data = v.data().unwrap();
+                let n = |i: usize| usize::try_from(match &data[i] { Value::Int(n) => n, _ => unreachable!() }).unwrap();
+                let present = [(explode.clone(), n(0)), (not_explode.clone(), n(1))]
+                    .into_iter()
+                    .filter(|(_, n)| *n > 0)
+                    .collect();
+                (Pool::new(present).unwrap().into(), quantity.clone())
+            }))
+        };
+        assert_same_mixture(&typed, &value_mixture, &case);
+    });
+}
+
+#[test]
+fn reroll_to_pool_agrees_with_value_compositions() {
+    let modes = [RerollMode::Random, RerollMode::Low, RerollMode::High, RerollMode::Drop];
+    for_cases(16, |rng, case| {
+        let die = rng.die(1, 5);
+        let (rolls, max_rerolls, which) = (rng.range(0, 3), rng.range(0, 2), rng.range(1, 5));
+        let depth = match rng.range(0, 2) {
+            0 => Depth::Infinite,
+            n => Depth::Finite(n as u32),
+        };
+        let mode = modes[rng.range(0, 3) as usize];
+        let case = format!(
+            "case {case}: {die:?}.reroll_to_pool({rolls}, [<= {which}], max_rerolls={max_rerolls}, \
+             depth={depth:?}, mode={mode:?})"
+        );
+        let typed = die
+            .reroll_to_pool(rolls as usize, |&x| x <= which, Some(max_rerolls as usize), depth, mode);
+        // The bindings: `split`, `reroll_composition`, then `make_pool` per composition.
+        let value = to_value(&die);
+        let mask: Vec<bool> = die.outcomes().map(|&x| x <= which).collect();
+        let value_mixture = if !mask.contains(&true) {
+            PoolMixture::from(Pool::new(vec![(value, rolls as usize)]).unwrap())
+        } else {
+            let (rerollable, not_rerollable) = value.split(&mask).unwrap();
+            let (rolls, max_rerolls) = (Value::from(rolls), Value::from(max_rerolls));
+            let depth = match depth {
+                Depth::Finite(n) => Value::from(n as i64),
+                Depth::Infinite => max_rerolls.clone(),
+            };
+            let composition = reroll_composition(
+                &value.denominator(),
+                &rerollable.denominator(),
+                &rolls,
+                &max_rerolls,
+                &depth,
+                value_rmatmul,
+            );
+            // `depth='inf'` with `max_rerolls=0`: `repeat=-1`, Python's ValueError on both paths.
+            let composition = match (composition, &typed) {
+                (Ok(composition), Ok(_)) => composition,
+                (composition, typed) => {
+                    return assert_eq!(composition.err(), typed.as_ref().err().cloned(), "{case}")
+                }
+            };
+            let sub = |a: &Value, b: &Value| a.binary(BinOp::Sub, b).unwrap();
+            PoolMixture::new(composition.items().iter().map(|(t, quantity)| {
+                let Value::Tuple(t) = t else { unreachable!("tuples") };
+                let [r, rerolled, again] = &t[..] else { unreachable!("triples") };
+                let ran_out = sub(r, rerolled);
+                let not = sub(&sub(&rolls, &ran_out), again);
+                let common = value_die_pool(&rerollable, again)
+                    .additive_union(&value_die_pool(&not_rerollable, &not))
+                    .unwrap();
+                let inner = match mode {
+                    RerollMode::Random => common.additive_union(&value_die_pool(&rerollable, &ran_out)),
+                    RerollMode::Low => common.additive_union(&value_keep_slice(value_die_pool(&rerollable, r), &ran_out, true)),
+                    RerollMode::High => common.additive_union(&value_keep_slice(value_die_pool(&rerollable, r), &ran_out, false)),
+                    RerollMode::Drop => Ok(value_die_pool(&not_rerollable, &not)),
+                };
+                (inner.unwrap(), quantity.clone())
+            }))
+        };
+        assert_same_mixture(&typed.unwrap(), &value_mixture, &case);
     });
 }

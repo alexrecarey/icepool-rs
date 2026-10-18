@@ -319,3 +319,123 @@ fn reroll_composition(
         .collect();
     Ok(infallible(Die::from_dict(items)))
 }
+
+#[cfg(test)]
+mod tests {
+    //! The expected dice are Python icepool's answers; the comment above each gives the Python.
+
+    use super::*;
+    use crate::d;
+    use crate::evaluator::basic::SumEvaluator;
+
+    fn sum(mixture: Result<PoolMixture<i64>>) -> Die<i64> {
+        mixture.unwrap().evaluate(&SumEvaluator).unwrap()
+    }
+
+    #[test]
+    fn reroll_modes_match_python() {
+        let d4_reroll = |mode| d(4).reroll_to_pool(3, |&x| x <= 2, Some(1), Depth::Finite(1), mode);
+        // `d(4).reroll_to_pool(3, [1, 2], max_rerolls=1, mode='high').sum()`
+        let high = [4u32, 7, 17, 29, 34, 43, 43, 39, 30, 10];
+        assert_eq!(
+            sum(d4_reroll(RerollMode::High)),
+            Die::from_weights((3..=12).zip(high))
+        );
+        // `mode='drop'`: dice left on 1 or 2 are dropped, so a sum of 0 (16 of 256) is possible.
+        let drop = [
+            (0, 16u32),
+            (3, 32),
+            (4, 32),
+            (6, 24),
+            (7, 48),
+            (8, 24),
+            (9, 10),
+            (10, 30),
+            (11, 30),
+            (12, 10),
+        ];
+        assert_eq!(sum(d4_reroll(RerollMode::Drop)), Die::from_weights(drop));
+    }
+
+    #[test]
+    fn reroll_depths_match_python() {
+        // `d(6).reroll_to_pool(2, max_rerolls=2, depth='inf').sum()`
+        let infinite =
+            d(6).reroll_to_pool(2, |&x| x == 1, Some(2), Depth::Infinite, RerollMode::Random);
+        let expected = [1u32, 4, 55, 106, 157, 208, 255, 204, 153, 102, 51];
+        assert_eq!(sum(infinite), Die::from_weights((2..=12).zip(expected)));
+        // `d(6).reroll_to_pool(4, [1, 2], max_rerolls=3, depth=2, mode='high').highest(2).sum()`
+        let deep = d(6).reroll_to_pool(4, |&x| x <= 2, Some(3), Depth::Finite(2), RerollMode::High);
+        let expected = [
+            15u32, 46, 144, 448, 2680, 7344, 20283, 38848, 66216, 77936, 65976,
+        ];
+        let best = deep.unwrap().highest(2).evaluate(&SumEvaluator).unwrap();
+        assert_eq!(best, Die::from_weights((2..=12).zip(expected)));
+    }
+
+    #[test]
+    fn reroll_low_makes_compound_keeps_as_python() {
+        // `d(4).reroll_to_pool(3, [1, 2], max_rerolls=1, mode='low')`: Python's mixture has one pool (no die on 1
+        // or 2, weight 32) and six compound keeps (weights 48, 48, 48, 48, 16, 16).
+        let mixture = d(4)
+            .reroll_to_pool(3, |&x| x <= 2, Some(1), Depth::Finite(1), RerollMode::Low)
+            .unwrap();
+        let kinds: Vec<_> = mixture
+            .inners()
+            .iter()
+            .map(|(inner, w)| (matches!(inner, KeepGenerator::Pool(_)), w.to_string()))
+            .collect();
+        let expected = [
+            (true, "32"),
+            (false, "48"),
+            (false, "48"),
+            (false, "48"),
+            (false, "48"),
+            (false, "16"),
+            (false, "16"),
+        ];
+        assert_eq!(kinds, expected.map(|(p, w)| (p, w.to_string())));
+    }
+
+    #[test]
+    fn reroll_edge_arguments() {
+        // `max_rerolls='inf'` is `self.reroll(which, depth=depth).pool(rolls)`.
+        let inf = d(6).reroll_to_pool(2, |&x| x == 1, None, Depth::Finite(1), RerollMode::Random);
+        let rerolled = d(6).reroll(|&x| x == 1, Depth::Finite(1)).unwrap();
+        assert_eq!(sum(inf), rerolled.pool(2).evaluate(&SumEvaluator).unwrap());
+        // `depth=0`: `icepool.map(..., repeat=-1)` raises ValueError.
+        let zero = d(6).reroll_to_pool(
+            2,
+            |&x| x == 1,
+            Some(1),
+            Depth::Finite(0),
+            RerollMode::Random,
+        );
+        assert!(matches!(zero, Err(Error::InvalidArgument(_))));
+        // Nothing rerollable: just the pool.
+        let none = d(6)
+            .reroll_to_pool(2, |_| false, Some(1), Depth::Finite(1), RerollMode::Low)
+            .unwrap();
+        assert_eq!(none.inners().len(), 1);
+    }
+
+    #[test]
+    fn explode_edge_arguments() {
+        // `d(6).explode_to_pool(2, depth=0)` and an empty selection are `d(6).pool(2)`.
+        for mixture in [
+            d(6).explode_to_pool(2, |&x| x == 6, 0),
+            d(6).explode_to_pool(2, |_| false, 3),
+        ] {
+            assert_eq!(sum(mixture), d(6).pool(2).evaluate(&SumEvaluator).unwrap());
+        }
+        // `d(6).explode_to_pool(0).sum()`: an empty pool has no sum (Python's TypeError "None is not a valid final
+        // outcome").
+        let empty = d(6).explode_to_pool(0, |&x| x == 6, 9).unwrap();
+        assert_eq!(empty.inners().len(), 1);
+        assert!(empty.evaluate(&SumEvaluator).is_err());
+        // A die that always explodes: every pool is the `depth + 1` explosions of each die.
+        let always = Die::single(3).explode_to_pool(2, |_| true, 2).unwrap();
+        assert_eq!(always.inners().len(), 1);
+        assert_eq!(sum(Ok(always)), Die::single(18));
+    }
+}
