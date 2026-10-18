@@ -20,6 +20,7 @@ use crate::Int;
 /// let highest = d(4).pool(2).evaluate(&KeepEvaluator { index: Some(Int::from(-1)) }).unwrap();
 /// assert_eq!(highest, Die::from_weights([(1, 1u32), (2, 3), (3, 5), (4, 7)]));
 /// ```
+#[derive(Debug)]
 pub struct KeepEvaluator {
     /// The `index=` keyword. `None` (what `pool[int]` passes, after keeping the one roll) takes the first element
     /// seen.

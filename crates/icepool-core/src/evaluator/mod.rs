@@ -77,6 +77,7 @@ use crate::Quantity;
 /// let result = d(6).pool(2).evaluate(&HighestNoOnes).unwrap();
 /// assert_eq!(result, Die::from_weights([(2, 3u32), (3, 5), (4, 7), (5, 9), (6, 11)]));
 /// ```
+#[derive(Debug)]
 pub enum Final<F> {
     /// An outcome of the result die.
     Outcome(F),

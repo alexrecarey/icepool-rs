@@ -26,6 +26,7 @@ pub use crate::lexi::{
 /// let result = Die::from_weights(evaluate(&evaluator, &[pair.clone(), pair]).unwrap());
 /// assert_eq!(result, Die::from_weights([(Int::from(0), 681u32), (Int::from(1), 615)]));
 /// ```
+#[derive(Debug)]
 pub struct LexiComparisonEvaluator {
     /// The order in which the outcomes are compared.
     pub sort_order: Order,

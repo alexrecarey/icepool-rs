@@ -35,6 +35,7 @@ count_fold_evaluators!(
 /// let result: Die<Vec<i64>> = d(2).pool(2).evaluate(&ExpandEvaluator { ascending: true }).unwrap();
 /// assert_eq!(result, Die::from_weights([(vec![1, 1], 1u32), (vec![1, 2], 2), (vec![2, 2], 1)]));
 /// ```
+#[derive(Debug)]
 pub struct ExpandEvaluator {
     /// The `order=` keyword: `Order.Ascending` (by `==`, so `1` or `True` too) sorts ascending, anything else
     /// descending.
@@ -128,6 +129,7 @@ fn state_as_outcome<P: Clone>(state: &Option<P>) -> Final<P> {
 /// // Python's `d(6).pool(2).sum()`.
 /// assert_eq!(d(6).pool(2).evaluate(&SumEvaluator).unwrap(), &d(6) + &d(6));
 /// ```
+#[derive(Debug)]
 pub struct SumEvaluator;
 
 impl<O: Summand> CountFold<O> for SumEvaluator {
@@ -156,6 +158,7 @@ impl<O: Summand> CountFold<O> for SumEvaluator {
 /// let result = d(6).pool(3).evaluate(&successes).unwrap();
 /// assert_eq!(result, Die::from_weights([(0, 64u32), (1, 96), (2, 48), (3, 8)]));
 /// ```
+#[derive(Debug)]
 pub struct MappedSumEvaluator<F, P> {
     /// The function applied to each outcome before it is summed.
     pub map: F,
@@ -197,6 +200,7 @@ impl<O, F: Fn(&O) -> Result<P>, P: Summand> CountFold<O> for MappedSumEvaluator<
 /// let result: Die<Int> = d(6).pool(4).highest(2).evaluate(&SizeEvaluator).unwrap();
 /// assert_eq!(result, Die::from_weights([(Int::from(2), 1296u32)]));
 /// ```
+#[derive(Debug)]
 pub struct SizeEvaluator;
 
 impl<O> CountFold<O> for SizeEvaluator {
@@ -223,6 +227,7 @@ impl<O> CountFold<O> for SizeEvaluator {
 /// let result: Die<Int> = d(2).pool(3).evaluate(&ProductOfCountsEvaluator).unwrap();
 /// assert_eq!(result, Die::from_weights([(Int::from(0), 2u32), (Int::from(2), 6)]));
 /// ```
+#[derive(Debug)]
 pub struct ProductOfCountsEvaluator;
 
 impl<O> CountFold<O> for ProductOfCountsEvaluator {
@@ -253,6 +258,7 @@ impl<O> CountFold<O> for ProductOfCountsEvaluator {
 /// let any = d(6).pool(2).evaluate(&EmptyEvaluator { any: true }).unwrap();
 /// assert_eq!(any, Die::from_weights([(true, 36u32)]));
 /// ```
+#[derive(Debug)]
 pub struct EmptyEvaluator {
     /// Whether the result is `any` (some count is nonzero) rather than `empty` (every count is zero).
     pub any: bool,

@@ -94,6 +94,7 @@ fn below(len: usize, limit: Option<i64>) -> bool {
 /// let i = |x: i64| vec![Int::from(x)];
 /// assert_eq!(result, Die::from_weights([(i(-1), 6u32), (i(0), 15), (i(1), 15)]));
 /// ```
+#[derive(Debug)]
 pub struct ArgsortEvaluator<W = Order, P = Int> {
     /// How tied elements are ordered.
     pub tie: Tie,
@@ -223,6 +224,7 @@ impl<O, W: RequestedOrder, P: Clone + From<i64>> MultisetEvaluator<O> for Argsor
 /// let ints = |xs: &[i64]| xs.iter().map(|&x| Int::from(x)).collect::<Vec<_>>();
 /// assert_eq!(result[0].0, vec![ints(&[0]), ints(&[0, 1, 1]), ints(&[0])]);
 /// ```
+#[derive(Debug)]
 pub struct ArgsortGroupedEvaluator<W = Order> {
     /// Which order the ranks are to be emitted in.
     pub order: W,

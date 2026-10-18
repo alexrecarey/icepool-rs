@@ -71,6 +71,13 @@ impl<T: Any + Eq + Hash> StateObject for T {
 #[derive(Clone)]
 pub struct AnyState(Arc<dyn StateObject>);
 
+/// The state's type is erased (and need not be `Debug`): it prints as a placeholder.
+impl std::fmt::Debug for AnyState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AnyState(..)")
+    }
+}
+
 impl PartialEq for AnyState {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq_dyn(&*other.0)
@@ -193,6 +200,7 @@ impl<O, F, T: DynEvaluator<O, F> + ?Sized> DynEvaluator<O, F> for Arc<T> {
 /// let Final::Outcome(result) = sum.final_outcome(&state, Order::Ascending, &[4], &[None]).unwrap() else { panic!() };
 /// assert_eq!(result, "sum 8");
 /// ```
+#[derive(Debug)]
 pub struct Erased<E, M> {
     /// The evaluator.
     pub evaluator: E,
@@ -284,6 +292,17 @@ pub enum Call<'a, O, F> {
     Joint(Vec<Call<'a, O, F>>),
 }
 
+/// An evaluator is a trait object: it prints as its kind, the tree of calls as itself.
+impl<O, F> std::fmt::Debug for Call<'_, O, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Call::Evaluator(_) => f.write_str("Evaluator(..)"),
+            Call::Function(call) => f.debug_tuple("Function").field(call).finish(),
+            Call::Joint(calls) => f.debug_tuple("Joint").field(calls).finish(),
+        }
+    }
+}
+
 /// The main state of a call: an evaluator's own, or the tuple of a joint call's inner states.
 ///
 /// ```
@@ -297,7 +316,7 @@ pub enum Call<'a, O, F> {
 /// assert!(joint == CallState::Joint(vec![leaf.clone(), leaf.clone()].into()));
 /// assert!(joint != leaf);
 /// ```
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CallState {
     /// An evaluator's own state.
     Leaf(AnyState),
@@ -364,6 +383,15 @@ pub struct MultisetFunction<'a, O, F> {
     pub call: Call<'a, O, F>,
     /// How to tupleize the results of a joint call.
     pub tupleize: Box<Tupleize<'a, F>>,
+}
+
+/// `tupleize` is a closure: only the calls print.
+impl<O, F> std::fmt::Debug for MultisetFunction<'_, O, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultisetFunction")
+            .field("call", &self.call)
+            .finish_non_exhaustive()
+    }
 }
 
 fn joint_states(state: &CallState) -> &[CallState] {

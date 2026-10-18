@@ -1,6 +1,7 @@
 // The crate's documentation is the usage guide in README.md; its examples run as doctests.
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![warn(missing_debug_implementations)]
 
 // Design: the core is generic over `OutcomeOrder` (see docs/ANALYSIS.md "the design decisions" and
 // docs/design/library-architecture.md section 1): any `Ord` type is an `Outcome`, whose comparisons cannot fail, so

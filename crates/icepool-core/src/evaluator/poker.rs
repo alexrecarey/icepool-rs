@@ -145,6 +145,7 @@ fn sorted_descending(mut xs: Vec<Int>) -> Vec<Int> {
 /// let expected = [((1, i(2)), 1u32), ((2, i(1)), 2), ((2, i(2)), 1), ((3, i(1)), 4), ((3, i(2)), 1)];
 /// assert_eq!(result, Die::from_weights(expected));
 /// ```
+#[derive(Debug)]
 pub struct HighestOutcomeAndCountEvaluator;
 
 impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
@@ -194,6 +195,7 @@ impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
 /// let expected = [(vec![], 6u32), (vec![Int::from(2)], 18), (vec![Int::from(3)], 3)];
 /// assert_eq!(result, Die::from_weights(expected));
 /// ```
+#[derive(Debug)]
 pub struct AllCountsEvaluator<F = Option<Int>> {
     /// Any counts below this value will not be in the output. For example, `filter=2` will only produce pairs and
     /// better. If `'all'` (`None`), no filtering will be done.
@@ -235,6 +237,7 @@ impl<O: Clone, F: CountFilter> CountFold<O> for AllCountsEvaluator<F> {
 /// let result: Die<Int> = d(3).pool(3).evaluate(&LargestCountEvaluator).unwrap();
 /// assert_eq!(result, Die::from_weights([(Int::from(1), 6u32), (Int::from(2), 18), (Int::from(3), 3)]));
 /// ```
+#[derive(Debug)]
 pub struct LargestCountEvaluator;
 
 impl<O> CountFold<O> for LargestCountEvaluator {
@@ -280,6 +283,7 @@ fn max_pair<O: OutcomeOrder>(a: (Int, O), b: (Int, O)) -> Result<(Int, O)> {
 /// let i = |x: i64| Int::from(x);
 /// assert_eq!(result, Die::from_weights([((i(1), 2), 2u32), ((i(2), 1), 1), ((i(2), 2), 1)]));
 /// ```
+#[derive(Debug)]
 pub struct LargestCountAndOutcomeEvaluator;
 
 impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
@@ -320,6 +324,7 @@ impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
 /// let result = evaluate(&evaluator, &[multiset(&[1, 1, 2, 2, 2]), multiset(&[1, 2])]).unwrap();
 /// assert_eq!(result, vec![(Int::from(2), Quantity::ONE)]);
 /// ```
+#[derive(Debug)]
 pub struct CountSubsetEvaluator<D = Int> {
     /// If the divisor is empty, the outcome will be this. If not set (`None`), `ZeroDivisionError` will be raised
     /// for an empty right side.
@@ -372,6 +377,7 @@ impl<O, D: Clone + From<Int>> CountFold<O> for CountSubsetEvaluator<D> {
 /// let result: Die<Int> = d(4).pool(3).evaluate(&LargestStraightEvaluator).unwrap();
 /// assert_eq!(result, Die::from_weights([(Int::from(1), 22u32), (Int::from(2), 30), (Int::from(3), 12)]));
 /// ```
+#[derive(Debug)]
 pub struct LargestStraightEvaluator;
 
 impl<O: IntegerOutcome> CountFold<O> for LargestStraightEvaluator {
@@ -413,6 +419,7 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightEvaluator {
 /// let low = pool.evaluate(&LargestStraightAndOutcomeEvaluator { prioritize_highest: false }).unwrap();
 /// assert_eq!(low, Die::single((Int::from(2), 1)));
 /// ```
+#[derive(Debug)]
 pub struct LargestStraightAndOutcomeEvaluator {
     /// `priority='high'`: controls which outcome within the straight is returned, and which straight is picked if
     /// there is a tie for largest straight.
@@ -489,6 +496,7 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightAndOutcomeEvaluator {
 /// let result = pool.evaluate(&AllStraightsEvaluator).unwrap();
 /// assert_eq!(result, Die::single([3, 1, 1].map(Int::from).to_vec()));
 /// ```
+#[derive(Debug)]
 pub struct AllStraightsEvaluator;
 
 impl<O: IntegerOutcome> CountFold<O> for AllStraightsEvaluator {
@@ -549,6 +557,7 @@ impl<O: IntegerOutcome> CountFold<O> for AllStraightsEvaluator {
 /// let result: Die<Int> = d(3).pool(2).evaluate(&evaluator).unwrap();
 /// assert_eq!(result, Die::from_weights([(Int::from(1), 2u32), (Int::from(2), 7)]));
 /// ```
+#[derive(Debug)]
 pub struct LargestCountWithWildEvaluator<S, T = bool> {
     /// These outcomes' counts are combined with the counts of any other outcomes.
     pub wild: S,
@@ -658,6 +667,7 @@ impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O>
 /// let i = |x: i64| Int::from(x);
 /// assert_eq!(result, Die::single(vec![(i(3), i(2)), (i(1), i(1))]));
 /// ```
+#[derive(Debug)]
 pub struct AllStraightsReduceCountsEvaluator<R, S = Int> {
     /// How to reduce the counts within each straight. The default is `operator.mul`, which counts the number of
     /// ways to pick elements for each straight, e.g. cribbage.

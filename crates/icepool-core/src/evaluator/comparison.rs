@@ -50,6 +50,7 @@ pub enum Comparison {
 /// let result = evaluate(&ComparisonEvaluator(Comparison::IsSubset), &sources).unwrap();
 /// assert_eq!(Die::from_weights(result), Die::from_weights([(false, 7u32), (true, 2)]));
 /// ```
+#[derive(Debug)]
 pub struct ComparisonEvaluator(pub Comparison);
 
 impl ComparisonEvaluator {
