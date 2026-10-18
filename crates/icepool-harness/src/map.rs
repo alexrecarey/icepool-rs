@@ -324,6 +324,14 @@ pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
         PValue::Ellipsis => wrong_type("argument of type 'ellipsis' is not iterable"),
         // A mapping: its keys.
         PValue::Deck(d) => Ok(d.outcomes().any(|o| o == x)),
+        // A multiset tuple expression iterates its hands, and `outcome == hand` is never true: the hand's `__eq__`
+        // cannot convert a plain outcome (identity, false), and its truth for a sequence outcome is `equals`, false.
+        c if crate::expression::as_tuple_expression(c).is_some() => {
+            crate::expression::as_tuple_expression(c)
+                .expect("checked")
+                .tuple_len()?;
+            Ok(false)
+        }
         PValue::Pool(_)
         | PValue::Deal(_)
         | PValue::MultiDeal(_)

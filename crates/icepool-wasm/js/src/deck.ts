@@ -19,6 +19,7 @@ import {
   generator,
   generatorOf,
   hasParameter,
+  isMultisetExpression,
   keepTupleBounded,
   mixtureOf,
   registerDeckClasses,
@@ -26,7 +27,7 @@ import {
   tupleLen,
   type TupleNode,
 } from "./multiset.js";
-import { List, Reroll, Restart, isPlainValue, pyTypeName, type Int, type Outcome, type PyFloat } from "./values.js";
+import { List, Reroll, Restart, Special, isPlainValue, pyTypeName, type Int, type Outcome, type PyFloat } from "./values.js";
 import { wasm } from "./wasm.js";
 
 /** What `new Deck(...)` takes: outcomes, dice or decks (with times), or a Map of outcomes to counts.
@@ -314,7 +315,10 @@ export class Deck implements Iterable<Outcome>, Disposable {
    * new Deck([1, 2, 3]).mul(2).items(); //=> [[1, 2n], [2, 2n], [3, 2n]]
    * ```
    */
-  mul(n: Int): Deck { return this.quantityOp("mul", "*", n); }
+  mul(n: AgainExpression): AgainExpression;
+  mul(n: Die): Die;
+  mul(n: Int): Deck;
+  mul(n: Int | Die | AgainExpression): Deck | Die | AgainExpression { return this.quantityOp("mul", "*", n); }
   /** `n * deck` (`__rmul__`, the same as `__mul__`).
    *
    * @example
@@ -322,7 +326,10 @@ export class Deck implements Iterable<Outcome>, Disposable {
    * new Deck([1, 2]).rmul(3).items(); //=> [[1, 3n], [2, 3n]]
    * ```
    */
-  rmul(n: Int): Deck { return this.quantityOp("mul", "r*", n); }
+  rmul(n: AgainExpression): AgainExpression;
+  rmul(n: Die): Die;
+  rmul(n: Int): Deck;
+  rmul(n: Int | Die | AgainExpression): Deck | Die | AgainExpression { return this.quantityOp("mul", "r*", n); }
   /** `deck // n`: every quantity divided by `n`, rounding down.
    *
    * @example
@@ -330,7 +337,10 @@ export class Deck implements Iterable<Outcome>, Disposable {
    * new Deck([1, 2, 3], [2, 4, 6]).floordiv(2).items(); //=> [[1, 1n], [2, 2n], [3, 3n]]
    * ```
    */
-  floordiv(n: Int): Deck { return this.quantityOp("floordiv", "//", n); }
+  floordiv(n: AgainExpression): AgainExpression;
+  floordiv(n: Die): Die;
+  floordiv(n: Int): Deck;
+  floordiv(n: Int | Die | AgainExpression): Deck | Die | AgainExpression { return this.quantityOp("floordiv", "//", n); }
   /** `deck % n`: every quantity modulo `n` (cards left with zero are dropped).
    *
    * @example
@@ -338,7 +348,10 @@ export class Deck implements Iterable<Outcome>, Disposable {
    * new Deck([1, 2, 3], [2, 4, 5]).mod(2).items(); //=> [[3, 1n]]
    * ```
    */
-  mod(n: Int): Deck { return this.quantityOp("mod", "%", n); }
+  mod(n: AgainExpression): AgainExpression;
+  mod(n: Die): Die;
+  mod(n: Int): Deck;
+  mod(n: Int | Die | AgainExpression): Deck | Die | AgainExpression { return this.quantityOp("mod", "%", n); }
   /** `Deck.symmetric_difference(other)`: the same as {@link Deck.xor}. (Python's docstring for it repeats the one
    * of `union`, but it is `^`.)
    *
@@ -723,15 +736,26 @@ export class Deck implements Iterable<Outcome>, Disposable {
       return Deck.wrap(wasm(() => w.counterMapping(op, [...other.keys()], [...other.values()])));
     }
     if (other instanceof MultisetExpression) return counterOfExpression(this, op, other);
-    if (isPlainValue(other)) throw typeError(`'${pyTypeName(other)}' object is not iterable`);
+    // Neither a mapping nor an iterable.
+    if (isPlainValue(other) || other instanceof Special || other instanceof AgainExpression) {
+      throw typeError(`'${other instanceof AgainExpression ? "AgainExpression" : pyTypeName(other)}' object is not iterable`);
+    }
     throw unported("Counter() of this object");
   }
 
-  /** `deck * n`, `deck // n`, `deck % n`: for an int `n` the quantity methods, else `NotImplemented` on both sides
+  /** `deck * n`, `n * deck` (`symbol` `r*`), `deck // n`, `deck % n`: for an int `n` the quantity methods, else
+   * `NotImplemented`: a die or an Again expression then answers with its own operator, anything else refuses too
    * (`TypeError`). */
-  private quantityOp(op: "mul" | "floordiv" | "mod", symbol: string, n: unknown): Deck {
+  private quantityOp(op: "mul" | "floordiv" | "mod", symbol: string, n: unknown): Deck | Die | AgainExpression {
     if (!isIntArg(n)) {
-      if (isPlainValue(n) || Array.isArray(n)) throw typeError("unsupported operand type(s) for Deck");
+      // `n * deck` is the die's or expression's `__mul__`, `deck * n` its `__rmul__` (and so on).
+      if (n instanceof Die || n instanceof AgainExpression) {
+        return (symbol === "r*" ? ops[op](n, this) : ops[op](this, n)) as Die | AgainExpression;
+      }
+      // A multiset expression's `__rmul__` takes an int only; a deck's and a multiset tuple expression's are none.
+      if (isPlainValue(n) || Array.isArray(n) || isMultisetExpression(n) || n instanceof Deck) {
+        throw typeError("unsupported operand type(s) for Deck");
+      }
       throw unported(`this deck operand of ${symbol}`);
     }
     const w = this.w;

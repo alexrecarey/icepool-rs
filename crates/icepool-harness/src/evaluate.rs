@@ -649,6 +649,20 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
             Some((_, reflected)) => compare_operator(reflected, b, a),
             None => compare_operator(op, b, a),
         },
+        // A multiset tuple expression or a deck has no comparisons but `MaybeHashKeyed.__eq__` (`equals`, a plain
+        // bool), so an order comparison is the expression's reflected one.
+        (None, Some(right)) if as_tuple_expression(&a).is_some() || matches!(a, PValue::Deck(_)) => {
+            match order_comparison(op) {
+                Some((_, reflected)) => compare_operator(reflected, b, a),
+                None => {
+                    let equals = match as_tuple_expression(&a) {
+                        Some(left) => same_expression(&left, &right)?,
+                        None => false,
+                    };
+                    Ok(PValue::Value(Value::Bool(equals != (op == "!="))))
+                }
+            }
+        }
         _ => Err(PErr::Unimplemented(
             "a multiset comparison with these operands".into(),
         )),
@@ -670,6 +684,10 @@ pub fn rfloordiv(other: PValue, p: PValue) -> Result<PValue, PErr> {
             return Err(PErr::Unimplemented(
                 "this left operand of // a multiset".into(),
             ))
+        }
+        // A multiset tuple expression converts to itself, which has no `count_subset`.
+        other if as_tuple_expression(&other).is_some() => {
+            return missing_attribute("a multiset tuple expression has no attribute 'count_subset'")
         }
         other => implicit_convert(other)?,
     };

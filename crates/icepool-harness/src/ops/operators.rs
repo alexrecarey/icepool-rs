@@ -1,10 +1,11 @@
 //! The operator nodes, named after Python's `operator` module (harness/grammar/basic.py,
 //! operators.py): `a <op> b`, `-a`, `n @ die` and `round` with dice, `Again` expressions and plain
-//! values on either side.
+//! values on either side, and the operators of multiset expressions and decks.
 
 use super::dice::die_arg;
 use super::wrong_type;
 use crate::again::{self, AgainOp};
+use crate::expression::{as_expression, as_tuple_expression};
 use crate::{Args, PErr, PValue};
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::{Die, Quantity, Value};
@@ -93,14 +94,23 @@ fn plain_die(x: PValue) -> PValue {
 /// `a <op> b` in Python. With a die on the left, `Die.__op__` converts the right operand. With a die only on the
 /// right, the left operand's own `__op__` returns `NotImplemented` (no outcome type knows about dice), so Python
 /// calls the die's reflected method: `__radd__` and friends convert the left operand and keep the order
-/// (`3 - die` is `Die([3]) - die`), while a comparison reflects (`3 < die` is `die > 3`).
+/// (`3 - die` is `Die([3]) - die`), while a comparison reflects (`3 < die` is `die > 3`). A multiset expression or
+/// a deck has operators of its own (`multiset_binary`).
 pub(crate) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
     let apply = |x: &Die<Value>, op: BinOp, y: &Die<Value>| {
         x.binary_operator(y, |p, q| p.binary(op, q))
             .map(PValue::Die)
             .map_err(PErr::from)
     };
-    match (plain_die(a), plain_die(b)) {
+    let (a, b) = (plain_die(a), plain_die(b));
+    // A deck's `+ - & | ^` count the other operand (`Counter(other)`) and a multiset expression's `//` is
+    // `count_subset` for anything but an int: neither returns `NotImplemented`, so they come before even an Again
+    // expression's reflected operator.
+    let counts_other = matches!(op, BinOp::Add | BinOp::Sub | BinOp::And | BinOp::Or | BinOp::Xor);
+    if (counts_other && matches!(a, PValue::Deck(_))) || (op == BinOp::FloorDiv && as_expression(&a).is_some()) {
+        return multiset_binary(op, a, b);
+    }
+    match (a, b) {
         // `AgainExpression` defines every operator (and dice return NotImplemented for it), so an expression on
         // either side builds a bigger expression. A comparison with the expression on the right reflects.
         (a @ PValue::Again(_), b) => again::apply(AgainOp::Binary(op), vec![a, b]),
@@ -121,6 +131,11 @@ pub(crate) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             None => again::apply(AgainOp::Binary(op), vec![a, b]),
         },
         (PValue::Die(a), b) => apply(&a, op, &to_die(b)?),
+        // A multiset expression's or deck's own operator, which hands over to the other operand where Python does
+        // (`NotImplemented`). A deck's `* // %` take an int only: a die on the right answers them.
+        (a, b) if has_operator(op, &a) && !(matches!(a, PValue::Deck(_)) && is_die(&b)) => {
+            multiset_binary(op, a, b)
+        }
         // The exception: `str % die` is printf-style formatting with the die as the argument, and a die is a
         // Mapping, which formatting accepts even when the format string never uses it.
         (PValue::Value(Value::Str(s)), PValue::Die(_)) if op == BinOp::Mod => Ok(PValue::Value(
@@ -143,6 +158,8 @@ pub(crate) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             None => apply(&to_die(a)?, op, &b),
         },
         (PValue::Value(a), PValue::Value(b)) => Ok(PValue::Value(a.binary(op, &b)?)),
+        // The reflected operators of a multiset expression or deck on the right (or Python's TypeError).
+        (a, b) if is_multiset(&a) || is_multiset(&b) => multiset_binary(op, a, b),
         // `Reroll` is an enum member: it has no operators (`==` is the `eq` node's).
         (
             PValue::Reroll | PValue::Restart | PValue::Value(_),
@@ -157,7 +174,71 @@ pub(crate) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
     }
 }
 
+fn is_die(x: &PValue) -> bool {
+    matches!(x, PValue::Die(_) | PValue::DieWithTruth(..))
+}
+
+/// A multiset expression, a multiset tuple expression or a deck.
+fn is_multiset(x: &PValue) -> bool {
+    as_expression(x).is_some() || as_tuple_expression(x).is_some() || matches!(x, PValue::Deck(_))
+}
+
+/// Whether `x.__op__` exists: a multiset expression has `+ - & | ^ * // %` and the subset comparisons
+/// (multiset_expression.py), a deck `+ - & | ^ * // %` (deck.py); a multiset tuple expression has none.
+fn has_operator(op: BinOp, x: &PValue) -> bool {
+    use BinOp::*;
+    let arithmetic = matches!(op, Add | Sub | And | Or | Xor | Mul | FloorDiv | Mod);
+    (as_expression(x).is_some() && (arithmetic || matches!(op, Lt | Le | Gt | Ge)))
+        || (matches!(x, PValue::Deck(_)) && arithmetic)
+}
+
+/// `a <op> b` with a multiset expression, a multiset tuple expression or a deck as an operand, once no die or Again
+/// expression answers first: the left operand's own operator, else the right one's reflected operator (the
+/// expression and deck nodes do that dispatch), else Python's TypeError.
+fn multiset_binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
+    use BinOp::*;
+    let symbol = op.symbol();
+    let expression = |x: &PValue| as_expression(x).is_some();
+    let deck = |x: &PValue| matches!(x, PValue::Deck(_));
+    let name = |s: &str| PValue::Value(Value::str(s));
+    let none = || PValue::Value(Value::None);
+    match op {
+        Add | Sub | And | Or | Xor if deck(&a) => crate::deck::deck_op(name(symbol), a, b),
+        Add | Sub | And | Or | Xor if expression(&a) || expression(&b) => {
+            crate::expression::binary_op(symbol, a, b)
+        }
+        // `__radd__`, `__rsub__`, `__rand__`, `__ror__` (and no `__rxor__`).
+        Add | Sub | And | Or | Xor if deck(&b) => crate::deck::deck_op(name(symbol), a, b),
+        Mul | FloorDiv | Mod if expression(&a) => {
+            let method = match op {
+                Mul => "mul",
+                FloorDiv => "floordiv",
+                _ => "mod",
+            };
+            crate::expression::counts(a, method, none(), b)
+        }
+        Mul | FloorDiv | Mod if deck(&a) => crate::deck::deck_mul(a, name(symbol), b),
+        // `__rmul__` (an int only); an expression's `__rfloordiv__` is `count_subset` the other way round.
+        Mul if expression(&b) => crate::expression::counts(b, "rmul", none(), a),
+        Mul if deck(&b) => crate::deck::deck_mul(b, name("r*"), a),
+        FloorDiv if expression(&b) => crate::evaluate::rfloordiv(a, b),
+        // `str % x` is printf-style formatting, and these are mappings to it (they have `__getitem__`).
+        Mod => match &a {
+            PValue::Value(Value::Str(s)) => Ok(PValue::Value(
+                icepool_core::value::ops::str_format_mapping(s)?,
+            )),
+            _ => wrong_type(format!("unsupported operand type(s) for {symbol}")),
+        },
+        Lt | Le | Gt | Ge if expression(&a) || expression(&b) => {
+            crate::evaluate::compare_operator(symbol, a, b)
+        }
+        Lt | Le | Gt | Ge => wrong_type(format!("'{symbol}' not supported between these instances")),
+        _ => wrong_type(format!("unsupported operand type(s) for {symbol}")),
+    }
+}
+
 /// `-a`, `+a`, `~a`, `abs(a)`, `math.trunc(a)`, `math.floor(a)`, `math.ceil(a)`: `Die.unary_operator` on a die.
+/// A multiset expression has `-` and `+` (`-1 * self`, `keep_counts('>=', 0)`).
 pub(crate) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
     match plain_die(a) {
         // `AgainExpression` has `-`, `+`, `~` and `abs`, but no `__trunc__`, `__floor__`, `__ceil__`.
@@ -166,6 +247,11 @@ pub(crate) fn unary(op: UnOp, a: PValue) -> Result<PValue, PErr> {
         }
         PValue::Die(d) => Ok(PValue::Die(d.unary_operator(|x| x.unary(op))?)),
         PValue::Value(v) => Ok(PValue::Value(v.unary(op)?)),
+        a if as_expression(&a).is_some() && matches!(op, UnOp::Neg | UnOp::Pos) => {
+            let method = if op == UnOp::Neg { "neg" } else { "pos" };
+            let none = PValue::Value(Value::None);
+            crate::expression::counts(a, method, none.clone(), none)
+        }
         _ => wrong_type("bad operand type for a unary operator"),
     }
 }

@@ -941,6 +941,10 @@ export class MultisetExpression implements Disposable {
     // `Die.__floordiv__` converts the expression into a one-outcome die, which cannot sort it.
     if (other instanceof Die) throw typeError("Items do not appear to be sortable.");
     if (other instanceof Vector || other instanceof Symbols) throw unported("this left operand of // a multiset");
+    // A multiset tuple expression converts to itself, which has no `count_subset`.
+    if (isTupleExpression(other)) {
+      throw new IcepoolError("MissingAttribute", "AttributeError", "a multiset tuple expression has no attribute 'count_subset'");
+    }
     return evaluation("count_subset", [null], [implicit(other), this]);
   }
   /** `MultisetExpression.isdisjoint(other)`: evaluation: whether no outcome has a positive count in both multisets.
@@ -2206,8 +2210,8 @@ function hashable(x: Input): boolean {
   return node.kind !== "operator" || (node.hashable && node.children.every(hashable));
 }
 
-/** Whether a dict holding expression `a` finds it equal to `b`: their `hash_key`s. */
-function sameExpression(a: Input, b: Input): boolean {
+/** Whether a dict holding expression `a` finds it equal to `b`: their `hash_key`s. @internal */
+export function sameExpression(a: Input, b: Input): boolean {
   const [x, y] = [a.node, b.node];
   if (a === b) return true;
   if (x.kind === "generator" && y.kind === "generator") return wasm(() => x.g.sameKey(y.g));

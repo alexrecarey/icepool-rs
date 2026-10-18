@@ -14,7 +14,7 @@ use super::ops::{
 use super::statistics;
 use super::{raise, PErr, PValue};
 use icepool_core::value::{DieArg, PyDie, Formatted, Data, Num};
-use icepool_core::value::{Counter, CounterOp};
+use icepool_core::value::{BinOp, Counter, CounterOp};
 use icepool_core::{Error, Order};
 use icepool_core::{Deal, Deck, Die, Int, Quantity, Value};
 
@@ -154,6 +154,10 @@ fn counter(other: PValue) -> Result<Counter<Value>, PErr> {
             Ok(Counter::from_elements(elements))
         }
         PValue::Value(v) => wrong_type(format!("'{}' object is not iterable", v.type_name())),
+        // Neither a mapping nor an iterable.
+        PValue::Again(_) => wrong_type("'AgainExpression' object is not iterable"),
+        PValue::Reroll | PValue::Restart => wrong_type("'RerollType' object is not iterable"),
+        PValue::Ellipsis => wrong_type("'ellipsis' object is not iterable"),
         _ => Err(PErr::Unimplemented("Counter() of this object".into())),
     }
 }
@@ -248,29 +252,46 @@ fn deck_op_expression(deck: &Deck<Value>, op: CounterOp, expr: PValue) -> Result
 }
 
 /// `deck * n`, `n * deck` (`op` `'r*'`), `deck // n`, `deck % n`: `multiply_quantities` and friends for an `int`
-/// `n`, else `NotImplemented` on both sides (`TypeError`).
+/// `n`, else `NotImplemented`: a die or an Again expression then answers with its own operator, anything else
+/// refuses too (`TypeError`).
 pub fn deck_mul(deck: PValue, op: PValue, n: PValue) -> Result<PValue, PErr> {
-    let deck = the_deck(deck)?;
+    let PValue::Value(Value::Str(op)) = &op else {
+        return Err(PErr::Unimplemented(
+            "a deck operator that is not a str".into(),
+        ));
+    };
+    let binop = match &**op {
+        "*" | "r*" => BinOp::Mul,
+        "//" => BinOp::FloorDiv,
+        "%" => BinOp::Mod,
+        _ => return Err(PErr::Unimplemented(format!("deck operator {op}"))),
+    };
     let n = match n {
         PValue::Value(n @ (Value::Int(_) | Value::Bool(_))) => n,
-        PValue::Value(_) | PValue::List(_) | PValue::Tuple(_) => {
-            return wrong_type("unsupported operand type(s) for Deck")
+        // `n * deck` is the die's or expression's `__mul__`, `deck * n` its `__rmul__` (and so on).
+        n @ (PValue::Die(_) | PValue::DieWithTruth(..) | PValue::Again(_)) if &**op == "r*" => {
+            return super::ops::binary(binop, n, deck)
         }
+        n @ (PValue::Die(_) | PValue::DieWithTruth(..) | PValue::Again(_)) => {
+            return super::ops::binary(binop, deck, n)
+        }
+        // A multiset expression's `__rmul__` takes an int only; a deck's and a multiset tuple expression's are none.
+        PValue::Value(_)
+        | PValue::List(_)
+        | PValue::Tuple(_)
+        | PValue::Pool(_)
+        | PValue::Deal(_)
+        | PValue::MultiDeal(_)
+        | PValue::Expr(_)
+        | PValue::Deck(_) => return wrong_type("unsupported operand type(s) for Deck"),
         _ => return Err(PErr::Unimplemented("this deck operand".into())),
     };
+    let deck = the_deck(deck)?;
     let cards = deck.population();
-    let data = match &op {
-        PValue::Value(Value::Str(op)) => match &**op {
-            "*" | "r*" => cards.multiply_quantities(&n)?,
-            "//" => cards.divide_quantities(&n)?,
-            "%" => Some(cards.modulo_quantities(&n)?),
-            _ => return Err(PErr::Unimplemented(format!("deck operator {op}"))),
-        },
-        _ => {
-            return Err(PErr::Unimplemented(
-                "a deck operator that is not a str".into(),
-            ))
-        }
+    let data = match binop {
+        BinOp::Mul => cards.multiply_quantities(&n)?,
+        BinOp::FloorDiv => cards.divide_quantities(&n)?,
+        _ => Some(cards.modulo_quantities(&n)?),
     };
     match data {
         None => Ok(PValue::Deck(deck)),

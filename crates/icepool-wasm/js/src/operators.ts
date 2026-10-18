@@ -7,7 +7,7 @@
 import { AgainExpression } from "./again.js";
 import { Die } from "./die.js";
 import { IcepoolError } from "./errors.js";
-import { MultisetExpression, isDeck, isMultisetExpression } from "./multiset.js";
+import { MultisetExpression, isDeck, isMultisetExpression, sameExpression, type TupleExpressionLike } from "./multiset.js";
 import { Reroll, Restart, Symbols, isPlainValue, pyTypeName, type Int } from "./values.js";
 import { raw, wasm } from "./wasm.js";
 
@@ -82,9 +82,26 @@ function ownOperator(x: unknown, op: BinaryName, reflected: boolean): ((y: unkno
   return name === undefined ? undefined : (y) => (x as unknown as Record<string, (y: unknown) => unknown>)[name](y);
 }
 
+/** Whether `a.__op__` answers before even an Again expression's reflected operator, never returning
+ * `NotImplemented`: a deck's `+ - & | ^` count the other operand (`Counter(other)`), a multiset expression's `//` is
+ * `count_subset` for anything but an int, and a deck's or multiset tuple expression's `==` is
+ * `MaybeHashKeyed.__eq__`, a plain bool. */
+function answersFirst(op: BinaryName, a: unknown): boolean {
+  if (op === "eq" || op === "ne") return isDeck(a) || (isMultisetExpression(a) && !(a instanceof MultisetExpression));
+  if (isDeck(a)) return op === "add" || op === "sub" || op === "and" || op === "or" || op === "xor";
+  return op === "floordiv" && a instanceof MultisetExpression;
+}
+
 /** `a <op> b` with Python's semantics. */
 export function binary(op: BinaryName, a: unknown, b: unknown): unknown {
   if (a instanceof Die || a instanceof AgainExpression) return (a[op] as (x: unknown) => unknown)(b);
+  if (answersFirst(op, a)) {
+    // A multiset tuple expression's `equals`: the same `hash_key` (only another expression's can match).
+    if (!isDeck(a) && !(a instanceof MultisetExpression)) {
+      return (isMultisetExpression(b) && sameExpression(a as TupleExpressionLike, b as TupleExpressionLike)) !== (op === "ne");
+    }
+    return (ownOperator(a, op, false) as (y: unknown) => unknown)(b);
+  }
   if (b instanceof AgainExpression) {
     // Except that `str % x` is printf-style formatting, which runs before the expression's `__rmod__`. The
     // expression is neither a tuple nor a mapping, so it is the one argument: without a conversion specifier it is
@@ -95,6 +112,11 @@ export function binary(op: BinaryName, a: unknown, b: unknown): unknown {
     }
     return (b as unknown as Record<string, (x: unknown) => unknown>)[reflected(op)](a);
   }
+  // A multiset expression's or deck's own operator, which does Python's whole dispatch (it calls the other
+  // operand's reflected one where Python's returns NotImplemented). A deck's `* // %` take an int only: a die on
+  // the right answers them.
+  const own = ownOperator(a, op, false);
+  if (own !== undefined && !(isDeck(a) && b instanceof Die)) return own(b);
   if (b instanceof Die) {
     // Except that `str % die` is printf-style formatting, and `Symbols // die` counts the die as a mapping: the
     // left operand's own operator does know those.
@@ -112,14 +134,18 @@ export function binary(op: BinaryName, a: unknown, b: unknown): unknown {
     const code = raw().BinaryOp[BINARY[op]];
     return wasm((w) => w.valueBinary(code, a, b));
   }
-  // A multiset expression's or deck's own operator does Python's whole dispatch (it calls the other operand's
-  // reflected one where Python does). On the right, its reflected operator: an expression's `__rmul__` only takes an
-  // int, as `__mul__` returns NotImplemented for anything else.
-  const own = ownOperator(a, op, false);
-  if (own !== undefined) return own(b);
+  // On the right, a multiset expression's or deck's reflected operator: an expression's `__rmul__` only takes an
+  // int, as its `__mul__` returns NotImplemented for anything else.
   const reflectedOwn = ownOperator(b, op, true);
   if (reflectedOwn !== undefined && !(op === "mul" && b instanceof MultisetExpression && !isInt(a))) return reflectedOwn(a);
   if (isMultisetExpression(a) || isMultisetExpression(b) || isDeck(a) || isDeck(b)) {
+    // `str % x` is printf-style formatting, and these are mappings to it (they have `__getitem__`): without
+    // conversion specifiers the result is the string itself.
+    if (op === "mod" && typeof a === "string") {
+      if (a.includes("%")) throw new IcepoolError("Unported", "NotImplementedError", "str % formatting with conversion specifiers");
+      return a;
+    }
+    // `object.__eq__`: identity.
     if (op === "eq" || op === "ne") return (a === b) !== (op === "ne");
     throw unsupported(op, a, b);
   }

@@ -3,6 +3,7 @@
 //! truth values, `equals`, and `hash_key` comparisons.
 
 use super::catalogue::truthy;
+use super::expression::{as_expression, as_tuple_expression, same_expression};
 use super::collection::attribute_error;
 use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
@@ -113,13 +114,21 @@ pub fn sample(die: PValue, seed: PValue, n: PValue) -> Result<PValue, PErr> {
 /// `a == b` (`ne`: `a != b`). With a die on either side, a `DieWithTruth`: its data is the outcome-wise `==` of
 /// the die and the other operand converted to a die (Python reflects `x == die` to `die == x`), its truth value
 /// whether the die `equals()` the *unconverted* operand (so a die is never equal to a plain outcome). Between plain
-/// values, Python's `==`.
+/// values, Python's `==`. A multiset expression's `==` is its own (`compare_operator`); a deck's and a multiset
+/// tuple expression's is `MaybeHashKeyed.__eq__`, a plain bool, which never returns `NotImplemented`.
 pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
     let is_die = |x: &PValue| matches!(x, PValue::Die(_) | PValue::DieWithTruth(..));
+    let hash_keyed = |x: &PValue| matches!(x, PValue::Deck(_)) || as_tuple_expression(x).is_some();
+    let op = if ne { "!=" } else { "==" };
     let (die, other) = match (a, b) {
+        (a, b) if hash_keyed(&a) => return Ok(PValue::Value(Value::Bool(hash_key_equals(&a, &b)? != ne))),
         (a @ PValue::Again(_), b) | (a, b @ PValue::Again(_)) => return super::again::eq(a, b, ne),
+        (a, b) if as_expression(&a).is_some() => return super::evaluate::compare_operator(op, a, b),
         (a, b) if is_die(&a) => (a, b),
         (a, b) if is_die(&b) => (b, a),
+        // The left operand's own `__eq__` returns NotImplemented: the right one's.
+        (a, b) if hash_keyed(&b) => return Ok(PValue::Value(Value::Bool(hash_key_equals(&b, &a)? != ne))),
+        (a, b) if as_expression(&b).is_some() => return super::evaluate::compare_operator(op, a, b),
         (PValue::Value(a), PValue::Value(b)) => return Ok(PValue::Value(a.eq_op(&b, ne)?)),
         // `Reroll` is an enum member: equal only to itself.
         (a @ (PValue::Reroll | PValue::Restart | PValue::Value(_)), b)
@@ -141,6 +150,19 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
         Err(Error::Unported(what)) => return Err(PErr::Unimplemented(what)),
         Err(e) => PValue::DieWithTruthError(e, equals != ne),
     })
+}
+
+/// `MaybeHashKeyed.equals` of a deck or a multiset tuple expression: equal `hash_key`s (a deck's is its cards, a
+/// tuple expression's that of the expression it is).
+fn hash_key_equals(a: &PValue, b: &PValue) -> Result<bool, PErr> {
+    if let (PValue::Deck(x), PValue::Deck(y)) = (a, b) {
+        return Ok(x == y);
+    }
+    let expression = |x: &PValue| as_expression(x).or_else(|| as_tuple_expression(x));
+    match (expression(a), expression(b)) {
+        (Some(x), Some(y)) => same_expression(&x, &y),
+        _ => Ok(false),
+    }
 }
 
 /// `bool(x)`: a `DieWithTruth`'s truth value; a plain die raises.

@@ -12,15 +12,10 @@
 #   3. the extension module holds no harness, runner (panic locations embed source paths, so any linked runner code
 #      shows: `icepool-harness`, and `src/program/`, its old home in icepool-core) or serde_json strings, and no
 #      runner, harness or serde_json symbols;
-#   4. npm contents: no tests, fixtures, catalogue, run-wasm or bench files;
+#   4. npm contents: no tests, fixtures, catalogue, run-wasm or bench files, and neither the test-only bridge to the
+#      program runner (js/src/rpc.ts) nor the test-only exports (js/src/internal.ts);
 #   5. the .wasm modules hold none of those strings either, and export neither `run` (test-only) nor `calculate`
-#      (khepri's), nor the JSON-op exports `call`, `evaluate`, `from_wire`, `wire_result`.
-#
-# INTERIM, until task C6l: the TypeScript API's bridge (crates/icepool-wasm/src/facade.rs, under js/src/rpc.ts) still
-# calls the program runner's nodes by name for what is not on typed exports yet, so the npm package links the runner
-# (icepool-harness, without its `khepri` feature) and serde_json and exports the JSON-op calls. While facade.rs uses
-# `icepool_harness`, those (and only those) are reported, not failed, for the npm package alone; once C6l removes the
-# bridge, every check above applies to the npm package too, with no edit here.
+#      (khepri's), nor the JSON-op bridge's `call`, `from_wire`, `wire_result` (test-only, feature `runner`).
 #
 # The npm package is checked as `js/build.sh --dev` builds it: the same wasm-bindgen output as `--pack`, without
 # wasm-opt, which only shrinks the module (and takes up to 45 s). Needs cargo, uv (maturin), wasm-pack, node, npm,
@@ -48,12 +43,6 @@ TEST_PATHS='(^|/)(tests?|conftest|fixtures?|harness|catalogue|program|run[-_](fa
 HARNESS_STRINGS=(icepool-harness icepool_harness)
 RUNNER_STRINGS=(src/program/ serde_json)
 
-INTERIM=0
-if grep -q 'icepool_harness' crates/icepool-wasm/src/facade.rs 2> /dev/null; then
-  INTERIM=1
-  echo "INTERIM (until C6l): the JS bridge calls the program runner; runner code in the npm package is reported, not failed"
-fi
-
 # check_paths WHAT < listing: fails on test-only paths.
 check_paths() {
   local bad
@@ -61,38 +50,29 @@ check_paths() {
   [ -z "$bad" ] || fail "$1 contains test-only files:"$'\n'"$bad"
 }
 
-# check_strings FILE INTERIM_OK STRING...: fails on any STRING found in FILE (only reports it if INTERIM_OK=1).
+# check_strings FILE STRING...: fails on any STRING found in FILE.
 check_strings() {
-  local file="$1" interim_ok="$2" s n
-  shift 2
+  local file="$1" s n
+  shift
   for s in "$@"; do
     n="$(grep -c -a -F -- "$s" "$file" || true)"
-    [ "$n" = 0 ] && continue
-    if [ "$interim_ok" = 1 ]; then
-      echo "  interim: $(basename "$file") holds \"$s\" ($n lines)"
-    else
-      fail "$(basename "$file") holds \"$s\" ($n lines)"
-    fi
+    [ "$n" = 0 ] || fail "$(basename "$file") holds \"$s\" ($n lines)"
   done
 }
 
 echo "=== 1. dependency graph"
-# check_tree PACKAGE INTERIM_OK [cargo tree args...]
+# check_tree PACKAGE [cargo tree args...]
 check_tree() {
-  local pkg="$1" interim_ok="$2" tree
-  shift 2
+  local pkg="$1" tree pattern
+  shift
   tree="$(cargo tree -p "$pkg" -e normal,features --prefix none "$@" 2>&1)" || { fail "cargo tree -p $pkg: $tree"; return; }
   echo "  $pkg: $(grep -c ' v[0-9]' <<< "$tree") normal dependency lines"
-  grep -q 'icepool-khepri v' <<< "$tree" && fail "$pkg has icepool-khepri (khepri's engine)"
-  local pattern
-  for pattern in 'serde_json v' 'icepool-harness v'; do
-    if grep -q "$pattern" <<< "$tree"; then
-      if [ "$interim_ok" = 1 ]; then echo "  interim: $pkg has $pattern"; else fail "$pkg has $pattern"; fi
-    fi
+  for pattern in 'icepool-khepri v' 'serde_json v' 'icepool-harness v'; do
+    if grep -q "$pattern" <<< "$tree"; then fail "$pkg has $pattern"; fi
   done
 }
-check_tree icepool-py 0
-check_tree icepool-wasm "$INTERIM" --target wasm32-unknown-unknown
+check_tree icepool-py
+check_tree icepool-wasm --target wasm32-unknown-unknown
 
 echo "=== 2. Python wheel (scripts/build-wheel.sh)"
 if scripts/build-wheel.sh "$WORK/wheel" > "$WORK/maturin.log" 2>&1; then
@@ -129,7 +109,7 @@ print("  smoke test: `icepool.d(6) + 1` from the installed wheel, on the Rust ba
   unzip -q "$WHEEL" -d "$WORK/wheel-x"
   for so in "$WORK"/wheel-x/*/*.so; do
     echo "  $(basename "$so"): $(wc -c < "$so") bytes; exported: $(nm -D --defined-only "$so" | awk '{print $3}' | tr '\n' ' ')"
-    check_strings "$so" 0 "${HARNESS_STRINGS[@]}" "${RUNNER_STRINGS[@]}"
+    check_strings "$so" "${HARNESS_STRINGS[@]}" "${RUNNER_STRINGS[@]}"
     n="$(nm -C "$so" 2> /dev/null | grep -c -E 'icepool_harness::|serde_json::' || true)"
     [ "$n" = 0 ] || fail "$(basename "$so") has $n runner, harness or serde_json symbols"
   done
@@ -146,6 +126,9 @@ if crates/icepool-wasm/js/build.sh --dev > "$WORK/wasm-pack.log" 2>&1 \
   echo "  $(basename "$TGZ"): $(wc -c < "$TGZ") bytes, $(wc -l < "$WORK/npm.txt") files:"
   sed 's/^/    /' "$WORK/npm.txt"
   check_paths "the npm package" < "$WORK/npm.txt"
+  # The bridge to the program runner and the test-only exports (js/src/rpc.ts, internal.ts) stay out.
+  bad="$(grep -E '(^|/)(rpc|internal)\.(js|d\.ts)$' "$WORK/npm.txt" || true)"
+  [ -z "$bad" ] || fail "the npm package contains test-only modules:"$'\n'"$bad"
 
   echo "=== 5. wasm modules"
   mkdir "$WORK/npm-x" && tar xzf "$TGZ" -C "$WORK/npm-x"
@@ -155,12 +138,11 @@ if crates/icepool-wasm/js/build.sh --dev > "$WORK/wasm-pack.log" 2>&1 \
       console.log(WebAssembly.Module.exports(m).filter((e) => e.kind === "function").map((e) => e.name).join(" "));
     ' "$wasm")"
     echo "  $(basename "$(dirname "$wasm")")/$(basename "$wasm"): $(wc -c < "$wasm") bytes; exports: $exports"
-    check_strings "$wasm" "$INTERIM" "${HARNESS_STRINGS[@]}" "${RUNNER_STRINGS[@]}"
+    check_strings "$wasm" "${HARNESS_STRINGS[@]}" "${RUNNER_STRINGS[@]}"
     for e in $exports; do
       case "$e" in
-        run | calculate) fail "$(basename "$wasm") exports $e (a build feature the package leaves out)" ;;
-        call | evaluate | from_wire | wire_result)
-          if [ "$INTERIM" = 1 ]; then echo "  interim: exports $e"; else fail "$(basename "$wasm") exports $e"; fi ;;
+        run | calculate | call | from_wire | wire_result)
+          fail "$(basename "$wasm") exports $e (a build feature the package leaves out)" ;;
       esac
     done
   done
@@ -171,11 +153,7 @@ fi
 
 echo
 if [ "$FAILED" = 0 ]; then
-  if [ "$INTERIM" = 1 ]; then
-    echo "check-production: OK, no test code in the wheel; the npm package as INTERIM allows (until C6l)"
-  else
-    echo "check-production: OK, no test code in the wheel or the npm package"
-  fi
+  echo "check-production: OK, no test code in the wheel or the npm package"
   exit 0
 fi
 echo "check-production: FAILED"

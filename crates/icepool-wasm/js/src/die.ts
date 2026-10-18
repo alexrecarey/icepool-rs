@@ -925,7 +925,11 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     // A multiset tuple expression iterates its hands, and `outcome == hand` is never true: the hand's `__eq__`
     // cannot convert a plain outcome (identity, false), and its truth for a sequence outcome is `equals`, false.
     else if (isMultisetExpression(collection) && !(collection instanceof MultisetExpression)) members = [];
-    else {
+    // A multiset expression iterates through `__getitem__` (`keep(i)`, a die each) until an IndexError, which some
+    // expressions never raise: not modelled.
+    else if (collection instanceof MultisetExpression) {
+      throw new IcepoolError("Unported", "NotImplementedError", "membership in a multiset expression");
+    } else {
       throw new IcepoolError("WrongType", "TypeError", `argument of type '${pyTypeName(collection)}' is not iterable`);
     }
     // `Reroll` is an enum member, equal only to itself: never to an outcome. The rest must be values (a die in a
