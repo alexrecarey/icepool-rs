@@ -331,9 +331,9 @@ turns out wrong. Newest decisions at the top of each section.
     task C3d, after C3b, moves it onto deliberate APIs). C5b only had to make public what was private: lexi.py's
     helpers (`evaluator::lexi::compute_lexi_tuple*`, re-exported from the private `lexi`) and
     `Error::is_wrong_kind`. Never widen a private module for it.
-  - icepool-core has **no default features**: only `khepri` (serde_json optional, pulled in only by it). The
-    dev-dependency cycle on icepool-harness is gone: `cargo test -p icepool-core` no longer runs the fixtures (nor
-    tests/khepri_calculate.rs, which needs `khepri`); `cargo test --workspace` does, and cargo-mutants runs with
+  - icepool-core has **no features** (khepri's engine moved to crates/icepool-khepri in C2f). The
+    dev-dependency cycle on icepool-harness is gone: `cargo test -p icepool-core` no longer runs the fixtures;
+    `cargo test --workspace` does, and cargo-mutants runs with
     `--test-workspace true`. **A khepri-less build is not what the gate compiles**: after touching core, also run
     `cargo clippy --release -p icepool-core -- -D warnings` and `-p icepool-py` (core without features) or dead
     code there only shows in check-production's maturin build.
@@ -346,8 +346,8 @@ turns out wrong. Newest decisions at the top of each section.
     bindings. icepool-py no longer touches `program` at all; it has no serialisation (PyO3 converts directly), so
     there is no model to share with the JS facade, whose JSON (the runner's wire format) goes away in C6.
   - icepool-wasm features, none default: `runner` (the `run` export, src/runner.rs) and `khepri` (`calculate`,
-    src/khepri.rs). Their unit tests compile in every test build (`cfg(any(test, feature))` + a dev-dependency on
-    core with both features). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
+    src/khepri.rs, on crates/icepool-khepri). Their unit tests compile in every test build (`cfg(any(test, feature))`
+    + dev-dependencies on icepool-harness and icepool-khepri). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
     same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
     (khepri's) `khepri`. wasm.ts's `run`/`calculate` throw a clear Error in builds without the feature.
     **Interim until C6l:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
@@ -441,8 +441,14 @@ turns out wrong. Newest decisions at the top of each section.
     harness.core.tool oracle '<program>'`, or `uv run python -c 'import icepool ...'` from the repo root).
   - Typed-vs-Python check: value/evaluators.rs `typed_matches_python` evaluates on `Pool<i64>` and `Pool<Value>` and
     asserts the typed finals spelled as Values equal Python's, in order. Reuse it for the next evaluators.
-  - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
-    runner's `khepri` node, icepool-wasm's `khepri` feature for `calculate`). The crate move waits for C5b (C2f).
+  - **khepri** is its own crate since C2f: `crates/icepool-khepri` (`publish = false`; deps icepool-core,
+    serde_json, dashu-int, rustc-hash), `src/lib.rs` was core's `src/khepri.rs`, with tests/khepri_calculate.rs
+    (+ json; it now runs in every `cargo test --workspace`, no feature). It is a client of icepool-core like the
+    runner, reaching the hidden `counts` and `keep_tuple` modules (C3d's list). Users: icepool-harness's `khepri`
+    feature (default; `dep:icepool-khepri`, the runner's `khepri` node) and icepool-wasm's `khepri` feature
+    (`calculate`; also a dev-dependency so its unit tests always build). icepool-core has **no features and no
+    serde_json at all** now; check-production.sh fails if icepool-py or icepool-wasm (built alone) has
+    icepool-khepri. Its public items are not doc-linted (no `missing_docs`: it was a hidden module before).
 
 - **Generic map, map_tools, explode, Again (C2d, design section 2).**
   - `die_map.rs`: `Mapped<P> { Outcome, Die, Reroll, Break(Option<Target<P>>), Restart }` (what a mapping
@@ -1560,7 +1566,7 @@ turns out wrong. Newest decisions at the top of each section.
   WASM size: 1,075,543 bytes (381 KB gzipped) after wasm-opt -O3, against Pyodide's 5.6 MB; instantiate 6 ms. The
   release profile is speed-tuned (workspace-wide); `opt-level = "s"` for the wasm build is an option if size matters.
 
-- **khepri engine (K7).** `src/khepri.rs` ports f2f.py natively and typed: dice are `Die<i64>` (`d20 > save` is
+- **khepri engine (K7).** `src/khepri.rs` (crates/icepool-khepri/src/lib.rs since C2f) ports f2f.py natively and typed: dice are `Die<i64>` (`d20 > save` is
   0/1 ints: equal hash/order/sums to Python's bools, and every result outcome is an int anyway), the roll is
   `Die<Roll = [i64; 4]>` (`Outcome` for `[i64; N]` is in outcome.rs), the result `Die<(Player, i64)>` with
   `Player` variants in Python's str order. Each step uses the core op Python uses, so quantities are exact:
