@@ -127,6 +127,12 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// Every `(outcome, quantity)` in sorted order, zero quantities included.
+    ///
+    /// ```
+    /// use icepool_core::{Die, Quantity};
+    /// let coin = Die::from_weights([(0, 1u32), (1, 3)]);
+    /// assert_eq!(coin.items(), [(0, Quantity::from(1u8)), (1, Quantity::from(3u8))]);
+    /// ```
     pub fn items(&self) -> &[(O, Quantity)] {
         self.data.counts.items()
     }
@@ -142,6 +148,12 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The number of outcomes.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).len(), 6);
+    /// assert_eq!((&d(6) + &d(6)).len(), 11);
+    /// ```
     pub fn len(&self) -> usize {
         self.data.counts.len()
     }
@@ -161,6 +173,12 @@ impl<O: OutcomeOrder> Die<O> {
     ///
     /// This is used for the standard unary operators `-, +, abs, ~, round, trunc, floor, ceil` as well as the
     /// additional methods `zero, bool`. Outcomes that map to the same result add up their quantities.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let negated = d(3).unary_operator(|x| Ok(-x)).unwrap();
+    /// assert_eq!(negated, Die::from(-3..=-1));
+    /// ```
     pub fn unary_operator(&self, op: impl Fn(&O) -> Result<O>) -> Result<Self> {
         let mut data = OrderedMerge::default();
         for (outcome, quantity) in self.items() {
@@ -177,6 +195,12 @@ impl<O: OutcomeOrder> Die<O> {
     ///
     /// Every pair is visited (zero quantities included, so an `op` that raises on one raises here), `self` in the
     /// outer loop, as `itertools.product(self.items(), other.items())`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let product = d(2).binary_operator(&d(2), |a, b| Ok(a * b)).unwrap();
+    /// assert_eq!(product, Die::from_weights([(1, 1u32), (2, 2), (4, 1)]));
+    /// ```
     pub fn binary_operator(
         &self,
         other: &Die<O>,
@@ -205,17 +229,36 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `Die(dict)` for items whose outcomes are already distinct.
+    ///
+    /// ```
+    /// use icepool_core::{Die, Quantity};
+    /// // A zero quantity drops out.
+    /// let die = Die::from_dict(vec![(2, Quantity::from(3u8)), (1, Quantity::ZERO)]).unwrap();
+    /// assert_eq!(die, Die::from_weights([(2, 3u32)]));
+    /// ```
     pub fn from_dict(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         let items = items.into_iter().filter(|(_, q)| !q.is_zero()).collect();
         Ok(Self::from_counts(Counts::new(items)?))
     }
 
     /// Whether the two are clones of one die (not merely equal): `is` on Python's die objects.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let d6 = d(6);
+    /// assert!(d6.ptr_eq(&d6.clone()));
+    /// assert!(!d6.ptr_eq(&Die::from(1..=6))); // equal, but another die
+    /// ```
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.data, &other.data)
     }
 
     /// The sum of all quantities.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!((&d(6) + &d(6)).denominator().to_string(), "36");
+    /// ```
     pub fn denominator(&self) -> Quantity {
         // `_denominator` is a `cached_property` in Python too.
         self.data
@@ -225,6 +268,12 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The least outcome (`IndexError` for an empty die).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, Error};
+    /// assert_eq!(d(6).min_outcome(), Ok(&1));
+    /// assert!(matches!(Die::<i64>::from_iter([]).min_outcome(), Err(Error::IndexOutOfRange(_))));
+    /// ```
     pub fn min_outcome(&self) -> Result<&O> {
         match self.items().first() {
             Some((o, _)) => Ok(o),
@@ -233,6 +282,11 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The greatest outcome (`IndexError` for an empty die).
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).max_outcome(), Ok(&6));
+    /// ```
     pub fn max_outcome(&self) -> Result<&O> {
         match self.items().last() {
             Some((o, _)) => Ok(o),
@@ -242,6 +296,12 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// `Die._pop_min`: a die with the min outcome removed (zero quantities kept), and the quantity of the removed
     /// outcome. Raises `IndexError` if this die has no outcome to pop.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, Quantity};
+    /// let (rest, quantity) = d(6).pop_min().unwrap();
+    /// assert_eq!((rest, quantity), (Die::from(2..=6), Quantity::ONE));
+    /// ```
     pub fn pop_min(&self) -> Result<(Self, Quantity)> {
         match self.items().split_first() {
             Some(((_, q), rest)) => Ok(self
@@ -259,6 +319,11 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `Die._pop_max`: a die with the max outcome removed, and the quantity of the removed outcome.
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(6).pop_max().unwrap(), (d(5), Quantity::ONE));
+    /// ```
     pub fn pop_max(&self) -> Result<(Self, Quantity)> {
         match self.items().split_last() {
             Some(((_, q), rest)) => Ok(self
@@ -276,11 +341,21 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `quantities('<=')`: the cumulative quantities in sorted order (the CDF).
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(4).quantities_le(), [1u8, 2, 3, 4].map(Quantity::from));
+    /// ```
     pub fn quantities_le(&self) -> Vec<Quantity> {
         self.cumulative_quantities().to_vec()
     }
 
     /// The cumulative quantities in sorted order, computed once per die (`_cumulative_quantities`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(3).cumulative_quantities(), [1u8, 2, 3].map(Quantity::from));
+    /// ```
     pub fn cumulative_quantities(&self) -> &[Quantity] {
         self.data.cumulative.get_or_init(|| {
             let mut total = Quantity::ZERO;
@@ -296,6 +371,12 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// `outcome in self`: the position of an equal outcome (by `==`, which `Hash` agrees with), through a map built
     /// once per die. The first of equal outcomes wins, as a linear search would.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).position(&4), Some(3));
+    /// assert_eq!(d(6).position(&7), None);
+    /// ```
     pub fn position(&self, outcome: &O) -> Option<usize> {
         let index = self.data.index.get_or_init(|| {
             let mut index = FxHashMap::default();
@@ -308,6 +389,11 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `quantities('>=')`: the quantities at or above each outcome in sorted order (the survival function).
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(4).quantities_ge(), [4u8, 3, 2, 1].map(Quantity::from));
+    /// ```
     pub fn quantities_ge(&self) -> Vec<Quantity> {
         let mut total = self.denominator();
         let mut result = Vec::with_capacity(self.len());
@@ -320,6 +406,14 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// `quantity('>=', outcome)`: the denominator minus `quantity('<', outcome)`, which looks up the cumulative
     /// quantity of the nearest outcome below with `bisect_left`.
+    ///
+    /// ```
+    /// use icepool_core::{Die, Quantity, Value};
+    /// // On `Value`s a comparison can fail: Python's `1 < 'a'` raises.
+    /// let die = Die::from_dict(vec![(Value::from(1), Quantity::ONE), (Value::from(2), Quantity::ONE)]).unwrap();
+    /// assert_eq!(die.try_quantity_ge(&Value::from(2)).unwrap(), Quantity::ONE);
+    /// assert!(die.try_quantity_ge(&Value::str("a")).is_err());
+    /// ```
     pub fn try_quantity_ge(&self, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
         let index = bisect(self.items(), |o| o.try_lt(outcome))?;
         let below: Quantity = self.items()[..index].iter().map(|(_, q)| q).sum();
@@ -327,6 +421,11 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `quantity('<=', outcome)`: the cumulative quantity of the nearest outcome at or below (`bisect_right`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(6).try_quantity_le(&2).unwrap(), Quantity::from(2u8));
+    /// ```
     pub fn try_quantity_le(&self, outcome: &O) -> std::result::Result<Quantity, O::Incomparable> {
         let index = bisect(self.items(), |o| Ok(!outcome.try_lt(o)?))?;
         Ok(self.items()[..index].iter().map(|(_, q)| q).sum())
@@ -334,6 +433,13 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// Roll this die several times and keep the lowest (`Die._lowest_single`, `rolls > 0`; the facade handles
     /// `rolls == 0`, which is `zero().simplify()`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// // The lowest of two d6: Python's `d(6).lowest(2)`.
+    /// let expected = Die::from_weights([(1, 11u32), (2, 9), (3, 7), (4, 5), (5, 3), (6, 1)]);
+    /// assert_eq!(d(6).lowest_single(2).unwrap(), expected);
+    /// ```
     pub fn lowest_single(&self, rolls: usize) -> Result<Self> {
         // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
         crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
@@ -342,6 +448,13 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// Roll this die several times and keep the highest (`Die._highest_single`, `rolls > 0`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// // The highest of two d4: Python's `d(4).highest(2)`.
+    /// let expected = Die::from_weights([(1, 1u32), (2, 3), (3, 5), (4, 7)]);
+    /// assert_eq!(d(4).highest_single(2).unwrap(), expected);
+    /// ```
     pub fn highest_single(&self, rolls: usize) -> Result<Self> {
         // Every cumulative quantity is at most the denominator: `denominator**rolls` bounds their size.
         crate::memory::check_pow(&self.denominator(), rolls, "a quantity ** rolls")?;
@@ -355,6 +468,15 @@ impl<O: OutcomeOrder> Die<O> {
     /// times. If the reroll would never terminate, the result has no outcomes. The facade computes the selection
     /// (`_select_outcomes`, or `{self.min_outcome()}` when no outcomes are given) and checks that `depth` is not
     /// negative.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let ones = [true, false, false, false, false, false];
+    /// // Python's `d(6).reroll([1], depth=1)`: a 1 is rerolled once and may come up again.
+    /// let once = Die::from_weights([(1, 1u32), (2, 7), (3, 7), (4, 7), (5, 7), (6, 7)]);
+    /// assert_eq!(d(6).reroll(&ones, Some(1)).unwrap(), once);
+    /// assert_eq!(d(6).reroll(&ones, None).unwrap(), Die::from(2..=6));
+    /// ```
     pub fn reroll(&self, reroll: &[bool], depth: Option<u32>) -> Result<Self> {
         let items = self.items().iter().zip(reroll);
         let data = match depth {
@@ -394,6 +516,12 @@ impl<O: OutcomeOrder> Die<O> {
     ///
     /// The sum of the denominators of the results is equal to the denominator of this die (zero quantities drop
     /// out of both).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let (low, high) = d(4).split(&[true, true, false, false]).unwrap();
+    /// assert_eq!((low, high), (d(2), Die::from(3..=4)));
+    /// ```
     pub fn split(&self, selected: &[bool]) -> std::result::Result<(Self, Self), O::Incomparable> {
         let (sel, rest): (Vec<_>, Vec<_>) =
             self.items().iter().zip(selected).partition(|(_, &s)| s);
@@ -410,6 +538,11 @@ impl<O: OutcomeOrder> Die<O> {
     /// The endpoints are included in the result if applicable. If one of the arguments is not provided, that side
     /// will not be truncated. This effectively rerolls outcomes outside the given range. If instead you want to
     /// replace those outcomes with the nearest endpoint, use `clip()`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(6).try_truncate(Some(&2), Some(&4)).unwrap(), Die::from(2..=4));
+    /// ```
     pub fn try_truncate(
         &self,
         min_outcome: Option<&O>,
@@ -435,6 +568,12 @@ impl<O: OutcomeOrder> Die<O> {
     /// will not be clipped. This is not the same as rerolling outcomes beyond this range; the outcome is simply
     /// adjusted to fit within the range. This will typically cause some quantity to bunch up at the endpoint(s).
     /// If you want to reroll outcomes beyond this range, use `truncate()`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// let clipped = d(6).try_clip(Some(&2), Some(&4)).unwrap();
+    /// assert_eq!(clipped, Die::from_weights([(2, 2u32), (3, 1), (4, 3)]));
+    /// ```
     pub fn try_clip(
         &self,
         min_outcome: Option<&O>,
@@ -551,21 +690,42 @@ impl<O: Outcome> Die<O> {
     }
 
     /// `quantity('>=', outcome)`: the total quantity of the outcomes at or above `outcome`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(6).quantity_ge(&5), Quantity::from(2u8));
+    /// ```
     pub fn quantity_ge(&self, outcome: &O) -> Quantity {
         infallible(self.try_quantity_ge(outcome))
     }
 
     /// `quantity('<=', outcome)`: the total quantity of the outcomes at or below `outcome`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// assert_eq!(d(6).quantity_le(&5), Quantity::from(5u8));
+    /// ```
     pub fn quantity_le(&self, outcome: &O) -> Quantity {
         infallible(self.try_quantity_le(outcome))
     }
 
     /// Truncates the outcomes of this die to the given range (see [`Die::try_truncate`]).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(6).truncate(None, Some(&3)), d(3));
+    /// assert_eq!(d(6).truncate(Some(&5), None), Die::from(5..=6));
+    /// ```
     pub fn truncate(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Self {
         infallible(self.try_truncate(min_outcome, max_outcome))
     }
 
     /// Clips the outcomes of this die to the given values (see [`Die::try_clip`]).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(6).clip(Some(&3), None), Die::from_weights([(3, 3u32), (4, 1), (5, 1), (6, 1)]));
+    /// ```
     pub fn clip(&self, min_outcome: Option<&O>, max_outcome: Option<&O>) -> Self {
         infallible(self.try_clip(min_outcome, max_outcome))
     }
@@ -576,6 +736,11 @@ impl<O: OutcomeArith> Die<O> {
     ///
     /// The result will have the same denominator. Raises `ValueError` if the zeros did not resolve to a single
     /// outcome (an empty die included).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// assert_eq!(d(6).zero().unwrap(), Die::from_weights([(0, 6u32)]));
+    /// ```
     pub fn zero(&self) -> Result<Self> {
         let result = self.unary_operator(O::try_zero)?;
         if result.len() != 1 {
@@ -587,6 +752,14 @@ impl<O: OutcomeArith> Die<O> {
     /// `Die.equals(other, simplify=...)` with `other` a die: the same outcomes and quantities (`hash_key`s equal).
     /// Truth value does not matter. A zero-quantity outcome the other die lacks makes them unequal. With
     /// `simplify`, both are simplified first (otherwise a 2:2 coin is not `equals()` to a 1:1 coin).
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// let two_to_two = Die::from_weights([(0, 2u32), (1, 2)]);
+    /// let one_to_one = Die::from_iter([0, 1]);
+    /// assert_eq!(two_to_two.equals(&one_to_one, false), Ok(false));
+    /// assert_eq!(two_to_two.equals(&one_to_one, true), Ok(true));
+    /// ```
     pub fn equals(&self, other: &Die<O>, simplify: bool) -> Result<bool> {
         if Arc::ptr_eq(&self.data, &other.data) {
             return Ok(true);
@@ -600,6 +773,12 @@ impl<O: OutcomeArith> Die<O> {
 
     /// Divides all quantities by their greatest common denominator (`Die.simplify`, via `Counts.simplify`, then
     /// `Die(counts)`, which drops zero quantities).
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// let die = Die::from_weights([(2, 2u32), (4, 4)]);
+    /// assert_eq!(die.simplify().unwrap(), Die::from_weights([(2, 1u32), (4, 2)]));
+    /// ```
     pub fn simplify(&self) -> Result<Self> {
         let gcd = self
             .items()
@@ -623,6 +802,13 @@ impl<O: OutcomeArith> Die<O> {
     /// The sum is computed one at a time, with each additional item on the right, similar to `functools.reduce()`.
     /// A negative count rolls `abs(count)` times and negates the result. Each count's sum is scaled by
     /// `den**(max|count| - |count|)` so that every count's results share the denominator `den**max|count|`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, Quantity};
+    /// // Python's `Die([1, 2]) @ d(2)`: roll d2 once or twice, each half the time.
+    /// let sum = d(2).matmul(&[(1, Quantity::ONE), (2, Quantity::ONE)]).unwrap();
+    /// assert_eq!(sum, Die::from_weights([(1, 2u32), (2, 3), (3, 2), (4, 1)]));
+    /// ```
     pub fn matmul(&self, counts: &[(i64, Quantity)]) -> Result<Self> {
         let mut data = OrderedMerge::default();
         for term in self.matmul_terms(counts)? {
@@ -636,6 +822,15 @@ impl<O: OutcomeArith> Die<O> {
     /// The terms `matmul` adds up, one per count in order: each outcome of the count's sum with its quantity
     /// times the count's quantity times the count's factor (zero quantities included). For facades whose counts
     /// may make non-int quantities (a Python float count), which only show once the terms are added.
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// let terms = d(2).matmul_terms(&[(1, Quantity::ONE), (2, Quantity::ONE)]).unwrap();
+    /// // One roll, scaled to the shared denominator 4; then two rolls.
+    /// let q = Quantity::from;
+    /// assert_eq!(terms[0], [(1, q(2u8)), (2, q(2))]);
+    /// assert_eq!(terms[1], [(2, q(1u8)), (3, q(2)), (4, q(1))]);
+    /// ```
     pub fn matmul_terms(&self, counts: &[(i64, Quantity)]) -> Result<Vec<Vec<(O, Quantity)>>> {
         let max_abs_die_count = match counts.iter().map(|(c, _)| c.unsigned_abs()).max() {
             Some(m) => m,

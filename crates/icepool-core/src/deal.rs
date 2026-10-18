@@ -43,6 +43,14 @@ impl<O: OutcomeOrder> Deal<O> {
     /// It is permissible to deal zero cards from an empty deck, but not all evaluators will handle this case,
     /// especially if they depend on the outcome type. Dealing zero cards from a non-empty deck does not have this
     /// issue.
+    ///
+    /// ```
+    /// use icepool_core::{Deal, Deck, Quantity};
+    /// // Python's `Deal(Deck([1, 2, 3, 4]), 2)`: comb(4, 2) = 6 hands.
+    /// let deck = Deck::from_dict((1..=4).map(|o| (o, Quantity::ONE)).collect()).unwrap();
+    /// let deal = Deal::new(deck, &2.into()).unwrap();
+    /// assert_eq!((deal.hand_size(), deal.denominator()), (2, Quantity::from(6u8)));
+    /// ```
     pub fn new(deck: Deck<O>, hand_size: &IBig) -> Result<Self> {
         if *hand_size < IBig::ZERO {
             return Err(Error::InvalidArgument(

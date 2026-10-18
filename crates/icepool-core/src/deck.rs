@@ -49,6 +49,14 @@ impl<O: OutcomeOrder> Deck<O> {
 
     /// `Deck(dict)` for items whose outcomes are distinct and whose quantities are ints: zero quantities drop out
     /// (`merge_duplicates`), then `Counts` sorts what is left.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// // Python's `Deck({1: 2, 2: 1, 3: 0})`.
+    /// let q = Quantity::from;
+    /// let deck = Deck::from_dict(vec![(1, q(2u8)), (2, q(1u8)), (3, q(0u8))]).unwrap();
+    /// assert_eq!((deck.len(), deck.size()), (2, q(3u8)));
+    /// ```
     pub fn from_dict(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         let items = items.into_iter().filter(|(_, q)| !q.is_zero()).collect();
         Ok(Self::from_counts(Counts::new(items)?))
@@ -56,6 +64,13 @@ impl<O: OutcomeOrder> Deck<O> {
 
     /// `Population.split` of a deck given the selection (one flag per outcome, the caller's `_select_outcomes`):
     /// the selected cards and the rest, each as `Deck(dict)` (zero quantities drop out).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// let deck = Deck::from_dict((1..=4).map(|o| (o, Quantity::ONE)).collect()).unwrap();
+    /// let (low, high) = deck.split(&[true, true, false, false]).unwrap();
+    /// assert_eq!((low.len(), high.outcomes().next()), (2, Some(&3)));
+    /// ```
     pub fn split(&self, selected: &[bool]) -> std::result::Result<(Self, Self), O::Incomparable> {
         let (sel, rest): (Vec<_>, Vec<_>) =
             self.items().iter().zip(selected).partition(|(_, &s)| s);
@@ -68,11 +83,23 @@ impl<O: OutcomeOrder> Deck<O> {
     }
 
     /// The cards as a population: a die with the same `Counts`, for the `Population` methods both share.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Die, Quantity};
+    /// let deck = Deck::from_dict(vec![(1, Quantity::from(2u8)), (2, Quantity::ONE)]).unwrap();
+    /// assert_eq!(*deck.population(), Die::from_iter([1, 1, 2]));
+    /// ```
     pub fn population(&self) -> &Die<O> {
         &self.cards
     }
 
     /// Every `(outcome, quantity)` in sorted order.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// let deck = Deck::from_dict(vec![(2, Quantity::ONE), (1, Quantity::ONE)]).unwrap();
+    /// assert_eq!(deck.items(), [(1, Quantity::ONE), (2, Quantity::ONE)]); // sorted
+    /// ```
     pub fn items(&self) -> &[(O, Quantity)] {
         self.cards.items()
     }
@@ -93,6 +120,12 @@ impl<O: OutcomeOrder> Deck<O> {
     }
 
     /// The number of cards (`size = Population.denominator`).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// let deck = Deck::from_dict(vec![(1, Quantity::from(4u8)), (2, Quantity::ONE)]).unwrap();
+    /// assert_eq!(deck.size(), Quantity::from(5u8));
+    /// ```
     pub fn size(&self) -> Quantity {
         self.cards.denominator()
     }

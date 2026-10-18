@@ -123,6 +123,13 @@ impl<O: OutcomeOrder> Pool<O> {
     ///
     /// Dice may be in the pool zero times, in which case their outcomes will be considered but without any count
     /// (unless another die has that outcome).
+    ///
+    /// ```
+    /// use icepool_core::{d, Pool};
+    /// // Python's `Pool([d(4), d(6), d(6)])`.
+    /// let pool = Pool::new(vec![(d(4), 1), (d(6), 2)]).unwrap();
+    /// assert_eq!((pool.raw_size(), pool.denominator().unwrap().to_string()), (3, "144".to_string()));
+    /// ```
     pub fn new(dice: Vec<(Die<O>, usize)>) -> Result<Self> {
         let size = dice
             .iter()
@@ -135,6 +142,14 @@ impl<O: OutcomeOrder> Pool<O> {
     /// The pool `new(dice)` makes, with `keep_tuple` (one count per die put in) instead of all ones: what keeping
     /// and multiplying counts make of it, and, given the dice of all the pools in turn, what merging pools does
     /// (`additive_union`). For a host that holds the dice rather than the pool (the Python facade's `RsPool`).
+    ///
+    /// ```
+    /// use icepool_core::{d, Int, Pool};
+    /// // Python's `d(6).pool(3)[0, -1, 1]`: the highest roll minus the middle one.
+    /// let keep = [0, -1, 1].map(Int::from);
+    /// let pool = Pool::from_parts(&[(d(6), 3)], keep.into()).unwrap();
+    /// assert!(pool.has_negative_keeps());
+    /// ```
     pub fn from_parts(dice: &[(Die<O>, usize)], keep_tuple: Arc<[Int]>) -> Result<Self> {
         let mut dice_counts = Vec::new();
         for (die, count) in dice {
@@ -162,36 +177,74 @@ impl<O: OutcomeOrder> Pool<O> {
     }
 
     /// The `(die, count)` pairs, sorted by the die's `hash_key`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Pool};
+    /// let pool = Pool::new(vec![(d(6), 2), (d(6), 1)]).unwrap();
+    /// assert_eq!(pool.dice(), [(d(6), 3)]); // equal dice merge
+    /// ```
     pub fn dice(&self) -> &[(Die<O>, usize)] {
         &self.dice
     }
 
     /// The union of possible outcomes among all dice in this pool in ascending order.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, Pool};
+    /// let pool = Pool::new(vec![(d(2), 1), (Die::from_iter([5]), 1)]).unwrap();
+    /// assert_eq!(pool.outcomes(), [1, 2, 5]);
+    /// ```
     pub fn outcomes(&self) -> &[O] {
         &self.outcomes
     }
 
     /// The tuple indicating which elements will be counted.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// assert_eq!(d(6).pool(3).keep_tuple(), [1, 1, 1].map(Int::from));
+    /// ```
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
     /// The total count produced by this generator.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// assert_eq!(d(6).pool(4).highest(3).keep_size(), Int::from(3));
+    /// ```
     pub fn keep_size(&self) -> Int {
         sum_counts(&self.keep_tuple)
     }
 
     /// The number of dice in this pool before the keep_tuple is applied.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).pool(4).highest(3).raw_size(), 4);
+    /// ```
     pub fn raw_size(&self) -> usize {
         self.dice.iter().map(|(_, c)| c).sum()
     }
 
     /// The number of ways the dice can roll: the product of each die's denominator to the power of its count.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).pool(4).denominator().unwrap().to_string(), "1296");
+    /// ```
     pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
 
     /// Whether any element of the keep tuple is negative.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// assert!(!d(6).pool(2).has_negative_keeps());
+    /// assert!(d(6).pool(2).multiply_counts(&Int::from(-1)).has_negative_keeps());
+    /// ```
     pub fn has_negative_keeps(&self) -> bool {
         self.keep_tuple.iter().any(Int::is_negative)
     }
@@ -219,12 +272,28 @@ impl<O: OutcomeOrder> Pool<O> {
     }
 
     /// `pool * constant`, `constant * pool`, and `-pool` (constant -1): every count multiplied.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// // Python's `d(6).pool(3).highest(2) * 2`.
+    /// let doubled = d(6).pool(3).highest(2).multiply_counts(&Int::from(2));
+    /// assert_eq!(doubled.keep_tuple(), [0, 2, 2].map(Int::from));
+    /// ```
     pub fn multiply_counts(&self, constant: &Int) -> Self {
         self.set_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant))
     }
 
     /// `Pool.additive_union` of pools: if all sorted positions count the same, the pools merge into one pool.
     /// `None` when they don't (Python builds a `CompoundKeepGenerator` or an expression instead).
+    ///
+    /// ```
+    /// use icepool_core::{d, Pool};
+    /// // Python's `d(6).pool(2) + d(4).pool(1)` is one pool...
+    /// let merged = Pool::additive_union(&[d(6).pool(2), d(4).pool(1)]).unwrap().unwrap();
+    /// assert_eq!(merged.raw_size(), 3);
+    /// // ...but not if the pools keep differently.
+    /// assert!(Pool::additive_union(&[d(6).pool(2).highest(1), d(4).pool(1)]).unwrap().is_none());
+    /// ```
     pub fn additive_union(pools: &[Pool<O>]) -> Result<Option<Self>> {
         let keep_tuple: Vec<Int> = pools
             .iter()
@@ -248,6 +317,15 @@ impl<O: OutcomeOrder> Pool<O> {
     }
 
     /// `_make_source`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{evaluate, poker::LargestCountEvaluator, MultisetSource};
+    /// use icepool_core::{d, Die, Int};
+    /// // What `Pool::evaluate` does: an evaluator runs over sources, here one pool's, and its final outcomes (in the
+    /// // order the evaluation produced them) make a die.
+    /// let finals = evaluate(&LargestCountEvaluator, &[MultisetSource::Pool(d(2).pool(2).source())]).unwrap();
+    /// assert_eq!(Die::from_weights(finals), Die::from_weights([(Int::from(1), 2u32), (Int::from(2), 2)]));
+    /// ```
     pub fn source(&self) -> PoolSource<O> {
         PoolSource {
             dice: self.dice.clone(),
