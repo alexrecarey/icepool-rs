@@ -93,8 +93,23 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6k, then C6l (removing the bridge: the
-  rest of C6g); the docs are C6b.
+- **The TypeScript API (C6, design section 6).** Rest in C6l (removing the bridge: the rest of C6g); the docs are
+  C6b.
+  - **C6k (reflected multiset operators).** `MultisetExpression.radd / rsub / rand / ror / rxor` (multiset.ts
+    `reflectedBinary`, ported from the runner's `binary_op` `(None, Some(b))` arm): `x.radd(other)` is Python's
+    `other + x` when `other` has no multiset operator of its own (a sequence, a mapping, a multiset tuple
+    expression). A keep generator's `__radd__` is `self.additive_union(other)` (pools merge; self first in str),
+    any other expression's is `additive_union(other, self)`; `rxor` keeps self on the left (symmetric). What
+    `implicit_convert_to_expression` refuses with ImplicitConversionError (numbers, `null`, Again: multiset.ts
+    `notConvertible`) is `NotImplemented` there, i.e. Python's "unsupported operand type(s)" TypeError; a die or
+    deck is `Pool(x)`'s ValueError (on the left their own operators run: `d6.add(p)`, `deck.add(p)`). Adapter
+    (test/fixtures.mjs `mx_binary`) emulates Python's dispatch: the left operand's own operator (expression, deck,
+    die or Again with an expression), else the right expression's reflected one for a plain left operand, else
+    TypeError for a tuple expression meeting a sequence or tuple expression (neither has operators). Bridge count:
+    mx_binary 152 -> 20, all replays caused by other nodes (`mx_evaluate` expand, `mx_counts` rmul with a float,
+    multiset-function bodies with `mf_var`s, mixtures of tuple expressions). A Vector on the left (`Vector + pool`)
+    is Unimplemented in the runner, so it is neither routed nor in the fixtures. Tests: multiset.test.mjs (the
+    three "reflected operators" tests). Fixtures: fixtures/c6k/reflected-operators.
   - **C6j (the rest of the multiset expressions).** Bridge counts over every fixture (fixture test's `bridge:` line):
     builtin_evaluate 1244 -> 35, mx_compare 85 -> 0, keep_evaluate 38 -> 0, straight_and_outcome_evaluate 15 -> 0,
     pool 77 -> 0, mx_tuple_slice 64 -> 5, mx_method 258 -> 30, mx_binary 184 -> 152 (the replays went with them).

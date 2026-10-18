@@ -355,7 +355,6 @@ export class MultisetExpression extends Replayable {
    * @example
    * ```ts
    * pool([2]).rsub([1, 2, 2]).expand().items(); //=> [[[1, 2], 1n]]
-   * pool([1]).rsub(3); //=> throws TypeError
    * ```
    */
   rsub(other: MultisetOperand): MultisetExpression {
