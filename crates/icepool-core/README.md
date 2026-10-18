@@ -243,6 +243,10 @@ assert_eq!(hand.denominator().to_string(), "2598960");
 let largest = hand.evaluate(&LargestCountEvaluator).unwrap();
 assert_eq!(largest.quantity_ge(&Int::from(2)).to_string(), "1281072");
 assert_eq!(largest.probability(Comparison::Ge, &Int::from(2)).to_string(), "2053/4165");
+
+// Two hands of five (Python's `deck.deal([5, 5])`): a `MultiDeal`, which counts each card per hand.
+let hands = deck.deal_hands(&[5, 5]);
+assert_eq!(hands.denominator().to_string(), "3986646103440");
 ```
 
 Pools, decks and deals print as Python prints them (`str(pool)`, `str(deck)`).

@@ -15,6 +15,7 @@ use crate::creation_args::{expand_args_for_deck, DieArg};
 use crate::die::Die;
 use crate::error::Result;
 use crate::deal::Deal;
+use crate::multi_deal::{HandGroup, MultiDeal};
 use crate::outcome::{ErrInto, Outcome, OutcomeOrder};
 use crate::Quantity;
 
@@ -349,6 +350,51 @@ impl<O: Outcome> Deck<O> {
     /// ```
     pub fn deal(&self, hand_size: usize) -> Deal<O> {
         Deal::new(self.clone(), &IBig::from(hand_size)).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Deals one hand of each of `hand_sizes` cards from this deck (Python's `deck.deal([a, b, ...])`): a
+    /// [`MultiDeal`] of one-hand groups, `MultiDeal(self, tuple((hand_size, 1) for hand_size in hand_sizes))`.
+    ///
+    /// # Panics
+    ///
+    /// If the hands together take more cards than the deck holds (Python raises `ValueError: The total number of
+    /// cards dealt cannot exceed the size of the deck.`). [`MultiDeal::new`] is the fallible form.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Python's `Deck(range(1, 6)).deal([2, 1])`: comb(5, 3) * comb(3, 1) = 30 ways.
+    /// let deal = Deck::from_iter(1..=5).deal_hands(&[2, 1]);
+    /// assert_eq!(deal.hand_groups(), [(2, 1), (1, 1)]);
+    /// assert_eq!((deal.len(), deal.denominator().to_string()), (2, "30".to_string()));
+    /// // No hands: one way.
+    /// assert_eq!(Deck::from_iter([1, 2]).deal_hands(&[]).denominator().to_string(), "1");
+    /// ```
+    pub fn deal_hands(&self, hand_sizes: &[usize]) -> MultiDeal<O> {
+        let groups: Vec<HandGroup> = hand_sizes.iter().map(|&hand_size| (hand_size, 1)).collect();
+        self.deal_groups(&groups)
+    }
+
+    /// Deals cards into groups of hands, where the hands in each group could be produced in arbitrary order
+    /// (Python's `deck.deal_groups(*hand_groups)`, EXPERIMENTAL there): each group is `(hand_size, group_size)`,
+    /// `group_size` hands of `hand_size` cards.
+    ///
+    /// # Panics
+    ///
+    /// As [`Deck::deal_hands`], if the deck holds too few cards.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Python's `Deck(range(1, 6)).deal_groups((2, 1), (1, 2))`.
+    /// let deal = Deck::from_iter(1..=5).deal_groups(&[(2, 1), (1, 2)]);
+    /// assert_eq!(deal.hand_sizes(), [2, 1, 1]);
+    /// assert_eq!(deal.denominator().to_string(), "80");
+    /// ```
+    pub fn deal_groups(&self, hand_groups: &[HandGroup]) -> MultiDeal<O> {
+        let groups: Vec<(IBig, IBig)> = hand_groups
+            .iter()
+            .map(|&(hand_size, group_size)| (IBig::from(hand_size), IBig::from(group_size)))
+            .collect();
+        MultiDeal::new(self.clone(), &groups).unwrap_or_else(|e| panic!("{e}"))
     }
 }
 

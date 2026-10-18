@@ -599,13 +599,15 @@ turns out wrong. Newest decisions at the top of each section.
     FormatOutcome`, `fmt::Error` where the port cannot print as Python. The harness's own `pool_str` /
     `deck_str` (icepool-harness/src/expression/format.rs, deck.rs) still print `Value` pools from their sources.
   - Typed `Deck::from_weights`, `FromIterator for Deck`, `Deck::deal(n) -> Deal` (panics past the deck's size;
-    `Deal::new` is fallible), `Deal::highest / lowest / evaluate` (as `Pool`'s). Multi-hand deals
-    (`deck.deal([a, b])` -> MultiDeal) have no typed constructor yet.
+    `Deal::new` is fallible), `Deal::highest / lowest / evaluate` (as `Pool`'s). Multi-hand deals:
+    `Deck::deal_hands(&[a, b])` (Python's `deck.deal([a, b])`) and `Deck::deal_groups(&[(hand, group)])` -> `MultiDeal`
+    (C3e; panic as `deal` does, `MultiDeal::new` is fallible). A typed `MultiDeal` cannot be evaluated yet: its
+    counts are tuples, which only the `Value` evaluators read.
   - `ToRatio for Int`: a `Die<Int>` from an evaluator has typed `mean` / `probability`.
   - The README has statistics, map/reroll/explode/Again and decks sections.
   - **Doctest coverage:** `scripts/doctest-coverage.py` (rustdoc JSON, nightly) lists public items without an
     example. C3c covered every top-level item of evaluator, expression and value, C7 and C7b the rest: none is
-    missing now. So task C3e's doctest half is done; what is left of it is the typed `Deck::deal_hands`. Point it at a private `CARGO_TARGET_DIR`: the shared
+    missing now. C3e re-measured (`-m`: 225 items, 479 methods, none missing) and added `Deck::deal_hands`. Point it at a private `CARGO_TARGET_DIR`: the shared
     target's `doc/` is overwritten by other worktrees' doc builds.
   - `#![warn(missing_debug_implementations)]` is on: every public type needs `Debug` (a derive, or a manual impl
     where a field is a closure).
