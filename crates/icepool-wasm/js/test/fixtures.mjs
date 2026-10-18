@@ -186,6 +186,8 @@ const IDIOMATIC = {
   again_count: ({ outcomes, count, depth, end }) =>
     isList(outcomes) && count !== null && ok(new ip.Die(outcomes, { againCount: count, againDepth: depth, againEnd: end })),
   tuple: ({ items }) => isList(items) && ok(Array.from(items)),
+  vector: ({ items }) => isList(items) && ok(new ip.Vector(items)),
+  symbols: ({ x }) => (typeof x === "string" || isList(x)) && ok(ip.Symbols.from(x)),
   // `Die({k: v, ...})`: a JS Map, whose keys `Die` compares as Python's dict does.
   weights: ({ items }) => isPairs(items) && ok(new ip.Die(new Map(items))),
   truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
@@ -451,6 +453,19 @@ const IDIOMATIC = {
   deal_str: ({ deal }) => (deal instanceof ip.Deal || deal instanceof ip.MultiDeal) && ok([deal.repr(), deal.toString()]),
 
   // Vector and Symbols.
+  vector_method: ({ v, name, arg }) => {
+    if (!(v instanceof ip.Vector)) return undefined;
+    switch (name) {
+      case "append": return ok(v.append(arg));
+      case "concatenate": return ok(v.concatenate(arg));
+      case "repr": return ok(v.repr());
+      case "str": return ok(String(v));
+    }
+    return undefined;
+  },
+  // `count_subset`'s two arguments are a tuple.
+  symbols_method: ({ s, name, arg }) =>
+    s instanceof ip.Symbols && typeof name === "string" && ok(s.method(name, name === "count_subset" && isList(arg) ? Array.from(arg) : arg)),
   coll_binary: ({ a, b, name }) =>
     (a instanceof ip.Vector || a instanceof ip.Symbols) && typeof name === "string" && name in a && ok(a[name](b)),
   coll_unary: ({ a, name, ndigits }) =>

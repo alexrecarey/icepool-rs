@@ -8,7 +8,6 @@
 
 import type { Die } from "./die.js";
 import { binary, round, unary } from "./operators.js";
-import { call } from "./rpc.js";
 import { wasm } from "./wasm.js";
 
 /** Anything that can be an outcome: an int (a JS integer or BigInt), a float (a non-integral number or a
@@ -679,7 +678,7 @@ export class Vector implements Iterable<Outcome> {
    * ```
    */
   append(x: Outcome): Vector {
-    return call("vector_method", { v: this, name: "append", arg: x }) as Vector;
+    return wasm((w) => w.vectorMethod(this, "append", x)) as Vector;
   }
   /** A new Vector with the elements of `other` added at the end.
    *
@@ -689,7 +688,12 @@ export class Vector implements Iterable<Outcome> {
    * ```
    */
   concatenate(other: Iterable<Outcome>): Vector {
-    return call("vector_method", { v: this, name: "concatenate", arg: other }) as Vector;
+    // `itertools.chain(self, other)`: the core iterates over values (a tuple, Vector, str, Symbols); any other JS
+    // iterable (a die, a Set...) is iterated here.
+    const isValue = Array.isArray(other) || typeof other === "string" || other instanceof Vector || other instanceof Symbols;
+    const iterable = other !== null && typeof (other as Partial<Iterable<Outcome>>)[Symbol.iterator] === "function";
+    const items = !isValue && iterable ? Array.from(other) : other;
+    return wasm((w) => w.vectorMethod(this, "concatenate", items)) as Vector;
   }
   /** Python's `str(v)`, e.g. `Vector((1, 2))`: the same as `repr()`, since a tuple's `str` shows its elements' repr.
    *
@@ -699,7 +703,7 @@ export class Vector implements Iterable<Outcome> {
    * ```
    */
   toString(): string {
-    return call("vector_method", { v: this, name: "str", arg: null }) as string;
+    return wasm((w) => w.vectorMethod(this, "str", null)) as string;
   }
   /** Python's `repr(v)`, e.g. `Vector((1, 'a'))`.
    *
@@ -709,7 +713,7 @@ export class Vector implements Iterable<Outcome> {
    * ```
    */
   repr(): string {
-    return call("vector_method", { v: this, name: "repr", arg: null }) as string;
+    return wasm((w) => w.vectorMethod(this, "repr", null)) as string;
   }
 }
 
@@ -786,7 +790,9 @@ export class Symbols {
    * ```
    */
   static from(x: string | readonly string[] | Map<string, Int>): Symbols {
-    return call("symbols", { x: x instanceof Map ? new SymbolsMapping(x) : x }) as Symbols;
+    const mapping = x instanceof Map;
+    const parts = typeof x === "string" ? x : x instanceof Map ? [...x] : Array.from(x);
+    return wasm((w) => w.symbolsFrom(parts, mapping)) as Symbols;
   }
   /** Calls the method `name` of Python's Symbols (snake_case, or `getitem` for `symbols[arg]`), with one argument.
    *
@@ -797,7 +803,7 @@ export class Symbols {
    * ```
    */
   method(name: string, arg: unknown = null): unknown {
-    return call("symbols_method", { s: this, name, arg });
+    return wasm((w) => w.symbolsMethod(this, name, arg));
   }
   /** `issubset(other)`: whether `this` is a subset of the other (every count at most the other's). Same as `le`.
    * Note that `lt` and `gt` are lexicographic orderings, not proper subset relations.
@@ -1026,14 +1032,6 @@ for (const cls of [Vector, Symbols]) {
     proto[op] = function (this: Vector | Symbols) {
       return unary(op, this);
     };
-  }
-}
-
-/** A Map passed to `Symbols.from`: Python's dict of counts. */
-export class SymbolsMapping {
-  readonly map: Map<string, Int>;
-  constructor(map: Map<string, Int>) {
-    this.map = map;
   }
 }
 

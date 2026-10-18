@@ -20,7 +20,6 @@ import {
   Opaque,
   Special,
   Symbols,
-  SymbolsMapping,
   Vector,
   pyFloatRepr,
   Reroll,
@@ -77,10 +76,6 @@ export function enc(x: unknown, temps: number[] | null): string {
   if (x instanceof Symbols) {
     if (x.items === null) return `{"symbols":${JSON.stringify(x.str)}}`;
     return `{"$symbols":[${x.items.map(([c, n]) => `[${JSON.stringify(c)},${e(n)}]`).join(",")}],"str":null}`;
-  }
-  if (x instanceof SymbolsMapping) {
-    // Python's dict, as the program language spells one inside a `{"symbols": {...}}` literal.
-    return `{"symbols":{${Array.from(x.map, ([k, v]) => `${JSON.stringify(String(k))}:${e(v)}`).join(",")}}}`;
   }
   if (x instanceof Special) return `{"$special":"${x.name}"}`;
   if (x instanceof Break) return `{"$break":${e(x.outcome)}}`;
