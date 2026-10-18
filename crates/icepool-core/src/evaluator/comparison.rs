@@ -56,6 +56,16 @@ pub struct ComparisonEvaluator(pub Comparison);
 impl ComparisonEvaluator {
     /// Called for each outcome and produces a pair of bools. The final outcome is true iff any of the first and
     /// all of the second bool are `True`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+    /// use icepool_core::Int;
+    /// let (one, two) = (Int::from(1), Int::from(2));
+    /// // A subset needs every left count at most the right one; a proper one also some count strictly less.
+    /// assert_eq!(ComparisonEvaluator(Comparison::IsSubset).any_all(&one, &two), (true, true));
+    /// assert_eq!(ComparisonEvaluator(Comparison::IsProperSubset).any_all(&two, &two), (false, true));
+    /// assert_eq!(ComparisonEvaluator(Comparison::IsDisjointSet).any_all(&one, &two), (true, false));
+    /// ```
     pub fn any_all(&self, left: &Int, right: &Int) -> (bool, bool) {
         use Comparison::*;
         match self.0 {
@@ -70,6 +80,13 @@ impl ComparisonEvaluator {
     }
 
     /// The final outcome if both left and right have no outcomes.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+    /// // Python's `Pool([]).issubset([])` is `True`, `Pool([]) < []` is `False`.
+    /// assert!(ComparisonEvaluator(Comparison::IsSubset).default_outcome());
+    /// assert!(!ComparisonEvaluator(Comparison::IsProperSubset).default_outcome());
+    /// ```
     pub fn default_outcome(&self) -> bool {
         use Comparison::*;
         match self.0 {
@@ -79,6 +96,16 @@ impl ComparisonEvaluator {
     }
 
     /// `final_outcome` of a final state.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+    /// let proper_subset = ComparisonEvaluator(Comparison::IsProperSubset);
+    /// // No outcomes at all: the default outcome.
+    /// assert!(!proper_subset.final_of(None));
+    /// // `(has_any, has_all)`: both must hold.
+    /// assert!(proper_subset.final_of(Some((true, true))));
+    /// assert!(!proper_subset.final_of(Some((false, true))));
+    /// ```
     pub fn final_of(&self, state: Option<(bool, bool)>) -> bool {
         match state {
             None => self.default_outcome(),

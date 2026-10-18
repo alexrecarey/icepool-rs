@@ -43,9 +43,24 @@ pub(crate) const MAX_CONSECUTIVE: usize = 1 << 20;
 pub trait IntegerOutcome: OutcomeOrder {
     /// `MultisetEvaluator.consecutive`: all `int`s from the min outcome to the max outcome among the inputs
     /// (`outcomes`, sorted), inclusive.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::IntegerOutcome;
+    /// // Python's `range(outcomes[0], outcomes[-1] + 1)`; no outcomes, no range.
+    /// assert_eq!(i64::consecutive(&[-1, 0, 3]).unwrap(), vec![-1, 0, 1, 2, 3]);
+    /// assert!(i64::consecutive(&[]).unwrap().is_empty());
+    /// ```
     fn consecutive(outcomes: &[Self]) -> Result<Vec<Self>>;
 
     /// `self - n`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::IntegerOutcome;
+    /// use icepool_core::Int;
+    /// assert_eq!(5i8.try_sub_int(&Int::from(2)).unwrap(), 3);
+    /// // Python's ints do not overflow; a typed outcome says so instead.
+    /// assert!(i8::MIN.try_sub_int(&Int::from(1)).is_err());
+    /// ```
     fn try_sub_int(&self, n: &Int) -> Result<Self>;
 }
 
@@ -93,6 +108,15 @@ integer_outcome!(i8, i16, i32, i64, i128, isize);
 /// ```
 pub trait Truth {
     /// The truth value (Python's `bool(x)`), or why there is none.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::Truth;
+    /// use icepool_core::Value;
+    /// assert!(true.truth().unwrap());
+    /// // Python's `bool(0)` and `bool((0,))`.
+    /// assert!(!Value::Int(0.into()).truth().unwrap());
+    /// assert!(Value::tuple(vec![Value::Int(0.into())]).truth().unwrap());
+    /// ```
     fn truth(&self) -> Result<bool>;
 }
 
@@ -116,6 +140,15 @@ impl Truth for bool {
 /// ```
 pub trait CountFilter {
     /// `self._filter == 'all' or count >= self._filter`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::CountFilter;
+    /// use icepool_core::Int;
+    /// let triples = Some(Int::from(3));
+    /// assert!(!triples.keeps(&Int::from(2)).unwrap());
+    /// assert!(triples.keeps(&Int::from(3)).unwrap());
+    /// assert!(None::<Int>.keeps(&Int::ZERO).unwrap());
+    /// ```
     fn keeps(&self, count: &Int) -> Result<bool>;
 }
 
@@ -571,6 +604,16 @@ pub struct LargestCountWithWildEvaluator<S, T = bool> {
 
 impl<S, T> LargestCountWithWildEvaluator<S, T> {
     /// The evaluator with these selectors (wild cards, and the wild ones that count low or high).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::LargestCountWithWildEvaluator;
+    /// use icepool_core::{d, Die, Int, Result};
+    /// // Python's `d(6).pool(3).largest_count(wild=[6])`.
+    /// let six: fn(&i64) -> Result<bool> = |&o| Ok(o == 6);
+    /// let none: fn(&i64) -> Result<bool> = |_| Ok(false);
+    /// let result: Die<Int> = d(6).pool(3).evaluate(&LargestCountWithWildEvaluator::new(six, none, none)).unwrap();
+    /// assert_eq!(result, Die::from_weights([(Int::from(1), 60u32), (Int::from(2), 120), (Int::from(3), 36)]));
+    /// ```
     pub fn new(wild: S, wild_low: S, wild_high: S) -> Self {
         LargestCountWithWildEvaluator {
             wild,
@@ -678,6 +721,17 @@ pub struct AllStraightsReduceCountsEvaluator<R, S = Int> {
 
 impl<R, S> AllStraightsReduceCountsEvaluator<R, S> {
     /// The evaluator with this reducer of the straights' counts.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::AllStraightsReduceCountsEvaluator;
+    /// use icepool_core::{Die, Int, Pool, Result};
+    /// // Python's `Pool([1, 2, 2, 3, 5]).all_straights_reduce_counts(operator.add)`: the run 1-2-3 scores 1 + 2 + 1.
+    /// let add = |score: &Int, count: &Int| -> Result<Int> { Ok(score + count) };
+    /// let evaluator = AllStraightsReduceCountsEvaluator::<_, Int>::new(add);
+    /// let pool = Pool::new([1, 2, 2, 3, 5].map(|o| (Die::single(o), 1)).to_vec()).unwrap();
+    /// let i = |x: i64| Int::from(x);
+    /// assert_eq!(pool.evaluate(&evaluator).unwrap(), Die::single(vec![(i(3), i(4)), (i(1), i(1))]));
+    /// ```
     pub fn new(reducer: R) -> Self {
         AllStraightsReduceCountsEvaluator {
             reducer,

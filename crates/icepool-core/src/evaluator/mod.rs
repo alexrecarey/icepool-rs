@@ -115,8 +115,26 @@ pub enum Final<F> {
 /// ```
 pub trait MultisetEvaluator<O> {
     /// States must be hashable. `Eq`/`Hash` are Python's `==`/`hash`: equal states merge, keeping the first one.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::MultisetEvaluator;
+    /// // A sum's state is `None` before the first outcome, then the sum so far.
+    /// let state: <SumEvaluator as MultisetEvaluator<i64>>::State = Some(7);
+    /// assert_eq!(state, Some(7));
+    /// ```
     type State: Clone + Eq + Hash;
     /// What `final_outcome` returns (the result die's outcomes, or something the caller turns into one).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::MultisetEvaluator;
+    /// use icepool_core::{d, Die, Int};
+    /// // A size is an `Int` whatever the outcomes: the result die's outcomes are `Final`s.
+    /// let result: Die<<SizeEvaluator as MultisetEvaluator<i64>>::Final> =
+    ///     d(6).pool(2).evaluate(&SizeEvaluator).unwrap();
+    /// assert_eq!(result, Die::from_weights([(Int::from(2), 36u32)]));
+    /// ```
     type Final;
 
     /// Optional method to produce an initial evaluation state. If not overridden in Python, the initial state is
@@ -125,6 +143,15 @@ pub trait MultisetEvaluator<O> {
     /// `order` is the order in which outcomes will be seen by `next_state()`; `outcomes` all outcomes that will be
     /// seen; `sizes` the sizes of the input multisets, provided that the multiset has inferrable size with
     /// non-negative counts (otherwise `None`).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::ProductOfCountsEvaluator;
+    /// use icepool_core::evaluator::MultisetEvaluator;
+    /// use icepool_core::{Int, Order};
+    /// // Python's `ProductOfCountsEvaluator().initial_state(Order.Ascending, (1,), 2)`: a product starts at 1.
+    /// let state = ProductOfCountsEvaluator.initial_state(Order::Ascending, &[1], &[Some(Int::from(2))]);
+    /// assert_eq!(state.unwrap(), Int::ONE);
+    /// ```
     fn initial_state(
         &self,
         order: Order,
@@ -135,6 +162,15 @@ pub trait MultisetEvaluator<O> {
     /// State transition function: the next state given the previous state, an outcome, and the count of that
     /// outcome produced by each input. `Ok(None)` is `icepool.Reroll`: the state is removed from consideration,
     /// effectively performing a full reroll.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::MultisetEvaluator;
+    /// use icepool_core::{Int, Order};
+    /// // Python's `SumEvaluator().next_state(None, Order.Ascending, 3, 2)`: two 3s.
+    /// let state = SumEvaluator.next_state(&None, Order::Ascending, &3i64, &[Int::from(2)]);
+    /// assert_eq!(state.unwrap(), Some(Some(6)));
+    /// ```
     fn next_state(
         &self,
         state: &Self::State,
@@ -145,11 +181,32 @@ pub trait MultisetEvaluator<O> {
 
     /// Optional method to specify extra outcomes that should be seen as inputs to `next_state()`. These will be
     /// seen by `next_state` even if they do not appear in the input(s). The default is no additional outcomes.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::poker::LargestStraightEvaluator;
+    /// use icepool_core::evaluator::MultisetEvaluator;
+    /// // Python's `LargestStraightEvaluator().extra_outcomes((1, 4))`: a straight sees the outcomes in between.
+    /// assert_eq!(LargestStraightEvaluator.extra_outcomes(&[1i64, 4]).unwrap(), vec![1, 2, 3, 4]);
+    /// assert!(MultisetEvaluator::<i64>::extra_outcomes(&SumEvaluator, &[1, 4]).unwrap().is_empty());
+    /// ```
     fn extra_outcomes(&self, _outcomes: &[O]) -> Result<Vec<O>> {
         Ok(Vec::new())
     }
 
     /// Generates a final outcome from a final state.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::{Final, MultisetEvaluator};
+    /// use icepool_core::{Int, Order};
+    /// // Python's `SumEvaluator().final_outcome(12, ...)` is 12; a sum that never started is `None`.
+    /// let sizes = [Some(Int::from(3))];
+    /// let sum = SumEvaluator.final_outcome(&Some(12i64), Order::Ascending, &[2, 5], &sizes).unwrap();
+    /// assert!(matches!(sum, Final::Outcome(12)));
+    /// let none = SumEvaluator.final_outcome(&None::<i64>, Order::Ascending, &[], &[]).unwrap();
+    /// assert!(matches!(none, Final::None));
+    /// ```
     fn final_outcome(
         &self,
         final_state: &Self::State,
@@ -161,6 +218,19 @@ pub trait MultisetEvaluator<O> {
     /// What the driver calls: [`Self::initial_state`] with the sizes as the sources give them. A tuple size (a
     /// `MultiDeal` input) is Python dynamism with no typed meaning: an `int` size is passed on, a tuple one says
     /// `Unsupported` unless the evaluator overrides this (the `Value` layer's `PyEvaluator`, host evaluators).
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::evaluator::basic::ProductOfCountsEvaluator;
+    /// use icepool_core::evaluator::{Count, MultisetEvaluator};
+    /// use icepool_core::{Int, Order};
+    /// let int_size = [Some(Count::Int(Int::from(2)))];
+    /// let state = ProductOfCountsEvaluator.initial_state_counts(Order::Ascending, &[1i64], &int_size);
+    /// assert_eq!(state.unwrap(), Int::ONE);
+    /// // A `MultiDeal`'s size, one per hand, has no typed meaning.
+    /// let tuple_size = [Some(Count::Tuple(Arc::from([Int::ONE, Int::ONE])))];
+    /// assert!(ProductOfCountsEvaluator.initial_state_counts(Order::Ascending, &[1i64], &tuple_size).is_err());
+    /// ```
     fn initial_state_counts(
         &self,
         order: Order,
@@ -172,6 +242,18 @@ pub trait MultisetEvaluator<O> {
 
     /// What the driver calls: [`Self::next_state`] with the counts as the sources give them. A tuple count says
     /// `Unsupported` unless the evaluator overrides this (see [`Self::initial_state_counts`]).
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::{Count, MultisetEvaluator};
+    /// use icepool_core::{Int, Order};
+    /// let counts = [Count::Int(Int::from(2))];
+    /// let state = SizeEvaluator.next_state_counts(&Int::from(1), Order::Ascending, &4i64, &counts);
+    /// assert_eq!(state.unwrap(), Some(Int::from(3)));
+    /// let per_hand = [Count::Tuple(Arc::from([Int::ONE, Int::ZERO]))];
+    /// assert!(SizeEvaluator.next_state_counts(&Int::from(1), Order::Ascending, &4i64, &per_hand).is_err());
+    /// ```
     fn next_state_counts(
         &self,
         state: &Self::State,
@@ -185,6 +267,15 @@ pub trait MultisetEvaluator<O> {
 
     /// What the driver calls: [`Self::final_outcome`] with the sizes as the sources give them (see
     /// [`Self::initial_state_counts`]).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::{Count, Final, MultisetEvaluator};
+    /// use icepool_core::{Int, Order};
+    /// let sizes = [Some(Count::Int(Int::from(3)))];
+    /// let result = SizeEvaluator.final_outcome_counts(&Int::from(3), Order::Ascending, &[1i64, 2], &sizes).unwrap();
+    /// assert!(matches!(result, Final::Outcome(size) if size == Int::from(3)));
+    /// ```
     fn final_outcome_counts(
         &self,
         final_state: &Self::State,
@@ -197,6 +288,19 @@ pub trait MultisetEvaluator<O> {
 
     /// What the driver calls: [`Self::initial_state_counts`] with the size tree of the evaluation's call tree. Only
     /// a `@multiset_function` evaluation has calls; a plain evaluator gets the sizes of its inputs.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::ProductOfCountsEvaluator;
+    /// use icepool_core::evaluator::{Count, MultisetEvaluator};
+    /// use icepool_core::expression::CountTree;
+    /// use icepool_core::{Int, Order};
+    /// let sizes = CountTree::Leaf(vec![Some(Count::Int(Int::from(2)))]);
+    /// let state = ProductOfCountsEvaluator.initial_state_tree(Order::Ascending, &[1i64], &sizes);
+    /// assert_eq!(state.unwrap(), Int::ONE);
+    /// // The sizes of calls are for a `@multiset_function`, not a plain evaluator.
+    /// let calls = CountTree::Calls(vec![sizes]);
+    /// assert!(ProductOfCountsEvaluator.initial_state_tree(Order::Ascending, &[1i64], &calls).is_err());
+    /// ```
     fn initial_state_tree(
         &self,
         order: Order,
@@ -207,6 +311,17 @@ pub trait MultisetEvaluator<O> {
     }
 
     /// What the driver calls: [`Self::next_state_counts`] with the count tree (see [`Self::initial_state_tree`]).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::{Count, MultisetEvaluator};
+    /// use icepool_core::expression::CountTree;
+    /// use icepool_core::{Int, Order};
+    /// // Python's `SumEvaluator().next_state(2, Order.Ascending, 5, 2)`: 2 + 5 * 2.
+    /// let counts = CountTree::Leaf(vec![Count::Int(Int::from(2))]);
+    /// let state = SumEvaluator.next_state_tree(&Some(2i64), Order::Ascending, &5, &counts);
+    /// assert_eq!(state.unwrap(), Some(Some(12)));
+    /// ```
     fn next_state_tree(
         &self,
         state: &Self::State,
@@ -218,6 +333,16 @@ pub trait MultisetEvaluator<O> {
     }
 
     /// What the driver calls: [`Self::final_outcome_counts`] with the size tree (see [`Self::initial_state_tree`]).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SumEvaluator;
+    /// use icepool_core::evaluator::{Count, Final, MultisetEvaluator};
+    /// use icepool_core::expression::CountTree;
+    /// use icepool_core::{Int, Order};
+    /// let sizes = CountTree::Leaf(vec![Some(Count::Int(Int::from(3)))]);
+    /// let result = SumEvaluator.final_outcome_tree(&Some(12i64), Order::Ascending, &[2, 5], &sizes).unwrap();
+    /// assert!(matches!(result, Final::Outcome(12)));
+    /// ```
     fn final_outcome_tree(
         &self,
         final_state: &Self::State,
@@ -282,6 +407,13 @@ impl<K, V> Default for OrderedMap<K, V> {
 
 impl<K, V> OrderedMap<K, V> {
     /// Every `(key, value)` in insertion order.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::StateWeights;
+    /// // The driver fills these as it goes; a fresh one has no items.
+    /// let weights: StateWeights<i64> = StateWeights::default();
+    /// assert_eq!(weights.items().len(), 0);
+    /// ```
     pub fn items(&self) -> &[(K, V)] {
         &self.items
     }

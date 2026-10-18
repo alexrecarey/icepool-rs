@@ -51,6 +51,15 @@ pub enum Tie {
 /// ```
 pub trait RequestedOrder {
     /// `order != self._order`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::argsort::RequestedOrder;
+    /// use icepool_core::Order;
+    /// // An argsort asked for descending order refuses an ascending evaluation.
+    /// let requested = Order::Descending;
+    /// assert_eq!(requested.differs_from(Order::Ascending).unwrap(), true);
+    /// assert_eq!(requested.differs_from(Order::Descending).unwrap(), false);
+    /// ```
     fn differs_from(&self, order: Order) -> Result<bool>;
 }
 

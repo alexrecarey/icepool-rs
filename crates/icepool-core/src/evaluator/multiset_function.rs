@@ -121,6 +121,21 @@ impl AnyState {
 /// ```
 pub trait DynEvaluator<O, F> {
     /// [`MultisetEvaluator::initial_state_counts`].
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+    /// use icepool_core::evaluator::{Count, Final};
+    /// use icepool_core::{Int, Order};
+    /// let size: Box<dyn DynEvaluator<i64, String>> =
+    ///     Box::new(Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n.to_string()) });
+    /// let state = size.initial_state(Order::Ascending, &[1, 2], &[None]).unwrap();
+    /// // A fresh size is 0.
+    /// let Final::Outcome(result) = size.final_outcome(&state, Order::Ascending, &[1, 2], &[None]).unwrap() else {
+    ///     panic!()
+    /// };
+    /// assert_eq!(result, "0");
+    /// ```
     fn initial_state(
         &self,
         order: Order,
@@ -128,6 +143,21 @@ pub trait DynEvaluator<O, F> {
         sizes: &[Option<Count>],
     ) -> Result<AnyState>;
     /// [`MultisetEvaluator::next_state_counts`].
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+    /// use icepool_core::evaluator::{Count, Final};
+    /// use icepool_core::{Int, Order};
+    /// let size: Box<dyn DynEvaluator<i64, String>> =
+    ///     Box::new(Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n.to_string()) });
+    /// let state = size.initial_state(Order::Ascending, &[4], &[None]).unwrap();
+    /// let state = size.next_state(&state, Order::Ascending, &4, &[Count::Int(Int::from(2))]).unwrap().unwrap();
+    /// let Final::Outcome(result) = size.final_outcome(&state, Order::Ascending, &[4], &[None]).unwrap() else {
+    ///     panic!()
+    /// };
+    /// assert_eq!(result, "2");
+    /// ```
     fn next_state(
         &self,
         state: &AnyState,
@@ -136,8 +166,33 @@ pub trait DynEvaluator<O, F> {
         counts: &[Count],
     ) -> Result<Option<AnyState>>;
     /// [`MultisetEvaluator::extra_outcomes`].
+    ///
+    /// ```
+    /// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+    /// use icepool_core::evaluator::poker::LargestStraightEvaluator;
+    /// use icepool_core::Int;
+    /// let straight: Box<dyn DynEvaluator<i64, Int>> =
+    ///     Box::new(Erased { evaluator: LargestStraightEvaluator, map_final: Ok });
+    /// assert_eq!(straight.extra_outcomes(&[1, 3]).unwrap(), vec![1, 2, 3]);
+    /// ```
     fn extra_outcomes(&self, outcomes: &[O]) -> Result<Vec<O>>;
     /// [`MultisetEvaluator::final_outcome_counts`], converted to `F`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::SizeEvaluator;
+    /// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+    /// use icepool_core::evaluator::{Count, Final};
+    /// use icepool_core::{Int, Order};
+    /// let size: Box<dyn DynEvaluator<i64, String>> =
+    ///     Box::new(Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n.to_string()) });
+    /// let state = size.initial_state(Order::Descending, &[6], &[None]).unwrap();
+    /// let state = size.next_state(&state, Order::Descending, &6, &[Count::Int(Int::from(3))]).unwrap().unwrap();
+    /// // The size, an `Int`, comes out as `map_final` turns it: a `String`.
+    /// let Final::Outcome(result) = size.final_outcome(&state, Order::Descending, &[6], &[None]).unwrap() else {
+    ///     panic!()
+    /// };
+    /// assert_eq!(result, "3");
+    /// ```
     fn final_outcome(
         &self,
         state: &AnyState,

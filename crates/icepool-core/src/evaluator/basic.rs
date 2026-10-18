@@ -90,6 +90,15 @@ fn sorted_reverse<O: OutcomeOrder>(mut outcomes: Vec<O>) -> Result<Vec<O>> {
 /// ```
 pub trait Summand: OutcomeArith {
     /// Whether this is Python's `None`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::Summand;
+    /// use icepool_core::Value;
+    /// // Only the dynamic `Value` has a `None`; a typed integer never is.
+    /// assert!(Value::None.is_none());
+    /// assert!(!Value::Int(0.into()).is_none());
+    /// assert!(!0i64.is_none());
+    /// ```
     fn is_none(&self) -> bool {
         false
     }
@@ -167,6 +176,15 @@ pub struct MappedSumEvaluator<F, P> {
 
 impl<F, P> MappedSumEvaluator<F, P> {
     /// Sums the outcomes mapped by `map`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::MappedSumEvaluator;
+    /// use icepool_core::{d, Die, Result};
+    /// // Python's `d(3).pool(2).sum(map={3: 0})`: an unmapped outcome is left as it is.
+    /// let threes_count_zero = MappedSumEvaluator::new(|&x: &i64| -> Result<i64> { Ok(if x == 3 { 0 } else { x }) });
+    /// let result = d(3).pool(2).evaluate(&threes_count_zero).unwrap();
+    /// assert_eq!(result, Die::from_weights([(0, 1u32), (1, 2), (2, 3), (3, 2), (4, 1)]));
+    /// ```
     pub fn new(map: F) -> Self {
         MappedSumEvaluator {
             map,
@@ -266,6 +284,14 @@ pub struct EmptyEvaluator {
 
 impl EmptyEvaluator {
     /// `final_outcome`: `not final_state` for `any`, else the final state.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::basic::EmptyEvaluator;
+    /// // The final state says whether every count was zero.
+    /// assert!(EmptyEvaluator { any: false }.final_of(true));
+    /// assert!(!EmptyEvaluator { any: true }.final_of(true));
+    /// assert!(EmptyEvaluator { any: true }.final_of(false));
+    /// ```
     pub fn final_of(&self, empty: bool) -> bool {
         empty != self.any
     }
