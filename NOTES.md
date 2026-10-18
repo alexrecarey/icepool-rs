@@ -387,8 +387,30 @@ turns out wrong. Newest decisions at the top of each section.
   - **A binding (or the runner) that needs a core item adds a documented `pub use` in one of those modules**, never
     a `pub mod`. missing_docs now covers everything visible, fields and variants too.
 
-- **Public Rust API (C3, design section 4).** Rest in C3b (done, above) and C3c (Display for
-  Pool/Deck, Deck constructors, Again, statistics, doctests on evaluator/expression/value).
+- **Typed API completion (C3c, design sections 4 and 7).**
+  - `OutcomeArith` has `try_floor_div` / `try_pow` (Python's `//` and `**`): checked for the primitive integers
+    (CPython's "integer division or modulo by zero"; a negative exponent is `InvalidArgument`, since Python's answer
+    is a float), `Value`'s own `BinOp::FloorDiv` / `Pow`. **A new `OutcomeArith` impl needs both.** `Die::floor_div`
+    and `Die::pow` take `impl IntoDie<O>` and panic as the operators do. tests/typed_vs_value.rs checks both.
+  - `pointwise_max` / `pointwise_min` at the root (function.rs): `harmonize_denominators` without weights (a die of
+    denominator 0 becomes empty, as `multiply_quantities(0)` does in Python), then the generic `pointwise`.
+  - Printing lives in format.rs: `Die::repr` / `Deck::repr` (Python's `repr`, outcomes via `repr_outcome`),
+    `Deck::format`, `Display` for `Pool` (Python's `str(pool)`), `Deck` and `Deal`, all `O: Outcome +
+    FormatOutcome`, `fmt::Error` where the port cannot print as Python. The harness's own `pool_str` /
+    `deck_str` (icepool-harness/src/expression/format.rs, deck.rs) still print `Value` pools from their sources.
+  - Typed `Deck::from_weights`, `FromIterator for Deck`, `Deck::deal(n) -> Deal` (panics past the deck's size;
+    `Deal::new` is fallible), `Deal::highest / lowest / evaluate` (as `Pool`'s). Multi-hand deals
+    (`deck.deal([a, b])` -> MultiDeal) have no typed constructor yet.
+  - `ToRatio for Int`: a `Die<Int>` from an evaluator has typed `mean` / `probability`.
+  - The README has statistics, map/reroll/explode/Again and decks sections.
+  - **Doctest coverage:** `scripts/doctest-coverage.py` (rustdoc JSON, nightly) lists public items without an
+    example. C3c covered every top-level item of evaluator, expression and value; their *methods* (about 250) are
+    mostly without examples still (`-m` lists them): task C3e. Point it at a private `CARGO_TARGET_DIR`: the shared
+    target's `doc/` is overwritten by other worktrees' doc builds.
+  - `#![warn(missing_debug_implementations)]` is on: every public type needs `Debug` (a derive, or a manual impl
+    where a field is a closure).
+
+- **Public Rust API (C3, design section 4).** Rest in C3b (done, above) and C3c (above).
   - `lib.rs`: the crate docs are `crates/icepool-core/README.md` (the usage guide; its examples are doctests).
     `#![warn(missing_docs)]` is on, and clippy's `-D warnings` makes it an error: **every new visible public item
     needs a doc comment**. Visible = the root re-exports and `pub mod evaluator / expression / host / random / value`. (missing_docs skips

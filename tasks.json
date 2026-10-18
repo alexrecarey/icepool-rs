@@ -874,5 +874,14 @@
     ],
     "milestone": null,
     "details": "Design: docs/design/library-architecture.md section 2 and 9.2; the to_pool part of C2e (read NOTES.md 'Generic statistics, formatting and expand (C2e)'). Python's explode_to_pool / reroll_to_pool return a MultisetMixture of pools (expression/multiset_mixture.py: its _prepare multiplies each inner's weight into the sources), which today exists only in the runner (crates/icepool-harness/src/expression/mixture.rs) and the Python facade; the core only has value::to_pool's count / composition dice, built from denominators with Python's arithmetic on Value counts. Give typed dice the feature: a core mixture of pools with weights that evaluators run on (Pool<O>'s evaluate, keep/highest/lowest forwarding as MultisetMixture does when every inner is keepable), Die<O: Outcome>::explode_to_pool(rolls, which, depth) and reroll_to_pool(rolls, which, max_rerolls, depth, mode) with typed count dice (no Value), each checked against the Value path and the oracle's results (typed_vs_value tests, doctests with values from the oracle). Move the runner's mixture onto it only if that keeps every fixture passing; Python's argument handling (star, _select_outcomes, 'inf') stays in the Value layer. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C3e",
+    "title": "Doctests on the methods of evaluator, expression, value and host",
+    "deps": [
+      "C3c"
+    ],
+    "milestone": null,
+    "details": "Continues C3c (read NOTES.md 'Typed API completion (C3c)'). C3c gave every top-level public item of evaluator, expression and value a doctest; their methods (about 250: trait methods such as MultisetEvaluator::next_state, inherent ones such as MappedSumEvaluator::new, PoolSource::pop) and the 8 top-level items of host and random still have none. Measure with scripts/doctest-coverage.py (rustdoc JSON on nightly; use a private CARGO_TARGET_DIR, the shared one's doc/ is overwritten by other builds) with `-m`. Each example short and asserting what the method does, numbers checked against the oracle. Also: a typed Deck::deal_hands (Python's deck.deal([a, b]) -> MultiDeal). Doc-only otherwise: every fixture still passes, cargo doc -D warnings clean."
   }
 ]
