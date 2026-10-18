@@ -203,6 +203,8 @@ const IDIOMATIC = {
   },
   evaluate: ({ name, params, args }) =>
     name in EVALUATORS && isList(params) && params.length === EVALUATORS[name].length && isList(args) && ok(EVALUATORS[name](...params).evaluate(...args)),
+  tuple_op_evaluate: ({ name, params, args }) =>
+    name in EVALUATORS && isList(params) && params.length === EVALUATORS[name].length && isList(args) && ok(EVALUATORS[name](...params).evaluate(...args)),
   multi_deal_evaluate: ({ name, params, args }) =>
     name in EVALUATORS && isList(params) && params.length === EVALUATORS[name].length && isList(args) && ok(EVALUATORS[name](...params).evaluate(...args)),
   evaluate_kw: ({ name, params, args, kwargs }) =>
@@ -372,6 +374,8 @@ const IDIOMATIC = {
     ]),
   ),
   mx_evaluate: ({ expr, method }) => isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
+  mx_tuple_evaluate: ({ expr, method }) =>
+    isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
   weightless_evaluate: ({ expr, method }) =>
     isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
   // `a < b` and the like with an expression on the left: its subset comparisons (`==` / `!=` give a die with a
@@ -479,6 +483,15 @@ const IDIOMATIC = {
     return undefined;
   },
   deal_str: ({ deal }) => (deal instanceof ip.Deal || deal instanceof ip.MultiDeal) && ok([deal.repr(), deal.toString()]),
+  deck_info: ({ deck }) => deck instanceof ip.Deck && ok([deck.items(), deck.size(), deck.length]),
+  deal_info: ({ deal }) => deal instanceof ip.Deal && ok(deal.info()),
+  multi_deal_info: ({ multi_deal }) => multi_deal instanceof ip.MultiDeal && ok(multi_deal.info()),
+  deck_split: ({ deck, which, star }) => deck instanceof ip.Deck && which !== null && ok(deck.split(which, { star })),
+  deck_zero: ({ deck }) => deck instanceof ip.Deck && ok(deck.zero()),
+  pop_append: ({ population, outcome, quantity }) =>
+    (isDie(population) || population instanceof ip.Deck) && ok(population.append(outcome, quantity)),
+  pop_remove: ({ population, outcome, quantity }) =>
+    (isDie(population) || population instanceof ip.Deck) && ok(population.remove(outcome, quantity)),
 
   // Vector and Symbols.
   vector_method: ({ v, name, arg }) => {
@@ -559,6 +572,8 @@ function wire(x) {
     return { symbols: x.str };
   }
   if (x instanceof ip.Die) return { die: dieItems(x) };
+  // encode.py's `{"repr": "<type name>: <repr>"}`.
+  if (x instanceof ip.Deck || x instanceof ip.Deal || x instanceof ip.MultiDeal) return { repr: `${x.constructor.name}: ${x.repr()}` };
   if (x instanceof internal.Handle) return parseExact(x.toWire()).value;
   if (SPECIAL_REPRS.has(x)) return { repr: SPECIAL_REPRS.get(x) };
   if (x instanceof ip.Opaque) return { repr: x.repr };
@@ -571,6 +586,7 @@ const dieItems = (die) => die.items().map(([o, q]) => [wire(o), q]);
 /** encode.py `result_of`. */
 export function resultOf(x) {
   if (x instanceof ip.Die) return { ok: true, die: dieItems(x) };
+  if (x instanceof ip.Deck || x instanceof ip.Deal || x instanceof ip.MultiDeal) return { ok: true, value: wire(x) };
   if (x instanceof internal.Handle) return parseExact(x.toWire());
   return { ok: true, value: wire(x) };
 }

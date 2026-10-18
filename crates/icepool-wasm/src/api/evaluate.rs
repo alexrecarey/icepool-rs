@@ -35,6 +35,7 @@ use icepool_core::operator::{
     OutcomePredicate,
 };
 use icepool_core::evaluator::Count;
+use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::value::recursion::level;
 use icepool_core::weightless::WeightlessSource;
@@ -42,6 +43,7 @@ use icepool_core::{Die, DieArg, Error, Int, Quantity, Value};
 use wasm_bindgen::prelude::*;
 
 use super::convert::{int_from_js, value_from_js, value_to_js};
+use super::deck::WasmMultiDeal;
 use super::die::WasmDie;
 use super::error::{JsResult, OrThrow};
 use super::host;
@@ -57,8 +59,10 @@ pub(super) enum Node {
     /// `MultisetMixture`: inner expressions with their weights.
     Mixture(Vec<(Node, Quantity)>),
     /// `MultisetParameter`: argument `arg_index` of the `@multiset_function` being traced (its `star_index`
-    /// element if starred).
-    Parameter { arg_index: usize, star_index: Option<usize> },
+    /// element if starred); `MultisetTupleParameter` (a multiset tuple argument, not starred) has `tuple_len`.
+    Parameter { arg_index: usize, star_index: Option<usize>, tuple_len: Option<usize> },
+    /// `MultisetTupleIndex` / `MultisetTupleSlice`: `child[index]` of a multiset tuple expression.
+    TupleItem(Box<Node>, Index),
 }
 
 /// One way to prepare an expression: its dungeonlets (postfix order), the sources of its free variables, and the
@@ -77,7 +81,7 @@ impl Node {
         match self {
             Node::Source(s) => Ok(vec![(vec![Dungeonlet::FreeVariable], vec![s.clone()], Quantity::ONE)]),
             // A parameter reads the count of an argument of the enclosing call: no source of its own.
-            &Node::Parameter { arg_index, star_index } => {
+            &Node::Parameter { arg_index, star_index, .. } => {
                 Ok(vec![(vec![Dungeonlet::Parameter { arg_index, star_index }], Vec::new(), Quantity::ONE)])
             }
             Node::Operator(operator, children) => {
@@ -102,6 +106,14 @@ impl Node {
                     })
                     .collect())
             }
+            // `MultisetTupleIndex._prepare` / `MultisetTupleSlice._prepare`: the child's, then the item node.
+            Node::TupleItem(child, index) => {
+                let mut parts = child.prepare()?;
+                for (flat, _, _) in &mut parts {
+                    flat.push(Dungeonlet::TupleItem { child: flat.len() - 1, index: index.clone() });
+                }
+                Ok(parts)
+            }
             // `MultisetMixture._prepare`: each inner's preparations, weighted by the inner's weight.
             Node::Mixture(inners) => {
                 let mut parts = Vec::new();
@@ -116,6 +128,26 @@ impl Node {
     }
 }
 
+impl Node {
+    /// `len()` of a multiset tuple expression (a `MultiDeal`, a tuple parameter or a slice of one); `None` for a
+    /// multiset expression, which has no `len`.
+    pub(super) fn tuple_len(&self) -> icepool_core::Result<Option<usize>> {
+        Ok(match self {
+            Node::Source(MultisetSource::MultiDeal(md)) => Some(md.size().len()),
+            Node::Parameter { tuple_len, .. } => *tuple_len,
+            // `len([None] * len(child)[index])`.
+            Node::TupleItem(child, index @ Index::Slice(..)) => {
+                let Some(n) = child.tuple_len()? else { return Ok(None) };
+                match getitem(&Value::tuple(vec![Value::None; n]), index)? {
+                    Value::Tuple(t) => Some(t.len()),
+                    _ => unreachable!("a slice of a tuple is a tuple"),
+                }
+            }
+            _ => None,
+        })
+    }
+}
+
 /// A dungeonlet moved `offset` places later in a flat: its children's positions move with it (Python's relative
 /// child indexes need no change).
 fn shifted(d: &Dungeonlet<Value>, offset: usize) -> Dungeonlet<Value> {
@@ -124,6 +156,7 @@ fn shifted(d: &Dungeonlet<Value>, offset: usize) -> Dungeonlet<Value> {
             operator: operator.clone(),
             children: children.iter().map(|c| c + offset).collect(),
         },
+        Dungeonlet::TupleItem { child, index } => Dungeonlet::TupleItem { child: child + offset, index: index.clone() },
         d => d.clone(),
     }
 }
@@ -212,6 +245,27 @@ impl ExpressionBuilder {
         let source = g.g.source().or_throw()?;
         self.stack.push(Node::Source(source));
         Ok(())
+    }
+
+    /// A `MultiDeal` (`_make_source`): a multiset tuple generator.
+    #[wasm_bindgen(js_name = multiDeal)]
+    pub fn multi_deal(&mut self, md: &WasmMultiDeal) {
+        self.stack.push(Node::Source(MultisetSource::MultiDeal(md.md.source())));
+    }
+
+    /// `MultisetTupleIndex(child, index=index)` of the multiset tuple expression just pushed.
+    #[wasm_bindgen(js_name = tupleIndex)]
+    pub fn tuple_index(&mut self, index: JsValue) -> JsResult<()> {
+        let index = Index::Item(value_from_js(&index).or_throw()?);
+        self.tuple_item(index)
+    }
+
+    /// `MultisetTupleSlice(child, index=slice(start, stop, step))` of the multiset tuple expression just pushed.
+    #[wasm_bindgen(js_name = tupleSlice)]
+    pub fn tuple_slice(&mut self, start: JsValue, stop: JsValue, step: JsValue) -> JsResult<()> {
+        let bound = |x: &JsValue| value_from_js(x).or_throw();
+        let index = Index::Slice(bound(&start)?, bound(&stop)?, bound(&step)?);
+        self.tuple_item(index)
     }
 
     /// `WeightlessGenerator(generator)` of the generator just pushed.
@@ -361,7 +415,13 @@ impl ExpressionBuilder {
     /// A `MultisetParameter` of the multiset function being traced: argument `arg_index` (its `star_index` element
     /// if starred).
     pub fn parameter(&mut self, arg_index: usize, star_index: Option<usize>) {
-        self.stack.push(Node::Parameter { arg_index, star_index });
+        self.stack.push(Node::Parameter { arg_index, star_index, tuple_len: None });
+    }
+
+    /// A `MultisetTupleParameter`: argument `arg_index`, a multiset tuple expression of `len` multisets.
+    #[wasm_bindgen(js_name = tupleParameter)]
+    pub fn tuple_parameter(&mut self, arg_index: usize, len: usize) {
+        self.stack.push(Node::Parameter { arg_index, star_index: None, tuple_len: Some(len) });
     }
 
     /// `MultisetForceOrder(force_order)`.
@@ -397,6 +457,12 @@ impl ExpressionBuilder {
             return Err(Error::InvalidArgument("an expression with too few children".into())).or_throw();
         }
         Ok(self.stack.split_off(self.stack.len() - n))
+    }
+
+    fn tuple_item(&mut self, index: Index) -> JsResult<()> {
+        let child = self.pop(1)?.pop().expect("one node");
+        self.stack.push(Node::TupleItem(Box::new(child), index));
+        Ok(())
     }
 
     fn operator(&mut self, operator: Operator<Value>, arity: usize) -> JsResult<()> {

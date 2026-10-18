@@ -173,9 +173,14 @@ fn prepare_raw(raw: &Raw) -> icepool_core::Result<Vec<Prepared>> {
 }
 
 /// What tracing a function body gave: its raw results (one unless `joint`).
-fn trace(function: &JsValue, inputs: usize, kwargs: &JsValue) -> icepool_core::Result<(Vec<Raw>, bool)> {
-    let inputs = u32::try_from(inputs).map_err(|_| Error::TooLarge("too many inputs".into()))?;
-    let parts = host::trace_function(function, inputs, kwargs);
+/// Each input is described by its `len()` if it is a multiset tuple expression (`_make_param` makes a tuple
+/// parameter of it, and `star` unpacks one), else null.
+fn trace(function: &JsValue, inputs: &[Node], kwargs: &JsValue) -> icepool_core::Result<(Vec<Raw>, bool)> {
+    let lens = inputs
+        .iter()
+        .map(|x| Ok(x.tuple_len()?.map_or(JsValue::NULL, |n| JsValue::from(n as u32))))
+        .collect::<icepool_core::Result<Vec<_>>>()?;
+    let parts = host::trace_function(function, lens, kwargs);
     let joint = parts.get(2).and_then(JsValue::as_bool) == Some(true);
     let builder = envelope(parts)?;
     let builder = ExpressionBuilder::try_from_js_value(builder)
@@ -186,7 +191,7 @@ fn trace(function: &JsValue, inputs: usize, kwargs: &JsValue) -> icepool_core::R
 /// `MultisetFunctionEvaluator._prepare(input_exps, kwargs)`: traces the body with one parameter per input, then
 /// prepares what it returned around the inputs' own flats.
 fn prepare_function(function: &JsValue, inputs: &[Node], kwargs: &JsValue) -> icepool_core::Result<Vec<Prepared>> {
-    let (mut raws, joint) = trace(function, inputs.len(), kwargs)?;
+    let (mut raws, joint) = trace(function, inputs, kwargs)?;
     if joint {
         return prepare_joint(inputs, &raws);
     }

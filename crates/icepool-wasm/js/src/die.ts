@@ -719,8 +719,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   /** `Population._select_outcomes(which, star)`: one flag per outcome. A function is called on each outcome in
    * order (unpacked if `star`, which is inferred from its `length` as Python counts parameters); an array is a
    * collection the outcome must be `in` (Python's `==`). `undefined` where the bridge must do it (a Map, an
-   * outcome a starred function cannot unpack, ...). */
-  private selection(which: unknown, star: unknown): Uint8Array | undefined {
+   * outcome a starred function cannot unpack, ...). Decks select their cards with it too. @internal */
+  selection(which: unknown, star: unknown): Uint8Array | undefined {
     if (typeof which === "function") {
       const f = which as (...args: unknown[]) => unknown;
       const starred = star === null || star === undefined ? f.length > 1 : pyBool(star);
@@ -2412,8 +2412,8 @@ export function dictItems(map: Map<unknown, unknown>): [unknown[], unknown[]] {
   return [keys, values];
 }
 
-/** Python's `t == 1` for a time (so `1.0` and `True` count too). */
-function isOne(t: unknown): boolean {
+/** Python's `t == 1` for a time (so `1.0` and `True` count too). @internal */
+export function isOne(t: unknown): boolean {
   if (t instanceof Float) return t.value === 1;
   if (t instanceof Fraction) return t.numerator === 1n && t.denominator === 1n;
   return t === 1 || t === 1n || t === true;

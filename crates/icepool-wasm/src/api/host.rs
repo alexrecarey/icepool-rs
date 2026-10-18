@@ -108,12 +108,13 @@ extern "C" {
         sizes: Vec<JsValue>,
     ) -> Vec<JsValue>;
 
-    /// Traces the multiset function `f` (js/src/evaluator.ts `MultisetFunction`) on `inputs` inputs with these
+    /// Traces the multiset function `f` (js/src/evaluator.ts `MultisetFunction`) on inputs described by `input_lens`
+    /// (each the `len()` of a multiset tuple expression, null for a multiset expression) with these
     /// keyword arguments (`MultisetFunctionEvaluator._prepare` up to the call of the wrapped function): `[true,
     /// builder, joint]`, the `ExpressionBuilder` holding what the body returned (its raw results, one unless
     /// `joint`), or `[false]` when the body (or binding its arguments) threw.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = traceFunction)]
-    pub(super) fn trace_function(f: &JsValue, inputs: u32, kwargs: &JsValue) -> Vec<JsValue>;
+    pub(super) fn trace_function(f: &JsValue, input_lens: Vec<JsValue>, kwargs: &JsValue) -> Vec<JsValue>;
 
     /// `icepool.tupleize(*final_outcomes)` of a joint multiset function: `[true, result]` or `[false]`.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = tupleize)]

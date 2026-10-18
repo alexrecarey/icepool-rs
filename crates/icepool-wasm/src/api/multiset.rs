@@ -1,5 +1,6 @@
-//! `WasmGenerator`: a keep generator of the core (generator/pool.py `Pool`, generator/compound_keep.py
-//! `CompoundKeepGenerator`), under the TypeScript `Pool` / `KeepGenerator` (js/src/multiset.ts), which does
+//! `WasmGenerator`: a keep generator of the core (generator/pool.py `Pool`, generator/deal.py `Deal`,
+//! generator/compound_keep.py `CompoundKeepGenerator`), under the TypeScript `Pool` / `Deal` / `KeepGenerator`
+//! (js/src/multiset.ts, deck.ts), which does
 //! Python's argument juggling (pool.py, keep.py, multiset_expression.py) and calls these for the work: making the
 //! pool from dice already converted, and the keep tuple arithmetic (`keep`, `multiply_counts`, merging pools).
 //!
@@ -12,10 +13,11 @@ use icepool_core::evaluator::MultisetSource;
 use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::recursion::level;
-use icepool_core::{Die, Error, Int, Pool, Value};
+use icepool_core::{Deal, Die, Error, Int, Pool, Value};
 use wasm_bindgen::prelude::*;
 
 use super::convert::{int_from_js, int_to_js, quantity_to_js, value_from_js, values_to_js};
+use super::deck::{deal_str, WasmDeck};
 use super::die::{die_repr, WasmDie};
 use super::error::{JsResult, OrThrow};
 
@@ -57,10 +59,11 @@ fn die_count(t: &JsValue) -> icepool_core::Result<usize> {
     }
 }
 
-/// A keep generator of the core: a pool, or the additive union of keep generators that is still one.
+/// A keep generator of the core: a pool, a deal, or the additive union of keep generators that is still one.
 #[derive(Clone)]
 pub(crate) enum Generator {
     Pool(Pool<Value>),
+    Deal(Deal<Value>),
     Compound(CompoundKeep<Value>),
 }
 
@@ -69,6 +72,7 @@ impl Generator {
     pub(crate) fn source(&self) -> icepool_core::Result<MultisetSource<Value>> {
         Ok(match self {
             Generator::Pool(p) => MultisetSource::Pool(p.source()),
+            Generator::Deal(d) => MultisetSource::Deal(d.source()),
             Generator::Compound(c) => MultisetSource::CompoundKeep(c.source()?),
         })
     }
@@ -76,6 +80,7 @@ impl Generator {
     fn keep_tuple(&self) -> &[Int] {
         match self {
             Generator::Pool(p) => p.keep_tuple(),
+            Generator::Deal(d) => d.keep_tuple(),
             Generator::Compound(c) => c.keep_tuple(),
         }
     }
@@ -83,6 +88,7 @@ impl Generator {
     fn keep_size(&self) -> Int {
         match self {
             Generator::Pool(p) => p.keep_size(),
+            Generator::Deal(d) => d.keep_size(),
             Generator::Compound(c) => c.keep_size(),
         }
     }
@@ -91,6 +97,7 @@ impl Generator {
     fn keep(&self, index: &KeepIndex) -> icepool_core::Result<Generator> {
         Ok(match self {
             Generator::Pool(p) => Generator::Pool(p.keep(index)?),
+            Generator::Deal(d) => Generator::Deal(d.keep(index)?),
             Generator::Compound(c) => Generator::Compound(c.keep(index)?),
         })
     }
@@ -109,10 +116,16 @@ impl WasmGenerator {
         WasmGenerator { g: self.g.clone() }
     }
 
-    /// Whether this is a `Pool` (else a `CompoundKeepGenerator`).
+    /// Whether this is a `Pool`.
     #[wasm_bindgen(js_name = isPool)]
     pub fn is_pool(&self) -> bool {
         matches!(self.g, Generator::Pool(_))
+    }
+
+    /// Whether this is a `Deal` (neither: a `CompoundKeepGenerator`).
+    #[wasm_bindgen(js_name = isDeal)]
+    pub fn is_deal(&self) -> bool {
+        matches!(self.g, Generator::Deal(_))
     }
 
     /// `keep_tuple()`.
@@ -165,6 +178,7 @@ impl WasmGenerator {
         let n = Int::from(int_from_js(&constant, "a count multiplier").or_throw()?);
         let g = match &self.g {
             Generator::Pool(p) => Generator::Pool(p.multiply_counts(&n)),
+            Generator::Deal(d) => Generator::Deal(d.multiply_counts(&n)),
             Generator::Compound(c) => Generator::Compound(c.multiply_counts(&n)),
         };
         Ok(WasmGenerator { g })
@@ -178,7 +192,7 @@ impl WasmGenerator {
             .into_iter()
             .map(|g| match g.g {
                 Generator::Pool(p) => Ok(p),
-                Generator::Compound(_) => Err(Error::Unported("merging a compound keep as a pool".into())),
+                _ => Err(Error::Unported("merging a generator that is not a pool".into())),
             })
             .collect::<icepool_core::Result<Vec<_>>>()
             .or_throw()?;
@@ -200,15 +214,42 @@ impl WasmGenerator {
     pub fn same_key(&self, other: &WasmGenerator) -> bool {
         match (&self.g, &other.g) {
             (Generator::Pool(a), Generator::Pool(b)) => a.dice() == b.dice() && a.keep_tuple() == b.keep_tuple(),
+            // `(Deal, deck, keep_tuple)`.
+            (Generator::Deal(a), Generator::Deal(b)) => a == b,
             (Generator::Compound(a), Generator::Compound(b)) => a == b,
             _ => false,
         }
     }
 
-    /// `str(generator)`: `Pool.__str__` or `CompoundKeepGenerator.__str__`.
+    /// `str(generator)`: `Pool.__str__`, `Deal.__str__` or `CompoundKeepGenerator.__str__`.
     #[wasm_bindgen(js_name = toString)]
     pub fn to_string(&self) -> JsResult<String> {
-        self.g.source().and_then(|s| source_str(&s)).or_throw()
+        match &self.g {
+            Generator::Deal(d) => deal_str(d),
+            g => g.source().and_then(|s| source_str(&s)),
+        }
+        .or_throw()
+    }
+
+    // --- Deal only ---------------------------------------------------------------------------------------------
+
+    /// `deck()`.
+    pub fn deck(&self) -> JsResult<WasmDeck> {
+        Ok(WasmDeck { deck: self.deal()?.deck().clone() })
+    }
+
+    /// `hand_size()`.
+    #[wasm_bindgen(js_name = handSize)]
+    pub fn hand_size(&self) -> JsResult<usize> {
+        Ok(self.deal()?.hand_size())
+    }
+
+    /// `[repr(deal), str(deal)]`.
+    #[wasm_bindgen(js_name = dealStrs)]
+    pub fn deal_strs(&self) -> JsResult<Vec<String>> {
+        let d = self.deal()?;
+        let repr = format!("Deal({}, hand_size={})", super::deck::deck_repr(d.deck()).or_throw()?, d.hand_size());
+        Ok(vec![repr, deal_str(d).or_throw()?])
     }
 
     // --- Pool only ---------------------------------------------------------------------------------------------
@@ -219,8 +260,11 @@ impl WasmGenerator {
         Ok(self.pool()?.raw_size())
     }
 
-    /// `denominator()`.
+    /// `denominator()` (also a deal's).
     pub fn denominator(&self) -> JsResult<JsValue> {
+        if let Generator::Deal(d) = &self.g {
+            return Ok(quantity_to_js(&d.denominator()));
+        }
         Ok(quantity_to_js(&self.pool()?.denominator().or_throw()?))
     }
 
@@ -248,8 +292,14 @@ impl WasmGenerator {
     fn pool(&self) -> JsResult<&Pool<Value>> {
         match &self.g {
             Generator::Pool(p) => Ok(p),
-            Generator::Compound(_) => Err(Error::MissingAttribute("a CompoundKeepGenerator is not a Pool".into()))
-                .or_throw(),
+            _ => Err(Error::MissingAttribute("this keep generator is not a Pool".into())).or_throw(),
+        }
+    }
+
+    fn deal(&self) -> JsResult<&Deal<Value>> {
+        match &self.g {
+            Generator::Deal(d) => Ok(d),
+            _ => Err(Error::MissingAttribute("this keep generator is not a Deal".into())).or_throw(),
         }
     }
 }
@@ -268,6 +318,12 @@ fn source_str(source: &MultisetSource<Value>) -> icepool_core::Result<String> {
             }
             Ok(text)
         }
+        // `Deal.__str__` of an inner deal.
+        MultisetSource::Deal(d) => Ok(format!(
+            "Deal of hand_size={} from deck:\n{}",
+            d.keep_tuple().len(),
+            super::deck::deck_text(d.deck())?
+        )),
         MultisetSource::CompoundKeep(c) => {
             let inners = c.inner_sources().iter().map(source_str).collect::<icepool_core::Result<Vec<_>>>()?;
             Ok(format!("CompoundKeep([{}], keep_tuple={})", inners.join(", "), keep_tuple_repr(c.keep_tuple())?))

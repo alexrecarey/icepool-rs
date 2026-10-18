@@ -339,8 +339,8 @@ function mapSimple(
 }
 
 /** `mapping.get(outcome, outcome)` for each of `outcomes`, a Python dict lookup (keys compared with Python's `==`
- * and hash: `1`, `1.0` and `true` are one key), as a JS Map from each outcome (by identity) to its value. */
-function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]): Map<unknown, unknown> {
+ * and hash: `1`, `1.0` and `true` are one key), as a JS Map from each outcome (by identity) to its value. @internal */
+export function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]): Map<unknown, unknown> {
   const [keys, values] = dictItems(mapping);
   // An outcome is never equal to a die or an Again expression: only the other keys can match.
   const plain = keys.flatMap((k, i) => (k instanceof Die || k instanceof AgainExpression ? [] : [i]));

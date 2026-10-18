@@ -143,9 +143,9 @@ test("multisetFunction: Python's errors for binding, results and recursion", () 
   assert.throws(() => f.call(d(2).pool(1)), pythonType("RecursionError"));
 });
 
-test("multisetFunction: a body holding a deal goes through the bridge (task C6f)", () => {
+test("multisetFunction: a body holding a deal is traced natively", () => {
   const withDeal = multisetFunction((a) => a.add(new Deck([1, 2]).deal(1)).sum());
-  const before = bridgeCalls.get("mf_call_kw") ?? 0;
+  const before = [...bridgeCalls.values()].reduce((n, c) => n + c, 0);
   assert.deepEqual(withDeal.call(pool([3])).items(), [[4, 1n], [5, 1n]]);
-  assert.equal(bridgeCalls.get("mf_call_kw"), before + 1);
+  assert.equal([...bridgeCalls.values()].reduce((n, c) => n + c, 0), before);
 });

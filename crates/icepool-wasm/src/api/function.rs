@@ -104,6 +104,13 @@ pub fn consecutive(first: Vec<JsValue>, second: Vec<JsValue>) -> JsResult<JsValu
     value_to_js(&function::consecutive(values(&first)?, values(&second)?).or_throw()?).or_throw()
 }
 
+/// Python's `sorted(values)` (wallenius.py sorts the weights pulled).
+#[wasm_bindgen(js_name = pySorted)]
+pub fn py_sorted(values: Vec<JsValue>) -> JsResult<JsValue> {
+    let sorted = icepool_core::value::sort::sorted(self::values(&values)?).or_throw()?;
+    values_to_js(&sorted).or_throw()
+}
+
 /// `sorted_union(*args)` given the elements of each argument (an array per argument).
 #[wasm_bindgen(js_name = sortedUnion)]
 pub fn sorted_union(args: Vec<JsValue>) -> JsResult<JsValue> {

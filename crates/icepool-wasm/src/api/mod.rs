@@ -9,6 +9,7 @@
 
 mod again;
 mod convert;
+mod deck;
 mod die;
 mod error;
 mod evaluate;
@@ -20,6 +21,9 @@ mod multiset;
 mod multiset_function;
 mod value;
 
+pub use deck::{WasmDeck, WasmMultiDeal};
 pub use die::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};
+pub(crate) use multiset::Generator;
+pub use multiset::WasmGenerator;
 pub use value::{value_binary, value_round, value_truth, value_unary};
 pub(crate) use error::{kind as error_kind, python_type, to_js as to_js_error};

@@ -35,7 +35,7 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::api::WasmDie;
+use crate::api::{Generator, WasmDeck, WasmDie, WasmGenerator, WasmMultiDeal};
 use icepool_core::evaluator::Final;
 use icepool_core::evaluator::Order;
 use icepool_core::host::{HostError, HostObject, HostRef};
@@ -130,6 +130,79 @@ impl WasmDie {
             ))),
             Err(PErr::Raise(e)) => Err(crate::api::to_js_error(e)),
             Err(PErr::Unimplemented(what)) => Err(crate::api::to_js_error(Error::Unported(what))),
+        }
+    }
+}
+
+/// Interim bridge to the typed API (task C6): a handle for a deck of the typed API, to pass it to a node.
+#[wasm_bindgen(js_name = deckHandle)]
+pub fn deck_handle(deck: &WasmDeck) -> u32 {
+    put(PValue::Deck(deck.deck.clone()))
+}
+
+/// Interim bridge to the typed API (task C6): a handle for a multi-deal of the typed API.
+#[wasm_bindgen(js_name = multiDealHandle)]
+pub fn multi_deal_handle(md: &WasmMultiDeal) -> u32 {
+    put(PValue::MultiDeal(md.md.clone()))
+}
+
+/// Interim bridge to the typed API (task C6): a handle for a keep generator of the typed API, if the bridge has a
+/// kind for it (a pool or a deal; a compound keep is made there by replaying the calls that made it).
+#[wasm_bindgen(js_name = generatorHandle)]
+pub fn generator_handle(g: &WasmGenerator) -> Option<u32> {
+    match &g.g {
+        Generator::Pool(p) => Some(put(PValue::Pool(p.clone()))),
+        Generator::Deal(d) => Some(put(PValue::Deal(d.clone()))),
+        Generator::Compound(_) => None,
+    }
+}
+
+/// A value of a handle the caller still frees, or the error to throw.
+fn handle_value(id: u32) -> Result<PValue, JsValue> {
+    get(id).map_err(|e| match e {
+        PErr::Raise(e) => crate::api::to_js_error(e),
+        PErr::Unimplemented(what) => crate::api::to_js_error(Error::Unported(what)),
+    })
+}
+
+fn not_a(kind: &str) -> JsValue {
+    crate::api::to_js_error(Error::WrongType(format!("not a {kind} handle")))
+}
+
+#[wasm_bindgen]
+impl WasmDeck {
+    /// Interim bridge to the typed API (task C6): the deck a node returned, from its handle (which the caller
+    /// still frees).
+    #[wasm_bindgen(js_name = fromHandle)]
+    pub fn from_handle(id: u32) -> Result<WasmDeck, JsValue> {
+        match handle_value(id)? {
+            PValue::Deck(deck) => Ok(WasmDeck { deck }),
+            _ => Err(not_a("deck")),
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl WasmMultiDeal {
+    /// Interim bridge to the typed API (task C6): the multi-deal a node returned, from its handle.
+    #[wasm_bindgen(js_name = fromHandle)]
+    pub fn from_handle(id: u32) -> Result<WasmMultiDeal, JsValue> {
+        match handle_value(id)? {
+            PValue::MultiDeal(md) => Ok(WasmMultiDeal { md }),
+            _ => Err(not_a("multi-deal")),
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl WasmGenerator {
+    /// Interim bridge to the typed API (task C6): the pool or deal a node returned, from its handle.
+    #[wasm_bindgen(js_name = fromHandle)]
+    pub fn from_handle(id: u32) -> Result<WasmGenerator, JsValue> {
+        match handle_value(id)? {
+            PValue::Pool(p) => Ok(WasmGenerator { g: Generator::Pool(p) }),
+            PValue::Deal(d) => Ok(WasmGenerator { g: Generator::Deal(d) }),
+            _ => Err(not_a("pool or deal")),
         }
     }
 }

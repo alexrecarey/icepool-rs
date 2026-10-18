@@ -2,7 +2,7 @@
 // expression tree is the TypeScript's own (see "The native expression tree" below), over keep generators of the
 // core (src/api/multiset.rs), turned into the core's tree when evaluated (src/api/evaluate.rs).
 
-import type { ExpressionBuilder, WasmDie, WasmGenerator } from "../pkg-node/icepool_wasm.js";
+import type { ExpressionBuilder, WasmDie, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, z as zDie, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
@@ -44,6 +44,56 @@ export type MultisetArg = MultisetExpression | readonly Outcome[];
  */
 export type SortPairExtra = "early" | "late" | "low" | "high" | "equal" | "keep" | "drop";
 
+// --- Native objects the bridge may need ---------------------------------------------------------------------------
+
+/** A native object of the typed API that the bridge may still be handed (INTERIM, task C6g: a node not moved yet
+ * takes it as an argument): the bridge's handle is made the first time it needs one, directly from the native
+ * object if there is a way (`bridgeHandle`), else by replaying the bridge call the object stands for. */
+export class Replayable extends Handle {
+  /** The bridge call this native object stands for, made if the bridge needs it. */
+  private declare replay?: () => unknown;
+
+  /** Whether this object is native (else only the bridge holds it). @internal */
+  protected holdsNative(): boolean {
+    return false;
+  }
+
+  /** A bridge handle made from the native object directly, if there is a way. @internal */
+  protected bridgeHandle(): number | undefined {
+    return undefined;
+  }
+
+  /** Remembers the bridge call that makes this native object, unless it already has one. @internal */
+  replayWith(bridge: () => unknown): void {
+    if (this.handle < 0 && this.replay === undefined && this.holdsNative()) this.replay = bridge;
+  }
+
+  /** The bridge's handle, made the first time the bridge needs it. @internal */
+  protected override get h(): number {
+    if (this.handle < 0 && this.holdsNative()) {
+      const direct = this.bridgeHandle();
+      const replay = this.replay;
+      this.replay = undefined;
+      if (direct !== undefined) {
+        this.adopt(wrapHandle(Handle.prototype, direct), Handle);
+      } else if (replay !== undefined) {
+        const made = replay();
+        // The bridge's pools and deals come back native: such a one makes its handle now, which this one takes.
+        if (made instanceof Replayable) void made.h;
+        this.adopt(made, Handle);
+      }
+    }
+    if (this.handle < 0) throw new TypeError("icepool: this object was freed");
+    return this.handle;
+  }
+
+  /** Frees the object's WASM memory now rather than when it is garbage-collected. @internal */
+  override free(): void {
+    this.replay = undefined;
+    super.free();
+  }
+}
+
 /** `MultisetExpression`: any expression over multisets: a pool, a deal, or an operator over them. Evaluation methods
  * (`sum`, `size`, `expand`, ...) return dice.
  *
@@ -81,11 +131,9 @@ export type SortPairExtra = "early" | "late" | "low" | "high" | "equal" | "keep"
  * d(6).pool(3).keepOutcomes([5, 6]).size().probability(">=", 2).toString(); //=> "7/27"
  * ```
  */
-export class MultisetExpression extends Handle {
+export class MultisetExpression extends Replayable {
   /** The native form of this expression; `undefined` for one only the bridge holds. @internal */
   declare node?: Node;
-  /** The bridge call this native expression stands for, made if the bridge needs it. */
-  private declare replay?: () => unknown;
 
   /** A native expression of this class. @internal */
   static native<T extends MultisetExpression>(this: abstract new (...args: never[]) => T, node: Node): T {
@@ -95,26 +143,20 @@ export class MultisetExpression extends Handle {
     return x;
   }
 
-  /** Remembers the bridge call that makes this native expression, unless it already has one. @internal */
-  replayWith(bridge: () => unknown): void {
-    if (this.handle < 0 && this.replay === undefined && this.node !== undefined) this.replay = bridge;
+  /** @internal */
+  protected override holdsNative(): boolean {
+    return this.node !== undefined;
   }
 
-  /** The bridge's handle, made by replaying the bridge call the first time the bridge needs it. @internal */
-  protected override get h(): number {
-    if (this.handle < 0 && this.replay !== undefined) {
-      const replay = this.replay;
-      this.replay = undefined;
-      this.adopt(replay(), Handle);
-    }
-    if (this.handle < 0) throw new TypeError("icepool: this object was freed");
-    return this.handle;
+  /** A pool or a deal crosses to the bridge as it is. @internal */
+  protected override bridgeHandle(): number | undefined {
+    const node = this.node;
+    return node?.kind === "generator" ? wasm((w) => w.generatorHandle(node.g)) : undefined;
   }
 
   /** Frees the expression's WASM memory now rather than when it is garbage-collected. @internal */
   override free(): void {
     this.node = undefined;
-    this.replay = undefined;
     super.free();
   }
 
@@ -1154,7 +1196,8 @@ export class Pool extends KeepGenerator {
         : call("pool", { dice: list(dice), times: list(times) });
     const g = poolGenerator(dice, times);
     if (g === undefined) {
-      this.adopt(bridge(), Pool);
+      // The bridge's pool comes back native.
+      this.node = (bridge() as Pool).node;
     } else {
       this.node = { kind: "generator", g };
       this.replayWith(bridge);
@@ -1288,7 +1331,17 @@ export function multisetMixture(inners: readonly MultisetExpression[]): Expressi
  */
 export class Expression extends MultisetExpression {}
 
-registerKind("pool", (h) => wrapHandle(Pool.prototype, h));
+/** A pool or deal the bridge made, as a native generator. */
+function bridgeGenerator(h: number): KeepGenerator {
+  try {
+    return generator(wasm((w) => w.WasmGenerator.fromHandle(h)));
+  } finally {
+    wasm((w) => w.release(h));
+  }
+}
+
+registerKind("pool", bridgeGenerator);
+registerKind("deal", bridgeGenerator);
 registerKind("expr", (h) => new Expression(HANDLE, h));
 
 // --- The native expression tree -----------------------------------------------------------------------------------
@@ -1303,10 +1356,13 @@ registerKind("expr", (h) => new Expression(HANDLE, h));
 // Multiset function parameters are nodes too (`Parameter`), and an evaluation holding one returns a `RawResult`
 // (evaluator.ts traces the bodies).
 //
-// INTERIM (task C6f): whatever the tree does not model (deals, multiset tuple expressions, arguments of other
-// types) still goes through the bridge. Each function below returns
-// `undefined` for what it does not model, and the method then calls the bridge's node instead; a native expression
-// the bridge needs as an argument is made there once, by replaying the bridge call its method stands for (`replay`).
+// Multiset tuple expressions (a `MultiDeal`, a tuple parameter, a slice of either: deck.ts) are trees of
+// `TupleNode`s; a hand of one (`MultisetTupleIndex`) is a multiset expression whose node is a "tupleIndex".
+//
+// INTERIM (task C6g): whatever the tree does not model (operators over whole tuple expressions, arguments of other
+// types) still goes through the bridge. Each function below returns `undefined` for what it does not model, and the
+// method then calls the bridge's node instead; a native object the bridge needs as an argument is made there once
+// (`Replayable`).
 
 /** How an operator node pushes itself into the core's builder. */
 type Push = (b: ExpressionBuilder) => void;
@@ -1329,11 +1385,29 @@ export type Node =
       readonly str?: Str;
     }
   | { readonly kind: "mixture"; readonly inners: readonly (readonly [MultisetExpression, bigint])[] }
-  /** `MultisetParameter`: argument `argIndex` of the multiset function being traced (evaluator.ts), named `name`
-   * (its `str()`). */
-  | { readonly kind: "parameter"; readonly argIndex: number; readonly name: string };
+  /** `MultisetParameter`: argument `argIndex` of the multiset function being traced (evaluator.ts), its element
+   * `starIndex` if it was starred, named `name` (its `str()`). */
+  | { readonly kind: "parameter"; readonly argIndex: number; readonly starIndex: number | null; readonly name: string }
+  /** `MultisetTupleIndex`: `child[index]`, one hand of a multiset tuple expression. */
+  | { readonly kind: "tupleIndex"; readonly child: TupleExpressionLike; readonly index: Int };
 
-const isNative = (x: MultisetExpression): boolean => x.node !== undefined;
+/** A native multiset tuple expression's tree node (deck.ts `MultisetTupleExpression`). @internal */
+export type TupleNode =
+  | { readonly kind: "multiDeal"; readonly md: WasmMultiDeal }
+  /** `MultisetTupleParameter`: argument `argIndex` of the multiset function being traced, of `len` multisets. */
+  | { readonly kind: "tupleParameter"; readonly argIndex: number; readonly len: number; readonly name: string }
+  /** `MultisetTupleSlice`: `child[start:stop:step]` (the bounds as given; only looked at when evaluated). */
+  | { readonly kind: "tupleSlice"; readonly child: TupleExpressionLike; readonly bounds: readonly [unknown, unknown, unknown] };
+
+/** What the tree needs of a multiset tuple expression (deck.ts imports this module, so not the class). @internal */
+export interface TupleExpressionLike {
+  readonly node?: TupleNode;
+}
+
+/** Any input of an evaluation: a multiset expression or a multiset tuple expression. @internal */
+export type Input = MultisetExpression | TupleExpressionLike;
+
+const isNative = (x: Input): boolean => x.node !== undefined;
 
 // --- Multiset function parameters (evaluator.ts traces the bodies) ---
 
@@ -1349,17 +1423,19 @@ class Parameter extends Expression {
   }
 }
 
-/** The parameter for argument `argIndex` of the function being traced, named `name` (`_make_param`). @internal */
-export function parameter(argIndex: number, name: string): MultisetExpression {
-  return Parameter.native({ kind: "parameter", argIndex, name });
+/** The parameter for argument `argIndex` of the function being traced (its element `starIndex` if starred), named
+ * `name` (`_make_param`). @internal */
+export function parameter(argIndex: number, name: string, starIndex: number | null = null): MultisetExpression {
+  return Parameter.native({ kind: "parameter", argIndex, starIndex, name });
 }
 
 /** `expression._has_parameter`: whether a parameter is anywhere inside (so it is inside a multiset function's
  * body). Without recursion: an expression may nest deeper than JS's stack holds. @internal */
-export function hasParameter(x: MultisetExpression): boolean {
-  const todo = [x];
+export function hasParameter(x: Input): boolean {
+  const todo: Input[] = [x];
   for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
-    if (next.node?.kind === "parameter") return true;
+    const kind = next.node?.kind;
+    if (kind === "parameter" || kind === "tupleParameter") return true;
     if (next.node !== undefined) todo.push(...childrenOf(next.node));
   }
   return false;
@@ -1377,7 +1453,7 @@ export type RawEvaluator =
 export class RawResult {
   constructor(
     readonly evaluator: RawEvaluator,
-    readonly inputs: readonly MultisetExpression[],
+    readonly inputs: readonly Input[],
   ) {}
 
   /** Pushes it into a trace's builder: its inputs, then itself (src/api/multiset_function.rs). */
@@ -1417,22 +1493,36 @@ const keyPart = (x: unknown): unknown => (isIntArg(x) ? BigInt(intOf(x)) : x);
 const typeError = (message: string) => new IcepoolError("WrongType", "TypeError", message);
 const valueError = (message: string) => new IcepoolError("InvalidArgument", "ValueError", message);
 
-/** The result of a method: the native one, else the bridge's. A new native expression remembers the bridge call
- * it stands for, in case the bridge needs it later. */
-function native<T>(self: MultisetExpression | null, make: () => T | undefined, bridge: () => unknown): T {
+/** The result of a method: the native one, else the bridge's. A new native object remembers the bridge call it
+ * stands for, in case the bridge needs it later. @internal */
+export function native<T>(self: Input | null, make: () => T | undefined, bridge: () => unknown): T {
   const made = self === null || isNative(self) ? make() : undefined;
   if (made === undefined) return bridge() as T;
-  if (made instanceof MultisetExpression) made.replayWith(bridge);
+  if (made instanceof Replayable) made.replayWith(bridge);
   return made;
 }
 
-/** A keep generator of the core as an expression: a `Pool`, or a `KeepGenerator` for a compound keep. */
-function generator(g: WasmGenerator): KeepGenerator {
-  return (g.isPool() ? Pool : KeepGenerator).native({ kind: "generator", g });
+/** The class of a native deal: deck.ts's `Deal`, which registers itself (deck.ts imports this module). */
+let dealClass: typeof KeepGenerator = KeepGenerator;
+
+/** Registers deck.ts's `Deal`. @internal */
+export function registerDealClass(cls: typeof KeepGenerator): void {
+  dealClass = cls;
 }
 
-/** The core generator of a native keep generator, if `x` is one. */
-function generatorOf(x: MultisetExpression): WasmGenerator | undefined {
+/** A keep generator of the core as an expression: a `Pool`, a `Deal`, or a `KeepGenerator` for a compound keep.
+ * @internal */
+export function generator(g: WasmGenerator): KeepGenerator {
+  return (g.isPool() ? Pool : g.isDeal() ? dealClass : KeepGenerator).native({ kind: "generator", g });
+}
+
+/** A hand of a native multiset tuple expression: `MultisetTupleIndex(child, index=index)`. @internal */
+export function tupleIndex(child: TupleExpressionLike, index: Int): MultisetExpression {
+  return Expression.native({ kind: "tupleIndex", child, index });
+}
+
+/** The core generator of a native keep generator, if `x` is one. @internal */
+export function generatorOf(x: MultisetExpression): WasmGenerator | undefined {
   return x.node?.kind === "generator" ? x.node.g : undefined;
 }
 
@@ -1807,6 +1897,9 @@ function expressionStr(x: MultisetExpression): string | undefined {
     // `MultisetParameterBase.__str__`: `self._name`.
     case "parameter":
       return node.name;
+    // `MultisetTupleIndex` has no `__str__`.
+    case "tupleIndex":
+      return undefined;
     case "operator": {
       const children = strs(node.children);
       return children === undefined || node.str === undefined ? undefined : node.str(children);
@@ -1834,7 +1927,10 @@ function sameExpression(a: MultisetExpression, b: MultisetExpression): boolean {
   if (x.kind === "generator" && y.kind === "generator") return wasm(() => x.g.sameKey(y.g));
   // `(WeightlessGenerator, wrapped.hash_key)`.
   if (x.kind === "weightless" && y.kind === "weightless") return sameExpression(x.inner, y.inner);
-  if (x.kind === "parameter" && y.kind === "parameter") return x.argIndex === y.argIndex;
+  // `(type, arg_index, star_index)`.
+  if (x.kind === "parameter" && y.kind === "parameter") return x.argIndex === y.argIndex && x.starIndex === y.starIndex;
+  // `(MultisetTupleIndex, index)`: the child is left out.
+  if (x.kind === "tupleIndex" && y.kind === "tupleIndex") return keyPart(x.index) === keyPart(y.index);
   // `(MultisetMixture, tuple(inners.items()))`.
   if (x.kind === "mixture" && y.kind === "mixture") {
     return x.inners.length === y.inners.length &&
@@ -1867,10 +1963,12 @@ Object.assign(HOST, {
 });
 
 /** The child expressions of a node. */
-function childrenOf(node: Node): readonly MultisetExpression[] {
+function childrenOf(node: Node | TupleNode): readonly Input[] {
   switch (node.kind) {
     case "generator":
     case "parameter":
+    case "multiDeal":
+    case "tupleParameter":
       return [];
     case "weightless":
       return [node.inner];
@@ -1878,18 +1976,22 @@ function childrenOf(node: Node): readonly MultisetExpression[] {
       return node.children;
     case "mixture":
       return node.inners.map(([inner]) => inner);
+    case "tupleIndex":
+    case "tupleSlice":
+      return [node.child];
   }
 }
 
-/** Pushes a native expression into the builder, children first. Without recursion: an expression may nest deeper
- * than JS's stack holds (the core raises Python's `RecursionError` for it, when it prepares the tree). */
-export function build(b: ExpressionBuilder, root: MultisetExpression): void {
-  const todo: [Node, boolean][] = [[root.node as Node, false]];
+/** Pushes a native expression (or multiset tuple expression) into the builder, children first. Without recursion:
+ * an expression may nest deeper than JS's stack holds (the core raises Python's `RecursionError` for it, when it
+ * prepares the tree). */
+export function build(b: ExpressionBuilder, root: Input): void {
+  const todo: [Node | TupleNode, boolean][] = [[root.node as Node | TupleNode, false]];
   for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
     const [node, childrenDone] = next;
     if (!childrenDone) {
       todo.push([node, true]);
-      for (const child of [...childrenOf(node)].reverse()) todo.push([child.node as Node, false]);
+      for (const child of [...childrenOf(node)].reverse()) todo.push([child.node as Node | TupleNode, false]);
       continue;
     }
     switch (node.kind) {
@@ -1906,7 +2008,19 @@ export function build(b: ExpressionBuilder, root: MultisetExpression): void {
         b.mixture(node.inners.map(([, weight]) => weight));
         break;
       case "parameter":
-        b.parameter(node.argIndex, undefined);
+        b.parameter(node.argIndex, node.starIndex ?? undefined);
+        break;
+      case "tupleIndex":
+        b.tupleIndex(node.index);
+        break;
+      case "multiDeal":
+        b.multiDeal(node.md);
+        break;
+      case "tupleParameter":
+        b.tupleParameter(node.argIndex, node.len);
+        break;
+      case "tupleSlice":
+        b.tupleSlice(...node.bounds);
         break;
     }
   }
@@ -1914,7 +2028,7 @@ export function build(b: ExpressionBuilder, root: MultisetExpression): void {
 
 /** `f(b)` with a fresh builder holding the inputs (freed afterwards), called into the core: a JS callback's
  * exception comes out as itself. */
-export function withInputs<T>(inputs: readonly MultisetExpression[], f: (b: ExpressionBuilder) => T): T {
+export function withInputs<T>(inputs: readonly Input[], f: (b: ExpressionBuilder) => T): T {
   return withCallbacks(() =>
     wasm((w) => {
       const b = new w.ExpressionBuilder();
@@ -2075,6 +2189,20 @@ function mapCounts(args: unknown[], f: unknown): Expression | undefined {
   if (xs === undefined || typeof f !== "function") return undefined;
   const g = f as AnyFunction;
   return operator(xs, ["MultisetMapCounts", g], (b) => b.mapCounts(g, xs.length));
+}
+
+/** `icepool.MultisetMixture(data)` of a mapping of expressions to weights: equal ones together, weights summed
+ * (map_to_pool's `data[pool] += quantity`). @internal */
+export function mixtureOf(weighted: readonly (readonly [MultisetExpression, bigint])[]): Expression {
+  const data: [MultisetExpression, bigint][] = [];
+  for (const [inner, weight] of weighted) addInner(data, inner, weight);
+  return Expression.native({ kind: "mixture", inners: data });
+}
+
+/** Whether `x[i]` checks a keep tuple before it evaluates anything (a keep generator without negative keeps, or a
+ * mixture of such): an index past it is then an `IndexError` even if the dice are empty. @internal */
+export function keepTupleBounded(x: MultisetExpression): boolean {
+  return keepableMixture(x) !== undefined || keepable(x) !== undefined;
 }
 
 /** `icepool.MultisetMixture(inners)` of a sequence of expressions: each counted once, equal ones together. */

@@ -8,12 +8,12 @@
 // multiset_function.rs) prepares the expressions and runs the driver, calling back the JS evaluator's methods
 // (`HostEvaluator`) and asking for traces (`HOST.traceFunction`) where Python would make them.
 //
-// INTERIM (task C6f): inputs only the bridge models (deals, multiset tuple expressions) still go through the bridge
-// (rpc.ts); so does a function whose body needs the bridge (`BridgeNeeded`).
+// INTERIM (task C6g): inputs only the bridge models (arguments of other types, expressions the bridge made) still
+// go through the bridge (rpc.ts); so does a function whose body needs the bridge (`BridgeNeeded`).
 
 import type { ExpressionBuilder } from "../pkg-node/icepool_wasm.js";
 import { Die, list, opts, pyBool, type DieOutcomes, type MapResult } from "./die.js";
-import { MultisetTupleExpression, type MultiDeal } from "./deck.js";
+import { MultisetTupleExpression, tupleParameter, type MultiDeal } from "./deck.js";
 import { IcepoolError, UnsupportedOrder } from "./errors.js";
 import { tupleize } from "./functions.js";
 import {
@@ -24,6 +24,7 @@ import {
   implicitAll,
   parameter,
   withInputs,
+  type Input,
   type MultisetArg,
 } from "./multiset.js";
 import {
@@ -139,7 +140,7 @@ export abstract class MultisetEvaluator {
   evaluate(...rest: EvaluateArg[]): Die {
     const [inputs, kwargs] = opts<Record<string, unknown>>(rest);
     // `implicit_convert_to_expression(arg)` of each input.
-    const exprs = implicitAll(inputs);
+    const exprs = evaluationInputs(inputs);
     if (exprs === undefined) return evaluateWith(this as unknown as EvaluatorMethods, inputs, kwargs);
     const host = new HostEvaluator(this as unknown as EvaluatorMethods, kwargs);
     // Inside a multiset function's body: the raw result recording the evaluation.
@@ -164,6 +165,15 @@ export interface MultisetEvaluator {
    * them, given the inputs' outcomes in ascending order; e.g. every int between the lowest and the highest, to
    * see gaps. Default none. */
   extraOutcomes?(outcomes: Outcome[]): Iterable<Outcome>;
+}
+
+/** The inputs of an evaluation: `implicit_convert_to_expression` of each, a native multiset tuple expression (a
+ * `MultiDeal`, a tuple parameter, a slice) as itself; `undefined` if any is not native. */
+function evaluationInputs(xs: readonly unknown[]): Input[] | undefined {
+  const converted = xs.map((x): Input | undefined =>
+    x instanceof MultisetTupleExpression ? (x.node === undefined ? undefined : x) : implicitAll([x])?.[0],
+  );
+  return converted.every((x) => x !== undefined) ? (converted as Input[]) : undefined;
 }
 
 /** `evaluate()` through the bridge (rpc.ts), for inputs the native tree does not model. */
@@ -393,7 +403,7 @@ export class MultisetFunction extends Handle {
    */
   call(...rest: unknown[]): Die {
     const [args, kwargs] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-    const exprs = this.signature === undefined ? undefined : implicitAll(args);
+    const exprs = this.signature === undefined ? undefined : evaluationInputs(args);
     if (exprs !== undefined) {
       // Inside another function's body: the raw result recording the call.
       if (exprs.some(hasParameter)) return new RawResult({ kind: "function", f: this, kwargs }, exprs) as unknown as Die;
@@ -528,20 +538,29 @@ const isSingle = (x: unknown): boolean =>
 /** `MultisetFunctionEvaluator._prepare(input_exps, kwargs)` up to the evaluation: binds the arguments, calls the
  * function with one parameter per input, and gives what it returned as an `ExpressionBuilder` of raw results for
  * the core (src/api/multiset_function.rs), with whether it is a joint result (several). */
-function trace(fn: MultisetFunction, inputs: number, kwargs: Record<string, unknown>): [ExpressionBuilder, boolean] {
+function trace(fn: MultisetFunction, inputLens: readonly (number | null)[], kwargs: Record<string, unknown>): [ExpressionBuilder, boolean] {
   const signature = fn.signature as Signature;
   const { star: starArg, ...kw } = kwargs;
   // `infer_star`: more required positional parameters than inputs.
-  const star = starArg !== undefined ? pyBool(starArg) : signature.params > inputs;
+  const star = starArg !== undefined ? pyBool(starArg) : signature.params > inputLens.length;
+  const vars: unknown[] = [];
   if (star) {
-    // Only a multiset tuple expression (a MultiDeal) has a length to unpack, and those go through the bridge.
-    if (inputs === 0) throw new IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
-    throw typeError("object of this type has no len()");
+    // `*multiset_variables[0]`: the first input unpacked into one parameter per element; only a multiset tuple
+    // expression (a MultiDeal) has a length.
+    if (inputLens.length === 0) throw new IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
+    const len = inputLens[0];
+    if (len === null) throw typeError("object of this type has no len()");
+    for (let i = 0; i < len; i++) vars.push(parameter(0, positionalName(signature, vars.length), i));
   }
-  const vars = Array.from({ length: inputs }, (_, i) => parameter(i, positionalName(signature, i)));
+  // `_make_param`: a multiset tuple expression makes a tuple parameter.
+  inputLens.forEach((len, i) => {
+    if (star && i === 0) return;
+    const name = positionalName(signature, vars.length);
+    vars.push(len === null ? parameter(i, name) : tupleParameter(i, len, name));
+  });
   // `self._wrapped(*multiset_variables, **kwargs)`: Python binds the arguments to the signature.
-  if (inputs < signature.params || (!signature.rest && inputs > signature.params)) {
-    throw typeError(`wrapped() takes ${signature.params} positional arguments but ${inputs} were given`);
+  if (vars.length < signature.params || (!signature.rest && vars.length > signature.params)) {
+    throw typeError(`wrapped() takes ${signature.params} positional arguments but ${vars.length} were given`);
   }
   const unexpected = Object.keys(kw).find((k) => !signature.kwonly.includes(k));
   if (unexpected !== undefined) throw typeError(`wrapped() got an unexpected keyword argument '${unexpected}'`);
@@ -567,8 +586,8 @@ function trace(fn: MultisetFunction, inputs: number, kwargs: Record<string, unkn
 
 Object.assign(HOST, {
   /** A trace of a multiset function for the core: `[true, builder, joint]`, or `[false]` if it threw. */
-  traceFunction(fn: MultisetFunction, inputs: number, kwargs: Record<string, unknown>): unknown[] {
-    const [ok, traced] = callback(() => trace(fn, inputs, kwargs));
+  traceFunction(fn: MultisetFunction, inputLens: (number | null)[], kwargs: Record<string, unknown>): unknown[] {
+    const [ok, traced] = callback(() => trace(fn, inputLens, kwargs));
     return ok ? [true, ...(traced as [ExpressionBuilder, boolean])] : [false];
   },
   /** `icepool.tupleize(*final_outcomes)` of a joint multiset function. */

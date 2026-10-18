@@ -1,12 +1,37 @@
-// Decks and deals (population/deck.py, generator/deal.py, generator/multi_deal.py, wallenius.py).
-// INTERIM (task C6): held through the bridge (rpc.ts) until they move onto typed exports.
+// Decks and deals (population/deck.py, generator/deal.py, generator/multi_deal.py, wallenius.py) over the core's
+// decks (src/api/deck.rs `WasmDeck`, `WasmMultiDeal`). As the Python facade keeps upstream's Python juggling, the
+// TypeScript does Python's argument handling here and calls the typed exports for the work. A `Deal` is a keep
+// generator of the core (src/api/multiset.rs) and a `MultiDeal` a multiset tuple expression: both are nodes of
+// multiset.ts's expression tree, so every evaluation takes them natively.
+//
+// INTERIM (task C6g): arguments the native methods do not model (pools or expressions among a deck's cards, a
+// callable of the bridge's for `map`, ...) still go through the bridge (rpc.ts), which takes a native deck as a
+// handle made from it (`Replayable`).
 
+import type { WasmDeck, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import { IcepoolError } from "./errors.js";
-import { list, type Callback, type Die, type MapResult } from "./die.js";
-import { KeepGenerator, type MultisetExpression } from "./multiset.js";
-import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
-import { List, type Int, type Outcome } from "./values.js";
+import { Die, dictItems, isOne, itemize, list, pyBool, unpacked, type Callback, type MapResult, type Which } from "./die.js";
+import { mappingGet, ops, tupleize } from "./functions.js";
+import {
+  BridgeNeeded,
+  KeepGenerator,
+  MultisetExpression,
+  Pool,
+  Replayable,
+  generator,
+  generatorOf,
+  hasParameter,
+  keepTupleBounded,
+  mixtureOf,
+  native,
+  registerDealClass,
+  tupleIndex,
+  type TupleNode,
+} from "./multiset.js";
+import { HANDLE, Handle, call, registerKind } from "./rpc.js";
+import { List, Reroll, Restart, isPlainValue, pyTypeName, type Int, type Outcome } from "./values.js";
+import { wasm } from "./wasm.js";
 
 /** What `new Deck(...)` takes: outcomes, dice or decks (with times), or a Map of outcomes to counts.
  *
@@ -22,6 +47,19 @@ import { List, type Int, type Outcome } from "./values.js";
  * ```
  */
 export type DeckOutcomes = readonly (Outcome | Die | Deck)[] | Map<Outcome, Int>;
+
+const typeError = (message: string) => new IcepoolError("WrongType", "TypeError", message);
+const valueError = (message: string) => new IcepoolError("InvalidArgument", "ValueError", message);
+
+/** Python's `isinstance(x, int)` (so also a bool). */
+const isIntArg = (x: unknown): x is Int | boolean =>
+  typeof x === "bigint" || typeof x === "boolean" || (typeof x === "number" && Number.isInteger(x));
+/** An exact int (not a bool), as a hand size of a `MultiDeal` must be (the core keeps no `True` to show). */
+const isExactInt = (x: unknown): x is Int => typeof x === "bigint" || (typeof x === "number" && Number.isInteger(x));
+/** An int argument as the core takes it (a bool as 0 or 1). */
+const intOf = (x: Int | boolean): Int => (typeof x === "boolean" ? Number(x) : x);
+/** An int as Python returns it: a number when it is safe. */
+const pyInt = (x: Int): Int => (Number.isSafeInteger(Number(x)) ? Number(x) : x);
 
 /** `icepool.Deck`: `new Deck([1, 2, 3], 4)` (each card 4 times), `new Deck(new Map([["a", 2]]))`.
  *
@@ -40,21 +78,74 @@ export type DeckOutcomes = readonly (Outcome | Die | Deck)[] | Map<Outcome, Int>
  * new Deck([1, Again]); //=> throws ValueError
  * ```
  */
-export class Deck extends Handle implements Iterable<Outcome> {
-  /** `Deck(outcomes, times=1)`: `times` multiplies each element of `outcomes`, one number for all of them or an
+export class Deck extends Replayable implements Iterable<Outcome> {
+  /** The core's deck; `null` once freed. */
+  private declare core: WasmDeck | null;
+  /** Python's `len(self._sequence_cache) - 1`: the most cards `sequence` has dealt so far. */
+  private declare dealt: number;
+
+  /** `Deck(outcomes=(), times=1)`: `times` multiplies each element of `outcomes`, one number for all of them or an
    * array as long as `outcomes`. */
-  constructor(outcomes: DeckOutcomes, times: Int | readonly Int[] = 1) {
+  constructor(outcomes: DeckOutcomes = [], times: Int | readonly Int[] = 1) {
     super(HANDLE, -1);
+    // `contains_again(outcomes)`: a sequence's elements, a mapping's keys.
     const keys = outcomes instanceof Map ? [...outcomes.keys()] : Array.isArray(outcomes) ? outcomes : [];
-    if (keys.some((x) => x instanceof AgainExpression)) {
-      throw new IcepoolError("InvalidArgument", "ValueError", "Again cannot be used with Decks.");
-    }
-    const made =
-      outcomes instanceof Map
-        ? call("deck", { outcomes: List.from(outcomes.keys()), times: List.from(outcomes.values()) })
-        : call("deck", { outcomes: list(outcomes), times: list(times) });
-    this.adopt(made, Deck);
+    if (keys.some((x) => x instanceof AgainExpression)) throw valueError("Again cannot be used with Decks.");
+    const made = makeDeck(outcomes, times);
+    // `Deck([deck])` is the deck itself, as in Python.
+    if (made instanceof Deck) return made;
+    this.core = made;
+    this.dealt = 0;
   }
+
+  /** Wraps a core deck. @internal */
+  static wrap(core: WasmDeck): Deck {
+    const deck = Object.create(Deck.prototype) as Deck;
+    deck.handle = -1;
+    deck.core = core;
+    deck.dealt = 0;
+    return deck;
+  }
+
+  /** The core deck, which must not have been freed. @internal */
+  get w(): WasmDeck {
+    if (this.core === null) throw new TypeError("icepool: this deck was freed");
+    return this.core;
+  }
+
+  /** @internal */
+  protected override holdsNative(): boolean {
+    return this.core !== null;
+  }
+
+  /** @internal */
+  protected override bridgeHandle(): number {
+    const w = this.w;
+    return wasm((m) => m.deckHandle(w));
+  }
+
+  /** The cards as a die (the `Population` methods a deck shares with a die). */
+  private population(): Die {
+    const w = this.w;
+    return Die.wrap(wasm(() => w.population()));
+  }
+
+  /** Frees the deck's WASM memory now rather than when it is garbage-collected. Using it afterwards throws a
+   * `TypeError`; freeing it again does nothing. Deals and decks made from it are not affected.
+   *
+   * @example
+   * ```ts
+   * const cards = new Deck([1, 2, 3]);
+   * cards.free();
+   * cards.size(); //=> throws TypeError
+   * ```
+   */
+  override free(): void {
+    this.core?.free();
+    this.core = null;
+    super.free();
+  }
+
   /** `Deck.deal(hand_sizes)`: deals cards from this deck: a {@link Deal} of `handSize` cards, or a
    * {@link MultiDeal} for an array of hand sizes. For algorithmic reasons you commit to the number of cards up
    * front.
@@ -72,9 +163,24 @@ export class Deck extends Handle implements Iterable<Outcome> {
   deal(handSize: Int): Deal;
   deal(handSizes: readonly Int[]): MultiDeal;
   deal(handSize: Int | readonly Int[]): Deal | MultiDeal {
-    return Array.isArray(handSize)
-      ? (call("multi_deal", { deck: this, hand_sizes: list(handSize) }) as MultiDeal)
-      : (call("deal", { deck: this, hand_size: handSize }) as Deal);
+    // `isinstance(hand_sizes, int)`: a `Deal`; anything else is an iterable of hand sizes, a `MultiDeal` with one
+    // group `(hand_size, 1)` per hand.
+    if (isIntArg(handSize)) {
+      const w = this.w;
+      return native(
+        null,
+        () => generator(wasm(() => w.deal(intOf(handSize)))) as Deal,
+        () => call("deal", { deck: this, hand_size: handSize }),
+      );
+    }
+    if (Array.isArray(handSize)) {
+      const bridge = () => call("multi_deal", { deck: this, hand_sizes: list(handSize) });
+      // `sum(hand_size * group_size ...)` starts from 0: `0 + 'a'` is a TypeError.
+      if (handSize.some((h) => typeof h === "string")) throw typeError("unsupported operand type(s) for +: 'int' and 'str'");
+      if (!handSize.every(isExactInt)) return bridge() as MultiDeal;
+      return native(null, () => this.multiDeal(handSize.flatMap((h) => [h, 1])), bridge);
+    }
+    return call("deal", { deck: this, hand_size: handSize }) as Deal;
   }
   /** `Deck.deal_groups(*hand_groups)` (EXPERIMENTAL in icepool): deals cards into groups of hands, where the hands
    * in each group could be produced in any order. Each argument is `[handSize, groupSize]`: the number of cards in
@@ -89,23 +195,56 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   dealGroups(...groups: [Int, Int][]): MultiDeal {
-    return call("deal_groups", { deck: this, hand_groups: List.from(groups.map(list)) }) as MultiDeal;
+    const bridge = () => call("deal_groups", { deck: this, hand_groups: List.from(groups.map(list)) });
+    const make = () => {
+      if (!groups.every((g) => Array.isArray(g))) return undefined;
+      // `for hand_size, group_size in self._hand_groups`: anything but a pair does not unpack.
+      const odd = groups.find((g) => g.length !== 2);
+      if (odd !== undefined) throw valueError(`expected 2 values to unpack, got ${odd.length}`);
+      return groups.every((g) => g.every(isExactInt)) ? this.multiDeal(groups.flat()) : undefined;
+    };
+    return native(null, make, bridge);
+  }
+  /** `MultiDeal(self, hand_groups)` of `[hand_size, group_size, ...]`. */
+  private multiDeal(groups: Int[]): MultiDeal {
+    const w = this.w;
+    return MultiDeal.native({ kind: "multiDeal", md: wasm(() => w.multiDeal(groups)) });
   }
   /** `Deck.map(repl, star=None)`: maps each card of this deck to another outcome, keeping its quantity.
    *
-   * @param f - A function returning the new outcome for each old outcome. The new outcomes may be decks, in which
-   *   case one card is replaced with several (not recommended).
+   * @param f - A function returning the new outcome for each old outcome, or a Map from old outcomes to new ones
+   *   (unmapped outcomes stay the same). The new outcomes may be decks, in which case one card is replaced with
+   *   several (not recommended).
    * @param options - Keyword arguments.
    * @param options.star - Whether outcomes are unpacked into separate arguments of `f`; `null` guesses from `f`.
    *
    * @example
    * ```ts
    * new Deck([1, 2, 3], 4).map((x) => 10 * x).items(); //=> [[10, 4n], [20, 4n], [30, 4n]]
+   * new Deck([1, 2, 3]).map(new Map([[1, 5]])).items(); //=> [[2, 1n], [3, 1n], [5, 1n]]
    * ```
    */
-  map(f: Callback<MapResult>, { star = null }: { star?: boolean | null } = {}): Deck {
+  map(f: Callback<MapResult> | Map<Outcome, MapResult>, { star = null }: { star?: boolean | null } = {}): Deck {
+    const outcomes = this.outcomes();
+    let results: unknown[] | undefined;
+    if (f instanceof Map) {
+      // `repl[outcome] if outcome in repl else outcome`: a dict lookup.
+      const values = mappingGet(f, outcomes);
+      results = outcomes.map((o) => values.get(o));
+    } else if (typeof f === "function") {
+      const fn = f as (...args: unknown[]) => unknown;
+      // `infer_star(repl)`: more than one required positional parameter.
+      const starred = star === null || star === undefined ? fn.length > 1 : pyBool(star);
+      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
+      if (args.every((a) => a !== undefined)) results = args.map((a) => fn(...(a as unknown[])));
+    }
+    // `Deck([transition_function(outcome) for outcome in self.outcomes()], times=self.quantities())`.
+    if (results !== undefined) return new Deck(results as DeckOutcomes, this.values());
     return call("deck_map", { deck: this, repl: f, star }) as Deck;
   }
+
+  // Binary operators: `self op Counter(other)`, then `Deck(+data)`.
+
   /** `deck + other`: both decks merged together (the quantities add). `other` is an array of outcomes or a deck.
    *
    * @example
@@ -113,7 +252,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).add([1, 4]).items(); //=> [[1, 5n], [2, 4n], [3, 4n], [4, 1n]]
    * ```
    */
-  add(other: unknown): Deck { return deckOp(this, "+", other); }
+  add(other: unknown): Deck { return this.counterOp("add", other); }
   /** `deck - other`: this deck with the other cards removed (but not below zero of each card).
    *
    * @example
@@ -121,7 +260,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).sub([1, 1, 1]).items(); //=> [[1, 1n], [2, 4n], [3, 4n]]
    * ```
    */
-  sub(other: unknown): Deck { return deckOp(this, "-", other); }
+  sub(other: unknown): Deck { return this.counterOp("sub", other); }
   /** `deck & other`: the cards that both decks have.
    *
    * @example
@@ -129,7 +268,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).and([1, 1, 5]).items(); //=> [[1, 2n]]
    * ```
    */
-  and(other: unknown): Deck { return deckOp(this, "&", other); }
+  and(other: unknown): Deck { return this.counterOp("and", other); }
   /** `deck | other`: as many of each card as the deck that has more of them.
    *
    * @example
@@ -137,7 +276,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).or([1, 1, 1, 1, 1]).items(); //=> [[1, 5n], [2, 4n], [3, 4n]]
    * ```
    */
-  or(other: unknown): Deck { return deckOp(this, "|", other); }
+  or(other: unknown): Deck { return this.counterOp("or", other); }
   /** `deck ^ other`: of each card, the difference between the two decks' quantities.
    *
    * @example
@@ -145,7 +284,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).xor([1, 1, 1, 1, 1, 2]).items(); //=> [[1, 1n], [2, 3n], [3, 4n]]
    * ```
    */
-  xor(other: unknown): Deck { return deckOp(this, "^", other); }
+  xor(other: unknown): Deck { return this.counterOp("xor", other); }
   /** `deck * n`: every quantity multiplied by `n`.
    *
    * @example
@@ -153,7 +292,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3]).mul(2).items(); //=> [[1, 2n], [2, 2n], [3, 2n]]
    * ```
    */
-  mul(n: Int): Deck { return call("deck_mul", { deck: this, operator: "*", n }) as Deck; }
+  mul(n: Int): Deck { return this.quantityOp("mul", "*", n); }
   /** `deck // n`: every quantity divided by `n`, rounding down.
    *
    * @example
@@ -161,7 +300,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], [2, 4, 6]).floordiv(2).items(); //=> [[1, 1n], [2, 2n], [3, 3n]]
    * ```
    */
-  floordiv(n: Int): Deck { return call("deck_mul", { deck: this, operator: "//", n }) as Deck; }
+  floordiv(n: Int): Deck { return this.quantityOp("floordiv", "//", n); }
   /** `deck % n`: every quantity modulo `n` (cards left with zero are dropped).
    *
    * @example
@@ -169,7 +308,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], [2, 4, 5]).mod(2).items(); //=> [[3, 1n]]
    * ```
    */
-  mod(n: Int): Deck { return call("deck_mul", { deck: this, operator: "%", n }) as Deck; }
+  mod(n: Int): Deck { return this.quantityOp("mod", "%", n); }
   /** `Deck.symmetric_difference(other)`: the same as {@link Deck.xor}. (Python's docstring for it repeats the one
    * of `union`, but it is `^`.)
    *
@@ -179,7 +318,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   symmetricDifference(other: unknown): Deck {
-    return call("deck_method", { deck: this, name: "symmetric_difference", arg: list(other) }) as Deck;
+    return this.xor(other);
   }
   /** `Deck.append(outcome, quantity=1)`: this deck with `quantity` more of `outcome` (a negative quantity removes
    * some, but not below zero).
@@ -190,7 +329,8 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   append(outcome: Outcome, quantity: Int = 1): Deck {
-    return call("pop_append", { population: this, outcome, quantity }) as Deck;
+    const w = this.w;
+    return Deck.wrap(wasm(() => w.append(outcome, quantity)));
   }
   /** `Deck.remove(outcome, quantity=None)`: this deck with `quantity` less of `outcome` (`null`: all of it; a
    * negative quantity adds).
@@ -203,7 +343,42 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   remove(outcome: Outcome, quantity: Int | null = null): Deck {
-    return call("pop_remove", { population: this, outcome, quantity }) as Deck;
+    const w = this.w;
+    return Deck.wrap(wasm(() => w.remove(outcome, quantity)));
+  }
+  /** `Deck.split(which, star=None)`: `[selected, rest]`, a deck of the selected cards and a deck of the others.
+   *
+   * @param which - The outcomes to select: an array of them, or a function returning whether to select one.
+   * @param options - Keyword arguments.
+   * @param options.star - Whether to unpack each outcome into the function's arguments; inferred from the
+   *   function's `length` when not given.
+   *
+   * @example
+   * ```ts
+   * const [high, low] = new Deck([1, 2, 3, 4, 5, 6]).split((x: number) => x > 4);
+   * high.items(); //=> [[5, 1n], [6, 1n]]
+   * low.outcomes(); //=> [1, 2, 3, 4]
+   * ```
+   */
+  split(which: Which, { star = null }: { star?: boolean | null } = {}): [Deck, Deck] {
+    const mask = which === null ? undefined : this.population().selection(which, star);
+    if (mask === undefined) return call("deck_split", { deck: this, which: list(which), star }) as [Deck, Deck];
+    const w = this.w;
+    const [selected, rest] = wasm(() => w.split(mask));
+    return [Deck.wrap(selected), Deck.wrap(rest)];
+  }
+  /** `Deck.zero()`: every card times zero, which must come to a single outcome; the deck keeps its size.
+   *
+   * @throws `IcepoolError` (`ValueError`) if the cards do not all come to the same zero.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 3], 4).zero().items(); //=> [[0, 12n]]
+   * ```
+   */
+  zero(): Deck {
+    const w = this.w;
+    return Deck.wrap(wasm(() => w.zero()));
   }
   /** `Deck.to_one_hot(outcomes=None)`: each card as a one-hot Vector over `outcomes` (default: this deck's
    * outcomes), with `true` in the card's position.
@@ -229,7 +404,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2]).add([3]).outcomes(); //=> [1, 2, 3]
    * ```
    */
-  additiveUnion(...others: unknown[]): Deck { return deckMethod(this, "additive_union", others); }
+  additiveUnion(...others: unknown[]): Deck { return reduceWithInitial(others); }
   /** `Deck.difference(*args)`: meant as this deck with the other cards removed, like {@link Deck.sub}. Raises
    * `TypeError` as Python's does before 3.14; use `sub`.
    *
@@ -239,7 +414,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2]).sub([1]).outcomes(); //=> [2]
    * ```
    */
-  difference(...others: unknown[]): Deck { return deckMethod(this, "difference", others); }
+  difference(...others: unknown[]): Deck { return reduceWithInitial(others); }
   /** `Deck.intersection(*args)`: meant as the cards all decks have, like {@link Deck.and}. Raises `TypeError` as
    * Python's does before 3.14; use `and`.
    *
@@ -249,7 +424,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2]).and([1]).outcomes(); //=> [1]
    * ```
    */
-  intersection(...others: unknown[]): Deck { return deckMethod(this, "intersection", others); }
+  intersection(...others: unknown[]): Deck { return reduceWithInitial(others); }
   /** `Deck.union(*args)`: meant to keep as many of each card as the deck that has most, like {@link Deck.or}.
    * Raises `TypeError` as Python's does before 3.14; use `or`.
    *
@@ -259,7 +434,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2]).or([1, 1]).items(); //=> [[1, 2n], [2, 1n]]
    * ```
    */
-  union(...others: unknown[]): Deck { return deckMethod(this, "union", others); }
+  union(...others: unknown[]): Deck { return reduceWithInitial(others); }
   /** `Deck.pad_to_denominator(denominator, outcome)`: adds cards of `outcome` until the deck has `denominator`
    * cards.
    *
@@ -269,10 +444,15 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   padToDenominator(denominator: Int, outcome: Outcome): Deck {
-    return call("deck_pad_to_denominator", { deck: this, denominator, outcome }) as Deck;
+    const w = this.w;
+    return Deck.wrap(wasm(() => w.padToDenominator(denominator, outcome)));
   }
   /** `Deck.sequence(deals)`: every sequence of `deals` cards dealt one by one, as a die of arrays. This is
    * extremely expensive computationally: if you don't care about order, use {@link Deck.deal} instead.
+   *
+   * Python caches the sequences computed so far and builds `result` only in the loop over the new ones, so asking
+   * for no more cards than already computed (`sequence(0)` included) raises its `UnboundLocalError`; this copies
+   * it.
    *
    * @throws `IcepoolError` (`ValueError`) for a negative number of deals.
    *
@@ -282,7 +462,23 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   sequence(deals: Int): Die {
-    return call("deck_sequence", { deck: this, deals }) as Die;
+    if (!isIntArg(deals)) return call("deck_sequence", { deck: this, deals }) as Die;
+    const n = Number(intOf(deals));
+    if (n < 0) throw valueError("The number of cards dealt cannot be negative.");
+    // `for i in range(len(self._sequence_cache), deals + 1)` is the only binding of `result`.
+    if (n <= this.dealt) {
+      throw new IcepoolError(
+        "InvalidArgument",
+        "UnboundLocalError",
+        "cannot access local variable 'result' where it is not associated with a value",
+      );
+    }
+    // Beyond this the sequences could not be stored anyway.
+    if (n > 16) return call("deck_sequence", { deck: this, deals }) as Die;
+    const w = this.w;
+    const result = Die.wrap(wasm(() => w.sequence(n)));
+    this.dealt = n;
+    return result;
   }
   /** The `[outcome, quantity]` pairs in ascending order of outcome.
    *
@@ -292,8 +488,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   items(): [Outcome, bigint][] {
-    const info = call("deck_info", { deck: this }) as [[Outcome, Int][], Int, number];
-    return info[0].map(([o, q]) => [o, BigInt(q)]);
+    return this.population().items();
   }
   /** The outcomes (distinct cards) in ascending order.
    *
@@ -303,7 +498,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   outcomes(): Outcome[] {
-    return call("deck_method", { deck: this, name: "keys", arg: null }) as Outcome[];
+    return this.population().outcomes();
   }
   /** The same as {@link Deck.outcomes} (Python's Mapping name); prefer `outcomes`.
    *
@@ -323,7 +518,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   values(): bigint[] {
-    return (call("deck_method", { deck: this, name: "values", arg: null }) as Int[]).map(BigInt);
+    return this.items().map(([, q]) => q);
   }
   /** `deck[outcome]`: the quantity of `outcome`.
    *
@@ -337,7 +532,7 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   get(outcome: Outcome): bigint {
-    return BigInt(call("deck_method", { deck: this, name: "getitem", arg: outcome }) as Int);
+    return this.population().get(outcome);
   }
   /** The number of cards (`deck.size()`, the same as the denominator).
    *
@@ -347,15 +542,49 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   size(): bigint {
-    return BigInt((call("deck_info", { deck: this }) as [unknown, Int, number])[1]);
+    return this.population().denominator();
   }
   /** The number of distinct outcomes. */
   get length(): number {
-    return (call("deck_info", { deck: this }) as [unknown, Int, number])[2];
+    return this.population().size;
   }
   /** Iterates over the outcomes (Python's `iter(deck)`), so `[...deck]` is `deck.outcomes()`. */
   [Symbol.iterator](): Iterator<Outcome> {
     return this.outcomes()[Symbol.iterator]();
+  }
+  /** Python's `deck == other`: whether `other` is a deck with the same cards (their `hash_key`s).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 2]).equals(new Deck(new Map([[2, 2], [1, 1]]))); //=> true
+   * new Deck([1, 2]).equals(new Deck([1, 2, 2])); //=> false
+   * ```
+   */
+  equals(other: unknown): boolean {
+    if (other === this) return true;
+    if (!(other instanceof Deck)) return false;
+    const [a, b] = [this.w, other.w];
+    return wasm(() => a.equals(b));
+  }
+  /** `deck == other`, the same as {@link Deck.equals} (a deck's `==` is plain equality, unlike a die's).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).eq(new Deck([2, 1])); //=> true
+   * ```
+   */
+  eq(other: unknown): boolean {
+    return this.equals(other);
+  }
+  /** `deck != other`.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).ne(new Deck([1])); //=> true
+   * ```
+   */
+  ne(other: unknown): boolean {
+    return !this.equals(other);
   }
   /** A statistic of a die with these quantities, by its Python name (`mean`, `variance`, ...).
    *
@@ -365,7 +594,10 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * ```
    */
   stat(name: string): Outcome {
-    return call("deck_stat", { deck: this, stat: name }) as Outcome;
+    const population = this.population() as unknown as Record<string, unknown>;
+    const method = DECK_STATS[name];
+    if (method === undefined) return call("deck_stat", { deck: this, stat: name }) as Outcome;
+    return (population[method] as () => unknown).call(population) as Outcome;
   }
   /** `Deck.mean()`: the mean of the outcomes, weighted by quantity (a Fraction for integer outcomes).
    *
@@ -414,15 +646,163 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * new Deck([1, 2, 3], 4).denominator(); //=> 12n
    * ```
    */
-  denominator(): bigint { return BigInt(this.stat("denominator") as Int); }
+  denominator(): bigint { return this.size(); }
+  /** Python's `repr(deck)`.
+   *
+   * @example
+   * ```ts
+   * new Deck(["A", "A", "K"]).repr(); //=> "Deck({'A': 2, 'K': 1})"
+   * ```
+   */
+  repr(): string {
+    const w = this.w;
+    return wasm(() => w.repr());
+  }
+  /** Python's `str(deck)`: a table of the cards.
+   *
+   * @example
+   * ```ts
+   * new Deck(["A", "A", "K"]).toString().split("\n")[0]; //=> "Deck with denominator 3"
+   * ```
+   */
+  override toString(): string {
+    const w = this.w;
+    return wasm(() => w.format(""));
+  }
+
+  /** `self <op> other` for a deck operator by its Python name: `Counter(other)` of a deck or die (its quantities),
+   * of a Map (its values, ints), of an array or str (its elements counted), or of a multiset expression (its
+   * elements, iterated). */
+  private counterOp(op: "add" | "sub" | "and" | "or" | "xor", other: unknown): Deck {
+    const w = this.w;
+    if (other instanceof Deck || other instanceof Die) {
+      const population = other instanceof Deck ? other.population() : other;
+      return Deck.wrap(wasm(() => w.counterPopulation(op, population.w)));
+    }
+    // `Counter(None)` is empty.
+    if (other === null || other === undefined) return Deck.wrap(wasm(() => w.counterElements(op, [])));
+    if ((Array.isArray(other) || typeof other === "string") && [...other].every(isPlainValue)) {
+      if ([...other].some((x) => x instanceof List)) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
+      return Deck.wrap(wasm(() => w.counterElements(op, [...other])));
+    }
+    if (other instanceof Map && [...other.values()].every(isExactInt) && [...other.keys()].every(isPlainValue)) {
+      return Deck.wrap(wasm(() => w.counterMapping(op, [...other.keys()], [...other.values()])));
+    }
+    const expressionResult = other instanceof MultisetExpression ? counterOfExpression(this, op, other) : undefined;
+    if (expressionResult !== undefined) return expressionResult;
+    if (["number", "bigint", "boolean"].includes(typeof other)) throw typeError(`'${pyTypeName(other)}' object is not iterable`);
+    const operator = { add: "+", sub: "-", and: "&", or: "|", xor: "^" }[op];
+    return call("deck_op", { operator, a: this, b: list(other) }) as Deck;
+  }
+
+  /** `deck * n`, `deck // n`, `deck % n`: for an int `n` the quantity methods, else `NotImplemented` on both sides
+   * (`TypeError`). */
+  private quantityOp(op: "mul" | "floordiv" | "mod", symbol: string, n: unknown): Deck {
+    if (!isIntArg(n)) {
+      if (isPlainValue(n) || Array.isArray(n)) throw typeError("unsupported operand type(s) for Deck");
+      return call("deck_mul", { deck: this, operator: symbol, n }) as Deck;
+    }
+    const w = this.w;
+    return Deck.wrap(wasm(() => w.quantities(op, intOf(n))));
+  }
 }
 
-function deckMethod(deck: Deck, name: string, others: unknown[]): Deck {
-  return call("deck_method", { deck, name, arg: List.from(others.map(list)) }) as Deck;
+/** The statistics `stat(name)` reads off the cards' die, by their Python names. */
+const DECK_STATS: Record<string, string> = {
+  mean: "mean",
+  variance: "variance",
+  standard_deviation: "standardDeviation",
+  sd: "sd",
+  skewness: "skewness",
+  excess_kurtosis: "excessKurtosis",
+  modal_quantity: "modalQuantity",
+  median: "median",
+  median_low: "medianLow",
+  median_high: "medianHigh",
+  min_outcome: "minOutcome",
+  max_outcome: "maxOutcome",
+  denominator: "denominator",
+  // `deck_stat` gives `tuple(mode())`.
+  mode: "mode",
+  is_empty: "isEmpty",
+};
+
+/** `functools.reduce(op, args, initial=self)`: `reduce` takes no keyword arguments before Python 3.14, so these
+ * always raise there, even without arguments (DIVERGENCES.md). */
+function reduceWithInitial(_others: unknown[]): never {
+  throw typeError("reduce() takes no keyword arguments");
 }
 
-function deckOp(deck: Deck, operator: string, other: unknown): Deck {
-  return call("deck_op", { operator, a: deck, b: list(other) }) as Deck;
+/** `deck <op> expr` for a multiset expression `expr`. `Counter(expr)` iterates it through `__getitem__` (`expr[0]`,
+ * `expr[1]`, ...: `keep(i)`, evaluated into a die) until an index raises `IndexError`, so its keys are dice. No die
+ * is among the deck's cards, so each operator treats one as a card the deck lacks: `+`, `|` and `^` keep its
+ * count, `-` and `&` leave it at zero or below, which `+data` drops. `Deck(+data)` then flattens the dice that are
+ * left into their outcomes, after the deck's own cards. `undefined` where the bridge must say (an expression
+ * Python would iterate forever, or one inside a multiset function). */
+function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): Deck | undefined {
+  // Inside a multiset function `expr[i]` is a raw result, never an `IndexError`: Python never stops.
+  if (expr.node === undefined || hasParameter(expr)) return undefined;
+  // A keep generator (or a mixture of them) checks its keep tuple first: an index past it is an `IndexError` even
+  // if the dice are empty. Anything else gets the index only in the evaluation.
+  const bounded = keepTupleBounded(expr);
+  const dice: Die[] = [];
+  for (let i = 0; ; i++) {
+    let die: unknown;
+    try {
+      die = expr.keep(i);
+    } catch (e) {
+      if (e instanceof IcepoolError && e.pythonType === "IndexError") break;
+      throw e;
+    }
+    // Evaluated with the index, an expression without outcomes at all is the empty die at every index, never an
+    // `IndexError`: Python never stops.
+    if (!(die instanceof Die) || (!bounded && die.size === 0)) return undefined;
+    dice.push(die);
+  }
+  const keepsDice = op === "add" || op === "or" || op === "xor";
+  const w = deck.w;
+  // The deck's own cards first (`counter_items(op, Counter())`), then the dice.
+  const own = Deck.wrap(wasm(() => w.counterElements(op, [])));
+  return keepsDice ? new Deck([own, ...dice]) : own;
+}
+
+/** `Deck(outcomes, times)` after the Again check (`Deck.__new__`): `itemize`, then a single deck with time 1 is
+ * that deck itself, and anything else goes through `expand_args_for_deck`. */
+function makeDeck(outcomes: DeckOutcomes, times: unknown): WasmDeck | Deck {
+  // Pools and multiset expressions among the outcomes: the bridge's.
+  const holdsBridgeOnly = (x: unknown): boolean =>
+    (x instanceof Handle && !(x instanceof Deck)) || (Array.isArray(x) && x.some(holdsBridgeOnly));
+  const keys = outcomes instanceof Map ? [...outcomes.keys()] : Array.isArray(outcomes) ? outcomes : [];
+  if (keys.some(holdsBridgeOnly)) {
+    const made =
+      outcomes instanceof Map
+        ? call("deck", { outcomes: List.from(outcomes.keys()), times: List.from(outcomes.values()) })
+        : call("deck", { outcomes: list(outcomes), times: list(times) });
+    return (made as Deck).w;
+  }
+  // A deck is a mapping of its outcomes to their quantities.
+  const items = itemize((outcomes instanceof Deck ? new Map(outcomes.items()) : outcomes) as Map<unknown, Int>, times);
+  if (items.outcomes.length === 1 && items.outcomes[0] instanceof Deck && isOne(items.times[0])) return items.outcomes[0];
+  // `expand_args_for_deck`: each argument expanded (`expand_arg`), then merged by the core (`merge_duplicates`).
+  return wasm((w) => {
+    const builder = new w.DeckBuilder();
+    try {
+      items.outcomes.forEach((arg, i) => {
+        const time = items.times[i];
+        // A tuple is the Cartesian product of its elements: a die if it holds dice, `Reroll` if it holds one.
+        const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Outcome[])) : arg;
+        if (expanded instanceof Deck) builder.deck(expanded.w, time);
+        else if (expanded instanceof Die) builder.die(expanded.w, time);
+        else if (expanded === Reroll || expanded === Restart) {
+          if (Array.isArray(arg)) builder.rerollTuple(time);
+          else builder.reroll(time);
+        } else builder.outcome(expanded, time);
+      });
+      return builder.build();
+    } finally {
+      builder.free();
+    }
+  });
 }
 
 /** `icepool.Deck(outcomes, times)` without `new`.
@@ -432,7 +812,7 @@ function deckOp(deck: Deck, operator: string, other: unknown): Deck {
  * deck(["A", "K", "Q"], 4).size(); //=> 12n
  * ```
  */
-export function deck(outcomes: DeckOutcomes, times: Int | readonly Int[] = 1): Deck {
+export function deck(outcomes: DeckOutcomes = [], times: Int | readonly Int[] = 1): Deck {
   return new Deck(outcomes, times);
 }
 
@@ -461,7 +841,25 @@ export class Deal extends KeepGenerator {
    * ```
    */
   info(): [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]] {
-    return call("deal_info", { deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
+    const g = generatorOf(this);
+    if (g === undefined) return call("deal_info", { deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
+    return wasm(() => {
+      const deck = Deck.wrap(g.deck());
+      const items = deck.items().map(([o, q]): [Outcome, Int] => [o, pyInt(q)]);
+      return [items, g.keepTuple() as Int[], g.handSize(), pyInt(g.keepSize() as Int), pyInt(g.denominator() as Int), deck.outcomes()];
+    });
+  }
+  /** `Deal.deck()`: the deck the cards are dealt from.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 3], 4).deal(2).deck().size(); //=> 12n
+   * ```
+   */
+  deck(): Deck {
+    const g = generatorOf(this);
+    if (g === undefined) return new Deck(new Map(this.info()[0]));
+    return Deck.wrap(wasm(() => g.deck()));
   }
   /** `Deal.hand_size()`: the number of cards dealt.
    *
@@ -479,6 +877,14 @@ export class Deal extends KeepGenerator {
    * ```
    */
   keepSize(): Int { return this.info()[3]; }
+  /** `Deal.keep_tuple()`: how many times each sorted (ascending) card is counted.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 3], 4).deal(3).highest(2).keepTuple(); //=> [0, 1, 1]
+   * ```
+   */
+  keepTuple(): Int[] { return this.info()[1]; }
   /** `Deal.denominator()`: the number of possible hands, `comb(deck size, hand size)`.
    *
    * @example
@@ -502,7 +908,7 @@ export class Deal extends KeepGenerator {
    * new Deck([1, 2, 3]).deal(2).toString().split("\n")[0]; //=> "Deal of hand_size=2 from deck:"
    * ```
    */
-  override toString(): string { return (call("deal_str", { deal: this }) as [string, string])[1]; }
+  override toString(): string { return this.strs()[1]; }
   /** Python's `repr(deal)`.
    *
    * @example
@@ -510,8 +916,16 @@ export class Deal extends KeepGenerator {
    * new Deck([1, 2, 3]).deal(2).repr(); //=> "Deal(Deck({1: 1, 2: 1, 3: 1}), hand_size=2)"
    * ```
    */
-  repr(): string { return (call("deal_str", { deal: this }) as [string, string])[0]; }
+  repr(): string { return this.strs()[0]; }
+  /** `[repr, str]`. */
+  private strs(): string[] {
+    const g = generatorOf(this);
+    if (g === undefined) return call("deal_str", { deal: this }) as [string, string];
+    return wasm(() => g.dealStrs());
+  }
 }
+
+registerDealClass(Deal);
 
 /** A multiset tuple expression: several hands (a `MultiDeal`, a tuple parameter of a multiset function, a slice
  * of either). `hand(i)` is one hand (Python's `x[i]`), `slice(...)` some of them.
@@ -522,7 +936,37 @@ export class Deal extends KeepGenerator {
  * hands.hand(1).sum().mean().toString(); //=> "4"
  * ```
  */
-export class MultisetTupleExpression extends Handle {
+export class MultisetTupleExpression extends Replayable {
+  /** The native form of this expression; `undefined` for one only the bridge holds. @internal */
+  declare node?: TupleNode;
+
+  /** A native tuple expression of this class. @internal */
+  static native<T extends MultisetTupleExpression>(this: abstract new (...args: never[]) => T, node: TupleNode): T {
+    const x = Object.create(this.prototype as object) as T;
+    x.handle = -1;
+    x.node = node;
+    return x;
+  }
+
+  /** @internal */
+  protected override holdsNative(): boolean {
+    return this.node !== undefined;
+  }
+
+  /** A `MultiDeal` crosses to the bridge as it is; a tuple parameter cannot (evaluator.ts then makes the whole call
+   * through the bridge). @internal */
+  protected override bridgeHandle(): number | undefined {
+    const node = this.node;
+    if (node?.kind === "tupleParameter") throw new BridgeNeeded("icepool: a multiset function parameter cannot go through the bridge");
+    return node?.kind === "multiDeal" ? wasm((w) => w.multiDealHandle(node.md)) : undefined;
+  }
+
+  /** Frees the expression's WASM memory now rather than when it is garbage-collected. @internal */
+  override free(): void {
+    this.node = undefined;
+    super.free();
+  }
+
   /** `x[index]`: one hand, as a multiset expression.
    *
    * @example
@@ -532,7 +976,11 @@ export class MultisetTupleExpression extends Handle {
    * ```
    */
   hand(index: Int): MultisetExpression {
-    return call("mx_tuple_index", { expr: this, index }) as MultisetExpression;
+    const bridge = () => call("mx_tuple_index", { expr: this, index });
+    // An int index makes a `MultisetTupleIndex` (bounds are only checked when evaluated); anything else falls off
+    // the end of `__getitem__`, returning None: the bridge's.
+    if (!isIntArg(index)) return bridge() as MultisetExpression;
+    return native(this, () => tupleIndex(this, saturated(intOf(index))), bridge);
   }
   /** `x[start:stop:step]`: some of the hands, as a multiset tuple expression (`null` as Python's omitted bound).
    *
@@ -543,8 +991,25 @@ export class MultisetTupleExpression extends Handle {
    * ```
    */
   slice(start: Int | null = null, stop: Int | null = null, step: Int | null = null): MultisetTupleExpression {
-    return call("mx_tuple_slice", { expr: this, start, stop, step }) as MultisetTupleExpression;
+    const bridge = () => call("mx_tuple_slice", { expr: this, start, stop, step });
+    // The bounds are only looked at when it is evaluated or its `len()` taken.
+    const bounds = [start ?? null, stop ?? null, step ?? null] as const;
+    if (!bounds.every(isPlainValue)) return bridge() as MultisetTupleExpression;
+    return native(this, () => MultisetTupleExpression.native({ kind: "tupleSlice", child: this, bounds }), bridge);
   }
+}
+
+/** An index beyond 64 bits is out of range anyway (an `IndexError` when evaluated): saturating keeps that. */
+function saturated(i: Int): Int {
+  const big = BigInt(i);
+  const limit = 2n ** 63n;
+  return big >= limit ? limit - 1n : big < -limit ? -limit : i;
+}
+
+/** The tuple parameter for argument `argIndex` of the function being traced, a multiset tuple expression of `len`
+ * multisets, named `name` (`_make_param`). @internal */
+export function tupleParameter(argIndex: number, len: number, name: string): MultisetTupleExpression {
+  return MultisetTupleExpression.native({ kind: "tupleParameter", argIndex, len, name });
 }
 
 /** `deck.deal([size, ...])`: a deal of several hands from a {@link Deck}; `hand(i)` or `slice(...)` picks some.
@@ -563,6 +1028,10 @@ export class MultisetTupleExpression extends Handle {
  * ```
  */
 export class MultiDeal extends MultisetTupleExpression {
+  /** The core's multi-deal. */
+  private get md(): WasmMultiDeal | undefined {
+    return this.node?.kind === "multiDeal" ? this.node.md : undefined;
+  }
   /** `(deck items, hand_sizes, total_cards_dealt, len, denominator, outcomes)`: everything the other accessors
    * read, in one call.
    *
@@ -572,7 +1041,27 @@ export class MultiDeal extends MultisetTupleExpression {
    * ```
    */
   info(): [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]] {
-    return call("multi_deal_info", { multi_deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
+    const md = this.md;
+    if (md === undefined) {
+      return call("multi_deal_info", { multi_deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
+    }
+    return wasm(() => {
+      const deck = Deck.wrap(md.deck());
+      const items = deck.items().map(([o, q]): [Outcome, Int] => [o, pyInt(q)]);
+      return [items, Array.from(md.handSizes()), md.totalCardsDealt(), md.length, pyInt(md.denominator() as Int), deck.outcomes()];
+    });
+  }
+  /** `MultiDeal.deck()`: the deck the cards are dealt from.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 3], 4).deal([1, 2]).deck().size(); //=> 12n
+   * ```
+   */
+  deck(): Deck {
+    const md = this.md;
+    if (md === undefined) return new Deck(new Map(this.info()[0]));
+    return Deck.wrap(wasm(() => md.deck()));
   }
   /** `MultiDeal.hand_sizes()`: the number of cards dealt to each hand.
    *
@@ -614,7 +1103,7 @@ export class MultiDeal extends MultisetTupleExpression {
    * firstLine; //=> "MultiDeal of hand_groups=((1, 1), (2, 1)) from deck:"
    * ```
    */
-  override toString(): string { return (call("deal_str", { deal: this }) as [string, string])[1]; }
+  override toString(): string { return this.strs()[1]; }
   /** Python's `repr(multi_deal)`.
    *
    * @example
@@ -622,12 +1111,31 @@ export class MultiDeal extends MultisetTupleExpression {
    * new Deck([1, 2, 3]).deal([1, 2]).repr(); //=> "MultiDeal(Deck({1: 1, 2: 1, 3: 1}), hand_groups=((1, 1), (2, 1)))"
    * ```
    */
-  repr(): string { return (call("deal_str", { deal: this }) as [string, string])[0]; }
+  repr(): string { return this.strs()[0]; }
+  /** `[repr, str]`. */
+  private strs(): string[] {
+    const md = this.md;
+    if (md === undefined) return call("deal_str", { deal: this }) as [string, string];
+    return wasm(() => md.strs());
+  }
 }
 
-registerKind("deck", (h) => wrapHandle(Deck.prototype, h));
-registerKind("deal", (h) => new Deal(HANDLE, h));
-registerKind("multi_deal", (h) => new MultiDeal(HANDLE, h));
+// The bridge's decks and multi-deals become native ones.
+registerKind("deck", (h) => {
+  try {
+    return Deck.wrap(wasm((w) => w.WasmDeck.fromHandle(h)));
+  } finally {
+    wasm((w) => w.release(h));
+  }
+});
+registerKind("multi_deal", (h) => {
+  try {
+    return MultiDeal.native({ kind: "multiDeal", md: wasm((w) => w.WasmMultiDeal.fromHandle(h)) });
+  } finally {
+    wasm((w) => w.release(h));
+  }
+});
+// A tuple parameter or slice of the bridge's own tracing: only the bridge holds it.
 registerKind("tuple_expr", (h) => new MultisetTupleExpression(HANDLE, h));
 
 /** What `new Wallenius(...)` takes: `[outcome, weight]` pairs, or a Map of outcome -> weight or
@@ -643,6 +1151,10 @@ registerKind("tuple_expr", (h) => new MultisetTupleExpression(HANDLE, h));
  */
 export type WalleniusData = readonly (readonly [Outcome, Int])[] | Map<Outcome, Int | readonly [Int, Int]>;
 
+/** How deep `_wallenius_weights` may recurse in the port: Python's recursion limit stops it after about this many
+ * levels (each level is several frames of `map`), at a point the port does not model. */
+const MAX_WALLENIUS_DEPTH = 40;
+
 /** `icepool.Wallenius(data)` (EXPERIMENTAL in icepool): Wallenius' noncentral hypergeometric distribution, sampling
  * without replacement with weights, where the whole weight of a card goes away when it is pulled. A Map is a Python
  * dict (keys equal by Python's `==`).
@@ -656,16 +1168,32 @@ export type WalleniusData = readonly (readonly [Outcome, Int])[] | Map<Outcome, 
  * ```
  */
 export class Wallenius {
-  private readonly mapping: boolean;
-  private readonly data: unknown;
+  /** `_weight_decks`: one deck per weight, a dict keyed by weight (in insertion order). */
+  private readonly weightDecks: [unknown, Deck][] = [];
+  /** `_weight_die`: each weight, weighted by its total weight in the decks. */
+  private readonly weightDie: Die;
 
   /** `Wallenius(data)`: `data` is either `[outcome, weight]` pairs (one card each) or a Map from outcomes to a
    * weight or `[weight, quantity]`. */
   constructor(data: WalleniusData) {
-    this.mapping = data instanceof Map;
-    this.data = data instanceof Map ? List.from(Array.from(data, ([k, v]) => [k, v])) : list(data);
-    // Python checks the data in the constructor: a hand of 0 builds the weights and stops there.
-    call("wallenius_deal_expr", { data: this.data, mapping: this.mapping, hand_size: 0 });
+    for (const [outcome, weight, quantity] of walleniusCards(data)) {
+      // A weight is a dict key: a list is unhashable.
+      if (weight instanceof List) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
+      // Python would flatten a die among the outcomes into its cards, and multiply a die weight: not ported.
+      if (!isPlainValue(outcome) || !isPlainValue(weight)) {
+        throw new IcepoolError("Unported", "NotImplementedError", "icepool: a Wallenius outcome or weight that is not a plain value");
+      }
+      // `self._weight_decks.get(weight, icepool.Deck()).append(outcome, quantity)`.
+      const keys = this.weightDecks.map(([w]) => w);
+      const first = wasm((w) => w.dictKeys([...keys, weight]));
+      const i = first[keys.length];
+      const deck = (i < keys.length ? this.weightDecks[i][1] : new Deck()).append(outcome as Outcome, quantity as Int);
+      if (i < keys.length) this.weightDecks[i][1] = deck;
+      else this.weightDecks.push([weight, deck]);
+    }
+    // `Die({weight: weight * deck.denominator() for weight, deck in self._weight_decks.items()})`.
+    const quantities = this.weightDecks.map(([w, deck]) => [w, ops.mul(w, deck.denominator())] as const);
+    this.weightDie = new Die(new Map(quantities as [Outcome, Int][]));
   }
   /** `Wallenius.deal(hand_size)`: the multiset of `handSize` outcomes dealt, as a multiset expression (`.sum()`,
    * `.expand()`, ...).
@@ -676,6 +1204,90 @@ export class Wallenius {
    * ```
    */
   deal(handSize: Int): MultisetExpression {
-    return call("wallenius_deal_expr", { data: this.data, mapping: this.mapping, hand_size: handSize }) as MultisetExpression;
+    if (!isIntArg(handSize)) throw new IcepoolError("Unported", "NotImplementedError", "icepool: a non-int Wallenius hand size");
+    // `if hand_size == 0: return icepool.Pool([])`.
+    if (BigInt(intOf(handSize)) === 0n) return new Pool([]);
+    // The recursion pulls one card per level until the hand is full or the cards run out (a negative hand never
+    // fills).
+    const cards = this.weightDecks.reduce((n, [, deck]) => n + deck.size(), 0n);
+    const hand = BigInt(intOf(handSize));
+    const depth = hand < 0n || hand > cards ? cards : hand;
+    if (depth > BigInt(MAX_WALLENIUS_DEPTH)) throw new IcepoolError("Unported", "NotImplementedError", "icepool: a Wallenius hand this deep");
+    const handWeights = walleniusWeights(this.weightDie, hand, new Map());
+    // `hand_weights.map_to_pool(inner, star=False)`: a mixture of the deals of each sorted tuple of weights to pull
+    // (`Counter(weights)`: how many cards of each weight), weighted by its chance.
+    const data: [MultisetExpression, bigint][] = [];
+    for (const [weights, quantity] of handWeights.items()) {
+      let result: MultisetExpression | undefined;
+      for (const [weight, count] of counter(weights as unknown[])) {
+        const deal = this.deckOf(weight).deal(count);
+        result = result === undefined ? deal : result.add(deal);
+      }
+      data.push([result as MultisetExpression, quantity]);
+    }
+    return mixtureOf(data);
   }
+  /** `self._weight_decks[weight]`. */
+  private deckOf(weight: unknown): Deck {
+    const keys = this.weightDecks.map(([w]) => w);
+    const i = wasm((w) => w.dictLookup(keys, [weight]))[0];
+    if (i < 0) throw new IcepoolError("MissingKey", "KeyError", String(weight));
+    return this.weightDecks[i][1];
+  }
+}
+
+/** The cards `Wallenius(data)` puts in: `[outcome, weight, quantity]` for each `(outcome, weight)` pair, or for
+ * each item of a mapping (`isinstance(v, int)`: a weight; anything else unpacks as `weight, quantity`). */
+function walleniusCards(data: WalleniusData): [unknown, unknown, unknown][] {
+  const pair = (x: unknown): [unknown, unknown] => {
+    const items = Array.isArray(x) ? [...x] : typeof x === "string" ? [...x] : undefined;
+    if (items === undefined) throw typeError(`cannot unpack non-iterable ${pyTypeName(x)} object`);
+    if (items.length !== 2) {
+      throw valueError(items.length < 2 ? `not enough values to unpack (expected 2, got ${items.length})` : "too many values to unpack (expected 2)");
+    }
+    return items as [unknown, unknown];
+  };
+  if (data instanceof Map) {
+    // A Python dict: equal keys are one, spelt as the first and valued as the last.
+    const [outcomes, values] = dictItems(data);
+    return outcomes.map((outcome, i) => {
+      const v = values[i];
+      if (isIntArg(v)) return [outcome, v, 1];
+      const [weight, quantity] = pair(v);
+      return [outcome, weight, quantity];
+    });
+  }
+  return Array.from(data, (item) => {
+    const [outcome, weight] = pair(item);
+    return [outcome, weight, 1];
+  });
+}
+
+/** `Counter(weights).items()`: each weight with how many times it is among them, in first-seen order. */
+function counter(weights: unknown[]): [unknown, number][] {
+  const first = wasm((w) => w.dictKeys(weights));
+  const counts = new Map<number, number>();
+  first.forEach((f) => counts.set(f, (counts.get(f) ?? 0) + 1));
+  return [...counts].map(([i, n]) => [weights[i], n]);
+}
+
+/** `_wallenius_weights(weight_die, hand_size)`: a die whose outcomes are sorted tuples of weights to pull. Each
+ * weight is pulled with its chance in `weight_die`, which then loses that card's weight (`remove(weight, weight)`).
+ * Python caches it by its arguments (`@cache`); `cache` does the same for one deal, by the die's `repr`. */
+function walleniusWeights(weightDie: Die, handSize: bigint, cache: Map<string, Die>): Die {
+  if (handSize === 0n) return new Die([[]]);
+  const key = `${handSize} ${weightDie.repr()}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  if (cache.size > 1 << 16 || weightDie.denominator() > BigInt(1 << 16)) {
+    throw new IcepoolError("Unported", "NotImplementedError", "icepool: a large Wallenius");
+  }
+  // `(_wallenius_weights(weight_die.remove(weight, weight), hand_size - 1) + (weight, )).map(lambda x:
+  // tuple(sorted(x)))`.
+  const inner = (weight: Outcome): Die =>
+    (walleniusWeights(weightDie.remove(weight, weight as Int), handSize - 1n, cache).add([weight]) as Die)
+      .map((x: Outcome[]) => wasm((w) => w.pySorted(x)) as Outcome[]);
+  const result = weightDie.map(inner);
+  cache.set(key, result);
+  return result;
 }
