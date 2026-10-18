@@ -15,6 +15,7 @@ pub mod host;
 pub mod random;
 pub mod value;
 
+pub use again::{Again, AgainEnd, AgainOutcome};
 pub use deal::Deal;
 pub use deck::Deck;
 pub use die::{Depth, Die};

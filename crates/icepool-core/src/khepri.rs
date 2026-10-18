@@ -13,13 +13,11 @@
 //! attack ([`Side`]), for the active (A) and the reactive (B) side, plus `fixedFaceToFace`: the reactive side's
 //! dice always roll `successValueB`.
 
-use std::sync::Arc;
-
 use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 use serde_json::{json, Map, Value as Json};
 
-use crate::again::{evaluate_agains_using_depth, AgainArg, AgainExpression};
+use crate::again::AgainEnd;
 use crate::counts::Counts;
 use crate::evaluator::{evaluate, Final, MultisetEvaluator};
 use crate::keep_tuple::{highest_slice, KeepIndex};
@@ -434,78 +432,6 @@ pub fn roll(p: &Input) -> Result<Die<Roll>> {
 
 // --- Saving Rolls ------------------------------------------------------------------------------------------------
 
-/// `Again` expressions here are only ever `outcome + Again`: the operation is "add".
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct AddOp;
-
-/// `a + b` where either may be a die (`int + Die` is `Die([int]) + die`).
-fn add_args(a: &DieArg<i64>, b: &DieArg<i64>) -> Result<DieArg<i64>> {
-    let as_die = |x: &DieArg<i64>| match x {
-        DieArg::Die(d) => Ok(d.clone()),
-        DieArg::Outcome(o) => constant(*o),
-        DieArg::Reroll => unreachable!("explode here always has an end outcome"),
-    };
-    match (a, b) {
-        (DieArg::Outcome(a), DieArg::Outcome(b)) => {
-            Ok(DieArg::Outcome(OutcomeArith::try_add(a, b)?))
-        }
-        _ => Ok(DieArg::Die(add(&as_die(a)?, &as_die(b)?)?)),
-    }
-}
-
-/// `die.explode([which], depth=depth, end=end)`: `which` is rolled again and added to the total, at most `depth`
-/// more times; past that, `end` stands for the next roll.
-///
-/// As icepool does it: `die.map(lambda o: o + Again if o in {which} else o, again_depth=depth, again_end=end)`.
-fn explode(die: &Die<i64>, which: i64, depth: u64, end: i64) -> Result<Die<i64>> {
-    if depth == 0 {
-        return Ok(die.clone());
-    }
-    let again = Arc::new(AgainExpression::<AddOp, DieArg<i64>>::Again { is_additive: true });
-    let (objects, times): (Vec<_>, Vec<_>) = die
-        .items()
-        .iter()
-        .map(|(o, q)| {
-            let object = if *o == which {
-                AgainArg::Again(Arc::new(AgainExpression::Apply {
-                    function: AddOp,
-                    args: vec![
-                        AgainArg::Other(DieArg::Outcome(*o)),
-                        AgainArg::Again(again.clone()),
-                    ],
-                    is_additive: true,
-                }))
-            } else {
-                AgainArg::Other(DieArg::Outcome(*o))
-            };
-            (object, q.clone())
-        })
-        .unzip();
-    if !objects.iter().any(|x| matches!(x, AgainArg::Again(_))) {
-        // No Again: a plain `Die(outcomes, times)`.
-        let outcomes = objects
-            .into_iter()
-            .map(|x| match x {
-                AgainArg::Other(x) => x,
-                AgainArg::Again(_) => unreachable!("checked above"),
-            })
-            .collect();
-        return Die::new(outcomes, times);
-    }
-    let result = evaluate_agains_using_depth(
-        &objects,
-        depth,
-        Some(&DieArg::Outcome(end)),
-        &DieArg::Reroll,
-        |objects| Die::new(objects, times.clone()).map(DieArg::Die),
-        |_, args| add_args(&args[0], &args[1]),
-    )?;
-    match result {
-        DieArg::Die(d) => Ok(d),
-        _ => unreachable!("evaluate_agains_using_depth returns a die"),
-    }
-}
-
 /// Die of wounds caused by `crits` + `hits` successes of this attack.
 pub fn wounds(crits: i64, hits: i64, attack: &Side) -> Result<Die<i64>> {
     let save = attack.save_value;
@@ -520,7 +446,9 @@ pub fn wounds(crits: i64, hits: i64, attack: &Side) -> Result<Die<i64>> {
                 .ok_or_else(|| Error::Overflow("i64 product overflowed".into()))
         })?;
     if attack.cont {
-        failed = explode(&failed, attack.wounds_per_failure, MAX_CONTINUOUS, 0)?;
+        // `failed.explode([wounds_per_failure], depth=MAX_CONTINUOUS, end=0)`.
+        let which = attack.wounds_per_failure;
+        failed = failed.explode(|&o| o == which, MAX_CONTINUOUS, AgainEnd::Outcome(0))?;
     }
     // Thank you HighDiceRoller for this beautiful line of code!
     let mut total = add(

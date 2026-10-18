@@ -18,6 +18,9 @@
 
 use std::sync::Arc;
 
+mod typed;
+pub use typed::{Again, AgainEnd, AgainOp, AgainOutcome};
+
 use crate::creation_args::DieArg;
 use crate::error::{Error, Result};
 use crate::map_tools::{map_repeat, Next, Target, TransitionCache};
