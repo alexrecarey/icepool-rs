@@ -479,3 +479,85 @@ fn repeated_maps_agree_with_value_states() {
         assert_eq!(typed, spelled(&value), "{case}");
     });
 }
+
+#[test]
+fn statistics_agree_with_python_statistics() {
+    use icepool_core::value::PyStatistics;
+    use icepool_core::{Comparison, Ratio};
+    let fraction = |r: Ratio| Value::Fraction(r);
+    for_cases(13, |rng, case| {
+        let die = rng.die(-6, 9);
+        let value = to_value(&die);
+        let case = format!("case {case}: {die:?}");
+        assert_eq!(fraction(die.mean()), value.mean().unwrap(), "{case}");
+        assert_eq!(
+            fraction(die.variance()),
+            value.variance().unwrap(),
+            "{case}"
+        );
+        assert_eq!(
+            Value::Float(die.standard_deviation()),
+            value.standard_deviation().unwrap(),
+            "{case}"
+        );
+        let outcome = rng.range(-7, 10);
+        for comparison in [
+            Comparison::Eq,
+            Comparison::Lt,
+            Comparison::Ge,
+            Comparison::Ne,
+        ] {
+            assert_eq!(
+                fraction(die.probability(comparison, &outcome)),
+                value
+                    .probability(comparison, &Value::from(outcome), false)
+                    .unwrap(),
+                "{case}"
+            );
+            let typed: Vec<Value> = die
+                .probabilities(comparison)
+                .into_iter()
+                .map(fraction)
+                .collect();
+            assert_eq!(
+                typed,
+                value.probabilities(comparison, false).unwrap(),
+                "{case}"
+            );
+        }
+        // The draw `Population.sample` makes for each `r` below the denominator.
+        let r = Quantity::from(rng.range(0, 5) as u64) % die.denominator();
+        assert_eq!(
+            die.sample_at(&r).unwrap().into_value(),
+            value.sample_at(&r).unwrap(),
+            "{case}"
+        );
+        // Formatting goes through `FormatOutcome`, not the `Value` conversion: both print the same.
+        for spec in ["", "md:*oq<=p>=i==", "csv"] {
+            assert_eq!(
+                die.format(spec).unwrap(),
+                value.format(spec).unwrap(),
+                "{case}"
+            );
+        }
+    });
+}
+
+#[test]
+fn tupleize_agrees_with_value_tupleize() {
+    use icepool_core::value::expand::tupleize_dice;
+    for_cases(14, |rng, case| {
+        let (a, b) = (rng.die(-2, 3), rng.die(0, 2).ge(1));
+        let value_items = |die: &Die<Value>| die.items().to_vec();
+        let python =
+            tupleize_dice(&[value_items(&to_value(&a)), value_items(&to_value(&b))]).unwrap();
+        assert_same(&a.tupleize(&b), &python, &format!("case {case}"));
+        let python =
+            tupleize_dice(&[value_items(&to_value(&a)), value_items(&to_value(&a))]).unwrap();
+        assert_same(
+            &Die::cartesian_product(&[a.clone(), a.clone()]),
+            &python,
+            &format!("case {case}"),
+        );
+    });
+}
