@@ -7,7 +7,7 @@ import { AgainExpression } from "./again.js";
 import { Die, DieWithTruth, dictItems, opts, pyBool, unpacked, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import type { MultisetExpression } from "./multiset.js";
-import { Handle, call, callWith, enc, kwargsText } from "./rpc.js";
+import { Handle, call } from "./rpc.js";
 import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, pyTypeName, valueTruth, type Float, type Int, type Outcome } from "./values.js";
 import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { isTrap, wasm } from "./wasm.js";
@@ -199,13 +199,18 @@ export function fromRv(rv: RandomVariable, outcomes: readonly Outcome[], denomin
   if (rv === null || typeof rv !== "object" || typeof rv.cdf !== "function") {
     throw new TypeError("icepool: fromRv takes an object with a cdf method");
   }
-  // `hasattr(rv, 'pdf')`.
-  const pdf = "pdf" in rv;
-  const cdf = (...args: [Outcome[], { [kwarg: string]: unknown }?]) => rv.cdf(...args);
-  return callWith((temps) => {
-    const text = `{"cdf":${enc(cdf, temps)},"pdf":${pdf},"outcomes":${enc(outcomes, temps)},"denominator":${enc(denominator, temps)},"kwargs":${kwargsText(kwargs, temps)}}`;
-    return wasm((w) => w.from_rv(text));
-  }) as Die;
+  const cdf = (xs: Outcome[]) => Array.from(Object.keys(kwargs).length ? rv.cdf(xs, kwargs) : rv.cdf(xs));
+  // `int(round(x * denominator))`: Python's `round` of a float or Fraction is an int.
+  const quantity = (x: unknown) => round(binary("mul", x, denominator)) as Int;
+  let quantitiesLe: Int[];
+  // `hasattr(rv, 'pdf')`: continuous distributions use the midpoints between the outcomes.
+  if ("pdf" in rv) {
+    const midpoints = outcomes.slice(1).map((b, i) => binary("truediv", binary("add", outcomes[i], b), 2) as Outcome);
+    quantitiesLe = [...cdf(midpoints).map(quantity), denominator];
+  } else {
+    quantitiesLe = cdf([...outcomes]).map(quantity);
+  }
+  return fromCumulative(outcomes, quantitiesLe);
 }
 
 // --- map and friends ----------------------------------------------------------------------------------------------
