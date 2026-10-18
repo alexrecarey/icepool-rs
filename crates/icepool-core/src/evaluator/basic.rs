@@ -383,3 +383,31 @@ impl MultisetEvaluator<Value> for EmptyEvaluator {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The expected dice are Python icepool's answers; the comment above each gives the Python.
+
+    use super::*;
+    use crate::evaluator::test_util::{evaluate_repr, expected, pool};
+
+    #[test]
+    fn sum_and_size_count_only_kept_dice() {
+        // `SumEvaluator().evaluate(d(3).pool(2).highest(1))`
+        let highest = pool(3, &[0, 1]);
+        let sum = evaluate_repr(&SumEvaluator, std::slice::from_ref(&highest));
+        assert_eq!(sum, expected(&[("1", 1), ("2", 3), ("3", 5)]));
+        // `SizeEvaluator().evaluate(d(3).pool(2).highest(1))`
+        assert_eq!(
+            evaluate_repr(&SizeEvaluator, &[highest]),
+            expected(&[("1", 9)])
+        );
+    }
+
+    #[test]
+    fn product_of_counts_sees_zero_counts() {
+        // `ProductOfCountsEvaluator().evaluate(d(2).pool(3))`: 0 unless both outcomes were rolled.
+        let product = evaluate_repr(&ProductOfCountsEvaluator, &[pool(2, &[1, 1, 1])]);
+        assert_eq!(product, expected(&[("0", 2), ("2", 6)]));
+    }
+}

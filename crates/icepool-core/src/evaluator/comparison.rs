@@ -130,3 +130,35 @@ impl MultisetEvaluator<Value> for ComparisonEvaluator {
         })))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The expected dice are Python icepool's answers; the comment above each gives the Python.
+
+    use super::*;
+    use crate::evaluator::test_util::{evaluate_repr, expected, multiset, pool};
+
+    fn compare(comparison: Comparison, right: &[i64]) -> Vec<(String, u32)> {
+        evaluate_repr(
+            &ComparisonEvaluator(comparison),
+            &[pool(3, &[1, 1]), multiset(right)],
+        )
+    }
+
+    #[test]
+    fn subsets_and_disjoint_sets() {
+        // `d(3).pool(2).issubset([1, 2])`
+        assert_eq!(
+            compare(Comparison::IsSubset, &[1, 2]),
+            expected(&[("False", 7), ("True", 2)])
+        );
+        // `d(3).pool(2) < [1, 2, 3]`
+        let proper = compare(Comparison::IsProperSubset, &[1, 2, 3]);
+        assert_eq!(proper, expected(&[("False", 3), ("True", 6)]));
+        // `d(3).pool(2).isdisjoint([3])`
+        assert_eq!(
+            compare(Comparison::IsDisjointSet, &[3]),
+            expected(&[("False", 5), ("True", 4)])
+        );
+    }
+}

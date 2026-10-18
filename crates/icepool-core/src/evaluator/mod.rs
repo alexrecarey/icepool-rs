@@ -706,3 +706,65 @@ fn finalize_evaluation<O, E: MultisetEvaluator<O>>(
     }
     Ok(result)
 }
+
+/// Helpers for the evaluators' unit tests, which run on pools of `Value`s as the bindings do.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::{evaluate, MultisetEvaluator, MultisetSource};
+    use crate::counts::OrderedMerge;
+    use crate::{Die, Int, Pool, Quantity, Value};
+
+    /// `rolls` dice of `1..=sides`, counted as `keep` says (one count per sorted roll).
+    pub(crate) fn pool(sides: i64, keep: &[i64]) -> MultisetSource<Value> {
+        let die = Die::from_dict(
+            (1..=sides)
+                .map(|o| (Value::from(o), Quantity::ONE))
+                .collect(),
+        )
+        .unwrap();
+        let keep: Vec<Int> = keep.iter().map(|&k| Int::from(k)).collect();
+        MultisetSource::Pool(
+            Pool::from_parts(&[(die, keep.len())], keep.into())
+                .unwrap()
+                .source(),
+        )
+    }
+
+    /// A fixed multiset: Python's list argument (`pool.issubset([1, 2])`).
+    pub(crate) fn multiset(outcomes: &[i64]) -> MultisetSource<Value> {
+        let dice: Vec<_> = outcomes
+            .iter()
+            .map(|&o| {
+                (
+                    Die::from_dict(vec![(Value::from(o), Quantity::ONE)]).unwrap(),
+                    1,
+                )
+            })
+            .collect();
+        MultisetSource::Pool(Pool::new(dice).unwrap().source())
+    }
+
+    /// `evaluator.evaluate(*sources)` as `(repr(outcome), quantity)` pairs of the resulting die.
+    pub(crate) fn evaluate_repr<E>(
+        evaluator: &E,
+        sources: &[MultisetSource<Value>],
+    ) -> Vec<(String, u32)>
+    where
+        E: MultisetEvaluator<Value, Final = Value>,
+    {
+        let mut data = OrderedMerge::default();
+        for (outcome, quantity) in evaluate(evaluator, sources).unwrap() {
+            data.add(outcome, quantity);
+        }
+        let die = Die::from_dict(data.into_items()).unwrap();
+        die.items()
+            .iter()
+            .map(|(o, q)| (o.to_string(), u32::try_from(q).unwrap()))
+            .collect()
+    }
+
+    /// `[(outcome repr, quantity)]` from literals.
+    pub(crate) fn expected(items: &[(&str, u32)]) -> Vec<(String, u32)> {
+        items.iter().map(|&(o, q)| (o.to_string(), q)).collect()
+    }
+}
