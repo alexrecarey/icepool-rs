@@ -44,7 +44,7 @@ use crate::{Int, Value};
 /// ];
 /// assert!(matches!(flat[2], Dungeonlet::Operator { ref children, .. } if children == &[0, 1]));
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Dungeonlet<O> {
     /// `MultisetFreeVariable` (with a `MultisetGeneratorQuestlet` / `MultisetTupleGeneratorQuestlet`): the count
     /// (and size) of the next source.
@@ -109,7 +109,7 @@ pub type Statelets = Arc<[Statelet]>;
 /// assert_eq!(tree.flats.len(), 2);
 /// assert!(tree.calls.is_empty());
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CallTree<O> {
     /// The flats of this call's inputs.
     pub flats: Vec<Flat<O>>,

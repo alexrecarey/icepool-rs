@@ -164,7 +164,7 @@ impl Summand for Value {
 /// assert_eq!(PyState::<i64>::Typed(3).value(), Value::from(3));
 /// assert_eq!(PyState::<i64>::Python(Value::str("x")).value(), Value::str("x"));
 /// ```
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PyState<S> {
     /// The evaluator's own typed state.
     Typed(S),
@@ -273,6 +273,7 @@ pub trait TupleCounts: MultisetEvaluator<Value> {
 /// let sums: Vec<(String, u32)> = sums.iter().map(|(v, w)| (v.to_string(), w.try_into().unwrap())).collect();
 /// assert_eq!(sums, [("2".into(), 1), ("3".into(), 2), ("4".into(), 1)]);
 /// ```
+#[derive(Debug)]
 pub struct PyEvaluator<E>(pub E);
 
 impl<E> MultisetEvaluator<Value> for PyEvaluator<E>

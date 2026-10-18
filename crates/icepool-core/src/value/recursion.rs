@@ -110,6 +110,7 @@ pub fn recursion_error() -> Error {
 /// assert!(level().is_ok());
 /// ```
 #[must_use]
+#[derive(Debug)]
 pub struct Level(());
 
 /// Take a level of recursion, or raise `RecursionError` past `MAX_DEPTH` levels or `STACK_LIMIT` bytes of stack.
@@ -157,6 +158,7 @@ impl Drop for Level {
 /// assert!(frames(2).is_ok());
 /// ```
 #[must_use]
+#[derive(Debug)]
 pub struct Frames(usize);
 
 /// Take the `n` Python frames a method of icepool's would push, or raise `RecursionError` if Python's stack would
