@@ -356,7 +356,7 @@ const IDIOMATIC = {
     isList(args) && args.length <= 1 && ok(ip.formatProbabilityInverse(probability, ...args)),
 
   // Pools and multiset expressions.
-  pool: ({ dice, times }) => isList(dice) && ok(new ip.Pool(dice, times)),
+  pool: ({ dice, times }) => ok(new ip.Pool(dice, times)),
   // `Pool(dict(items), times)`: a JS Map, whose keys the Pool compares as Python's dict does.
   pool_dict: ({ items, times }) => isPairs(items) && ok(new ip.Pool(new Map(items), times)),
   d_pool: ({ die_sizes, mapping }) => standardPool(ip.dPool, die_sizes, mapping),

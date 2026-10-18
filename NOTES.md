@@ -93,8 +93,52 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6j, C6k, then C6l (removing the bridge: the
+- **The TypeScript API (C6, design section 6).** Rest in C6k, then C6l (removing the bridge: the
   rest of C6g); the docs are C6b.
+  - **C6j (the rest of the multiset expressions).** Bridge counts over every fixture (fixture test's `bridge:` line):
+    builtin_evaluate 1244 -> 35, mx_compare 85 -> 0, keep_evaluate 38 -> 0, straight_and_outcome_evaluate 15 -> 0,
+    pool 77 -> 0, mx_tuple_slice 64 -> 5, mx_method 258 -> 30, mx_binary 184 -> 152 (the replays went with them).
+    - **`MultisetExpression.eq` / `ne`** (multiset.ts `equality`): Python's `__eq__` / `__ne__`. `implicit(other)`
+      first: its `TypeError` is `NotImplemented`, so an `AgainExpression` makes its own `==` expression and anything
+      else gives identity (`false` / `true`, a plain boolean); `Pool(die)` / `Pool(deck)`'s ValueError propagates.
+      Truth = `isMultisetExpression(other) && sameExpression(self, other)` (an array is no expression: `p.eq([..])`
+      is false). The data is the `is_equal_set` / `is_not_equal_set` evaluation, computed now; an IcepoolError
+      from it (not Unported / Panic) becomes `DieWithTruth.failedWith`, so it comes back only when the die is used.
+      In a multiset function's body: `failedWith("Did not resolve to a die.")`. `Die.equals` checks `this ===
+      other` first (Python's `self is other`), so a failed DieWithTruth equals itself.
+    - **A die meeting an expression** (`d6.lt(pool)`, `d6.add(pool)`, `cmp`, `matmul`, ...): die.ts `nativeDie` is
+      `new Die([expr])`, whose constructor raises Python's "Items do not appear to be sortable." (tuple expressions
+      too). The runner's `to_die` (ops/operators.rs) now raises the same (it was Unimplemented for cmp / `@`).
+    - **The evaluator objects of the built-in classes** (decision): the public API does not get them: every built-in
+      is a `MultisetExpression` method and JS evaluators subclass `MultisetEvaluator`. The fixture nodes
+      (`builtin_evaluate`, `keep_evaluate`, `straight_and_outcome_evaluate`) go through test-only
+      `internal.ts` `evaluateBuiltin(cls, params, ctor, kwargs, args)`: the class and its arguments mapped onto the
+      core's built-ins as the Python facade's `builtin_spec` does (constructor errors first: the straight priority's
+      ValueError, `make_select_function`), then multiset.ts `builtinEvaluation` (@internal). What `builtin_spec`
+      leaves to the evaluator's own methods (wrong input counts, unknown keywords) returns `undefined` and stays on
+      the bridge (test builds only). New native built-in `lexi_tuple` (src/api/evaluate.rs: `(sort_order,
+      [five ints])`, `LexiComparisonEvaluator` given its tuple, as `leximin` passes it).
+    - **`new Pool(...)`**: `Pool(pool)` returns that very pool when `times == 1` (a JS constructor may return
+      another object), else `new Map(pool.info()[5])` as Python's `{die: q for die, q in dice._dice}`; anything
+      that is no sequence or mapping is `itemize`'s TypeError (deals, other expressions, numbers); pools / decks /
+      expressions among the dice go through `Die([x])` (only a bridge callable among them still bridges; Vector /
+      Symbols as the dice too).
+    - **Runner fixes** (found by fixtures/c6j): `keep_evaluate` converts its argument (a list), `Pool(deck)` is
+      ValueError, `builtin_evaluate` of a fixed-arity class with another number of inputs is Unimplemented (it
+      silently dropped inputs; Python raises from the evaluator's own `next_state`, or with no outcomes maybe
+      not). Not fixed: `Pool({pool: 1})` (a pool as a dict key: runner `pool::dict` is Unimplemented; JS raises
+      Python's TypeError).
+    - Adapter (test/fixtures.mjs): `mx_compare` all six operators (expression left, die left, plain left
+      reflected), `mx_binary` with a die left, `equals_self` of dice, `pool` for any `dice`, the three evaluator
+      nodes. **node-args.json was stale** (no `builtin_evaluate`, so that node never routed): regenerate it when
+      adding nodes (command in fixtures.mjs). Tests: multiset.test.mjs (C6j part; `nativeThrows` checks the bridge
+      even when the call throws), upstream-pool-roll `test_pool_roll_eq` (no longer todo). Fixtures:
+      fixtures/c6j/edge-cases, fixtures/c6j/pool-of-pool.
+    - **Left on the bridge in this area**, by cause (tally: /tmp script as in C6g's note): reflected multiset
+      operators with a plain or tuple-expression left operand (`[1] + pool`, `3 - pool`, `None ^ pool`, `md + pool`:
+      C6k), methods of tuple expressions that Python lacks (`md * n`, `md.keep(...)`: AttributeError / TypeError;
+      C6k/C6l), catalogue callables JS lacks (`count_max` in `mx_map_counts`), `d_pool` with huge sizes
+      (MemoryError), Lexi with 1 or 3 inputs.
   - **C6i (the keep family, the to-pool methods, expression and deck arguments).** No call site in die.ts,
     functions.ts, keep.ts or to-pool.ts reaches the bridge any more (stack-tagged tally over every fixture, as in
     C6g below; what is left is multiset.ts / deck.ts / evaluator.ts: C6j, C6k).

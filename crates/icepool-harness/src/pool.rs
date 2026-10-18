@@ -206,6 +206,12 @@ pub fn pool(dice: PValue, times: PValue) -> Result<PValue, PErr> {
                 "A Pool cannot be constructed with a Die argument.".into(),
             ))
         }
+        // A deck is a mapping too, which `Pool.__new__` refuses the same way.
+        PValue::Deck(_) => {
+            return raise(Error::InvalidArgument(
+                "A Pool cannot be constructed with a Deck argument.".into(),
+            ))
+        }
         dice => itemize(dice, Some(times))?,
     };
     new_pool(dice, times)

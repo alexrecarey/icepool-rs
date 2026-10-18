@@ -205,3 +205,20 @@ test("a die on the left of an operator with an expression: Die([expr]) cannot be
     nativeThrows(f, sortable);
   }
 });
+
+test("Pool(pool) is that pool; with other times a pool of its dice; no sequence or mapping raises", () => {
+  const p = native(() => new Pool([d6, d4]));
+  assert.equal(native(() => new Pool(p)), p);
+  assert.equal(native(() => new Pool(p, true)), p);
+  const kept = native(() => new Pool([d6, d6, d4]).highest(2));
+  assert.equal(native(() => new Pool(kept)), kept);
+  assert.equal(repr(() => new Pool(p, [1, 2]).sum()),
+    "Die({3: 1, 4: 3, 5: 6, 6: 10, 7: 14, 8: 18, 9: 20, 10: 20, 11: 18, 12: 14, 13: 10, 14: 6, 15: 3, 16: 1})");
+  // The keep tuple is forgotten.
+  assert.equal(repr(() => new Pool(kept, 2).sum()), repr(() => new Pool([d6, d6, d4], 2).sum()));
+  const notASequence = (e) => pythonType("TypeError")(e) && e.message === "Argument appears not to be a mapping or sequence.";
+  for (const x of [5, null, true, new ip.Deck([1, 2]).deal(1), p.sub([1])]) nativeThrows(() => new Pool(x), notASequence);
+  const sortable = (e) => pythonType("TypeError")(e) && e.message === "Items do not appear to be sortable.";
+  nativeThrows(() => new Pool([p]), sortable);
+  nativeThrows(() => new Pool([d6, p]), sortable);
+});

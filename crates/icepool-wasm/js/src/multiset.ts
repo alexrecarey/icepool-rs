@@ -11,6 +11,7 @@ import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
 import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyFloatRepr, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, callback, isTrap, wasm, withCallbacks } from "./wasm.js";
 import { mappingGet } from "./functions.js";
+import { binary as binaryOp } from "./operators.js";
 
 /** Where a multiset expression is expected, an array of outcomes is a pool of them (Python's implicit conversion
  * of a sequence to a `Pool`).
@@ -1454,9 +1455,17 @@ export type PoolDice = readonly Operand[] | Map<Operand, Int>;
 export class Pool extends KeepGenerator {
   /** `Pool(dice, times=1)`. `times` multiplies how many times each element of `dice` goes into the pool: one int for
    * all, or one per element. Throws `ValueError` for a bare `Die` or `Deck` (a pool of one die is `new Pool([die])`).
+   * Given a pool, Python's `Pool(pool)` is that very pool; with other `times`, a pool of its dice (its keep tuple
+   * forgotten).
    */
-  constructor(dice: PoolDice, times: Int | readonly Int[] = 1) {
+  constructor(dice: PoolDice | Pool, times: Int | readonly Int[] = 1) {
     super(HANDLE, -1);
+    if (dice instanceof Pool) {
+      // `Pool(pool)` is that pool (`times == 1`, so also `true`); otherwise the mapping `{die: quantity for die,
+      // quantity in dice._dice}`: the keep tuple is forgotten.
+      if (isPlainValue(times) && pyBool(binaryOp("eq", times, 1))) return dice;
+      dice = new Map(dice.info()[5]);
+    }
     const bridge = () =>
       dice instanceof Map
         ? call("pool_dict", { items: List.from(Array.from(dice, ([k, v]) => [k, v])), times: list(times) })
@@ -1931,10 +1940,13 @@ const notAPool = (x: object) => valueError(`A Pool cannot be constructed with a 
 
 function poolGenerator(dice: unknown, times: unknown): WasmGenerator | undefined {
   if (dice instanceof Die || dice instanceof deckClasses.Deck || isTupleExpression(dice)) throw notAPool(dice as object);
-  if (!(Array.isArray(dice) || typeof dice === "string" || dice instanceof Map)) return undefined;
-  // Pools, decks and expressions among the dice: the bridge's.
-  const keys = dice instanceof Map ? [...dice.keys()] : [...dice];
-  if (keys.some((k) => k instanceof Handle)) return undefined;
+  // Python's sequences and mappings the port has no `itemize` for: the bridge's. Anything else that is neither
+  // (a number, `None`, another expression) is `itemize`'s TypeError.
+  if (dice instanceof Vector || dice instanceof Symbols) return undefined;
+  // A callable of the bridge's among the dice: the bridge's. (Decks and expressions among them are what
+  // `implicit_convert_to_die` makes of them, below.)
+  const keys = dice instanceof Map ? [...dice.keys()] : Array.isArray(dice) || typeof dice === "string" ? [...dice] : [];
+  if (keys.some((k) => k instanceof Handle && !isMultisetExpression(k) && !isDeck(k))) return undefined;
   const items = itemize(dice as DieOutcomes, times);
   // `implicit_convert_to_die` of each.
   const dieOf = (x: unknown): Die => {
