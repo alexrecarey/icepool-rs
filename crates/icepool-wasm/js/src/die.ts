@@ -4,7 +4,7 @@
 
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDepth } from "./again.js";
-import type { MultisetExpression, Pool } from "./multiset.js";
+import { diePool, type MultisetExpression, type Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
 import { map, mapAndTime, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
@@ -1207,7 +1207,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   pool(rolls: Int | readonly Int[] = 1): Pool {
-    return call("die_pool", { die: this, rolls: Array.isArray(rolls) ? list(rolls) : rolls }) as Pool;
+    return diePool(this, rolls);
   }
 
   // --- Pools from a die (EXPERIMENTAL in icepool) ---------------------------------------------------------------
@@ -2339,8 +2339,8 @@ function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined,
 }
 
 /** creation_args.py `itemize(keys, times)`: the keys (a sequence's elements; a mapping's keys, whose values
- * multiply the times) and one time per key, checked to be non-negative numbers. */
-function itemize(outcomes: DieOutcomes, times: unknown): { outcomes: unknown[]; times: unknown[] } {
+ * multiply the times) and one time per key, checked to be non-negative numbers. @internal */
+export function itemize(outcomes: DieOutcomes, times: unknown): { outcomes: unknown[]; times: unknown[] } {
   let keys: unknown[];
   let base: unknown[] | undefined;
   if (outcomes instanceof Die) {

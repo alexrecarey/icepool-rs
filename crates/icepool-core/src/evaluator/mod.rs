@@ -539,6 +539,30 @@ pub fn evaluate_with_depth_check<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluate_expressions(evaluator, &flats, sources, check_depth)
 }
 
+/// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`) and raises
+/// `RecursionError` near 1000 outcomes. Where exactly depends on the caller's stack (the program's nesting, the
+/// harness's own frames) and on the process's history: popping a die computes `_popped_max` (a `cached_property`
+/// several frames deep) unless an earlier evaluation already did. Measured: a top-level `pool.sum()` of 981 outcomes
+/// succeeds with warm dice and fails at 982; with cold dice six levels down 970 still succeeds. The port raises from
+/// `SURE_RECURSION_ERROR` and says unported in between (the answer is not knowable from the call).
+/// For hosts without a Python stack of their own (the program runner, the JS API); the Python facade passes
+/// its own check from the interpreter's actual depth.
+pub fn top_level_depth_check(outcomes: usize) -> Result<()> {
+    const SAFE_RECURSION: usize = 930;
+    const SURE_RECURSION_ERROR: usize = 990;
+    if outcomes >= SURE_RECURSION_ERROR {
+        return Err(Error::RecursionLimit(
+            "maximum recursion depth exceeded in evaluate_backward".into(),
+        ));
+    }
+    if outcomes > SAFE_RECURSION {
+        return Err(Error::Unported(
+            "a multiset evaluation close to Python's recursion limit".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// [`evaluate_with_depth_check`] for inputs that are multiset expressions: each input is a flat of dungeonlets
 /// (`crate::expression`), and `sources` are the sources of all their free variables, in traversal order.
 pub fn evaluate_expressions<O: OutcomeOrder, E: MultisetEvaluator<O>>(

@@ -64,6 +64,16 @@ extern "C" {
     #[wasm_bindgen(method, structural)]
     pub(super) fn step(this: &Transition, state: JsValue, i: u32) -> Vec<JsValue>;
 
+    /// `map_counts`' JS function registered under `id` (js/src/multiset.ts), called on an outcome and its counts:
+    /// `[true, count]`, or `[false]` when it threw (the TypeScript keeps the exception and rethrows it).
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = countFunction)]
+    pub(super) fn count_function(id: u32, outcome: JsValue, counts: Vec<JsValue>) -> Vec<JsValue>;
+
+    /// `keep_outcomes`' JS callable registered under `id`, called on an outcome: `[true, bool(result)]`, or
+    /// `[false]` when it threw.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = outcomePredicate)]
+    pub(super) fn outcome_predicate(id: u32, outcome: JsValue) -> Vec<JsValue>;
+
     /// `String(x)`: a BigInt's decimal digits.
     #[wasm_bindgen(js_name = String)]
     pub(super) fn js_string(x: &JsValue) -> String;

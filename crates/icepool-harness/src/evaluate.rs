@@ -74,26 +74,9 @@ fn method_self(p: PValue) -> Result<MExpr, PErr> {
     the_expression(p)
 }
 
-/// Python's evaluation recurses once per outcome (`evaluate_backward` / `evaluate_forward`) and raises
-/// `RecursionError` near 1000 outcomes. Where exactly depends on the caller's stack (the program's nesting, the
-/// harness's own frames) and on the process's history: popping a die computes `_popped_max` (a `cached_property`
-/// several frames deep) unless an earlier evaluation already did. Measured: a top-level `pool.sum()` of 981 outcomes
-/// succeeds with warm dice and fails at 982; with cold dice six levels down 970 still succeeds. The port raises from
-/// `SURE_RECURSION_ERROR` and says unimplemented in between (the answer is not knowable from the program).
+/// Python's evaluation recurses once per outcome: see [`icepool_core::evaluator::top_level_depth_check`].
 pub(super) fn check_recursion(outcomes: usize) -> Result<(), Error> {
-    const SAFE_RECURSION: usize = 930;
-    const SURE_RECURSION_ERROR: usize = 990;
-    if outcomes >= SURE_RECURSION_ERROR {
-        return Err(Error::RecursionLimit(
-            "maximum recursion depth exceeded in evaluate_backward".into(),
-        ));
-    }
-    if outcomes > SAFE_RECURSION {
-        return Err(Error::Unported(
-            "a multiset evaluation close to Python's recursion limit".into(),
-        ));
-    }
-    Ok(())
+    icepool_core::evaluator::top_level_depth_check(outcomes)
 }
 
 /// `evaluator.evaluate(*expressions)`: each prepared evaluation (`_prepare`; several with a mixture) gives

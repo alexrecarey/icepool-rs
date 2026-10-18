@@ -381,10 +381,13 @@ test("deep nesting raises RecursionError rather than overflowing the WASM stack"
   for (let i = 0; i < 5000; i++) again = again.add(1);
   assert.throws(() => new Die([1, again]), isRecursionError);
   assert.deepEqual(new Die([1, Again.add(1).add(1)]).outcomes(), [1, 3, 4]);
+  // So is a deep multiset expression: preparing it for evaluation raises.
   let expr = d(2).pool(1);
-  assert.throws(() => { for (let i = 0; i < 5000; i++) expr = expr.or(d(2).pool(1)); }, isRecursionError);
+  for (let i = 0; i < 5000; i++) expr = expr.or(d(2).pool(1));
+  assert.throws(() => expr.sum(), isRecursionError);
   let pools = d(2).pool(1);
-  assert.throws(() => { for (let i = 0; i < 5000; i++) pools = pools.additiveUnion(d(2).pool(1)); }, isRecursionError);
+  for (let i = 0; i < 5000; i++) pools = pools.additiveUnion(d(2).pool(1));
+  assert.throws(() => pools.size(), isRecursionError);
   // A multiset function calling itself: Python's recursion limit, or JS's own stack.
   const f = ip.multisetFunction((a) => f.call(a));
   assert.throws(() => f.call(d(2).pool(1)), (e) => isRecursionError(e) || e instanceof RangeError);

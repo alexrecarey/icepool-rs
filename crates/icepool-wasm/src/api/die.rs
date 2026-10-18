@@ -764,15 +764,18 @@ impl WasmDie {
 
     /// `repr(die)`: `Die({outcome!r: quantity, ...})`, or `DieWithTruth(...)`.
     pub fn repr(&self, type_name: &str) -> JsResult<String> {
-        let items = self
-            .die
-            .items()
-            .iter()
-            .map(|(o, q)| Ok(format!("{}: {q}", py_repr(o)?)))
-            .collect::<icepool_core::Result<Vec<_>>>()
-            .or_throw()?;
-        Ok(format!("{type_name}({{{}}})", items.join(", ")))
+        die_repr(&self.die, type_name).or_throw()
     }
+}
+
+/// `repr(die)`: `Die({outcome!r: quantity, ...})` (`type_name` `Die` or `DieWithTruth`).
+pub(super) fn die_repr(die: &Die<Value>, type_name: &str) -> icepool_core::Result<String> {
+    let items = die
+        .items()
+        .iter()
+        .map(|(o, q)| Ok(format!("{}: {q}", py_repr(o)?)))
+        .collect::<icepool_core::Result<Vec<_>>>()?;
+    Ok(format!("{type_name}({{{}}})", items.join(", ")))
 }
 
 /// An outcome used as a `Counter` key (`append`, `remove`): hashable, as Python's `Counter` requires.
