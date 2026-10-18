@@ -110,6 +110,11 @@ sources costs 12 s, touching icepool-harness's 25 s, so nothing short of the gat
 gets a stale rebuild under 20 s (C2f, khepri as its own crate, would stop core recompiling but not these). The
 one-line gate change above is still the fix.
 
+**Still red (long-20261018-0900, task L202610180909):** same timeout. Re-measured: a stale node-noopt package
+takes 31.5 s through run-wasm.sh; icepool-harness alone 14 s, icepool-wasm alone 13 s, and `debug = 0` only brings
+the pair to 23.7 s. Flipping icepool-wasm's default features was considered and rejected again: check-production.sh
+(and the design) require the crate "as built alone" to be the production one.
+
 ## L202610172222: complex `**` under WASM can be more than 2 ULP off (seed 21 of "fuzz through wasm")
 
 `complex(-0.00024988505290350285, -0.5) ** complex(-5.0, 2.5)` is `(1605.4982660299447-258.3902050878144j)` in
@@ -130,6 +135,8 @@ The divergence is recorded in DIVERGENCES.md ("Floats under WASM").
 
 **Still red (long-20261018-0454, task L202610180503):** "fuzz through wasm" seed 21 fails on exactly this program.
 compare.py's per-part 2-ULP tolerance (bf3a2f3) covers 1-ULP complex differences but not this 3/23-ULP one.
+
+**Still red (long-20261018-0900, task L202610180909):** unchanged, same program, same 3/23 ULP.
 
 ## C5b: the design doc's section 5 and 9.5 after the runner moved (docs/ is protected)
 
@@ -247,3 +254,12 @@ docs/design/library-architecture.md, in the sections C8 reads (and a few around 
 that `crates/icepool-core/tests/fixtures.rs` is protected; both moved to `crates/icepool-harness/` (the guard
 protects `crates/icepool-harness/tests/fixtures.rs`). Its "How to do a task" step 3 says "Wire it into
 `program/`": now `crates/icepool-harness/src/`.
+
+## L202610180909: the reviewer wrote a `uv.lock` into the oracle checkout (loop/prompts is the loop's)
+
+The long gate of 2026-10-18 09:00 failed "oracle pinned and clean" on an untracked `uv.lock` in
+`~/code/alexrecarey/icepool-oracle`, written at 08:59:56 by the C3c review running `cd ~/code/alexrecarey/icepool-oracle
+&& uv run --quiet python -c ...` (uv locks the project it finds in the working directory). L202610180909 deleted the
+file (it held only `version`, `revision`, `requires-python`) and NOTES.md now warns implementing iterations. The
+review prompt (loop/prompts/review.md, protected) could say the same: run the oracle as
+`PYTHONPATH=$ICEPOOL_ORACLE/src uv run python ...` from the worktree, never with the oracle as the working directory.

@@ -5,6 +5,14 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Never run `uv` (or anything that writes) with the oracle checkout as its working directory
+  (L202610180909).** `cd ~/code/alexrecarey/icepool-oracle && uv run python ...` makes uv write a `uv.lock` there
+  (the oracle has a pyproject.toml), and the gate's first step, "oracle pinned and clean", fails on the untracked
+  file: the C3c review did that at 08:59 on 2026-10-18 and turned the long gate red. Run the oracle from this
+  repository instead: `PYTHONPATH=$ICEPOOL_ORACLE/src uv run python -c ...` or `harness.core.tool oracle`.
+  L202610180909 deleted that stray (52-byte, package-free) `uv.lock`; `git -C $ICEPOOL_ORACLE status --porcelain`
+  must stay empty. The two WASM steps were still red for the reasons below (re-measured: stale harness+wasm
+  rebuild 27.5 s, 23.7 s even with `debug = 0`, so no profile tweak gets under 20 s either).
 - **The long gate's WASM steps (L202610180503, still open).** "fixtures through wasm" times out on its first
   program whenever run-wasm.sh has to rebuild (after any merge touching core or harness), and "fuzz through wasm"
   (seed 21) meets the complex `**` program that is 23 ULP off under WASM. Both need the protected gate/compare
