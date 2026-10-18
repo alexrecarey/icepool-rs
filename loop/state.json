@@ -219,6 +219,9 @@
     "C6b": {
       "attempts": 1,
       "status": "done"
+    },
+    "C6c": {
+      "status": "done"
     }
   },
   "merges": 73,
