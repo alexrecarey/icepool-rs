@@ -12,6 +12,20 @@ pub use crate::lexi::{
 
 /// `LexiComparisonEvaluator` with its `evaluate()` keyword arguments `sort_order` and `lexi_tuple`
 /// (`compute_lexi_tuple_with_extra`).
+///
+/// ```
+/// use icepool_core::evaluator::lexi::{compute_lexi_tuple_with_extra, LexiComparisonEvaluator};
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{d, Die, Int, Order};
+/// // Python's `d(6).pool(2).leximax('>', d(6).pool(2))`: does the left pair win, highest die first?
+/// let evaluator = LexiComparisonEvaluator {
+///     sort_order: Order::Descending,
+///     lexi_tuple: compute_lexi_tuple_with_extra(">", Order::Descending.value(), "high").unwrap(),
+/// };
+/// let pair = MultisetSource::Pool(d(6).pool(2).source());
+/// let result = Die::from_weights(evaluate(&evaluator, &[pair.clone(), pair]).unwrap());
+/// assert_eq!(result, Die::from_weights([(Int::from(0), 681u32), (Int::from(1), 615)]));
+/// ```
 pub struct LexiComparisonEvaluator {
     /// The order in which the outcomes are compared.
     pub sort_order: Order,

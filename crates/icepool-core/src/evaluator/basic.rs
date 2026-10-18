@@ -27,6 +27,14 @@ count_fold_evaluators!(
 ///
 /// This is expensive and not recommended unless there are few possibilities. Outcomes with negative count will
 /// be treated as 0 count.
+///
+/// ```
+/// use icepool_core::evaluator::basic::ExpandEvaluator;
+/// use icepool_core::{d, Die};
+/// // Python's `d(2).pool(2).expand()`.
+/// let result: Die<Vec<i64>> = d(2).pool(2).evaluate(&ExpandEvaluator { ascending: true }).unwrap();
+/// assert_eq!(result, Die::from_weights([(vec![1, 1], 1u32), (vec![1, 2], 2), (vec![2, 2], 1)]));
+/// ```
 pub struct ExpandEvaluator {
     /// The `order=` keyword: `Order.Ascending` (by `==`, so `1` or `True` too) sorts ascending, anything else
     /// descending.
@@ -68,6 +76,17 @@ fn sorted_reverse<O: OutcomeOrder>(mut outcomes: Vec<O>) -> Result<Vec<O>> {
 
 /// What a sum adds up: outcomes with arithmetic. Python's sum starts from `None` and asks `state is None` at every
 /// step, so a sum that *is* `None` (a sum's map may return it) starts over; only Python's `Value` has such a value.
+///
+/// ```
+/// use icepool_core::evaluator::basic::{SumEvaluator, Summand};
+/// use icepool_core::{d, Die, Outcome};
+/// // Any summand can be summed by `SumEvaluator`; a typed integer is never Python's `None`.
+/// fn sum_of_two<O: Summand + Outcome>(die: &Die<O>) -> Die<O> {
+///     die.pool(2).evaluate(&SumEvaluator).unwrap()
+/// }
+/// assert!(!3i64.is_none());
+/// assert_eq!(sum_of_two(&d(4)), &d(4) + &d(4));
+/// ```
 pub trait Summand: OutcomeArith {
     /// Whether this is Python's `None`.
     fn is_none(&self) -> bool {
@@ -102,6 +121,13 @@ fn state_as_outcome<P: Clone>(state: &Option<P>) -> Final<P> {
 }
 
 /// Sums all outcomes (`SumEvaluator()` without a map).
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::d;
+/// // Python's `d(6).pool(2).sum()`.
+/// assert_eq!(d(6).pool(2).evaluate(&SumEvaluator).unwrap(), &d(6) + &d(6));
+/// ```
 pub struct SumEvaluator;
 
 impl<O: Summand> CountFold<O> for SumEvaluator {
@@ -121,6 +147,15 @@ impl<O: Summand> CountFold<O> for SumEvaluator {
 /// `SumEvaluator(map)`: outcomes are mapped by `map` just before summing. A callable is called with each outcome
 /// (every outcome the evaluation sees, zero counts included); for a mapping, unmapped outcomes are left as-is
 /// (`map_dict.get(outcome, outcome)`). The caller builds `map` accordingly.
+///
+/// ```
+/// use icepool_core::evaluator::basic::MappedSumEvaluator;
+/// use icepool_core::{d, Die, Result};
+/// // Python's `d(6).pool(3).sum(map=lambda x: 1 if x >= 5 else 0)`: the number of 5s and 6s in 3d6.
+/// let successes = MappedSumEvaluator::new(|&x: &i64| -> Result<i64> { Ok(i64::from(x >= 5)) });
+/// let result = d(6).pool(3).evaluate(&successes).unwrap();
+/// assert_eq!(result, Die::from_weights([(0, 64u32), (1, 96), (2, 48), (3, 8)]));
+/// ```
 pub struct MappedSumEvaluator<F, P> {
     /// The function applied to each outcome before it is summed.
     pub map: F,
@@ -154,6 +189,14 @@ impl<O, F: Fn(&O) -> Result<P>, P: Summand> CountFold<O> for MappedSumEvaluator<
 /// Returns the total number of elements, i.e. the sum of all counts (`SizeEvaluator`).
 ///
 /// Usually not very interesting unless the counts are adjusted by `unique` etc.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SizeEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(6).pool(4).highest(2).size()`: only the kept dice count.
+/// let result: Die<Int> = d(6).pool(4).highest(2).evaluate(&SizeEvaluator).unwrap();
+/// assert_eq!(result, Die::from_weights([(Int::from(2), 1296u32)]));
+/// ```
 pub struct SizeEvaluator;
 
 impl<O> CountFold<O> for SizeEvaluator {
@@ -172,6 +215,14 @@ impl<O> CountFold<O> for SizeEvaluator {
 }
 
 /// Returns the product of all counts (`ProductOfCountsEvaluator`).
+///
+/// ```
+/// use icepool_core::evaluator::basic::ProductOfCountsEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(2).pool(3).product_of_counts()`: 0 unless both outcomes were rolled.
+/// let result: Die<Int> = d(2).pool(3).evaluate(&ProductOfCountsEvaluator).unwrap();
+/// assert_eq!(result, Die::from_weights([(Int::from(0), 2u32), (Int::from(2), 6)]));
+/// ```
 pub struct ProductOfCountsEvaluator;
 
 impl<O> CountFold<O> for ProductOfCountsEvaluator {
@@ -192,6 +243,16 @@ impl<O> CountFold<O> for ProductOfCountsEvaluator {
 }
 
 /// Returns `True` iff the multiset contains only zero counts (`EmptyEvaluator`); with `any=True`, the opposite.
+///
+/// ```
+/// use icepool_core::evaluator::basic::EmptyEvaluator;
+/// use icepool_core::{d, Die};
+/// // Python's `d(6).pool(2).highest(0).empty()` and `d(6).pool(2).any()`.
+/// let empty = d(6).pool(2).highest(0).evaluate(&EmptyEvaluator { any: false }).unwrap();
+/// assert_eq!(empty, Die::from_weights([(true, 36u32)]));
+/// let any = d(6).pool(2).evaluate(&EmptyEvaluator { any: true }).unwrap();
+/// assert_eq!(any, Die::from_weights([(true, 36u32)]));
+/// ```
 pub struct EmptyEvaluator {
     /// Whether the result is `any` (some count is nonzero) rather than `empty` (every count is zero).
     pub any: bool,

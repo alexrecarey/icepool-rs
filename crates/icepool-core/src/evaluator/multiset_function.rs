@@ -52,6 +52,22 @@ impl<T: Any + Eq + Hash> StateObject for T {
 }
 
 /// The state of a type-erased evaluator.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SizeEvaluator;
+/// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+/// use icepool_core::evaluator::Count;
+/// use icepool_core::{Int, Order};
+/// // Erased states compare as their own type does.
+/// let size = Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n) };
+/// let sizes = [Some(Count::Int(Int::from(2)))];
+/// let a = DynEvaluator::<i64, Int>::initial_state(&size, Order::Ascending, &[1, 2], &sizes).unwrap();
+/// let b = DynEvaluator::<i64, Int>::initial_state(&size, Order::Ascending, &[1, 2], &sizes).unwrap();
+/// assert!(a == b);
+/// let counts = [Count::Int(Int::from(1))];
+/// let c = size.next_state(&a, Order::Ascending, &1, &counts).unwrap().unwrap();
+/// assert!(a != c);
+/// ```
 #[derive(Clone)]
 pub struct AnyState(Arc<dyn StateObject>);
 
@@ -79,6 +95,23 @@ impl AnyState {
 }
 
 /// A [`MultisetEvaluator`] with its state type erased and its final outcomes converted to `F`.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SizeEvaluator;
+/// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+/// use icepool_core::evaluator::{Count, Final};
+/// use icepool_core::{Int, Order};
+/// // Evaluators of different state types behind one trait object, finals converted to a shared type.
+/// let size: Box<dyn DynEvaluator<i64, String>> =
+///     Box::new(Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n.to_string()) });
+/// let (order, outcomes) = (Order::Ascending, [1, 2]);
+/// let mut state = size.initial_state(order, &outcomes, &[None]).unwrap();
+/// for (outcome, count) in [(1, 2), (2, 1)] {
+///     state = size.next_state(&state, order, &outcome, &[Count::Int(Int::from(count))]).unwrap().unwrap();
+/// }
+/// let Final::Outcome(result) = size.final_outcome(&state, order, &outcomes, &[None]).unwrap() else { panic!() };
+/// assert_eq!(result, "3");
+/// ```
 pub trait DynEvaluator<O, F> {
     /// [`MultisetEvaluator::initial_state_counts`].
     fn initial_state(
@@ -144,6 +177,22 @@ impl<O, F, T: DynEvaluator<O, F> + ?Sized> DynEvaluator<O, F> for Arc<T> {
 }
 
 /// `evaluator` as a [`DynEvaluator`], its final outcomes converted by `map_final`.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::multiset_function::{DynEvaluator, Erased};
+/// use icepool_core::evaluator::{Count, Final};
+/// use icepool_core::{Int, Order};
+/// // A sum whose final outcome is converted to a string.
+/// let sum = Erased { evaluator: SumEvaluator, map_final: |s: i64| Ok(format!("sum {s}")) };
+/// let state = DynEvaluator::<i64, String>::initial_state(&sum, Order::Ascending, &[4], &[None]).unwrap();
+/// // Nothing summed yet: Python's `None`, which the result die refuses.
+/// assert!(matches!(sum.final_outcome(&state, Order::Ascending, &[4], &[None]), Ok(Final::None)));
+/// // Two 4s.
+/// let state = sum.next_state(&state, Order::Ascending, &4, &[Count::Int(Int::from(2))]).unwrap().unwrap();
+/// let Final::Outcome(result) = sum.final_outcome(&state, Order::Ascending, &[4], &[None]).unwrap() else { panic!() };
+/// assert_eq!(result, "sum 8");
+/// ```
 pub struct Erased<E, M> {
     /// The evaluator.
     pub evaluator: E,
@@ -207,6 +256,24 @@ where
 }
 
 /// The main side of a prepared `@multiset_function` evaluation, shaped like its call tree.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::multiset_function::{Call, Erased, MultisetFunction};
+/// use icepool_core::evaluator::{evaluate_call_tree, MultisetSource};
+/// use icepool_core::expression::{free_variable, CallTree, Dungeonlet};
+/// use icepool_core::{d, Die};
+/// use std::sync::Arc;
+/// // `@multiset_function def f(x): return x.sum()`, evaluated on `d(4).pool(2)`: the outer call passes its input
+/// // to one inner call, whose input is the parameter `x`.
+/// let x = Arc::from(vec![Dungeonlet::Parameter { arg_index: 0, star_index: None }]);
+/// let tree = CallTree { flats: vec![free_variable()], calls: vec![CallTree::leaf(vec![x])] };
+/// let sum = Call::Evaluator(Box::new(Erased { evaluator: SumEvaluator, map_final: Ok }));
+/// let f = MultisetFunction { call: Call::Function(Box::new(sum)), tupleize: Box::new(|_| unreachable!()) };
+/// let sources = [MultisetSource::Pool(d(4).pool(2).source())];
+/// let finals = evaluate_call_tree(&f, &tree, &sources, |_| Ok(())).unwrap();
+/// assert_eq!(Die::from_weights(finals), &d(4) + &d(4));
+/// ```
 pub enum Call<'a, O, F> {
     /// `MultisetEvaluatorDungeon` / `Quest` (an evaluation in the body, its kwargs bound in the evaluator), or
     /// `ConstantDungeon` / `Quest` (a result that is not an evaluation): no calls inside.
@@ -218,6 +285,18 @@ pub enum Call<'a, O, F> {
 }
 
 /// The main state of a call: an evaluator's own, or the tuple of a joint call's inner states.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SizeEvaluator;
+/// use icepool_core::evaluator::multiset_function::{CallState, DynEvaluator, Erased};
+/// use icepool_core::{Int, Order};
+/// let size = Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(n) };
+/// let leaf = CallState::Leaf(DynEvaluator::<i64, Int>::initial_state(&size, Order::Ascending, &[1], &[None]).unwrap());
+/// // A joint call of two sizes starts from both their initial states.
+/// let joint = CallState::Joint(vec![leaf.clone(), leaf.clone()].into());
+/// assert!(joint == CallState::Joint(vec![leaf.clone(), leaf.clone()].into()));
+/// assert!(joint != leaf);
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum CallState {
     /// An evaluator's own state.
@@ -227,10 +306,59 @@ pub enum CallState {
 }
 
 /// `icepool.tupleize(*final_outcomes)` for a joint call, as the caller does it.
+///
+/// ```
+/// use icepool_core::evaluator::multiset_function::Tupleize;
+/// use icepool_core::evaluator::Final;
+/// // Results that are vectors, tupleized by concatenating them; a reroll in any result rerolls the tuple.
+/// let tupleize: Box<Tupleize<Vec<i64>>> = Box::new(|finals| {
+///     let mut tuple = Vec::new();
+///     for f in finals {
+///         match f {
+///             Final::Outcome(f) => tuple.extend(f),
+///             other => return Ok(other),
+///         }
+///     }
+///     Ok(Final::Outcome(tuple))
+/// });
+/// let Ok(Final::Outcome(t)) = tupleize(vec![Final::Outcome(vec![1]), Final::Outcome(vec![2])]) else { panic!() };
+/// assert_eq!(t, vec![1, 2]);
+/// ```
 pub type Tupleize<'a, F> = dyn Fn(Vec<Final<F>>) -> Result<Final<F>> + 'a;
 
 /// A `@multiset_function` evaluation's main side: its outermost [`Call`] (always a `Function` or `Joint`) and how
 /// to tupleize joint results.
+///
+/// ```
+/// use icepool_core::evaluator::basic::{SizeEvaluator, SumEvaluator};
+/// use icepool_core::evaluator::multiset_function::{Call, Erased, MultisetFunction};
+/// use icepool_core::evaluator::{evaluate_call_tree, Final, MultisetSource};
+/// use icepool_core::expression::{free_variable, CallTree, Dungeonlet};
+/// use icepool_core::{Die, Int, Pool};
+/// use std::sync::Arc;
+/// // `@multiset_function def f(x): return x.sum(), x.size()` on the multiset `[2, 3]`: a joint call of two
+/// // evaluators, whose results are tupleized (here as a `Vec<i64>`).
+/// let x = || Arc::from(vec![Dungeonlet::Parameter { arg_index: 0, star_index: None }]);
+/// let tree = CallTree { flats: vec![free_variable()], calls: vec![CallTree::leaf(vec![x()]), CallTree::leaf(vec![x()])] };
+/// let sum = Erased { evaluator: SumEvaluator, map_final: |s: i64| Ok(vec![s]) };
+/// let size = Erased { evaluator: SizeEvaluator, map_final: |n: Int| Ok(vec![n.to_i64().unwrap()]) };
+/// let f = MultisetFunction {
+///     call: Call::Joint(vec![Call::Evaluator(Box::new(sum)), Call::Evaluator(Box::new(size))]),
+///     tupleize: Box::new(|finals| {
+///         let mut tuple = Vec::new();
+///         for f in finals {
+///             match f {
+///                 Final::Outcome(f) => tuple.extend(f),
+///                 other => return Ok(other),
+///             }
+///         }
+///         Ok(Final::Outcome(tuple))
+///     }),
+/// };
+/// let pool = Pool::new(vec![(Die::single(2), 1), (Die::single(3), 1)]).unwrap();
+/// let finals = evaluate_call_tree(&f, &tree, &[MultisetSource::Pool(pool.source())], |_| Ok(())).unwrap();
+/// assert_eq!(Die::from_weights(finals), Die::single(vec![5, 2]));
+/// ```
 pub struct MultisetFunction<'a, O, F> {
     /// The outermost call.
     pub call: Call<'a, O, F>,

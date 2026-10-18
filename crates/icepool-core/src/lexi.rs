@@ -5,6 +5,15 @@ use crate::error::{Error, Result};
 
 /// A comparison between two multisets as icepool names it (`'==', '!=', '<=', '<', '>=', '>'` or `'cmp'`).
 /// Parsing happens where Python looks the string up, so an invalid one raises there.
+///
+/// ```
+/// use icepool_core::evaluator::lexi::compute_lexi_tuple;
+/// // `(left_first, tie, right_first)`: `<` holds if the left side has the first lower element.
+/// assert_eq!(compute_lexi_tuple("<", 1).unwrap(), (1, 0, 0));
+/// // Descending order swaps the two sides' results.
+/// assert_eq!(compute_lexi_tuple("<", -1).unwrap(), (0, 0, 1));
+/// assert!(compute_lexi_tuple("<>", 1).is_err());
+/// ```
 pub fn compute_lexi_tuple(comparison: &str, order: i64) -> Result<(i64, i64, i64)> {
     // A 3-tuple representing a lexicographic comparison between two multisets:
     // * left_first: The result if the left side had the first different element and it was paired with a later
@@ -33,6 +42,13 @@ pub fn compute_lexi_tuple(comparison: &str, order: i64) -> Result<(i64, i64, i64
 
 /// As [`compute_lexi_tuple`], but also computes an order such that right_first is 0. Returns the tuple and the
 /// order (`1` ascending, `-1` descending). Only the program runner calls it (the Python facade runs lexi.py's own).
+///
+/// ```
+/// use icepool_core::evaluator::lexi::compute_lexi_tuple_with_zero_right_first;
+/// assert_eq!(compute_lexi_tuple_with_zero_right_first("<=").unwrap(), ((1, 1, 0), 1));
+/// // `>=` is `(0, 1, 1)` ascending: descending order puts the zero last.
+/// assert_eq!(compute_lexi_tuple_with_zero_right_first(">=").unwrap(), ((1, 1, 0), -1));
+/// ```
 pub fn compute_lexi_tuple_with_zero_right_first(
     comparison: &str,
 ) -> Result<((i64, i64, i64), i64)> {
@@ -50,6 +66,14 @@ pub fn compute_lexi_tuple_with_zero_right_first(
 /// * left_extra: The result if the left side had the first different element and it was never paired with a
 ///   right side element.
 /// * right_extra: As left_extra but vice versa.
+///
+/// ```
+/// use icepool_core::evaluator::lexi::compute_lexi_tuple_with_extra;
+/// // `(left_first, left_extra, tie, right_extra, right_first)`. Ascending, extra elements count `high`: they come
+/// // late, so an extra left element makes the left side greater.
+/// assert_eq!(compute_lexi_tuple_with_extra("<", 1, "high").unwrap(), (1, 0, 0, 1, 0));
+/// assert_eq!(compute_lexi_tuple_with_extra("<", 1, "drop").unwrap(), (1, 0, 0, 0, 0));
+/// ```
 pub fn compute_lexi_tuple_with_extra(
     comparison: &str,
     order: i64,

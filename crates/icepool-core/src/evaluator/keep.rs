@@ -9,6 +9,17 @@ use crate::Int;
 ///
 /// The attached generator or expression must produce enough values to reach the sorted index; otherwise, this
 /// raises `IndexError`. Negative incoming counts are treated as zero counts.
+///
+/// ```
+/// use icepool_core::evaluator::keep::KeepEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(6).pool(2).keep(0)`: the lowest of two d6.
+/// let lowest = d(6).pool(2).evaluate(&KeepEvaluator { index: Some(Int::from(0)) }).unwrap();
+/// assert_eq!(lowest, Die::from_weights([(1, 11u32), (2, 9), (3, 7), (4, 5), (5, 3), (6, 1)]));
+/// // `keep(-1)`: the highest of two d4.
+/// let highest = d(4).pool(2).evaluate(&KeepEvaluator { index: Some(Int::from(-1)) }).unwrap();
+/// assert_eq!(highest, Die::from_weights([(1, 1u32), (2, 3), (3, 5), (4, 7)]));
+/// ```
 pub struct KeepEvaluator {
     /// The `index=` keyword. `None` (what `pool[int]` passes, after keeping the one roll) takes the first element
     /// seen.

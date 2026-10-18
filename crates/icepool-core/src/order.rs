@@ -11,6 +11,15 @@ use crate::Int;
 ///
 /// Python's `Order` is an `IntEnum`; sources test it as a number (`order > 0` pops the min outcome, anything else
 /// the max), so `Any` pops like `Descending`.
+///
+/// ```
+/// use icepool_core::Order;
+/// assert_eq!(-Order::Ascending, Order::Descending);
+/// assert_eq!(-Order::Any, Order::Any);
+/// assert_eq!(Order::from_int(-1), Some(Order::Descending));
+/// assert_eq!((Order::Ascending.value(), Order::Ascending.name()), (1, "Ascending"));
+/// assert!(!Order::Any.is_ascending());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
     /// Smallest outcome first.
@@ -65,6 +74,16 @@ impl Neg for Order {
 }
 
 /// Greater values represent higher priorities, which strictly override lower priorities.
+///
+/// ```
+/// use icepool_core::evaluator::{Order, OrderReason};
+/// use icepool_core::d;
+/// assert!(OrderReason::Mandatory > OrderReason::PoolComposition);
+/// assert_eq!(OrderReason::from_int(2), Some(OrderReason::KeepSkip));
+/// // Keeping the lowest die of three, a pool prefers to pop from the bottom.
+/// let source = d(6).pool(3).lowest(1).source();
+/// assert_eq!(source.order_preference(), (Order::Ascending, OrderReason::KeepSkip));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OrderReason {
     /// There is no preference for either pop order.

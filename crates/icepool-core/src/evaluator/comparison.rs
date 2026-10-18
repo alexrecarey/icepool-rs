@@ -9,6 +9,17 @@ use crate::Int;
 count_fold_evaluators!(ComparisonEvaluator);
 
 /// Which comparison a `ComparisonEvaluator` makes.
+///
+/// ```
+/// use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{d, Die, Pool};
+/// // Python's `d(3).pool(2).isdisjoint([3])`: neither die rolled a 3.
+/// let three = Pool::new(vec![(Die::single(3), 1)]).unwrap();
+/// let sources = [MultisetSource::Pool(d(3).pool(2).source()), MultisetSource::Pool(three.source())];
+/// let result = evaluate(&ComparisonEvaluator(Comparison::IsDisjointSet), &sources).unwrap();
+/// assert_eq!(Die::from_weights(result), Die::from_weights([(false, 5u32), (true, 4)]));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Comparison {
     /// `<`: a proper subset.
@@ -28,6 +39,17 @@ pub enum Comparison {
 }
 
 /// Compares the multisets produced by two generators (`ComparisonEvaluator` and its subclasses).
+///
+/// ```
+/// use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{d, Die, Pool};
+/// // Python's `d(3).pool(2).issubset([1, 2])`: only the rolls 1, 2 and 2, 1.
+/// let one_two = Pool::new(vec![(Die::single(1), 1), (Die::single(2), 1)]).unwrap();
+/// let sources = [MultisetSource::Pool(d(3).pool(2).source()), MultisetSource::Pool(one_two.source())];
+/// let result = evaluate(&ComparisonEvaluator(Comparison::IsSubset), &sources).unwrap();
+/// assert_eq!(Die::from_weights(result), Die::from_weights([(false, 7u32), (true, 2)]));
+/// ```
 pub struct ComparisonEvaluator(pub Comparison);
 
 impl ComparisonEvaluator {
@@ -65,6 +87,15 @@ impl ComparisonEvaluator {
 }
 
 /// `next_state` given this outcome's `(this_any, this_all)`.
+///
+/// ```
+/// use icepool_core::evaluator::comparison::step;
+/// // `(has_any, has_all)`: once some outcome fails the "all" test, nothing can set "any" again.
+/// let state = step(None, (true, true));
+/// assert_eq!(state, (true, true));
+/// let state = step(Some(state), (false, false));
+/// assert_eq!(step(Some(state), (true, true)), (false, false));
+/// ```
 pub fn step(state: Option<(bool, bool)>, (this_any, this_all): (bool, bool)) -> (bool, bool) {
     let (has_any, has_all) = state.unwrap_or((false, true));
     let has_all = has_all && this_all;

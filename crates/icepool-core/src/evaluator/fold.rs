@@ -14,6 +14,15 @@ use crate::Int;
 
 /// An evaluator that folds `(outcome, counts)` into a state and reads its result off the final state: no sizes,
 /// no rerolls.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SizeEvaluator;
+/// use icepool_core::evaluator::fold::CountFold;
+/// use icepool_core::{Int, Order};
+/// // A size fold adds each outcome's count to the state.
+/// let state = CountFold::<i64>::fold(&SizeEvaluator, &Int::from(2), Order::Ascending, &6, &[Int::from(3)]);
+/// assert_eq!(state.unwrap(), Int::from(5));
+/// ```
 pub trait CountFold<O> {
     /// The state. Python's starts as `None` unless `initial_state` says otherwise; here that is `Default` (an
     /// `Option`, or a value Python's `state or ...` treats the same as `None`).

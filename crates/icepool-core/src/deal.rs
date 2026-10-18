@@ -205,6 +205,18 @@ impl<O: Outcome> Deal<O> {
 ///
 /// Equality and hashing follow `hash_key` `(DealSource, deck, keep_tuple)`. The deck only ever loses its min or
 /// max outcome, so its outcomes are a window `lo..hi` of the first deck's, shared by every source popped from it.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{Deal, Deck, Die, Int, Quantity};
+/// // Python's `Deal(Deck([1, 2, 3, 4]), 2).sum()`.
+/// let deck = Deck::from_dict((1..=4).map(|o| (o, Quantity::ONE)).collect()).unwrap();
+/// let source = Deal::new(deck, &2.into()).unwrap().source();
+/// assert_eq!((source.outcomes(), source.size()), (&[1, 2, 3, 4][..], Some(Int::from(2))));
+/// let sum = evaluate(&SumEvaluator, &[MultisetSource::Deal(source)]).unwrap();
+/// assert_eq!(Die::from_weights(sum), Die::from_weights([(3, 1u32), (4, 1), (5, 2), (6, 1), (7, 1)]));
+/// ```
 #[derive(Clone, Debug)]
 pub struct DealSource<O> {
     deck: Deck<O>,

@@ -404,6 +404,16 @@ impl<O: Outcome> Pool<O> {
 /// outcome; `MultiDeal` (a `MultisetTupleSource`) a tuple of counts, one per hand. `CompoundKeep` is the additive
 /// union of other keep generators' sources. `Weightless` wraps another source with every weight set to 1
 /// (`MultisetGenerator.weightless()`).
+///
+/// ```
+/// use icepool_core::evaluator::{Count, MultisetSource, Order, OrderReason};
+/// use icepool_core::{d, Int};
+/// let source = MultisetSource::Pool(d(6).pool(4).highest(1).source());
+/// assert_eq!(source.outcomes().unwrap(), [1, 2, 3, 4, 5, 6]);
+/// assert_eq!(source.size().unwrap(), Some(Count::Int(Int::from(1))));
+/// // Keeping only the highest die, it is quicker to pop from the top.
+/// assert_eq!(source.order_preference().unwrap(), (Order::Descending, OrderReason::KeepSkip));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MultisetSource<O> {
     /// A [`Pool`].
@@ -421,10 +431,28 @@ pub enum MultisetSource<O> {
 }
 
 /// One possibility after popping an outcome: the rest of the source, the count of the popped outcome, its weight.
+///
+/// ```
+/// use icepool_core::evaluator::{Order, PoolSource, Popped};
+/// use icepool_core::{d, Int, Quantity};
+/// // Popping the 1s off 2d2: none (one way), one (two ways) or both (one way).
+/// let popped: Vec<Popped<PoolSource<i64>>> = d(2).pool(2).source().pop(Order::Ascending, &1).unwrap();
+/// let counts: Vec<(Int, Quantity)> = popped.into_iter().map(|(_, count, weight)| (count, weight)).collect();
+/// let q = Quantity::from;
+/// assert_eq!(counts, [(Int::from(0), q(1u8)), (Int::from(1), q(2u8)), (Int::from(2), q(1u8))]);
+/// ```
 pub type Popped<S> = (S, Int, Quantity);
 
 /// What a source produces for one outcome, and its size: an `int` (multiset generators) or a tuple of `int`s
 /// (multiset tuple generators). The evaluator's `next_state` receives it as is.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, MultisetSource};
+/// use icepool_core::{d, Int};
+/// // A pool's size is one `int`.
+/// let source = MultisetSource::Pool(d(6).pool(3).source());
+/// assert_eq!(source.size().unwrap(), Some(Count::Int(Int::from(3))));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Count {
     /// One count.
@@ -434,6 +462,17 @@ pub enum Count {
 }
 
 /// A source's possibilities as the driver sees them.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, MultisetSource, Order, SourcePopped};
+/// use icepool_core::{d, Int};
+/// let source = MultisetSource::Pool(d(2).pool(2).source());
+/// let popped: Vec<SourcePopped<i64>> = source.pop(Order::Ascending, &1).unwrap();
+/// let counts: Vec<Count> = popped.into_iter().map(|(_, count, _)| count).collect();
+/// assert_eq!(counts, [0, 1, 2].map(|c| Count::Int(Int::from(c))));
+/// // Outcome 2 is not the one ascending order pops: nothing changes.
+/// assert_eq!(source.pop(Order::Ascending, &2).unwrap().len(), 1);
+/// ```
 pub type SourcePopped<O> = (MultisetSource<O>, Count, Quantity);
 
 fn int_popped<S, O>(
@@ -535,6 +574,15 @@ impl<O: OutcomeOrder> MultisetSource<O> {
 ///
 /// Equality and hashing follow Python's `hash_key` `(PoolSource, dice, keep_tuple)`: the outcomes are not part of
 /// it.
+///
+/// ```
+/// use icepool_core::{d, Int};
+/// let source = d(6).pool(3).highest(2).source();
+/// assert_eq!(source.outcomes(), [1, 2, 3, 4, 5, 6]);
+/// assert_eq!(source.keep_tuple(), [0, 1, 1].map(Int::from));
+/// assert_eq!(source.size(), Some(Int::from(2)));
+/// assert_eq!(source, d(6).pool(3).highest(2).source());
+/// ```
 #[derive(Clone, Debug)]
 pub struct PoolSource<O> {
     dice: Dice<O>,

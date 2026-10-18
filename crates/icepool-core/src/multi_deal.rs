@@ -22,6 +22,17 @@ use crate::pool::MAX_POOL_SIZE;
 use crate::{Int, Quantity};
 
 /// A hand group: `(hand_size, group_size)`, `group_size` hands of `hand_size` cards each.
+///
+/// ```
+/// use icepool_core::evaluator::HandGroup;
+/// use icepool_core::{Deck, MultiDeal, Quantity};
+/// // Python's `MultiDeal(Deck([1, 2, 3, 4]), (2, 1), (1, 2))`: one hand of two cards, then two of one.
+/// let deck = Deck::from_dict((1..=4).map(|o| (o, Quantity::ONE)).collect()).unwrap();
+/// let deal = MultiDeal::new(deck, &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+/// let groups: &[HandGroup] = deal.hand_groups();
+/// assert_eq!(groups, [(2, 1), (1, 2)]);
+/// assert_eq!(deal.hand_sizes(), [2, 1, 1]);
+/// ```
 pub type HandGroup = (usize, usize);
 
 /// `hand_sizes()`: the number of cards dealt to each hand as a flat tuple.
@@ -170,6 +181,18 @@ pub type TuplePopped<S> = (S, Arc<[Int]>, Quantity);
 ///
 /// Equality and hashing follow `hash_key` `(MultiDealSource, deck, hand_groups)`. As for `DealSource`, the deck
 /// only ever loses its min or max outcome, so its outcomes are a window `lo..hi` of the first deck's.
+///
+/// ```
+/// use icepool_core::evaluator::{Order, OrderReason};
+/// use icepool_core::{Deck, Int, MultiDeal, Quantity};
+/// // Two hands of one card each from `[1, 2, 3]`.
+/// let deck = Deck::from_dict((1..=3).map(|o| (o, Quantity::ONE)).collect()).unwrap();
+/// let source = MultiDeal::new(deck, &[(1.into(), 2.into())]).unwrap().source();
+/// assert_eq!(source.outcomes(), [1, 2, 3]);
+/// // A tuple source's size is one size per hand.
+/// assert_eq!(&*source.size(), [Int::from(1), Int::from(1)]);
+/// assert_eq!(source.order_preference(), (Order::Any, OrderReason::NoPreference));
+/// ```
 #[derive(Clone, Debug)]
 pub struct MultiDealSource<O> {
     deck: Deck<O>,

@@ -8,6 +8,26 @@ use crate::order::Order;
 use crate::Int;
 
 /// What to do with an outcome that appears in more than one multiset.
+///
+/// ```
+/// use icepool_core::evaluator::argsort::{ArgsortEvaluator, Tie};
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{Die, Int, Order, Pool};
+/// let multiset = |outcomes: &[i64]| {
+///     let dice = outcomes.iter().map(|&o| (Die::single(o), 1)).collect();
+///     MultisetSource::Pool(Pool::new(dice).unwrap().source())
+/// };
+/// // Python's `MultisetExpression.argsort([3, 1], [3, 2], tie=tie)`, descending: the 3s tie.
+/// let argsort = |tie| {
+///     let evaluator: ArgsortEvaluator = ArgsortEvaluator { tie, order: Order::Descending, limit: None, limit_pad: None };
+///     let result = evaluate(&evaluator, &[multiset(&[3, 1]), multiset(&[3, 2])]).unwrap();
+///     result[0].0.clone()
+/// };
+/// let ints = |xs: &[i64]| xs.iter().map(|&x| Int::from(x)).collect::<Vec<_>>();
+/// assert_eq!(argsort(Tie::Drop), ints(&[1, 0]));
+/// assert_eq!(argsort(Tie::Left), ints(&[0, 1, 1, 0]));
+/// assert_eq!(argsort(Tie::Right), ints(&[1, 0, 1, 0]));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tie {
     /// `ArgsortEvaluatorDrop`: one element of that outcome is dropped from each multiset. This is repeated until
@@ -22,6 +42,13 @@ pub enum Tie {
 
 /// The order an argsort evaluator is to be evaluated in (`order=`): an [`Order`]. Python takes whatever the caller
 /// passed and compares the evaluation's `Order` with it by `!=`, so the `Value` layer passes a value.
+///
+/// ```
+/// use icepool_core::evaluator::argsort::RequestedOrder;
+/// use icepool_core::Order;
+/// assert!(Order::Descending.differs_from(Order::Ascending).unwrap());
+/// assert!(!Order::Descending.differs_from(Order::Descending).unwrap());
+/// ```
 pub trait RequestedOrder {
     /// `order != self._order`.
     fn differs_from(&self, order: Order) -> Result<bool>;
@@ -53,6 +80,20 @@ fn below(len: usize, limit: Option<i64>) -> bool {
 ///
 /// The result is a tuple of indexes (`P`, an [`Int`] unless the `Value` layer says otherwise), padded with
 /// `limit_pad` if given.
+///
+/// ```
+/// use icepool_core::evaluator::argsort::{ArgsortEvaluator, Tie};
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{d, Die, Int, Order};
+/// // Python's `MultisetExpression.argsort(d(6).pool(1), d(6).pool(1), tie='drop', limit=1, limit_pad=-1)`:
+/// // which of two d6 rolled higher, `-1` on a tie.
+/// let evaluator: ArgsortEvaluator =
+///     ArgsortEvaluator { tie: Tie::Drop, order: Order::Descending, limit: Some(1), limit_pad: Some(Int::from(-1)) };
+/// let die = MultisetSource::Pool(d(6).pool(1).source());
+/// let result = Die::from_weights(evaluate(&evaluator, &[die.clone(), die]).unwrap());
+/// let i = |x: i64| vec![Int::from(x)];
+/// assert_eq!(result, Die::from_weights([(i(-1), 6u32), (i(0), 15), (i(1), 15)]));
+/// ```
 pub struct ArgsortEvaluator<W = Order, P = Int> {
     /// How tied elements are ordered.
     pub tie: Tie,
@@ -167,6 +208,21 @@ impl<O, W: RequestedOrder, P: Clone + From<i64>> MultisetEvaluator<O> for Argsor
 
 /// `ArgsortGroupedEvaluator`: as argsort, but all ties are grouped together, giving a tuple for each rank rather
 /// than a single `int`.
+///
+/// ```
+/// use icepool_core::evaluator::argsort::ArgsortGroupedEvaluator;
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{Die, Int, Order, Pool};
+/// let multiset = |outcomes: &[i64]| {
+///     let dice = outcomes.iter().map(|&o| (Die::single(o), 1)).collect();
+///     MultisetSource::Pool(Pool::new(dice).unwrap().source())
+/// };
+/// // Python's `MultisetExpression.argsort_grouped([10, 9, 5], [9, 9])`: `((0,), (0, 1, 1), (0,))`.
+/// let evaluator: ArgsortGroupedEvaluator = ArgsortGroupedEvaluator { order: Order::Descending, limit: None };
+/// let result = evaluate(&evaluator, &[multiset(&[10, 9, 5]), multiset(&[9, 9])]).unwrap();
+/// let ints = |xs: &[i64]| xs.iter().map(|&x| Int::from(x)).collect::<Vec<_>>();
+/// assert_eq!(result[0].0, vec![ints(&[0]), ints(&[0, 1, 1]), ints(&[0])]);
+/// ```
 pub struct ArgsortGroupedEvaluator<W = Order> {
     /// Which order the ranks are to be emitted in.
     pub order: W,

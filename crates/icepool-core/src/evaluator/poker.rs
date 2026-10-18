@@ -33,6 +33,13 @@ count_fold_evaluators!(
 pub(crate) const MAX_CONSECUTIVE: usize = 1 << 20;
 
 /// Integer outcomes: what the straight evaluators need.
+///
+/// ```
+/// use icepool_core::evaluator::poker::IntegerOutcome;
+/// use icepool_core::Int;
+/// assert_eq!(i64::consecutive(&[2, 5]).unwrap(), vec![2, 3, 4, 5]);
+/// assert_eq!(7i64.try_sub_int(&Int::from(3)).unwrap(), 4);
+/// ```
 pub trait IntegerOutcome: OutcomeOrder {
     /// `MultisetEvaluator.consecutive`: all `int`s from the min outcome to the max outcome among the inputs
     /// (`outcomes`, sorted), inclusive.
@@ -78,6 +85,12 @@ integer_outcome!(i8, i16, i32, i64, i128, isize);
 
 /// The truth value of what a wild selector returns: Python only asks for it where it branches on it, and for some
 /// values (a `Vector`) asking raises.
+///
+/// ```
+/// use icepool_core::evaluator::poker::Truth;
+/// assert!(true.truth().unwrap());
+/// assert!(!false.truth().unwrap());
+/// ```
 pub trait Truth {
     /// The truth value (Python's `bool(x)`), or why there is none.
     fn truth(&self) -> Result<bool>;
@@ -90,6 +103,17 @@ impl Truth for bool {
 }
 
 /// `AllCountsEvaluator`'s `filter`: which counts are kept.
+///
+/// ```
+/// use icepool_core::evaluator::poker::CountFilter;
+/// use icepool_core::Int;
+/// // `filter='all'` keeps every count; `filter=2` only pairs and better.
+/// let all: Option<Int> = None;
+/// assert!(all.keeps(&Int::from(0)).unwrap());
+/// let pairs = Some(Int::from(2));
+/// assert!(!pairs.keeps(&Int::from(1)).unwrap());
+/// assert!(pairs.keeps(&Int::from(3)).unwrap());
+/// ```
 pub trait CountFilter {
     /// `self._filter == 'all' or count >= self._filter`.
     fn keeps(&self, count: &Int) -> Result<bool>;
@@ -111,6 +135,16 @@ fn sorted_descending(mut xs: Vec<Int>) -> Vec<Int> {
 /// The highest outcome that has positive count, along with that count (`HighestOutcomeAndCountEvaluator`).
 ///
 /// If no outcomes have positive count, the result is the min outcome with a count of 0.
+///
+/// ```
+/// use icepool_core::evaluator::poker::HighestOutcomeAndCountEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(3).pool(2).highest_outcome_and_count()`.
+/// let result: Die<(i64, Int)> = d(3).pool(2).evaluate(&HighestOutcomeAndCountEvaluator).unwrap();
+/// let i = |x: i64| Int::from(x);
+/// let expected = [((1, i(2)), 1u32), ((2, i(1)), 2), ((2, i(2)), 1), ((3, i(1)), 4), ((3, i(2)), 1)];
+/// assert_eq!(result, Die::from_weights(expected));
+/// ```
 pub struct HighestOutcomeAndCountEvaluator;
 
 impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
@@ -150,6 +184,16 @@ impl<O: OutcomeOrder> CountFold<O> for HighestOutcomeAndCountEvaluator {
 
 /// All counts in descending order (`AllCountsEvaluator`). In other words, this produces tuples of the sizes of all
 /// matching sets.
+///
+/// ```
+/// use icepool_core::evaluator::poker::AllCountsEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(3).pool(3).all_counts(filter=2)`: no pair, a pair, or three of a kind.
+/// let evaluator = AllCountsEvaluator { filter: Some(Int::from(2)) };
+/// let result: Die<Vec<Int>> = d(3).pool(3).evaluate(&evaluator).unwrap();
+/// let expected = [(vec![], 6u32), (vec![Int::from(2)], 18), (vec![Int::from(3)], 3)];
+/// assert_eq!(result, Die::from_weights(expected));
+/// ```
 pub struct AllCountsEvaluator<F = Option<Int>> {
     /// Any counts below this value will not be in the output. For example, `filter=2` will only produce pairs and
     /// better. If `'all'` (`None`), no filtering will be done.
@@ -183,6 +227,14 @@ impl<O: Clone, F: CountFilter> CountFold<O> for AllCountsEvaluator<F> {
 }
 
 /// The largest count of any outcome (`LargestCountEvaluator`).
+///
+/// ```
+/// use icepool_core::evaluator::poker::LargestCountEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(3).pool(3).largest_count()`.
+/// let result: Die<Int> = d(3).pool(3).evaluate(&LargestCountEvaluator).unwrap();
+/// assert_eq!(result, Die::from_weights([(Int::from(1), 6u32), (Int::from(2), 18), (Int::from(3), 3)]));
+/// ```
 pub struct LargestCountEvaluator;
 
 impl<O> CountFold<O> for LargestCountEvaluator {
@@ -219,6 +271,15 @@ fn max_pair<O: OutcomeOrder>(a: (Int, O), b: (Int, O)) -> Result<(Int, O)> {
 }
 
 /// The largest count of any outcome, along with that outcome (`LargestCountAndOutcomeEvaluator`).
+///
+/// ```
+/// use icepool_core::evaluator::poker::LargestCountAndOutcomeEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(2).pool(2).largest_count_and_outcome()`: ties between counts go to the higher outcome.
+/// let result: Die<(Int, i64)> = d(2).pool(2).evaluate(&LargestCountAndOutcomeEvaluator).unwrap();
+/// let i = |x: i64| Int::from(x);
+/// assert_eq!(result, Die::from_weights([((i(1), 2), 2u32), ((i(2), 1), 1), ((i(2), 2), 1)]));
+/// ```
 pub struct LargestCountAndOutcomeEvaluator;
 
 impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
@@ -245,6 +306,20 @@ impl<O: OutcomeOrder> CountFold<O> for LargestCountAndOutcomeEvaluator {
 }
 
 /// The number of times the right side is contained in the left side (`CountSubsetEvaluator`).
+///
+/// ```
+/// use icepool_core::evaluator::poker::CountSubsetEvaluator;
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{Die, Int, Pool, Quantity};
+/// let multiset = |outcomes: &[i64]| {
+///     let dice = outcomes.iter().map(|&o| (Die::single(o), 1)).collect();
+///     MultisetSource::Pool(Pool::new(dice).unwrap().source())
+/// };
+/// // Python's `Pool([1, 1, 2, 2, 2]).count_subset([1, 2])`: `[1, 2]` fits twice.
+/// let evaluator = CountSubsetEvaluator::<Int> { empty_divisor: None };
+/// let result = evaluate(&evaluator, &[multiset(&[1, 1, 2, 2, 2]), multiset(&[1, 2])]).unwrap();
+/// assert_eq!(result, vec![(Int::from(2), Quantity::ONE)]);
+/// ```
 pub struct CountSubsetEvaluator<D = Int> {
     /// If the divisor is empty, the outcome will be this. If not set (`None`), `ZeroDivisionError` will be raised
     /// for an empty right side.
@@ -289,6 +364,14 @@ impl<O, D: Clone + From<Int>> CountFold<O> for CountSubsetEvaluator<D> {
 }
 
 /// The size of the largest straight (`LargestStraightEvaluator`). Outcomes must be `int`s.
+///
+/// ```
+/// use icepool_core::evaluator::poker::LargestStraightEvaluator;
+/// use icepool_core::{d, Die, Int};
+/// // Python's `d(4).pool(3).largest_straight()`.
+/// let result: Die<Int> = d(4).pool(3).evaluate(&LargestStraightEvaluator).unwrap();
+/// assert_eq!(result, Die::from_weights([(Int::from(1), 22u32), (Int::from(2), 30), (Int::from(3), 12)]));
+/// ```
 pub struct LargestStraightEvaluator;
 
 impl<O: IntegerOutcome> CountFold<O> for LargestStraightEvaluator {
@@ -319,6 +402,17 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightEvaluator {
 /// straight (`LargestStraightAndOutcomeEvaluator`).
 ///
 /// Straight size is prioritized first, then the outcome. Outcomes must be `int`s.
+///
+/// ```
+/// use icepool_core::evaluator::poker::LargestStraightAndOutcomeEvaluator;
+/// use icepool_core::{Die, Int, Pool};
+/// // Python's `Pool([1, 2, 4, 5]).largest_straight_and_outcome(priority)`: two straights of 2.
+/// let pool = Pool::new([1, 2, 4, 5].map(|o| (Die::single(o), 1)).to_vec()).unwrap();
+/// let high = pool.evaluate(&LargestStraightAndOutcomeEvaluator { prioritize_highest: true }).unwrap();
+/// assert_eq!(high, Die::single((Int::from(2), 5)));
+/// let low = pool.evaluate(&LargestStraightAndOutcomeEvaluator { prioritize_highest: false }).unwrap();
+/// assert_eq!(low, Die::single((Int::from(2), 1)));
+/// ```
 pub struct LargestStraightAndOutcomeEvaluator {
     /// `priority='high'`: controls which outcome within the straight is returned, and which straight is picked if
     /// there is a tie for largest straight.
@@ -386,6 +480,15 @@ impl<O: IntegerOutcome> CountFold<O> for LargestStraightAndOutcomeEvaluator {
 ///
 /// Each element can only contribute to one straight, though duplicate elements can produces straights that
 /// overlap in outcomes. In this case, elements are preferentially assigned to the longer straight.
+///
+/// ```
+/// use icepool_core::evaluator::poker::AllStraightsEvaluator;
+/// use icepool_core::{Die, Int, Pool};
+/// // Python's `Pool([1, 2, 2, 3, 5]).all_straights()`: 1-2-3, then the spare 2, then 5.
+/// let pool = Pool::new([1, 2, 2, 3, 5].map(|o| (Die::single(o), 1)).to_vec()).unwrap();
+/// let result = pool.evaluate(&AllStraightsEvaluator).unwrap();
+/// assert_eq!(result, Die::single([3, 1, 1].map(Int::from).to_vec()));
+/// ```
 pub struct AllStraightsEvaluator;
 
 impl<O: IntegerOutcome> CountFold<O> for AllStraightsEvaluator {
@@ -435,6 +538,17 @@ impl<O: IntegerOutcome> CountFold<O> for AllStraightsEvaluator {
 /// any other collection becomes a `frozenset` tested with `in`. The caller builds them, returning the selector's
 /// result as is ([`Truth`]): Python only takes its truth value where it uses it (`is_wild or ...`,
 /// `if is_wild_early`, `if is_wild_late`), and a result without one (a `Vector` from `identity`) raises only there.
+///
+/// ```
+/// use icepool_core::evaluator::poker::LargestCountWithWildEvaluator;
+/// use icepool_core::{d, Die, Int, Result};
+/// // Python's `d(3).pool(2).largest_count(wild=[3])`: a 3 pairs up with anything.
+/// let wild: fn(&i64) -> Result<bool> = |&o| Ok(o == 3);
+/// let nothing: fn(&i64) -> Result<bool> = |_| Ok(false);
+/// let evaluator = LargestCountWithWildEvaluator::new(wild, nothing, nothing);
+/// let result: Die<Int> = d(3).pool(2).evaluate(&evaluator).unwrap();
+/// assert_eq!(result, Die::from_weights([(Int::from(1), 2u32), (Int::from(2), 7)]));
+/// ```
 pub struct LargestCountWithWildEvaluator<S, T = bool> {
     /// These outcomes' counts are combined with the counts of any other outcomes.
     pub wild: S,
@@ -531,6 +645,19 @@ impl<O, T: Truth + Clone, S: Fn(&O) -> Result<T>> CountFold<O>
 ///
 /// This can be used to evaluate e.g. cribbage-style straight counting. The result is a tuple of
 /// `(run_length, run_score)`s; a run's score starts as its first count (`S::from`).
+///
+/// ```
+/// use icepool_core::evaluator::poker::AllStraightsReduceCountsEvaluator;
+/// use icepool_core::{Die, Int, Pool, Result};
+/// // Python's `Pool([1, 2, 2, 3, 5]).all_straights_reduce_counts()`: cribbage scores the run 1-2-3 twice.
+/// let evaluator = AllStraightsReduceCountsEvaluator::<_, Int>::new(|score: &Int, count: &Int| -> Result<Int> {
+///     Ok(score * count)
+/// });
+/// let pool = Pool::new([1, 2, 2, 3, 5].map(|o| (Die::single(o), 1)).to_vec()).unwrap();
+/// let result = pool.evaluate(&evaluator).unwrap();
+/// let i = |x: i64| Int::from(x);
+/// assert_eq!(result, Die::single(vec![(i(3), i(2)), (i(1), i(1))]));
+/// ```
 pub struct AllStraightsReduceCountsEvaluator<R, S = Int> {
     /// How to reduce the counts within each straight. The default is `operator.mul`, which counts the number of
     /// ways to pick elements for each straight, e.g. cribbage.

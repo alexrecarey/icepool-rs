@@ -50,6 +50,33 @@ use crate::Quantity;
 
 /// What `final_outcome` produced: an outcome for the result `Die`, `icepool.Reroll` (dropped), or `None` (which
 /// `finalize_evaluation` refuses with `TypeError`).
+///
+/// ```
+/// use icepool_core::evaluator::{Final, MultisetEvaluator};
+/// use icepool_core::{d, Die, Int, Order, Result};
+/// /// The highest roll, rerolling the whole pool if that is a 1.
+/// struct HighestNoOnes;
+/// impl MultisetEvaluator<i64> for HighestNoOnes {
+///     type State = Option<i64>;
+///     type Final = i64;
+///     fn initial_state(&self, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Option<i64>> {
+///         Ok(None)
+///     }
+///     fn next_state(&self, state: &Option<i64>, _: Order, outcome: &i64, counts: &[Int]) -> Result<Option<Option<i64>>> {
+///         let highest = if counts[0].is_positive() { Some(state.map_or(*outcome, |s| s.max(*outcome))) } else { *state };
+///         Ok(Some(highest))
+///     }
+///     fn final_outcome(&self, state: &Option<i64>, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Final<i64>> {
+///         Ok(match *state {
+///             Some(1) => Final::Reroll,
+///             Some(highest) => Final::Outcome(highest),
+///             None => Final::None,
+///         })
+///     }
+/// }
+/// let result = d(6).pool(2).evaluate(&HighestNoOnes).unwrap();
+/// assert_eq!(result, Die::from_weights([(2, 3u32), (3, 5), (4, 7), (5, 9), (6, 11)]));
+/// ```
 pub enum Final<F> {
     /// An outcome of the result die.
     Outcome(F),
@@ -63,6 +90,28 @@ pub enum Final<F> {
 ///
 /// Evaluator parameters (Python's `**kwargs` to `evaluate()`) are fields of the implementing type.
 /// `UnsupportedOrder` is `Err(Error::UnsupportedOrder)`; the driver then retries in the opposite order.
+///
+/// ```
+/// use icepool_core::evaluator::{Final, MultisetEvaluator};
+/// use icepool_core::{d, Die, Int, Order, Result};
+/// /// How many different outcomes were rolled (Python's `pool.unique().size()`).
+/// struct Distinct;
+/// impl MultisetEvaluator<i64> for Distinct {
+///     type State = i64;
+///     type Final = i64;
+///     fn initial_state(&self, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<i64> {
+///         Ok(0)
+///     }
+///     fn next_state(&self, state: &i64, _: Order, _: &i64, counts: &[Int]) -> Result<Option<i64>> {
+///         Ok(Some(state + i64::from(counts[0].is_positive())))
+///     }
+///     fn final_outcome(&self, state: &i64, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Final<i64>> {
+///         Ok(Final::Outcome(*state))
+///     }
+/// }
+/// let result = d(3).pool(3).evaluate(&Distinct).unwrap();
+/// assert_eq!(result, Die::from_weights([(1, 3u32), (2, 18), (3, 6)]));
+/// ```
 pub trait MultisetEvaluator<O> {
     /// States must be hashable. `Eq`/`Hash` are Python's `==`/`hash`: equal states merge, keeping the first one.
     type State: Clone + Eq + Hash;
@@ -208,6 +257,13 @@ pub(crate) fn int_counts(counts: &[Count]) -> Option<Vec<Int>> {
 
 /// A Python `defaultdict`: insertion order, and a key equal to an earlier one finds the earlier entry (keeping
 /// the earlier key).
+///
+/// ```
+/// use icepool_core::evaluator::OrderedMap;
+/// // The driver fills these; a fresh one is empty.
+/// let map: OrderedMap<i64, String> = OrderedMap::default();
+/// assert!(map.items().is_empty());
+/// ```
 #[derive(Debug)]
 pub struct OrderedMap<K, V> {
     index: FxHashMap<K, usize>,
@@ -250,6 +306,12 @@ impl<K: Clone + Eq + Hash, V: Default> OrderedMap<K, V> {
 }
 
 /// A Python `defaultdict(int)` from state to weight: equal states add up.
+///
+/// ```
+/// use icepool_core::evaluator::StateWeights;
+/// let weights: StateWeights<Option<i64>> = StateWeights::default();
+/// assert!(weights.items().is_empty());
+/// ```
 pub type StateWeights<S> = OrderedMap<S, Quantity>;
 
 impl<S: Clone + Eq + Hash> StateWeights<S> {
@@ -260,6 +322,12 @@ impl<S: Clone + Eq + Hash> StateWeights<S> {
 
 /// What both algorithms return for a room: statelets -> main state -> weight (Python's `defaultdict(lambda:
 /// defaultdict(int))`). A statelet entry is created even when every main state under it rerolled, as in Python.
+///
+/// ```
+/// use icepool_core::evaluator::FinalStates;
+/// let final_states: FinalStates<i64> = FinalStates::default();
+/// assert!(final_states.items().is_empty());
+/// ```
 pub type FinalStates<S> = OrderedMap<Statelets, StateWeights<S>>;
 
 /// `Room`: the remaining outcomes (a window `lo..hi` of the evaluation's sorted outcomes: equal windows are equal
@@ -478,6 +546,15 @@ enum Algorithm {
 /// Every input is one source (a generator). Returns the final outcomes with their weights, in the order
 /// `finalize_evaluation` produces them (`Reroll`s dropped), ready for `Die(final_outcomes, final_weights)`. If
 /// some source has no probability, no outcomes (`Die([])`).
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::{d, Die};
+/// // Python's `SumEvaluator().evaluate(d(3).pool(2))`.
+/// let finals = evaluate(&SumEvaluator, &[MultisetSource::Pool(d(3).pool(2).source())]).unwrap();
+/// assert_eq!(Die::from_weights(finals), &d(3) + &d(3));
+/// ```
 pub fn evaluate<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     sources: &[MultisetSource<O>],
@@ -488,6 +565,18 @@ pub fn evaluate<O: OutcomeOrder, E: MultisetEvaluator<O>>(
 /// [`evaluate`], calling `check_depth(number of outcomes)` just before each attempt recurses: both algorithms
 /// recurse once per outcome, which in Python hits the recursion limit near 1000 outcomes. The Python facade
 /// passes a check that raises where Python would; the core itself has no such limit.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate_with_depth_check, top_level_depth_check, MultisetSource};
+/// use icepool_core::{d, Error};
+/// // Python cannot evaluate a pool of a thousand outcomes: it hits its recursion limit.
+/// let wide = [MultisetSource::Pool(d(1000).pool(1).source())];
+/// let result = evaluate_with_depth_check(&SumEvaluator, &wide, top_level_depth_check);
+/// assert!(matches!(result, Err(Error::RecursionLimit(_))));
+/// let narrow = [MultisetSource::Pool(d(6).pool(1).source())];
+/// assert_eq!(evaluate_with_depth_check(&SumEvaluator, &narrow, top_level_depth_check).unwrap().len(), 6);
+/// ```
 pub fn evaluate_with_depth_check<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     sources: &[MultisetSource<O>],
@@ -508,6 +597,14 @@ pub fn evaluate_with_depth_check<O: OutcomeOrder, E: MultisetEvaluator<O>>(
 /// `SURE_RECURSION_ERROR` and says unported in between (the answer is not knowable from the call).
 /// For hosts without a Python stack of their own (the program runner, the JS API); the Python facade passes
 /// its own check from the interpreter's actual depth.
+///
+/// ```
+/// use icepool_core::evaluator::top_level_depth_check;
+/// use icepool_core::Error;
+/// assert!(top_level_depth_check(100).is_ok());
+/// assert!(matches!(top_level_depth_check(950), Err(Error::Unported(_))));
+/// assert!(matches!(top_level_depth_check(1000), Err(Error::RecursionLimit(_))));
+/// ```
 pub fn top_level_depth_check(outcomes: usize) -> Result<()> {
     const SAFE_RECURSION: usize = 930;
     const SURE_RECURSION_ERROR: usize = 990;
@@ -526,6 +623,17 @@ pub fn top_level_depth_check(outcomes: usize) -> Result<()> {
 
 /// [`evaluate_with_depth_check`] for inputs that are multiset expressions: each input is a flat of dungeonlets
 /// (`crate::expression`), and `sources` are the sources of all their free variables, in traversal order.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate_expressions, MultisetSource};
+/// use icepool_core::expression::free_variable;
+/// use icepool_core::{d, Die};
+/// // An input that is a generator alone is one free variable: the same as `evaluate`.
+/// let sources = [MultisetSource::Pool(d(4).pool(2).source())];
+/// let finals = evaluate_expressions(&SumEvaluator, &[free_variable()], &sources, |_| Ok(())).unwrap();
+/// assert_eq!(Die::from_weights(finals), &d(4) + &d(4));
+/// ```
 pub fn evaluate_expressions<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     flats: &[Flat<O>],
@@ -542,6 +650,18 @@ pub fn evaluate_expressions<O: OutcomeOrder, E: MultisetEvaluator<O>>(
 
 /// [`evaluate_expressions`] for a call tree (a `@multiset_function` evaluation, see [`multiset_function`]):
 /// `sources` are the sources of the free variables of the whole tree, in traversal order.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate_call_tree, MultisetSource};
+/// use icepool_core::expression::{free_variable, CallTree};
+/// use icepool_core::{d, Die};
+/// // A plain evaluation is a call tree without calls (see `multiset_function` for one with calls).
+/// let tree = CallTree::leaf(vec![free_variable()]);
+/// let sources = [MultisetSource::Pool(d(4).pool(2).source())];
+/// let finals = evaluate_call_tree(&SumEvaluator, &tree, &sources, |_| Ok(())).unwrap();
+/// assert_eq!(Die::from_weights(finals), &d(4) + &d(4));
+/// ```
 pub fn evaluate_call_tree<O: OutcomeOrder, E: MultisetEvaluator<O>>(
     evaluator: &E,
     tree: &CallTree<O>,
