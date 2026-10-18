@@ -32,6 +32,18 @@ use super::{BinOp, UnOp, Value};
 use crate::error::{wrong_type, Error, Result};
 
 /// icepool's `Symbols`: a multiset of single-character symbols, with its arithmetic.
+///
+/// ```
+/// use icepool_core::value::{BinOp, Symbols};
+/// use icepool_core::Value;
+///
+/// // `Symbols('aab')`: two `a`s and a `b`; `+` adds counts, converting the other side.
+/// let s = Symbols::parse("aab").unwrap();
+/// assert_eq!(s.count('a'), Value::from(2));
+/// assert_eq!(s.py_str().unwrap(), "aab");
+/// let sum = s.binary(BinOp::Add, &Value::str("b")).unwrap().unwrap();
+/// assert_eq!(sum.to_string(), "Symbols('aabb')");
+/// ```
 #[derive(Clone, Debug)]
 pub struct Symbols {
     /// `self._data`, in the dict's insertion order.

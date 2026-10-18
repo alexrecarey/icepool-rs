@@ -18,6 +18,15 @@ const MIN_GALLOP: usize = 7;
 const MAX_MINRUN: usize = 64;
 
 /// Sorts `items` as Python's `sorted()` would with `lt` as `<`, stopping at the first comparison that raises.
+///
+/// ```
+/// use icepool_core::value::sort::timsort;
+///
+/// // Stable: pairs equal by their first element keep their order.
+/// let items = vec![(2, 'a'), (1, 'b'), (2, 'c'), (1, 'd')];
+/// let sorted = timsort(items, |a, b| Ok(a.0 < b.0)).unwrap();
+/// assert_eq!(sorted, [(1, 'b'), (1, 'd'), (2, 'a'), (2, 'c')]);
+/// ```
 pub fn timsort<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Result<Vec<T>> {
     let n = items.len();
     let mut ms = MergeState {
@@ -37,12 +46,33 @@ pub fn timsort<T>(items: Vec<T>, lt: impl Fn(&T, &T) -> Result<bool>) -> Result<
 }
 
 /// `sorted(values)`.
+///
+/// ```
+/// use icepool_core::value::sort::sorted;
+/// use icepool_core::Value;
+///
+/// // `sorted([2, 1.5, True])` is `[True, 1.5, 2]`.
+/// let s = sorted(vec![Value::from(2), Value::Float(1.5), Value::Bool(true)]).unwrap();
+/// assert_eq!(s.iter().map(Value::to_string).collect::<Vec<_>>(), ["True", "1.5", "2"]);
+/// // `sorted(['a', 1])` raises TypeError.
+/// assert!(sorted(vec![Value::str("a"), Value::from(1)]).is_err());
+/// ```
 pub fn sorted(values: Vec<Value>) -> Result<Vec<Value>> {
     timsort(values, Value::py_lt)
 }
 
 /// `sorted(values, reverse=True)`: a reverse sort reverses, sorts stably and reverses back (so equal items keep
 /// their order).
+///
+/// ```
+/// use icepool_core::value::sort::sorted_reverse;
+/// use icepool_core::Value;
+///
+/// // `sorted([1, 2.0, True, 2], reverse=True)` is `[2.0, 2, 1, True]`: equal items keep their order.
+/// let items = vec![Value::from(1), Value::Float(2.0), Value::Bool(true), Value::from(2)];
+/// let s = sorted_reverse(items).unwrap();
+/// assert_eq!(s.iter().map(Value::to_string).collect::<Vec<_>>(), ["2.0", "2", "1", "True"]);
+/// ```
 pub fn sorted_reverse(mut values: Vec<Value>) -> Result<Vec<Value>> {
     values.reverse();
     let mut sorted = sorted(values)?;

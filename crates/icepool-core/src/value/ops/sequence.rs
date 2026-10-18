@@ -66,6 +66,14 @@ fn str_format(s: &str, args: &Value) -> Result<Value> {
 
 /// `str % mapping`: a mapping argument is never "not all converted", so without conversion specifiers the result
 /// is the string itself. (A die is a mapping.)
+///
+/// ```
+/// use icepool_core::value::ops::str_format_mapping;
+/// use icepool_core::Value;
+///
+/// // `'abc' % {}` is `'abc'`.
+/// assert_eq!(str_format_mapping("abc").unwrap(), Value::str("abc"));
+/// ```
 pub fn str_format_mapping(s: &str) -> Result<Value> {
     if s.contains('%') {
         return Err(Error::Unported(

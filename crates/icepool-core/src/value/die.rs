@@ -14,6 +14,17 @@ use crate::value::{BinOp, UnOp, Value};
 use crate::Quantity;
 
 /// A population's `dict` for `Die(...)`: `(outcome, quantity)` pairs in insertion order.
+///
+/// ```
+/// use icepool_core::value::{Data, PyDie};
+/// use icepool_core::{try_d, Die, Value};
+///
+/// // `d3.append(4, 2)`: the new outcome goes last.
+/// let d3: Die<Value> = try_d(3).unwrap();
+/// let data: Data = d3.append(&Value::from(4), &Value::from(2)).unwrap();
+/// let items: Vec<String> = data.iter().map(|(o, q)| format!("{o}: {q}")).collect();
+/// assert_eq!(items, ["1: 1", "2: 1", "3: 1", "4: 2"]);
+/// ```
 pub type Data = Vec<(Value, Value)>;
 
 /// `data[outcome] = quantity` in a `dict`'s items: an existing key keeps its place (and its spelling), a new one
@@ -28,6 +39,22 @@ fn set_item(data: &mut Data, position: Option<usize>, outcome: &Value, quantity:
 /// `Die<Value>`'s Python-only methods: those that compare or compute with Python's operators (`Die.cmp`,
 /// `mean_time_to_sum`, `sign`), the marginals, and population/base.py's quantity management, whose quantities may be
 /// any Python number. Typed dice have their own versions where one makes sense (`Die::mean_time_to_sum`).
+///
+/// ```
+/// use icepool_core::value::builtins::fraction;
+/// use icepool_core::value::PyDie;
+/// use icepool_core::{try_d, Die, Value};
+///
+/// // `d6.cmp(d6)`: -1, 0 and 1 with quantities 15, 6, 15.
+/// let d6: Die<Value> = try_d(6).unwrap();
+/// let cmp = d6.cmp_die(&d6).unwrap();
+/// let items: Vec<String> = cmp.items().iter().map(|(o, q)| format!("{o}: {q}")).collect();
+/// assert_eq!(items, ["-1: 15", "0: 6", "1: 15"]);
+/// // `d4.mean_time_to_sum(2)` is `Fraction(5, 4)`; the cache starts as `[Fraction(0)]`.
+/// let d4: Die<Value> = try_d(4).unwrap();
+/// let mut cache = vec![Value::Fraction(fraction(&Value::from(0)).unwrap())];
+/// assert_eq!(d4.mean_time_to_sum(&mut cache, &Value::from(2)).unwrap().to_string(), "Fraction(5, 4)");
+/// ```
 pub trait PyDie {
     /// A `Die` with outcomes 1, -1, and 0 (`Die.cmp`).
     ///

@@ -32,6 +32,18 @@ use crate::value::builtins::{getitem, Index};
 use crate::{Int, Value};
 
 /// One node of a prepared expression.
+///
+/// ```
+/// use icepool_core::expression::{BinaryOperator, Dungeonlet, Operator};
+///
+/// // `a & b` of two generators, flattened in postfix order: both free variables, then the operator over them.
+/// let flat: Vec<Dungeonlet<i64>> = vec![
+///     Dungeonlet::FreeVariable,
+///     Dungeonlet::FreeVariable,
+///     Dungeonlet::Operator { operator: Operator::Binary(BinaryOperator::Intersection), children: vec![0, 1] },
+/// ];
+/// assert!(matches!(flat[2], Dungeonlet::Operator { ref children, .. } if children == &[0, 1]));
+/// ```
 #[derive(Clone)]
 pub enum Dungeonlet<O> {
     /// `MultisetFreeVariable` (with a `MultisetGeneratorQuestlet` / `MultisetTupleGeneratorQuestlet`): the count
@@ -63,12 +75,40 @@ pub enum Dungeonlet<O> {
 }
 
 /// The prepared nodes of one evaluation input, in postfix order.
+///
+/// ```
+/// use icepool_core::expression::{free_variable, Dungeonlet, Flat};
+///
+/// let flat: Flat<i64> = free_variable();
+/// assert_eq!(flat.len(), 1);
+/// assert!(matches!(flat[0], Dungeonlet::FreeVariable));
+/// ```
 pub type Flat<O> = Arc<[Dungeonlet<O>]>;
 
 /// The statelets of every operator node of every input, in traversal order.
+///
+/// ```
+/// use icepool_core::evaluator::Order;
+/// use icepool_core::expression::{free_variable, initial_state, CallTree, Statelets};
+///
+/// // A plain generator input (of unknown size) has no operator node, hence no statelets.
+/// let tree = CallTree::<i64>::leaf(vec![free_variable()]);
+/// let sizes = std::iter::once(Ok(None));
+/// let (statelets, _): (Statelets, _) = initial_state(&tree, Order::Ascending, &[1, 2], sizes).unwrap();
+/// assert!(statelets.is_empty());
+/// ```
 pub type Statelets = Arc<[Statelet]>;
 
 /// `DungeonletCallTree` and `QuestletCallTree` in one: the flats of one call and the calls inside it.
+///
+/// ```
+/// use icepool_core::expression::{free_variable, CallTree};
+///
+/// // A plain evaluation of two generators.
+/// let tree = CallTree::<i64>::leaf(vec![free_variable(), free_variable()]);
+/// assert_eq!(tree.flats.len(), 2);
+/// assert!(tree.calls.is_empty());
+/// ```
 #[derive(Clone)]
 pub struct CallTree<O> {
     /// The flats of this call's inputs.
@@ -89,6 +129,16 @@ impl<O> CallTree<O> {
 
 /// What a call tree produces: at a call without calls, the count (or size) of each of its flats; otherwise one
 /// subtree per call (Python's nested tuples).
+///
+/// ```
+/// use icepool_core::expression::CountTree;
+///
+/// let leaf = CountTree::Leaf(vec![1, 2]);
+/// assert_eq!(leaf.leaf().unwrap(), &[1, 2]);
+/// assert!(leaf.calls().is_empty());
+/// // A plain evaluator cannot take the counts of calls.
+/// assert!(CountTree::Calls(vec![leaf]).leaf().is_err());
+/// ```
 #[derive(Clone, Debug)]
 pub enum CountTree<C> {
     /// One count per flat of a call without calls.
@@ -118,6 +168,12 @@ impl<C> CountTree<C> {
 }
 
 /// The flat of an input that is a generator: one free variable.
+///
+/// ```
+/// use icepool_core::expression::{free_variable, Dungeonlet};
+///
+/// assert!(matches!(free_variable::<i64>()[..], [Dungeonlet::FreeVariable]));
+/// ```
 pub fn free_variable<O>() -> Flat<O> {
     Arc::from(vec![Dungeonlet::FreeVariable])
 }
@@ -131,6 +187,16 @@ fn no_source() -> Error {
 }
 
 /// A count as the Python value it is: an `int` or a tuple of them.
+///
+/// ```
+/// use icepool_core::evaluator::Count;
+/// use icepool_core::expression::count_value;
+/// use icepool_core::{Int, Value};
+///
+/// assert_eq!(count_value(&Count::Int(Int::from(3))), Value::from(3));
+/// let pair = Count::Tuple(vec![Int::from(1), Int::from(2)].into());
+/// assert_eq!(count_value(&pair), Value::tuple(vec![Value::from(1), Value::from(2)]));
+/// ```
 pub fn count_value(c: &Count) -> Value {
     match c {
         Count::Int(c) => Value::from(c),
@@ -139,6 +205,17 @@ pub fn count_value(c: &Count) -> Value {
 }
 
 /// A Python value as a count, if it is one the port models: an `int` or a tuple of `int`s (not bools).
+///
+/// ```
+/// use icepool_core::evaluator::Count;
+/// use icepool_core::expression::value_count;
+/// use icepool_core::{Int, Value};
+///
+/// assert_eq!(value_count(&Value::from(3)).unwrap(), Count::Int(Int::from(3)));
+/// // `True` is an int to Python, but not a count the port models.
+/// assert!(value_count(&Value::Bool(true)).is_err());
+/// assert!(value_count(&Value::str("a")).is_err());
+/// ```
 pub fn value_count(v: &Value) -> Result<Count> {
     match v {
         Value::Int(i) => Ok(Count::Int(i.into())),
@@ -246,6 +323,23 @@ fn initial_tree<O: PartialEq>(
 
 /// The initial statelets and size tree of a call tree (see `initial_tree`). `outcomes` are all the outcomes
 /// the evaluation will see, ascending (a host operator's `_initial_state` gets them).
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{initial_state, CallTree, CountTree, Dungeonlet, Operator, Statelet};
+/// use icepool_core::Int;
+///
+/// // `x * 2` of one generator of size 3.
+/// let flat = vec![
+///     Dungeonlet::FreeVariable,
+///     Dungeonlet::Operator { operator: Operator::MultiplyCounts(Int::from(2)), children: vec![0] },
+/// ];
+/// let tree = CallTree::<i64>::leaf(vec![flat.into()]);
+/// let sizes = std::iter::once(Ok(Some(Count::Int(Int::from(3)))));
+/// let (statelets, size) = initial_state(&tree, Order::Ascending, &[1, 2], sizes).unwrap();
+/// assert_eq!(&statelets[..], &[Statelet::None]);
+/// assert!(matches!(size, CountTree::Leaf(s) if s == [Some(Count::Int(Int::from(6)))]));
+/// ```
 pub fn initial_state<O: PartialEq>(
     tree: &CallTree<O>,
     order: Order,
@@ -326,6 +420,22 @@ fn next_tree<'s, O: PartialEq>(
 /// `DungeonletCallTree.next_state`: advances the statelets for one outcome. `source_counts` are the counts the
 /// sources produced for it, consumed by the free variables in traversal order. Returns the next statelets and the
 /// count tree.
+///
+/// ```
+/// use icepool_core::evaluator::{Count, Order};
+/// use icepool_core::expression::{next_state, CallTree, Dungeonlet, Operator, Statelet};
+/// use icepool_core::Int;
+///
+/// // `x * 2` of one generator that produced 2 of the outcome 5.
+/// let flat = vec![
+///     Dungeonlet::FreeVariable,
+///     Dungeonlet::Operator { operator: Operator::MultiplyCounts(Int::from(2)), children: vec![0] },
+/// ];
+/// let tree = CallTree::<i64>::leaf(vec![flat.into()]);
+/// let statelets = vec![Statelet::None].into();
+/// let (_, counts) = next_state(&tree, &statelets, Order::Ascending, &5, &[Count::Int(Int::from(2))]).unwrap();
+/// assert_eq!(counts.leaf().unwrap(), &[Count::Int(Int::from(4))]);
+/// ```
 pub fn next_state<O: PartialEq>(
     tree: &CallTree<O>,
     statelets: &Statelets,

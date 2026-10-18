@@ -19,6 +19,18 @@ use crate::{Die, Quantity, Value};
 /// a `float` for float outcomes, `percent` probabilities, and Python's exceptions. The typed, exact versions are
 /// inherent methods of `Die<O: Outcome + ToRatio>` (`mean`, `variance`, `probability`, ...): Rust picks the
 /// inherent method for a typed die and this trait's for a `Die<Value>`.
+///
+/// ```
+/// use icepool_core::value::PyStatistics;
+/// use icepool_core::{try_d, Comparison, Die, Value};
+///
+/// // `d6.mean()` is `Fraction(7, 2)`, `d6.variance()` is `Fraction(35, 12)`, `d6.probability('>=', 5)` is `1/3`.
+/// let d6: Die<Value> = try_d(6).unwrap();
+/// assert_eq!(PyStatistics::mean(&d6).unwrap().to_string(), "Fraction(7, 2)");
+/// assert_eq!(PyStatistics::variance(&d6).unwrap().to_string(), "Fraction(35, 12)");
+/// let p = PyStatistics::probability(&d6, Comparison::Ge, &Value::from(5), false).unwrap();
+/// assert_eq!(p.to_string(), "Fraction(1, 3)");
+/// ```
 pub trait PyStatistics {
     /// `try_fraction(sum(outcome * quantity ...), denominator)`: a `Fraction` for rational outcomes, a `float`
     /// for float ones.

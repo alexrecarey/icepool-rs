@@ -34,6 +34,16 @@ use crate::pool::Count;
 use crate::Int;
 
 /// A typed value as Python spells it.
+///
+/// ```
+/// use icepool_core::value::evaluators::IntoValue;
+/// use icepool_core::Value;
+///
+/// assert_eq!(Some(true).into_value(), Value::Bool(true));
+/// assert_eq!(None::<i64>.into_value(), Value::None);
+/// // A pair is a tuple: `(2, (1, 3))`.
+/// assert_eq!((2i64, vec![1i64, 3]).into_value().to_string(), "(2, (1, 3))");
+/// ```
 pub trait IntoValue {
     /// The value as Python spells it.
     fn into_value(self) -> Value;
@@ -145,6 +155,15 @@ impl Summand for Value {
 }
 
 /// A [`PyEvaluator`]'s state: the evaluator's own typed state until the first tuple count, then Python's.
+///
+/// ```
+/// use icepool_core::value::evaluators::PyState;
+/// use icepool_core::Value;
+///
+/// // A typed state reads as the Python value it stands for.
+/// assert_eq!(PyState::<i64>::Typed(3).value(), Value::from(3));
+/// assert_eq!(PyState::<i64>::Python(Value::str("x")).value(), Value::str("x"));
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PyState<S> {
     /// The evaluator's own typed state.
@@ -192,6 +211,21 @@ fn unread_tuple_sizes(sizes: &[Option<Count>]) -> Vec<Option<Int>> {
 
 /// A built-in evaluator over tuple counts and sizes (a `MultiDeal` input, or tuple counts passed on by operators),
 /// as Python's arithmetic runs on them.
+///
+/// ```
+/// use icepool_core::evaluator::basic::{SizeEvaluator, SumEvaluator};
+/// use icepool_core::evaluator::Order;
+/// use icepool_core::value::evaluators::{PyState, TupleCounts};
+/// use icepool_core::Value;
+///
+/// // Python's sum of outcome 3 with the tuple count (1, 2) is `3 * (1, 2)`, the tuple repeated.
+/// let count = [Value::tuple(vec![Value::from(1), Value::from(2)])];
+/// let state = SumEvaluator.next_state_tuples(&PyState::Typed(None), Order::Ascending, &Value::from(3), &count);
+/// assert_eq!(state.unwrap().unwrap().value().to_string(), "(1, 2, 1, 2, 1, 2)");
+/// // The size evaluator's `0 + (1, 2)` raises TypeError.
+/// let size = SizeEvaluator.next_state_tuples(&PyState::Typed(0.into()), Order::Ascending, &Value::from(3), &count);
+/// assert!(size.is_err());
+/// ```
 pub trait TupleCounts: MultisetEvaluator<Value> {
     /// `initial_state` when some size may be a tuple. Python passes a tuple size on like any other; only keep and
     /// lexi read their sizes (and override this), so by default a tuple size reaches `initial_state` as `None`,
@@ -225,6 +259,20 @@ pub trait TupleCounts: MultisetEvaluator<Value> {
 
 /// A built-in evaluator as Python runs it: final outcomes as Python values, tuple counts and sizes through
 /// [`TupleCounts`].
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::evaluator::{evaluate, MultisetSource};
+/// use icepool_core::value::evaluators::PyEvaluator;
+/// use icepool_core::{try_d, Die, Pool, Value};
+///
+/// // `d2.pool(2).sum()`: 2, 3 and 4 with weights 1, 2, 1, as Python values.
+/// let d2: Die<Value> = try_d(2).unwrap();
+/// let pool = Pool::new(vec![(d2, 2)]).unwrap();
+/// let sums = evaluate(&PyEvaluator(SumEvaluator), &[MultisetSource::Pool(pool.source())]).unwrap();
+/// let sums: Vec<(String, u32)> = sums.iter().map(|(v, w)| (v.to_string(), w.try_into().unwrap())).collect();
+/// assert_eq!(sums, [("2".into(), 1), ("3".into(), 2), ("4".into(), 1)]);
+/// ```
 pub struct PyEvaluator<E>(pub E);
 
 impl<E> MultisetEvaluator<Value> for PyEvaluator<E>

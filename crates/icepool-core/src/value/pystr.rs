@@ -53,6 +53,15 @@ pub(crate) fn str_repr(s: &str) -> Result<String> {
 
 /// Python's `repr(x)`. Tuples and vectors nest, so this recurses: a level each (`recursion.rs`), and only through
 /// small frames (the other types are `scalar_repr`'s).
+///
+/// ```
+/// use icepool_core::value::pystr::py_repr;
+/// use icepool_core::Value;
+///
+/// assert_eq!(py_repr(&Value::str("a")).unwrap(), "'a'");
+/// assert_eq!(py_repr(&Value::str("it's")).unwrap(), "\"it's\"");
+/// assert_eq!(py_repr(&Value::tuple(vec![Value::str("a")])).unwrap(), "('a',)");
+/// ```
 pub fn py_repr(x: &Value) -> Result<String> {
     match x {
         Value::Tuple(t) => {
@@ -96,6 +105,17 @@ fn scalar_repr(x: &Value) -> Result<String> {
 
 /// Python's `str(x)`: the same as `repr` except for `str` itself, `Fraction` (`'n/d'`, or `'n'` for a whole
 /// number) and host objects (their own `__str__`).
+///
+/// ```
+/// use icepool_core::value::builtins::fraction;
+/// use icepool_core::value::pystr::py_str;
+/// use icepool_core::Value;
+///
+/// assert_eq!(py_str(&Value::str("a")).unwrap(), "a");
+/// // `str(Fraction(3, 4))` is `'3/4'`.
+/// let three_quarters = Value::Fraction(fraction(&Value::Float(0.75)).unwrap());
+/// assert_eq!(py_str(&three_quarters).unwrap(), "3/4");
+/// ```
 pub fn py_str(x: &Value) -> Result<String> {
     match x {
         Value::Str(s) => Ok(s.to_string()),
@@ -118,6 +138,13 @@ pub fn py_str(x: &Value) -> Result<String> {
 }
 
 /// A float presentation type of Python's format mini-language.
+///
+/// ```
+/// use icepool_core::value::pystr::{format_float, FloatFormat};
+///
+/// assert_eq!(format_float(1234.5, FloatFormat::Exponent, 2), "1.23e+03");
+/// assert_eq!(format_float(0.25, FloatFormat::Percent, 1), "25.0%");
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloatFormat {
     /// `'f'`: fixed point.
@@ -131,6 +158,14 @@ pub enum FloatFormat {
 /// `format(x, f'.{precision}{kind}')` for a float. Rust's exact formatting rounds half to even on the exact binary
 /// value, as CPython's dtoa does (checked against Python on 800k values, ties included); only the exponent's
 /// spelling and the non-finite values differ.
+///
+/// ```
+/// use icepool_core::value::pystr::{format_float, FloatFormat};
+///
+/// // `format(0.125, '.2f')` is `'0.12'`: the tie rounds to even.
+/// assert_eq!(format_float(0.125, FloatFormat::Fixed, 2), "0.12");
+/// assert_eq!(format_float(f64::INFINITY, FloatFormat::Fixed, 2), "inf");
+/// ```
 pub fn format_float(x: f64, kind: FloatFormat, precision: usize) -> String {
     let x = if kind == FloatFormat::Percent {
         x * 100.0

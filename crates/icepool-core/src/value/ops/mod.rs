@@ -37,6 +37,17 @@ pub(crate) use integer::{float_to_int, floor_divmod};
 pub use sequence::str_format_mapping;
 
 /// Python's binary operators and order comparisons.
+///
+/// ```
+/// use icepool_core::value::BinOp;
+/// use icepool_core::Value;
+///
+/// // `7 // -2` rounds down, `1 / 3` is a float, `'a' < 1` raises TypeError.
+/// assert_eq!(Value::from(7).binary(BinOp::FloorDiv, &Value::from(-2)).unwrap(), Value::from(-4));
+/// assert_eq!(Value::from(1).binary(BinOp::TrueDiv, &Value::from(3)).unwrap().to_string(), "0.3333333333333333");
+/// assert!(Value::str("a").binary(BinOp::Lt, &Value::from(1)).is_err());
+/// assert_eq!(BinOp::FloorDiv.symbol(), "//");
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinOp {
     /// `+`.
@@ -119,6 +130,16 @@ impl BinOp {
 }
 
 /// Python's unary operators and the `math` / built-in functions that take one number.
+///
+/// ```
+/// use icepool_core::value::UnOp;
+/// use icepool_core::Value;
+///
+/// // `~5` is `-6`; `math.ceil(2.5)` is the int `3`; `-'a'` raises TypeError.
+/// assert_eq!(Value::from(5).unary(UnOp::Invert).unwrap(), Value::from(-6));
+/// assert_eq!(Value::Float(2.5).unary(UnOp::Ceil).unwrap().to_string(), "3");
+/// assert!(Value::str("a").unary(UnOp::Neg).is_err());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnOp {
     /// `-x`.

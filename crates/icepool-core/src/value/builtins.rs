@@ -17,6 +17,15 @@ use crate::error::{invalid_argument, wrong_type, Error, Result};
 /// summation and small `int`s are added directly *without* compensation; any other item first folds the
 /// compensation into the total and then adds normally. Once the total leaves a fast path it never returns to one.
 /// `items` is consumed lazily, so an error from computing an item surfaces at the same point as in Python.
+///
+/// ```
+/// use icepool_core::value::builtins::py_sum;
+/// use icepool_core::Value;
+///
+/// // `sum([1, 2.5, 3])` is `6.5`.
+/// let items = [Value::from(1), Value::Float(2.5), Value::from(3)].map(Ok);
+/// assert_eq!(py_sum(items, Value::from(0)).unwrap().to_string(), "6.5");
+/// ```
 pub fn py_sum(items: impl IntoIterator<Item = Result<Value>>, start: Value) -> Result<Value> {
     let mut iter = items.into_iter();
     let mut result = start;
@@ -91,6 +100,17 @@ pub fn py_sum(items: impl IntoIterator<Item = Result<Value>>, start: Value) -> R
 
 /// Python's `min(iterable)` (`max` false) or `max(iterable)`: the first of the least (greatest) elements, comparing
 /// each `item < best` (`item > best`); an empty iterable raises ValueError.
+///
+/// ```
+/// use icepool_core::value::builtins::py_min_max;
+/// use icepool_core::Value;
+///
+/// let items = || vec![Value::from(3), Value::from(1), Value::from(2)];
+/// assert_eq!(py_min_max(items(), false).unwrap(), Value::from(1));
+/// assert_eq!(py_min_max(items(), true).unwrap(), Value::from(3));
+/// // `min([])` raises ValueError.
+/// assert!(py_min_max(vec![], false).is_err());
+/// ```
 pub fn py_min_max(items: Vec<Value>, max: bool) -> Result<Value> {
     let mut items = items.into_iter();
     let Some(mut best) = items.next() else {
@@ -109,6 +129,16 @@ pub fn py_min_max(items: Vec<Value>, max: bool) -> Result<Value> {
 
 /// `PyFloat_AsDouble(x)`, which `math` functions apply to their arguments: `float(x)` for numbers (a `Fraction`
 /// is `numerator / denominator`, correctly rounded), `TypeError` for anything else.
+///
+/// ```
+/// use icepool_core::value::builtins::{fraction, to_float};
+/// use icepool_core::Value;
+///
+/// // `float(Fraction(1, 3))` is `0.3333333333333333`.
+/// let third = Value::Fraction(fraction(&Value::from(1)).unwrap() / fraction(&Value::from(3)).unwrap());
+/// assert_eq!(to_float(&third).unwrap(), 1.0 / 3.0);
+/// assert!(to_float(&Value::str("1")).is_err());
+/// ```
 pub fn to_float(x: &Value) -> Result<f64> {
     match x {
         Value::Float(f) => Ok(*f),
@@ -124,6 +154,16 @@ pub fn to_float(x: &Value) -> Result<f64> {
 /// denominator` where Python's constructor raises `TypeError` (icepool's `math.try_fraction`). A rational
 /// numerator (`int`, `bool`, `Fraction`, or a host object that is a `numbers.Rational`) makes a `Fraction`, even an
 /// integral one; anything else is divided (`float / int` is a `float`).
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::builtins::try_fraction;
+/// use icepool_core::Value;
+///
+/// // `try_fraction(3, 6)` is `Fraction(1, 2)`; `try_fraction(1.5, 2)` is `0.75`.
+/// assert_eq!(try_fraction(&Value::from(3), &IBig::from(6)).unwrap().to_string(), "Fraction(1, 2)");
+/// assert_eq!(try_fraction(&Value::Float(1.5), &IBig::from(2)).unwrap().to_string(), "0.75");
+/// ```
 pub fn try_fraction(numerator: &Value, denominator: &IBig) -> Result<Value> {
     let rational = match numerator {
         Value::Int(i) => Some(RBig::from(i.clone())),
@@ -157,6 +197,15 @@ fn math_1(x: &Value, func: fn(f64) -> f64) -> Result<f64> {
 }
 
 /// `math.sqrt(x)`. `sqrt` is correctly rounded everywhere (IEEE 754), so it is bit-exact even under WASM.
+///
+/// ```
+/// use icepool_core::value::builtins::math_sqrt;
+/// use icepool_core::Value;
+///
+/// assert_eq!(math_sqrt(&Value::from(2)).unwrap().to_string(), "1.4142135623730951");
+/// // `math.sqrt(-1)` raises ValueError: math domain error.
+/// assert!(math_sqrt(&Value::from(-1)).is_err());
+/// ```
 pub fn math_sqrt(x: &Value) -> Result<Value> {
     math_1(x, f64::sqrt).map(Value::Float)
 }
@@ -240,6 +289,16 @@ fn frexp_int(int: &IBig) -> (f64, i64) {
 }
 
 /// `math.log(x)` (natural) or `math.log(x, base)`: `log(x) / log(base)`, `ZeroDivisionError` for base 1.
+///
+/// ```
+/// use icepool_core::value::builtins::math_log;
+/// use icepool_core::Value;
+///
+/// assert_eq!(math_log(&Value::from(8), Some(&Value::from(2))).unwrap().to_string(), "3.0");
+/// assert_eq!(math_log(&Value::from(1), None).unwrap().to_string(), "0.0");
+/// // `math.log(2, 1)` raises ZeroDivisionError.
+/// assert!(math_log(&Value::from(2), Some(&Value::from(1))).is_err());
+/// ```
 pub fn math_log(x: &Value, base: Option<&Value>) -> Result<Value> {
     let num = loghelper(x, m_log)?;
     let Some(base) = base else {
@@ -250,16 +309,44 @@ pub fn math_log(x: &Value, base: Option<&Value>) -> Result<Value> {
 }
 
 /// `math.log10(x)`.
+///
+/// ```
+/// use icepool_core::value::builtins::math_log10;
+/// use icepool_core::Value;
+///
+/// assert_eq!(math_log10(&Value::from(1000)).unwrap(), 3.0);
+/// assert!(math_log10(&Value::from(0)).is_err());
+/// ```
 pub fn math_log10(x: &Value) -> Result<f64> {
     loghelper(x, m_log10)
 }
 
 /// `math.ceil(x)` of a float: an int, `OverflowError` for an infinity, `ValueError` for NaN.
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::builtins::float_ceil;
+///
+/// assert_eq!(float_ceil(2.1).unwrap(), IBig::from(3));
+/// assert!(float_ceil(f64::INFINITY).is_err());
+/// assert!(float_ceil(f64::NAN).is_err());
+/// ```
 pub fn float_ceil(x: f64) -> Result<IBig> {
     super::ops::float_to_int(x.ceil())
 }
 
 /// The key of `x[key]` (`operator.getitem`): any object, or a slice.
+///
+/// ```
+/// use icepool_core::value::builtins::{getitem, Index};
+/// use icepool_core::Value;
+///
+/// let t = Value::tuple(vec![Value::from(1), Value::from(2), Value::from(3)]);
+/// // `t[1]` and `t[::2]`.
+/// assert_eq!(getitem(&t, &Index::Item(Value::from(1))).unwrap(), Value::from(2));
+/// let every_other = Index::Slice(Value::None, Value::None, Value::from(2));
+/// assert_eq!(getitem(&t, &every_other).unwrap().to_string(), "(1, 3)");
+/// ```
 #[derive(Clone, Debug)]
 pub enum Index {
     /// Any object.
@@ -350,6 +437,18 @@ fn slice_positions(start: &Value, stop: &Value, step: &Value, len: usize) -> Res
 /// `denominator`), which a type either has or lacks (AttributeError), and `Symbols.__getattr__` (`s[name]`, for
 /// any name that is not one of its own attributes, unless it starts with `_`). Any other name may be a method
 /// (`conjugate`, `count`, ...), a bound method that is no outcome: the port does not model those.
+///
+/// ```
+/// use icepool_core::value::builtins::{fraction, getattr};
+/// use icepool_core::Value;
+///
+/// // `Fraction(0.5).denominator` is `2`; `(3).numerator` is `3`.
+/// let half = Value::Fraction(fraction(&Value::Float(0.5)).unwrap());
+/// assert_eq!(getattr(&half, "denominator").unwrap(), Value::from(2));
+/// assert_eq!(getattr(&Value::from(3), "numerator").unwrap(), Value::from(3));
+/// // `'a'.real` raises AttributeError.
+/// assert!(getattr(&Value::str("a"), "real").is_err());
+/// ```
 pub fn getattr(x: &Value, name: &str) -> Result<Value> {
     let missing = || {
         Err(Error::MissingAttribute(format!(
@@ -383,6 +482,15 @@ pub fn getattr(x: &Value, name: &str) -> Result<Value> {
 
 /// `x[key]` for the sequences the core models (`tuple`, `str`) and host objects; other values are not
 /// subscriptable.
+///
+/// ```
+/// use icepool_core::value::builtins::{getitem, Index};
+/// use icepool_core::Value;
+///
+/// // `'abc'[-1]` is `'c'`; `(3)[0]` raises TypeError: 'int' object is not subscriptable.
+/// assert_eq!(getitem(&Value::str("abc"), &Index::Item(Value::from(-1))).unwrap(), Value::str("c"));
+/// assert!(getitem(&Value::from(3), &Index::Item(Value::from(0))).is_err());
+/// ```
 pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
     match (x, key) {
         // `Vector.__getitem__`: an int index gives the element, anything else `Vector(self._data[index])`.
@@ -465,6 +573,16 @@ pub fn getitem(x: &Value, key: &Index) -> Result<Value> {
 }
 
 /// `len(x)`.
+///
+/// ```
+/// use icepool_core::value::builtins::py_len;
+/// use icepool_core::Value;
+///
+/// assert_eq!(py_len(&Value::str("abc")).unwrap(), 3);
+/// assert_eq!(py_len(&Value::tuple(vec![Value::None])).unwrap(), 1);
+/// // `len(3)` raises TypeError.
+/// assert!(py_len(&Value::from(3)).is_err());
+/// ```
 pub fn py_len(x: &Value) -> Result<usize> {
     match x {
         Value::Tuple(t) => Ok(t.len()),
@@ -479,6 +597,16 @@ pub fn py_len(x: &Value) -> Result<usize> {
 /// `fractions.Fraction(x)` for one argument: an `int` / `bool` / `Fraction` exactly, a `float` exactly (its
 /// `as_integer_ratio()`; NaN is ValueError, an infinity OverflowError), a host `numbers.Rational`. A `str` is parsed
 /// by Python (not ported); anything else is TypeError.
+///
+/// ```
+/// use icepool_core::value::builtins::fraction;
+/// use icepool_core::Value;
+///
+/// // `Fraction(0.5)` is `Fraction(1, 2)`: a float converts exactly.
+/// assert_eq!(Value::Fraction(fraction(&Value::Float(0.5)).unwrap()).to_string(), "Fraction(1, 2)");
+/// // `Fraction(float('inf'))` raises OverflowError.
+/// assert!(fraction(&Value::Float(f64::INFINITY)).is_err());
+/// ```
 pub fn fraction(x: &Value) -> Result<RBig> {
     match x {
         Value::Int(i) => Ok(RBig::from(i.clone())),
@@ -513,6 +641,17 @@ pub fn fraction(x: &Value) -> Result<RBig> {
 /// with denominator <= M and take whichever of these is closer to x. In the event of a tie, the bound with smaller
 /// denominator is chosen. If both denominators are equal (which can happen only when max_denominator == 1 and
 /// self is midway between two integers) the lower bound---i.e., the floor of self, is taken.
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::builtins::{fraction, limit_denominator};
+/// use icepool_core::Value;
+///
+/// // `Fraction(3.14159).limit_denominator(100)` is `Fraction(311, 99)`.
+/// let pi = fraction(&Value::Float(3.14159)).unwrap();
+/// let near = limit_denominator(&pi, &IBig::from(100)).unwrap();
+/// assert_eq!(Value::Fraction(near).to_string(), "Fraction(311, 99)");
+/// ```
 pub fn limit_denominator(x: &RBig, max_denominator: &IBig) -> Result<RBig> {
     if *max_denominator < IBig::ONE {
         return Err(Error::InvalidArgument(

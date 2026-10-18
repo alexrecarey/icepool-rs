@@ -23,6 +23,16 @@ use super::{BinOp, UnOp, Value};
 use crate::error::{Error, Result};
 
 /// icepool's `Vector`: a tuple-like outcome with elementwise operators.
+///
+/// ```
+/// use icepool_core::value::{BinOp, VecOp, Vector};
+/// use icepool_core::Value;
+///
+/// // `Vector((1, 2)) * 2` is `Vector((2, 4))`.
+/// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+/// assert_eq!(v.binary(VecOp::Bin(BinOp::Mul), &Value::from(2)).unwrap().to_string(), "Vector((2, 4))");
+/// assert_eq!(v.data().unwrap().len(), 2);
+/// ```
 #[derive(Clone, Debug)]
 pub struct Vector {
     /// `None` for a `VectorWithTruthOnly`, whose `_data` property raises.
@@ -33,6 +43,15 @@ pub struct Vector {
 
 /// An operator applied elementwise: Python's binary operators and comparisons, and `==` / `!=` (which the core
 /// keeps apart from `BinOp`, as they never raise between native values).
+///
+/// ```
+/// use icepool_core::value::{BinOp, VecOp};
+/// use icepool_core::Value;
+///
+/// assert_eq!(VecOp::Bin(BinOp::Add).apply(&Value::from(1), &Value::from(2)).unwrap(), Value::from(3));
+/// // `1 != 2`.
+/// assert_eq!(VecOp::Eq(true).apply(&Value::from(1), &Value::from(2)).unwrap(), Value::Bool(true));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VecOp {
     /// A binary operator or comparison.

@@ -8,6 +8,19 @@ use dashu_int::{IBig, UBig};
 use dashu_ratio::RBig;
 
 /// A borrowed number. `bool` is viewed as the `int` 0 or 1.
+///
+/// ```
+/// use icepool_core::value::Num;
+/// use icepool_core::Value;
+///
+/// // `2**53 + 1 > 2.0**53`: Python compares exactly, never rounding the int to a float.
+/// let big = Value::from((1i64 << 53) + 1);
+/// assert!(big.as_num().unwrap() > Num::Float((1u64 << 53) as f64));
+/// // Equal numbers hash alike: `hash(True) == hash(1.0) == 1`; `hash(0.5)` is `2**60`.
+/// assert_eq!(Value::Bool(true).as_num().unwrap().py_hash(), Num::Float(1.0).py_hash());
+/// assert_eq!(Num::Float(0.5).py_hash(), 1 << 60);
+/// assert!(Value::str("a").as_num().is_none());
+/// ```
 #[derive(Clone, Debug)]
 pub enum Num<'a> {
     /// An `int` (or a `bool`).
@@ -160,6 +173,16 @@ impl PartialOrd for Num<'_> {
 /// `numerator / denominator`). Raises `ZeroDivisionError` for `d == 0` and `OverflowError` beyond the float range.
 ///
 /// The sign of a zero result is negative iff exactly one operand is negative: `0 / -3` is `-0.0`.
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::ratio_to_f64;
+///
+/// assert_eq!(ratio_to_f64(&IBig::from(1), &IBig::from(3)).unwrap(), 1.0 / 3.0);
+/// // `0 / -3` is `-0.0`; `1 / 0` raises ZeroDivisionError.
+/// assert!(ratio_to_f64(&IBig::from(0), &IBig::from(-3)).unwrap().is_sign_negative());
+/// assert!(ratio_to_f64(&IBig::from(1), &IBig::from(0)).is_err());
+/// ```
 pub fn ratio_to_f64(n: &IBig, d: &IBig) -> crate::Result<f64> {
     if *d == IBig::ZERO {
         return Err(crate::Error::DivisionByZero("division by zero".into()));
@@ -175,6 +198,16 @@ pub fn ratio_to_f64(n: &IBig, d: &IBig) -> crate::Result<f64> {
 }
 
 /// `float(i)` for an int: correctly rounded, `OverflowError` if too large.
+///
+/// ```
+/// use dashu_int::IBig;
+/// use icepool_core::value::int_to_f64;
+///
+/// // `float(2**53 + 1)` is `9007199254740992.0`: the tie rounds to even.
+/// assert_eq!(int_to_f64(&IBig::from((1i64 << 53) + 1)).unwrap(), 9007199254740992.0);
+/// // `float(10**400)` raises OverflowError.
+/// assert!(int_to_f64(&IBig::from(10).pow(400)).is_err());
+/// ```
 pub fn int_to_f64(i: &IBig) -> crate::Result<f64> {
     ratio_to_f64(i, &IBig::ONE)
         .map_err(|_| crate::Error::Overflow("int too large to convert to float".into()))

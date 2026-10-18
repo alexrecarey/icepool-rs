@@ -2,6 +2,15 @@
 //! exponent is below -4 or at least 16 (CPython `Python/pystrtod.c`, `format_float_short` with mode `'r'`).
 
 /// Python's `repr(x)` of a `float`: the shortest text that reads back as `x`.
+///
+/// ```
+/// use icepool_core::value::float_repr;
+///
+/// assert_eq!(float_repr(0.1), "0.1");
+/// assert_eq!(float_repr(1e16), "1e+16");
+/// assert_eq!(float_repr(2.0), "2.0");
+/// assert_eq!(float_repr(f64::NAN), "nan");
+/// ```
 pub fn float_repr(x: f64) -> String {
     if x.is_nan() {
         return "nan".into();
