@@ -427,6 +427,9 @@ turns out wrong. Newest decisions at the top of each section.
     **`PyEvaluator` now forwards `initial_state_counts`** to the inner evaluator. Every built-in in the runner,
     icepool-py and icepool-wasm is now `PyEvaluator(..)`; only lexi/argsort still implement
     `MultisetEvaluator<Value>` directly (C2c).
+  - **Never `uv run` with the oracle checkout as the working directory**: uv writes an untracked `uv.lock` there
+    and the gate's "oracle pinned and clean" step goes RED. Ask the oracle from this repo (`uv run python -m
+    harness.core.tool oracle '<program>'`, or `uv run python -c 'import icepool ...'` from the repo root).
   - Typed-vs-Python check: value/evaluators.rs `typed_matches_python` evaluates on `Pool<i64>` and `Pool<Value>` and
     asserts the typed finals spelled as Values equal Python's, in order. Reuse it for the next evaluators.
   - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
