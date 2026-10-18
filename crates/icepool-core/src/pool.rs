@@ -717,4 +717,93 @@ mod tests {
         let small = Pool::new(vec![(die(Quantity::ONE << bits), 2)]).unwrap();
         assert_eq!(small.denominator().unwrap(), Quantity::ONE << (2 * bits));
     }
+
+    // Typed pools. The expected values are Python icepool's answers; the comment above each gives the Python.
+
+    use crate::evaluator::Final;
+    use crate::{d, Outcome};
+
+    fn ints(xs: &[i64]) -> Vec<Int> {
+        xs.iter().map(|&x| Int::from(x)).collect()
+    }
+
+    /// The sum of the counted rolls, each counted as often as the keep tuple says.
+    struct Sum;
+
+    impl MultisetEvaluator<i64> for Sum {
+        type State = i64;
+        type Final = i64;
+
+        fn initial_state(&self, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<i64> {
+            Ok(0)
+        }
+
+        fn next_state(&self, sum: &i64, _: Order, outcome: &i64, counts: &[Int]) -> Result<Option<i64>> {
+            Ok(Some(sum + outcome * counts[0].to_i64().unwrap()))
+        }
+
+        fn final_outcome(&self, sum: &i64, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Final<i64>> {
+            Ok(Final::Outcome(*sum))
+        }
+    }
+
+    fn die<O: Outcome>(items: impl IntoIterator<Item = (O, u32)>) -> Die<O> {
+        Die::from_weights(items)
+    }
+
+    #[test]
+    fn sizes_outcomes_and_denominators() {
+        // `d(6).pool(4).highest(3)`: keep_size 3, keep_tuple (0, 1, 1, 1), denominator 1296.
+        let best = d(6).pool(4).highest(3);
+        assert_eq!((best.keep_size(), best.raw_size()), (Int::from(3), 4));
+        assert_eq!(best.keep_tuple(), ints(&[0, 1, 1, 1]));
+        assert_eq!(best.denominator().unwrap(), Quantity::from(1296u32));
+        // `Pool([d(4), d(6)])`: denominator 24, outcomes (1, ..., 6).
+        let mixed = Pool::new(vec![(d(4), 1), (d(6), 1)]).unwrap();
+        assert_eq!(mixed.denominator().unwrap(), Quantity::from(24u8));
+        assert_eq!(mixed.outcomes(), [1, 2, 3, 4, 5, 6]);
+        assert_eq!(mixed.dice().len(), 2);
+        // A die put in zero times still contributes its outcomes.
+        let zero = Pool::new(vec![(d(4), 1), (Die::single(9), 0)]).unwrap();
+        assert_eq!((zero.outcomes().last(), zero.raw_size()), (Some(&9), 1));
+    }
+
+    #[test]
+    fn keeping_by_index() {
+        // `d(6).pool(3)[-1:]`
+        let pool = d(6).pool(3);
+        let last = pool.keep(&KeepIndex::Slice {
+            slice: keep_tuple::Slice::new(Some(-1), None),
+            step: false,
+        });
+        assert_eq!(last.unwrap().keep_tuple(), ints(&[0, 0, 1]));
+        // `d(6).pool(3)[0, -1, 1]`: keep_size 0, and its sum is the highest roll minus the middle one.
+        let signed = Pool::from_parts(&[(d(6), 3)], ints(&[0, -1, 1]).into()).unwrap();
+        assert!(signed.has_negative_keeps());
+        assert_eq!(signed.keep_size(), Int::ZERO);
+        let expected = die([(0, 51), (1, 75), (2, 48), (3, 27), (4, 12), (5, 3)]);
+        assert_eq!(signed.evaluate(&Sum).unwrap(), expected);
+    }
+
+    #[test]
+    fn multiplying_counts_and_merging_pools() {
+        // `d(6).pool(3).highest(2) * 2` has keep_tuple (0, 2, 2).
+        let doubled = d(6).pool(3).highest(2).multiply_counts(&Int::from(2));
+        assert_eq!(doubled.keep_tuple(), ints(&[0, 2, 2]));
+        // `d(6).pool(2) + d(4).pool(1)` is one pool: keep_tuple (1, 1, 1), and its sum is 2d6 + d4.
+        let merged = Pool::additive_union(&[d(6).pool(2), d(4).pool(1)]).unwrap().unwrap();
+        assert_eq!(merged.keep_tuple(), ints(&[1, 1, 1]));
+        assert_eq!(merged.evaluate(&Sum).unwrap(), &d(6).sum_rolls(2) + &d(4));
+        // `d(6).pool(2).highest(1) + d(4).pool(1)` is a CompoundKeepGenerator, not a pool.
+        let mixed = Pool::additive_union(&[d(6).pool(2).highest(1), d(4).pool(1)]);
+        assert!(mixed.unwrap().is_none());
+    }
+
+    #[test]
+    fn too_many_dice_is_an_error() {
+        assert!(matches!(
+            Pool::new(vec![(d(6), MAX_POOL_SIZE), (d(6), 1)]),
+            Err(Error::Overflow(_))
+        ));
+    }
 }

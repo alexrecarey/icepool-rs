@@ -935,6 +935,7 @@ fn list_index(x: &crate::Value) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::Error;
     use crate::population::Comparison;
     use crate::{d, Die, Quantity};
 
@@ -955,5 +956,102 @@ mod tests {
         let truncated = d6.truncate(Some(&5), None);
         assert_eq!(truncated.items(), [(5, q(1)), (6, q(1))]);
         assert_eq!(d6.try_clip(Some(&2), Some(&5)), Ok(clipped));
+    }
+
+    // The expected dice below are Python icepool's answers; the comment above each gives the Python.
+
+    fn die(items: &[(i64, u32)]) -> Die<i64> {
+        Die::from_weights(items.iter().copied())
+    }
+
+    #[test]
+    fn reading_outcomes_and_quantities() {
+        let d4 = d(4);
+        assert_eq!((d4.min_outcome(), d4.max_outcome()), (Ok(&1), Ok(&4)));
+        // `d(4).quantities('<=')`, `d(4).quantities('>=')`
+        let qs = |xs: [u8; 4]| xs.map(Quantity::from).to_vec();
+        assert_eq!(d4.quantities_le(), qs([1, 2, 3, 4]));
+        assert_eq!(d4.quantities_ge(), qs([4, 3, 2, 1]));
+        assert_eq!((d4.position(&3), d4.position(&5)), (Some(2), None));
+        // `Die([]).min_outcome()` raises IndexError.
+        let empty = Die::<i64>::from_iter([]);
+        assert!(matches!(empty.min_outcome(), Err(Error::IndexOutOfRange(_))));
+        assert!(matches!(empty.max_outcome(), Err(Error::IndexOutOfRange(_))));
+        assert!(empty.is_empty() && empty.denominator().is_zero());
+    }
+
+    #[test]
+    fn pop_min_and_max_keep_the_rest() {
+        // `d(6)._pop_max()`, `d(6)._pop_min()`
+        assert_eq!(d(6).pop_max().unwrap(), (d(5), Quantity::ONE));
+        assert_eq!(d(6).pop_min().unwrap(), (Die::from(2..=6), Quantity::ONE));
+        assert!(Die::<i64>::from_iter([]).pop_min().is_err());
+    }
+
+    #[test]
+    fn highest_and_lowest_single() {
+        // `d(6).highest(3)`, `d(6).lowest(2)`
+        let highest = die(&[(1, 1), (2, 7), (3, 19), (4, 37), (5, 61), (6, 91)]);
+        assert_eq!(d(6).highest_single(3).unwrap(), highest);
+        let lowest = die(&[(1, 11), (2, 9), (3, 7), (4, 5), (5, 3), (6, 1)]);
+        assert_eq!(d(6).lowest_single(2).unwrap(), lowest);
+    }
+
+    #[test]
+    fn reroll_with_and_without_a_depth() {
+        let low = [true, true, false, false, false, false];
+        // `d(6).reroll([1, 2], depth=1)`
+        let once = die(&[(1, 2), (2, 2), (3, 8), (4, 8), (5, 8), (6, 8)]);
+        assert_eq!(d(6).reroll(&low, Some(1)).unwrap(), once);
+        // `d(6).reroll([1, 2], depth='inf')`
+        assert_eq!(d(6).reroll(&low, None).unwrap(), Die::from(3..=6));
+        // Rerolling every outcome forever never stops: no outcomes.
+        assert!(d(6).reroll(&[true; 6], None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn split_partitions_the_outcomes() {
+        // `d(6).split([2, 4, 6])`
+        let even = [false, true, false, true, false, true];
+        let (selected, rest) = d(6).split(&even).unwrap();
+        assert_eq!(selected, Die::from_iter([2, 4, 6]));
+        assert_eq!(rest, Die::from_iter([1, 3, 5]));
+    }
+
+    #[test]
+    fn zero_keeps_the_denominator() {
+        // `d(6).zero()`, `Die({-1: 1, 2: 3}).zero()`
+        assert_eq!(d(6).zero().unwrap(), die(&[(0, 6)]));
+        assert_eq!(die(&[(-1, 1), (2, 3)]).zero().unwrap(), die(&[(0, 4)]));
+        // An empty die has no single zero: ValueError.
+        assert!(matches!(
+            Die::<i64>::from_iter([]).zero(),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn simplify_and_equals() {
+        // `Die({2: 2, 4: 4}).simplify()`; `(d(6) + d(6)).simplify()` has nothing to divide out.
+        let coin = die(&[(2, 2), (4, 4)]);
+        assert_eq!(coin.simplify().unwrap(), die(&[(2, 1), (4, 2)]));
+        let two_d6 = &d(6) + &d(6);
+        assert_eq!(two_d6.simplify().unwrap(), two_d6);
+        // `Die({2: 2, 4: 4}).equals(Die([2, 4, 4]))` is False; with `simplify=True` it is True.
+        let other = Die::from_iter([2, 4, 4]);
+        assert_eq!(coin.equals(&other, false), Ok(false));
+        assert_eq!(coin.equals(&other, true), Ok(true));
+    }
+
+    #[test]
+    fn negative_roll_counts_negate_the_sum() {
+        // `(-2) @ d(2)`
+        assert_eq!(d(2).sum_rolls(-2), die(&[(-4, 1), (-3, 2), (-2, 1)]));
+        // `0 @ d(6)` is `Die([0])`.
+        assert_eq!(d(6).sum_rolls(0), Die::single(0));
+        // A die of counts: `Die([1, 2]) @ d(2)` rolls once or twice, both with the denominator 2 * 2**2.
+        let counts = [(1, Quantity::ONE), (2, Quantity::ONE)];
+        let mixed = d(2).matmul(&counts).unwrap();
+        assert_eq!(mixed, die(&[(1, 2), (2, 3), (3, 2), (4, 1)]));
     }
 }
