@@ -1,101 +1,41 @@
-//! Port of map_tools/core_impl.py `TransitionCache` (and common.py `TransitionType`): a transition function for
-//! `map(repeat)`, `map_and_time` and the absorbing Markov chain, cached per state.
+//! Port of map_tools/core_impl.py `TransitionCache`: a transition function for `map(repeat)`, `map_and_time` and
+//! the absorbing Markov chain, cached per state.
 //!
-//! The transition function belongs to the facade (a Python callable, a catalogue function, count mode's `step`):
-//! the core calls it as `transition(state, i)`, where `i` indexes the joint outcomes of the extra arguments in
-//! `iter_cartesian_product` order, so the facade keeps the outcome objects (and unpacks the state for `star`) and
-//! the core only sees their quantities. It is called lazily, exactly where Python calls it: `is_self_loop` stops
-//! at the first transition that leaves the state, and a state is stepped only when the process reaches it.
+//! The transition function belongs to the caller (a Rust closure, a Python callable, a catalogue function, count
+//! mode's `step`): the core calls it as `transition(state, i)`, where `i` indexes the joint outcomes of the extra
+//! arguments in `iter_cartesian_product` order, so the caller keeps the outcome objects (and unpacks the state
+//! for `star`) and the core only sees their quantities. It is called lazily, exactly where Python calls it:
+//! `is_self_loop` stops at the first transition that leaves the state, and a state is stepped only when the
+//! process reaches it.
 //!
-//! States are `Value`s. Python looks states up in dicts (`hash` + `==`, the first key spelling kept), which is
-//! what an `FxHashMap<Value, _>` does too.
+//! States are looked up in hash maps, as Python looks them up in dicts (`hash` + `==`, the first key spelling
+//! kept).
 
 use rustc_hash::FxHashMap;
 
+use super::state::{MapState, Transition};
+use crate::die_map::{Mapped, Target};
 use crate::error::{Error, Result};
-use crate::expand::tupleize_dice;
-use crate::value::BinOp;
-use crate::{Die, DieArg, Quantity, Value};
-
-/// `TransitionType` is an `IntEnum`, so its members sort and hash as these ints.
-pub const DEFAULT: i64 = 0;
-pub const BREAK: i64 = 1;
-// Reroll gets pruned immediately, so doesn't get a transition type.
-pub const RESTART: i64 = 2;
-
-pub(crate) fn int(i: i64) -> Value {
-    Value::from(dashu_int::IBig::from(i))
-}
-
-/// Where a transition goes: one outcome or a die of them.
-pub enum Target {
-    Outcome(Value),
-    Die(Die<Value>),
-    /// `Reroll` (`Go(Reroll)` is the same as `Next::Reroll`). `Break(Reroll)`: Python builds `(TransitionType.BREAK, Reroll)`, which `Die()` cannot expand (see
-    /// DIVERGENCES.md: a tuple holding `Reroll`).
-    Reroll,
-}
-
-/// What the transition function returned.
-pub enum Next {
-    /// `icepool.Reroll`: this transition is dropped.
-    Reroll,
-    /// `icepool.Restart`: the whole process restarts (conditioning against this sequence of transitions).
-    Restart,
-    /// `Break(outcome)`: an early exit to `outcome`; `None` (`Break()`) is the current state.
-    Break(Option<Target>),
-    /// Any other result: the next state (or a die of next states).
-    Go(Target),
-}
-
-/// The `(transition_type, state)` tuple of a transition die.
-pub(crate) fn transition(transition_type: i64, state: Value) -> Value {
-    Value::tuple(vec![int(transition_type), state])
-}
-
-/// The parts of a transition die's outcome: `(transition_type, state, ...)`.
-pub(crate) fn parts(outcome: &Value) -> &[Value] {
-    match outcome {
-        Value::Tuple(t) => t,
-        _ => unreachable!("transition outcomes are (transition_type, state, ...) tuples"),
-    }
-}
-
-/// Whether a NaN is in `v`. Python's dicts and tuple `==` short-circuit on object *identity*, so the same NaN
-/// object found again (a state carried over a step, `Break()` to the current state) is the same key there, while
-/// a new NaN object is not: the port cannot tell which is which, so it does not guess.
-pub(crate) fn check_nan(v: &Value) -> Result<()> {
-    fn has_nan(v: &Value) -> bool {
-        match v {
-            Value::Float(f) => f.is_nan(),
-            Value::Complex(re, im) => re.is_nan() || im.is_nan(),
-            Value::Tuple(items) => items.iter().any(has_nan),
-            _ => false,
-        }
-    }
-    if has_nan(v) {
-        return Err(Error::Unported(
-            "NaN in map(repeat) states (Python finds the same NaN object again by identity)".into(),
-        ));
-    }
-    Ok(())
-}
+use crate::outcome::ErrInto;
+use crate::{Die, DieArg, Quantity};
 
 /// Helper class for caching a transition function for `map(repeat)`.
-pub struct TransitionCache<F> {
+pub struct TransitionCache<S: MapState, F> {
     transition: F,
     /// The joint quantities of the extra arguments, one per index the transition function takes.
     extra_quantities: Vec<Quantity>,
-    cache: FxHashMap<Value, Die<Value>>,
-    /// state -> DEFAULT or BREAK
-    self_loop_cache: FxHashMap<Value, i64>,
+    cache: FxHashMap<S, Die<S::Transition>>,
+    /// state -> whether it is a self-loop (`BREAK`) or not (`DEFAULT`)
+    self_loop_cache: FxHashMap<S, bool>,
 }
 
-impl<F, E> TransitionCache<F>
+impl<S, F, E> TransitionCache<S, F>
 where
-    F: FnMut(&Value, usize) -> std::result::Result<Next, E>,
+    S: MapState,
+    F: FnMut(&S, usize) -> std::result::Result<Mapped<S>, E>,
     E: From<Error>,
 {
+    /// A cache over `transition(state, i)`, `i` running over `extra_quantities` (one `1` for no extra arguments).
     pub fn new(transition: F, extra_quantities: Vec<Quantity>) -> Self {
         TransitionCache {
             transition,
@@ -105,26 +45,28 @@ where
         }
     }
 
-    /// Returns `BREAK` if the state is a self-loop, or `DEFAULT` otherwise.
-    pub fn is_self_loop(&mut self, curr_state: &Value) -> std::result::Result<i64, E> {
+    /// Whether the state is a self-loop (Python returns `TransitionType.BREAK` for one, `DEFAULT` otherwise).
+    pub fn is_self_loop(&mut self, curr_state: &S) -> std::result::Result<bool, E> {
         if let Some(&t) = self.self_loop_cache.get(curr_state) {
             return Ok(t);
         }
-        check_nan(curr_state)?;
-        let mut result = BREAK;
+        curr_state.check_state()?;
+        let mut result = true;
         for i in 0..self.extra_quantities.len() {
             let next_state = match (self.transition)(curr_state, i)? {
                 // Ignored.
-                Next::Reroll | Next::Go(Target::Reroll) => continue,
+                Mapped::Reroll => continue,
                 // Might restart, therefore not a self-loop.
-                Next::Restart => {
-                    result = DEFAULT;
+                Mapped::Restart => {
+                    result = false;
                     break;
                 }
                 // Break to the current outcome.
-                Next::Break(None) => continue,
+                Mapped::Break(None) => continue,
                 // Unwrap Break.
-                Next::Break(Some(next)) | Next::Go(next) => next,
+                Mapped::Break(Some(next)) => next,
+                Mapped::Outcome(next) => Target::Outcome(next),
+                Mapped::Die(next) => Target::Die(next),
             };
             let stays = match next_state {
                 // `next_state.probability(curr_state) == 1`: `Fraction(quantity, denominator)`.
@@ -144,7 +86,7 @@ where
                 Target::Reroll => false,
             };
             if !stays {
-                result = DEFAULT;
+                result = false;
                 break;
             }
         }
@@ -154,27 +96,28 @@ where
 
     /// Returns a die whose outcomes are `(transition_type, outcome)` according to whether the states are
     /// self-loops.
-    pub fn self_loop_die(&mut self, die: &Die<Value>) -> std::result::Result<Die<Value>, E> {
-        self.self_loop_die_with(die, transition)
+    pub fn self_loop_die(&mut self, die: &Die<S>) -> std::result::Result<Die<S::Transition>, E> {
+        self.self_loop_die_with(die, S::transition)
     }
 
     /// As `self_loop_die`, but also appends a zero time.
     pub fn self_loop_die_with_zero_time(
         &mut self,
-        die: &Die<Value>,
-    ) -> std::result::Result<Die<Value>, E> {
-        self.self_loop_die_with(die, |t, o| Value::tuple(vec![int(t), o, int(0)]))
+        die: &Die<S>,
+    ) -> std::result::Result<Die<S::Timed>, E> {
+        self.self_loop_die_with(die, |t| S::timed(t, 0))
     }
 
-    fn self_loop_die_with(
+    fn self_loop_die_with<T: crate::OutcomeOrder>(
         &mut self,
-        die: &Die<Value>,
-        make: impl Fn(i64, Value) -> Value,
-    ) -> std::result::Result<Die<Value>, E> {
+        die: &Die<S>,
+        make: impl Fn(Transition<S>) -> T,
+    ) -> std::result::Result<Die<T>, E> {
         let mut outcomes = Vec::with_capacity(die.len());
         let mut quantities = Vec::with_capacity(die.len());
         for (o, q) in die.items() {
-            outcomes.push(DieArg::Outcome(make(self.is_self_loop(o)?, o.clone())));
+            let transition = Transition::new(self.is_self_loop(o)?, o.clone());
+            outcomes.push(DieArg::Outcome(make(transition)));
             quantities.push(q.clone());
         }
         Ok(Die::new(outcomes, quantities)?)
@@ -184,29 +127,33 @@ where
     /// `(transition_type, next_state)`.
     ///
     /// This only works if the input is the same as the output type.
-    pub fn step_state(&mut self, curr_state: &Value) -> std::result::Result<Die<Value>, E> {
+    pub fn step_state(&mut self, curr_state: &S) -> std::result::Result<Die<S::Transition>, E> {
         if let Some(die) = self.cache.get(curr_state) {
             return Ok(die.clone());
         }
-        check_nan(curr_state)?;
+        curr_state.check_state()?;
         let mut next_states = Vec::with_capacity(self.extra_quantities.len());
         let mut next_quantities = Vec::with_capacity(self.extra_quantities.len());
         for i in 0..self.extra_quantities.len() {
             let next = match (self.transition)(curr_state, i)? {
                 // Pruned immediately.
-                Next::Reroll | Next::Go(Target::Reroll) => continue,
+                Mapped::Reroll => continue,
                 // Will prune at end.
-                Next::Restart => DieArg::Outcome(transition(RESTART, Value::None)),
-                Next::Break(None) => DieArg::Outcome(transition(BREAK, curr_state.clone())),
-                Next::Break(Some(Target::Outcome(next))) => {
-                    DieArg::Outcome(transition(BREAK, next))
+                Mapped::Restart => DieArg::Outcome(S::transition(Transition::Restart)),
+                Mapped::Break(None) => {
+                    DieArg::Outcome(S::transition(Transition::Break(curr_state.clone())))
                 }
-                // `(TransitionType.BREAK, die)` is a tuple holding a die, which `Die()` tupleizes.
-                Next::Break(Some(Target::Die(die))) => DieArg::Die(tupleize_dice(&[
-                    vec![(int(BREAK), Quantity::ONE)],
-                    die.items().to_vec(),
-                ])?),
-                Next::Break(Some(Target::Reroll)) => {
+                Mapped::Break(Some(Target::Outcome(next))) => {
+                    DieArg::Outcome(S::transition(Transition::Break(next)))
+                }
+                // `(TransitionType.BREAK, die)` is a tuple holding a die, which `Die()` tupleizes: one break per
+                // outcome of the die.
+                Mapped::Break(Some(Target::Die(die))) => DieArg::Die(relabel(&die, |o| {
+                    S::transition(Transition::Break(o.clone()))
+                })?),
+                // `(TransitionType.BREAK, Reroll)` is a tuple holding `Reroll`, which `Die()` cannot expand (see
+                // DIVERGENCES.md).
+                Mapped::Break(Some(Target::Reroll)) => {
                     return Err(Error::MissingAttribute(
                         "'RerollType' object has no attribute 'values'".into(),
                     )
@@ -214,9 +161,10 @@ where
                 }
                 // If the next state is a die, we need to conditionally break. This is why we keep the result as a
                 // single die rather than separate non-break and break dice.
-                Next::Go(Target::Die(die)) => DieArg::Die(self.self_loop_die(&die)?),
-                Next::Go(Target::Outcome(next)) => {
-                    DieArg::Outcome(transition(self.is_self_loop(&next)?, next))
+                Mapped::Die(die) => DieArg::Die(self.self_loop_die(&die)?),
+                Mapped::Outcome(next) => {
+                    let is_self_loop = self.is_self_loop(&next)?;
+                    DieArg::Outcome(S::transition(Transition::new(is_self_loop, next)))
                 }
             };
             next_states.push(next);
@@ -231,17 +179,15 @@ where
     /// stay as they are.
     pub fn step_transition_die(
         &mut self,
-        curr_die: &Die<Value>,
-    ) -> std::result::Result<Die<Value>, E> {
+        curr_die: &Die<S::Transition>,
+    ) -> std::result::Result<Die<S::Transition>, E> {
         let mut next_states = Vec::with_capacity(curr_die.len());
         let mut quantities = Vec::with_capacity(curr_die.len());
         for (outcome, quantity) in curr_die.items() {
             crate::interrupt::poll()?;
-            let p = parts(outcome);
-            next_states.push(if p[0] == int(DEFAULT) {
-                DieArg::Die(self.step_state(&p[1])?)
-            } else {
-                DieArg::Outcome(outcome.clone())
+            next_states.push(match S::read_transition(outcome) {
+                Transition::Default(state) => DieArg::Die(self.step_state(state)?),
+                _ => DieArg::Outcome(outcome.clone()),
             });
             quantities.push(quantity.clone());
         }
@@ -252,21 +198,21 @@ where
     /// `(transition_type, state, time)`.
     pub fn step_transition_die_with_time(
         &mut self,
-        curr_die: &Die<Value>,
-    ) -> std::result::Result<Die<Value>, E> {
+        curr_die: &Die<S::Timed>,
+    ) -> std::result::Result<Die<S::Timed>, E> {
         let mut next_states = Vec::with_capacity(curr_die.len());
         let mut quantities = Vec::with_capacity(curr_die.len());
         for (outcome, quantity) in curr_die.items() {
             crate::interrupt::poll()?;
-            let p = parts(outcome);
-            next_states.push(if p[0] == int(DEFAULT) {
-                // `self.step_state(curr_state) + (time + 1,)`: `Die.__add__` with `Die([(time + 1,)])`.
-                let time = Value::tuple(vec![p[2].binary(BinOp::Add, &int(1))?]);
-                let time = Die::new(vec![DieArg::Outcome(time)], vec![Quantity::ONE])?;
-                let step = self.step_state(&p[1])?;
-                DieArg::Die(step.binary_operator(&time, |a, b| a.binary(BinOp::Add, b))?)
-            } else {
-                DieArg::Outcome(outcome.clone())
+            next_states.push(match S::read_timed(outcome) {
+                // `self.step_state(curr_state) + (time + 1,)`: each outcome gets the time appended.
+                (Transition::Default(state), time) => {
+                    let step = self.step_state(state)?;
+                    DieArg::Die(relabel(&step, |t| {
+                        S::timed(owned(S::read_transition(t)), time + 1)
+                    })?)
+                }
+                _ => DieArg::Outcome(outcome.clone()),
             });
             quantities.push(quantity.clone());
         }
@@ -274,8 +220,21 @@ where
     }
 }
 
-/// Whether any outcome of a transition die is still `DEFAULT` (`any(transition_type == TransitionType.DEFAULT
-/// ...)`): `map(repeat)` stops early once the whole distribution is absorbed.
-pub(crate) fn any_default(die: &Die<Value>) -> bool {
-    die.outcomes().any(|o| parts(o)[0] == int(DEFAULT))
+/// The die with each outcome replaced by `f` of it, quantities (zero ones too) and order unchanged up to the new
+/// outcomes' sort: `f` must keep distinct outcomes distinct, as appending to a tuple does.
+pub(crate) fn relabel<A: crate::OutcomeOrder, B: crate::OutcomeOrder>(
+    die: &Die<A>,
+    f: impl Fn(&A) -> B,
+) -> Result<Die<B>> {
+    let items = die.items().iter().map(|(o, q)| (f(o), q.clone())).collect();
+    Die::from_dict(items).err_into()
+}
+
+/// An owned copy of a borrowed transition.
+pub(crate) fn owned<S: Clone>(transition: Transition<&S>) -> Transition<S> {
+    match transition {
+        Transition::Default(s) => Transition::Default(s.clone()),
+        Transition::Break(s) => Transition::Break(s.clone()),
+        Transition::Restart => Transition::Restart,
+    }
 }

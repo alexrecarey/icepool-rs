@@ -3,7 +3,7 @@
 //!
 //! This layer does Python's argument juggling (`transition_and_star`, `Die([first_arg])`, the checks on `repeat`
 //! in Python's order) and supplies the transition function: a catalogue callable called with the state and one
-//! joint outcome of the extra arguments, its result read as a `Next`. The core runs the process.
+//! joint outcome of the extra arguments, its result read as a `Mapped`. The core runs the process.
 
 use super::catalogue::{truthy, Func};
 use super::expression::as_expression;
@@ -11,17 +11,22 @@ use super::map::{arg_items, call, die_of, expand_arg, star_arg, the_die};
 use super::ops::{new_die, unhashable_list, wrong_type};
 use super::{raise, PErr, PValue};
 use icepool_core::expand::iter_cartesian_product;
-use icepool_core::map_tools::{self, Next, Target, TransitionCache};
+use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::{Mapped, Target};
 use icepool_core::value::BinOp;
 use icepool_core::Error;
 use icepool_core::{Die, Quantity, Value};
+
+/// A transition function as the core's `TransitionCache` calls it: `transition(state, i)`, `i` the joint
+/// outcome of the extra arguments.
+type TransitionFn<'a> = dyn FnMut(&Value, usize) -> Result<Mapped<Value>, PErr> + 'a;
 
 fn int(i: i64) -> Value {
     Value::from(dashu_int::IBig::from(i))
 }
 
 /// What the transition function returned, as `TransitionCache` reads it.
-fn next(result: PValue) -> Result<Next, PErr> {
+fn next(result: PValue) -> Result<Mapped<Value>, PErr> {
     let target = |x: PValue| match x {
         PValue::Value(v) => Ok(Target::Outcome(v)),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(Target::Die(d)),
@@ -36,13 +41,13 @@ fn next(result: PValue) -> Result<Next, PErr> {
         )),
     };
     Ok(match result {
-        PValue::Reroll => Next::Reroll,
-        PValue::Restart => Next::Restart,
+        PValue::Reroll => Mapped::Reroll,
+        PValue::Restart => Mapped::Restart,
         PValue::Break(outcome) => match *outcome {
-            PValue::Value(Value::None) => Next::Break(None),
-            outcome => Next::Break(Some(target(outcome)?)),
+            PValue::Value(Value::None) => Mapped::Break(None),
+            outcome => Mapped::Break(Some(target(outcome)?)),
         },
-        x => Next::Go(target(x)?),
+        x => target(x)?.into(),
     })
 }
 
@@ -90,7 +95,7 @@ fn transition_cache<'a>(
 fn with_cache<T>(
     (f, star, joint): Transition<'_>,
     body: impl FnOnce(
-        &mut TransitionCache<&mut dyn FnMut(&Value, usize) -> Result<Next, PErr>>,
+        &mut TransitionCache<Value, &mut TransitionFn<'_>>,
     ) -> Result<T, PErr>,
 ) -> Result<T, PErr> {
     let quantities = joint.iter().map(|(_, q)| q.clone()).collect();
@@ -99,7 +104,7 @@ fn with_cache<T>(
         args.extend(joint[i].0.iter().cloned());
         next(call(f, star, args, &[])?)
     };
-    let transition: &mut dyn FnMut(&Value, usize) -> Result<Next, PErr> = &mut transition;
+    let transition: &mut TransitionFn<'_> = &mut transition;
     body(&mut TransitionCache::new(transition, quantities))
 }
 
@@ -274,14 +279,11 @@ pub fn time_to_sum(
     // `Die([0]).map_and_time(step, self, repeat=max_time)` with `step = lambda total, roll: min(total + roll,
     // target)`.
     let rolls = die.items();
-    let mut step = |total: &Value, i: usize| -> Result<Next, PErr> {
+    let mut step = |total: &Value, i: usize| -> Result<Mapped<Value>, PErr> {
         let sum = total.binary(BinOp::Add, &rolls[i].0)?;
-        Ok(Next::Go(Target::Outcome(Value::py_min(
-            sum,
-            target.clone(),
-        )?)))
+        Ok(Mapped::Outcome(Value::py_min(sum, target.clone())?))
     };
-    let step: &mut dyn FnMut(&Value, usize) -> Result<Next, PErr> = &mut step;
+    let step: &mut TransitionFn<'_> = &mut step;
     let mut cache = TransitionCache::new(step, rolls.iter().map(|(_, q)| q.clone()).collect());
     let initial = Die::new(
         vec![icepool_core::DieArg::Outcome(int(0))],

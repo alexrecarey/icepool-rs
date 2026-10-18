@@ -89,3 +89,6 @@ pub use outcome::infallible;
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`
 /// stores values up to 128 bits inline, so the common small quantity never allocates.
 pub type Quantity = dashu_int::UBig;
+
+/// Exact fractions: means and probabilities of typed dice (Python's `Fraction`).
+pub type Ratio = dashu_ratio::RBig;

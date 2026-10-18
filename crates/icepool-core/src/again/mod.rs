@@ -23,7 +23,8 @@ pub use typed::{Again, AgainEnd, AgainOp, AgainOutcome};
 
 use crate::creation_args::DieArg;
 use crate::error::{Error, Result};
-use crate::map_tools::{map_repeat, Next, Target, TransitionCache};
+use crate::map_tools::{map_repeat, TransitionCache};
+use crate::Mapped;
 use crate::value::recursion::{frames, level};
 use crate::value::BinOp;
 use crate::{Die, Quantity, Value};
@@ -287,10 +288,10 @@ pub fn evaluate_agains_using_count<E: From<Error>>(
     // holding inf is `inf * 0`, shared by every `(zero, 1, -1)` step outcome) compare equal by identity.
     let rolls = step_die.items();
     let mut cache = TransitionCache::new(
-        |state: &Value, i: usize| -> Result<Next> {
+        |state: &Value, i: usize| -> Result<Mapped<Value>> {
             Ok(match step(state, &rolls[i].0, &repeat, restart)? {
-                Step::Restart => Next::Restart,
-                Step::State(next) => Next::Go(Target::Outcome(next)),
+                Step::Restart => Mapped::Restart,
+                Step::State(next) => Mapped::Outcome(next),
             })
         },
         rolls.iter().map(|(_, q)| q.clone()).collect(),

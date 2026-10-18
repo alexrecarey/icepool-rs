@@ -9,7 +9,8 @@
 //! TypeScript holds the outcomes, the core their joint quantities). New states are discovered incrementally, as
 //! the transition function returns them.
 
-use icepool_core::map_tools::{self, Next, Target, TransitionCache};
+use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::{Mapped, Target};
 use icepool_core::{Error, Quantity, Value};
 use wasm_bindgen::convert::TryFromJsValue;
 use wasm_bindgen::prelude::*;
@@ -18,6 +19,10 @@ use super::convert::{value_from_js, value_to_js};
 use super::die::WasmDie;
 use super::error::{to_js as to_js_error, JsResult, OrThrow};
 use super::host::Transition;
+
+/// A transition function as the core's `TransitionCache` calls it: `transition(state, i)`, `i` the joint
+/// outcome of the extra arguments.
+type TransitionFn<'a> = dyn FnMut(&Value, usize) -> Result<Mapped<Value>, HostErr> + 'a;
 
 /// A JS exception (thrown by the transition function, or a core error made one) passing through the core.
 struct HostErr(JsValue);
@@ -30,7 +35,7 @@ impl From<Error> for HostErr {
 
 /// Where a transition goes, as `[kind, payload]`: `"outcome"` and a value, `"die"` and a die the core takes over
 /// (a fresh `WasmDie`: taking it empties the JS object), `"reroll"` for `Reroll` or `Restart`.
-fn target(kind: &JsValue, payload: JsValue) -> Result<Target, HostErr> {
+fn target(kind: &JsValue, payload: JsValue) -> Result<Target<Value>, HostErr> {
     match kind.as_string().as_deref() {
         Some("reroll") => Ok(Target::Reroll),
         Some("die") => match WasmDie::try_from_js_value(payload) {
@@ -44,7 +49,7 @@ fn target(kind: &JsValue, payload: JsValue) -> Result<Target, HostErr> {
 
 /// What the transition function returned: `[true, "reroll" | "restart"]`, `[true, "break"]` (`Break()`, the current
 /// state), `[true, "break" | "go", kind, payload]` with a target, or `[false, exception]` for what it threw.
-fn next(parts: Vec<JsValue>) -> Result<Next, HostErr> {
+fn next(parts: Vec<JsValue>) -> Result<Mapped<Value>, HostErr> {
     let mut parts = parts.into_iter();
     let mut part = || parts.next().unwrap_or(JsValue::UNDEFINED);
     let (ok, what) = (part(), part());
@@ -53,11 +58,11 @@ fn next(parts: Vec<JsValue>) -> Result<Next, HostErr> {
     }
     let (kind, payload) = (part(), part());
     Ok(match what.as_string().as_deref() {
-        Some("reroll") => Next::Reroll,
-        Some("restart") => Next::Restart,
-        Some("break") if kind.is_undefined() => Next::Break(None),
-        Some("break") => Next::Break(Some(target(&kind, payload)?)),
-        _ => Next::Go(target(&kind, payload)?),
+        Some("reroll") => Mapped::Reroll,
+        Some("restart") => Mapped::Restart,
+        Some("break") if kind.is_undefined() => Mapped::Break(None),
+        Some("break") => Mapped::Break(Some(target(&kind, payload)?)),
+        _ => target(&kind, payload)?.into(),
     })
 }
 
@@ -67,7 +72,7 @@ fn with_cache<R>(
     transition: &Transition,
     extra_quantities: Vec<JsValue>,
     body: impl FnOnce(
-        &mut TransitionCache<&mut dyn FnMut(&Value, usize) -> Result<Next, HostErr>>,
+        &mut TransitionCache<Value, &mut TransitionFn<'_>>,
     ) -> Result<R, HostErr>,
 ) -> JsResult<R> {
     let quantities = extra_quantities
@@ -78,10 +83,10 @@ fn with_cache<R>(
         })
         .collect::<icepool_core::Result<Vec<_>>>()
         .or_throw()?;
-    let mut call = |state: &Value, i: usize| -> Result<Next, HostErr> {
+    let mut call = |state: &Value, i: usize| -> Result<Mapped<Value>, HostErr> {
         next(transition.step(value_to_js(state)?, i as u32))
     };
-    let call: &mut dyn FnMut(&Value, usize) -> Result<Next, HostErr> = &mut call;
+    let call: &mut TransitionFn<'_> = &mut call;
     body(&mut TransitionCache::new(call, quantities)).map_err(|e| e.0)
 }
 

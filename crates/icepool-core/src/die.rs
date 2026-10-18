@@ -606,6 +606,31 @@ impl<O: OutcomeOrder> Die<O> {
         }
         Self::from_mapping(data)
     }
+
+    /// Divides all quantities by their greatest common denominator (`Die.simplify`, via `Counts.simplify`, then
+    /// `Die(counts)`, which drops zero quantities).
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// let die = Die::from_weights([(2, 2u32), (4, 4)]);
+    /// assert_eq!(die.simplify().unwrap(), Die::from_weights([(2, 1u32), (4, 2)]));
+    /// ```
+    pub fn simplify(&self) -> Result<Self> {
+        let gcd = self
+            .items()
+            .iter()
+            .fold(Quantity::ZERO, |g, (_, q)| dashu_base::Gcd::gcd(g, q));
+        if gcd <= Quantity::ONE {
+            return Self::from_dict(self.items().to_vec()).err_into();
+        }
+        Self::from_dict(
+            self.items()
+                .iter()
+                .map(|(o, q)| (o.clone(), q / &gcd))
+                .collect(),
+        )
+        .err_into()
+    }
 }
 
 /// The typed API: an [`Outcome`]'s comparisons cannot fail, so neither can these.
@@ -785,31 +810,6 @@ impl<O: OutcomeArith> Die<O> {
         } else {
             Ok(self == other)
         }
-    }
-
-    /// Divides all quantities by their greatest common denominator (`Die.simplify`, via `Counts.simplify`, then
-    /// `Die(counts)`, which drops zero quantities).
-    ///
-    /// ```
-    /// use icepool_core::Die;
-    /// let die = Die::from_weights([(2, 2u32), (4, 4)]);
-    /// assert_eq!(die.simplify().unwrap(), Die::from_weights([(2, 1u32), (4, 2)]));
-    /// ```
-    pub fn simplify(&self) -> Result<Self> {
-        let gcd = self
-            .items()
-            .iter()
-            .fold(Quantity::ZERO, |g, (_, q)| dashu_base::Gcd::gcd(g, q));
-        if gcd <= Quantity::ONE {
-            return Self::from_dict(self.items().to_vec()).err_into();
-        }
-        Self::from_dict(
-            self.items()
-                .iter()
-                .map(|(o, q)| (o.clone(), q / &gcd))
-                .collect(),
-        )
-        .err_into()
     }
 
     /// Roll `counts` (the items of the left die of `@`, already checked to be integers), then roll this die that

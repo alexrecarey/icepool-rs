@@ -23,38 +23,24 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 use rustc_hash::FxHashMap;
 
-use super::core_impl::{int, parts, Next, TransitionCache, BREAK, DEFAULT, RESTART};
+use super::core_impl::TransitionCache;
+use super::state::{MapState, Transition};
+use crate::die_map::Mapped;
 use crate::error::Error;
-use crate::{Die, DieArg, Quantity, Value};
+use crate::outcome::ErrInto;
+use crate::{Die, DieArg, Quantity};
 
 /// A row of the matrix, as `SparseVector`: column -> non-zero entry. Columns are transient state indices, plus
 /// `visit` (`SpecialValue.Visit`) for the starting vector.
 type Row = FxHashMap<usize, IBig>;
 
-/// Whether two equal values are spelled the same, i.e. are the same object as far as Python's results can tell
-/// (`1` and `True` and `1.0` are equal but not interchangeable; neither are `0.0` and `-0.0`).
-fn same_spelling(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Float(x), Value::Float(y)) => x.to_bits() == y.to_bits(),
-        (Value::Complex(xr, xi), Value::Complex(yr, yi)) => {
-            xr.to_bits() == yr.to_bits() && xi.to_bits() == yi.to_bits()
-        }
-        (Value::Tuple(x), Value::Tuple(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| same_spelling(a, b))
-        }
-        // Host objects: the host knows; equal ones of the same kind are taken to be interchangeable.
-        _ => std::mem::discriminant(a) == std::mem::discriminant(b),
-    }
-}
+/// The spellings of the states met so far (`MapState::same_spelling`).
+struct Spellings<S>(FxHashMap<S, S>);
 
-/// The spellings of the states met so far.
-#[derive(Default)]
-struct Spellings(FxHashMap<Value, Value>);
-
-impl Spellings {
-    fn check(&mut self, v: &Value) -> crate::Result<()> {
+impl<S: MapState> Spellings<S> {
+    fn check(&mut self, v: &S) -> crate::Result<()> {
         match self.0.get(v) {
-            Some(first) if !same_spelling(first, v) => Err(Error::Unported(
+            Some(first) if !first.same_spelling(v) => Err(Error::Unported(
                 "equal states spelled differently in an absorbing Markov chain (Python's answer depends on set order)"
                     .into(),
             )),
@@ -113,52 +99,56 @@ fn eliminate(rows: &mut [Row], i: usize, pivot_index: usize) {
 /// `Restart` was possible).
 ///
 /// `initial_die` is `Die([initial_state])`. Any state that leads only to itself is considered absorbing.
-pub fn absorbing_markov_chain<F, E>(
-    transition_cache: &mut TransitionCache<F>,
-    initial_die: &Die<Value>,
-) -> std::result::Result<(Die<Value>, Option<RBig>), E>
+pub fn absorbing_markov_chain<S, F, E>(
+    transition_cache: &mut TransitionCache<S, F>,
+    initial_die: &Die<S>,
+) -> std::result::Result<(Die<S>, Option<RBig>), E>
 where
-    F: FnMut(&Value, usize) -> std::result::Result<Next, E>,
+    S: MapState,
+    F: FnMut(&S, usize) -> std::result::Result<Mapped<S>, E>,
     E: From<Error>,
 {
     // Find all reachable states.
     let initial = transition_cache.self_loop_die(initial_die)?;
     // `self_loop_die(initial_die).group_by[0]`, then `[DEFAULT].marginals[1]` and `[BREAK].marginals[1]`.
-    let group = |t: i64| -> crate::Result<Option<Die<Value>>> {
+    let group = |is_break: bool| -> crate::Result<Option<Die<S>>> {
         let items: Vec<_> = initial
             .items()
             .iter()
-            .filter(|(o, _)| parts(o)[0] == int(t))
-            .map(|(o, q)| (parts(o)[1].clone(), q.clone()))
+            .filter_map(|(o, q)| match S::read_transition(o) {
+                Transition::Default(s) if !is_break => Some((s.clone(), q.clone())),
+                Transition::Break(s) if is_break => Some((s.clone(), q.clone())),
+                _ => None,
+            })
             .collect();
         if items.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(Die::from_dict(items)?))
+            Ok(Some(Die::from_dict(items).err_into()?))
         }
     };
-    let Some(initial_transient) = group(DEFAULT)? else {
+    let Some(initial_transient) = group(false)? else {
         // No transients; everything is absorbed immediately.
         return Ok((initial_die.simplify()?, Some(RBig::ZERO)));
     };
-    let initial_absorb = match group(BREAK)? {
+    let initial_absorb = match group(true)? {
         Some(die) => die,
-        None => Die::from_dict(vec![])?,
+        None => Die::from_dict(vec![]).err_into()?,
     };
 
     // state -> its index in `states` / `transitions`, in the order the states were stepped.
-    let mut spellings = Spellings::default();
-    let mut index: FxHashMap<Value, usize> = FxHashMap::default();
-    let mut states: Vec<Value> = Vec::new();
+    let mut spellings = Spellings(FxHashMap::default());
+    let mut index: FxHashMap<S, usize> = FxHashMap::default();
+    let mut states: Vec<S> = Vec::new();
     // The die representing the next distribution of each transient state; its outcomes are `(transition_type,
     // state)`.
-    let mut transitions: Vec<Die<Value>> = Vec::new();
-    let mut frontier: VecDeque<Value> = initial_transient
+    let mut transitions: Vec<Die<S::Transition>> = Vec::new();
+    let mut frontier: VecDeque<S> = initial_transient
         .items()
         .iter()
         .map(|(o, _)| o.clone())
         .collect();
-    let mut in_frontier: FxHashMap<Value, ()> = frontier.iter().map(|s| (s.clone(), ())).collect();
+    let mut in_frontier: FxHashMap<S, ()> = frontier.iter().map(|s| (s.clone(), ())).collect();
     for s in &frontier {
         spellings.check(s)?;
     }
@@ -169,17 +159,17 @@ where
         index.insert(curr_state.clone(), states.len());
         states.push(curr_state);
         for (outcome, _) in transition.items() {
-            let p = parts(outcome);
-            if p[0] == int(RESTART) {
+            let next = S::read_transition(outcome);
+            let Some(&state) = next.state() else {
                 continue;
-            }
-            spellings.check(&p[1])?;
-            if p[0] == int(DEFAULT)
-                && !index.contains_key(&p[1])
-                && !in_frontier.contains_key(&p[1])
+            };
+            spellings.check(state)?;
+            if matches!(next, Transition::Default(_))
+                && !index.contains_key(state)
+                && !in_frontier.contains_key(state)
             {
-                in_frontier.insert(p[1].clone(), ());
-                frontier.push_back(p[1].clone());
+                in_frontier.insert(state.clone(), ());
+                frontier.push_back(state.clone());
             }
         }
         transitions.push(transition);
@@ -201,7 +191,7 @@ where
     // [dst_index][src]
     let mut fundamental_solve: Vec<Row> = vec![Row::default(); t];
     // [src_index][absorbing state]
-    let mut absorption_matrix: Vec<Vec<(Value, Quantity)>> = vec![Vec::new(); t];
+    let mut absorption_matrix: Vec<Vec<(S, Quantity)>> = vec![Vec::new(); t];
     let mut has_restart = false;
     let add = |row: &mut Row, col: usize, x: IBig| {
         let e = row.entry(col).or_default();
@@ -218,22 +208,23 @@ where
             IBig::from(transition.denominator()),
         );
         for (outcome, quantity) in transition.items() {
-            let p = parts(outcome);
-            if p[0] == int(BREAK) {
-                if !quantity.is_zero() {
-                    absorption_matrix[src_index].push((p[1].clone(), quantity.clone()));
+            match S::read_transition(outcome) {
+                Transition::Break(state) => {
+                    if !quantity.is_zero() {
+                        absorption_matrix[src_index].push((state.clone(), quantity.clone()));
+                    }
                 }
-            } else if p[0] == int(RESTART) {
                 // transition to nowhere
-                has_restart = true;
-            } else {
-                // Minus Q.
-                let dst_index = index[&p[1]];
-                add(
-                    &mut fundamental_solve[dst_index],
-                    src_index,
-                    -IBig::from(quantity.clone()),
-                );
+                Transition::Restart => has_restart = true,
+                Transition::Default(state) => {
+                    // Minus Q.
+                    let dst_index = index[state];
+                    add(
+                        &mut fundamental_solve[dst_index],
+                        src_index,
+                        -IBig::from(quantity.clone()),
+                    );
+                }
             }
         }
     }
@@ -279,7 +270,7 @@ where
 
     let mut mean_absorption_time = RBig::ZERO;
     // (n * absorption_row, d) per transient state with visits and absorptions.
-    let mut results: Vec<(Vec<(Value, IBig)>, IBig)> = Vec::new();
+    let mut results: Vec<(Vec<(S, IBig)>, IBig)> = Vec::new();
     for (pivot_index, absorption_row) in absorption_matrix.iter().enumerate() {
         // n / d is an element of the visit vector `v`.
         let Some(n) = fundamental_solve[pivot_index].get(&visit) else {
@@ -306,8 +297,8 @@ where
     });
     let results_denominator = IBig::from(results_denominator);
     // `defaultdict(int)`: insertion order, first key spelling kept.
-    let mut normalized_index: FxHashMap<Value, usize> = FxHashMap::default();
-    let mut normalized_results: Vec<(Value, IBig)> = Vec::new();
+    let mut normalized_index: FxHashMap<S, usize> = FxHashMap::default();
+    let mut normalized_results: Vec<(S, IBig)> = Vec::new();
     for (row, d) in results {
         let factor = &results_denominator / &d;
         for (outcome, quantity) in row {
@@ -330,7 +321,7 @@ where
         })
         .collect::<crate::Result<Vec<_>>>()?;
 
-    let transient_absorb = Die::from_dict(normalized_results)?.simplify()?;
+    let transient_absorb = Die::from_dict(normalized_results).err_into()?.simplify()?;
     let result = Die::new(
         vec![
             DieArg::Die(initial_absorb.clone()),

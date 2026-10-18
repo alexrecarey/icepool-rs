@@ -12,7 +12,8 @@ use dashu_int::IBig;
 
 use crate::error::Error;
 use crate::expand::tupleize_dice;
-use crate::map_tools::{map_repeat, Next, Target, TransitionCache};
+use crate::map_tools::{map_repeat, TransitionCache};
+use crate::Mapped;
 use crate::value::{BinOp, Vector};
 use crate::{Die, DieArg, Quantity, Value};
 
@@ -96,26 +97,23 @@ pub fn reroll_composition<E: From<Error>>(
 
     // Advances one step of rerolling if there are enough rerolls left to cover all rerollable dice. Returns the
     // number of dice showing rerollable outcomes and the number of remaining rerolls.
-    let step = |state: &Value, _: usize| -> Result<Next, E> {
+    let step = |state: &Value, _: usize| -> Result<Mapped<Value>, E> {
         let [rerollable, rerolls_left] = pair(state);
         if rerollable.eq_op(&int(0), false)?.truthy()? {
-            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
-                int(0),
-                int(0),
-            ]))));
+            return Ok(Mapped::Outcome(Value::tuple(vec![int(0), int(0)])));
         }
         if rerolls_left.binary(BinOp::Lt, rerollable)?.truthy()? {
-            return Ok(Next::Go(Target::Outcome(Value::tuple(vec![
+            return Ok(Mapped::Outcome(Value::tuple(vec![
                 rerollable.clone(),
                 rerolls_left.clone(),
-            ]))));
+            ])));
         }
         let rerolled = matmul(rerollable, &single_is_rerollable)?;
         let left = rerolls_left.binary(BinOp::Sub, rerollable)?;
-        Ok(Next::Go(Target::Die(tupleize(vec![
+        Ok(Mapped::Die(tupleize(vec![
             rerolled.items().to_vec(),
             one(&left),
-        ])?)))
+        ])?))
     };
 
     // `initial_state = icepool.tupleize(rolls @ single_is_rerollable, max_rerolls)`.

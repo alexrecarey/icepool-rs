@@ -50,6 +50,17 @@ pub enum Target<P> {
     Reroll,
 }
 
+impl<P> From<Target<P>> for Mapped<P> {
+    /// Going on to the target: an outcome, a die, or `Reroll`.
+    fn from(target: Target<P>) -> Self {
+        match target {
+            Target::Outcome(p) => Mapped::Outcome(p),
+            Target::Die(d) => Mapped::Die(d),
+            Target::Reroll => Mapped::Reroll,
+        }
+    }
+}
+
 impl<P> Mapped<P> {
     /// What `Die(...)` makes of this result in a single map (`map_simple`): a `Break` is unwrapped, `Break()`
     /// being `current` (the outcome mapped), and `Restart` drops out like `Reroll`.

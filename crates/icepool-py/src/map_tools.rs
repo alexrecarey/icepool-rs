@@ -10,7 +10,8 @@
 //! returns them.
 
 use icepool_core::expand::iter_cartesian_product;
-use icepool_core::map_tools::{self, Next, Target, TransitionCache};
+use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::{Mapped, Target};
 use icepool_core::{Quantity, Value};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
@@ -21,14 +22,18 @@ use crate::convert::{from_py, to_py};
 use crate::map::items;
 use crate::RsDie;
 
+/// A transition function as the core's `TransitionCache` calls it: `transition(state, i)`, `i` the joint
+/// outcome of the extra arguments.
+type TransitionFn<'a> = dyn FnMut(&Value, usize) -> Result<Mapped<Value>, HostErr> + 'a;
+
 static BREAK: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 /// What the callable returned, as `TransitionCache` reads it.
-fn next(py: Python<'_>, result: &Bound<'_, PyAny>) -> PyResult<Next> {
+fn next(py: Python<'_>, result: &Bound<'_, PyAny>) -> PyResult<Mapped<Value>> {
     let icepool = py.import("icepool")?;
     let (reroll, restart) = (icepool.getattr("Reroll")?, icepool.getattr("Restart")?);
     let die_type = icepool.getattr("Die")?;
-    let target = |x: &Bound<'_, PyAny>| -> PyResult<Target> {
+    let target = |x: &Bound<'_, PyAny>| -> PyResult<Target<Value>> {
         Ok(if x.is(&reroll) || x.is(&restart) {
             Target::Reroll
         } else if x.is_instance(&die_type)? {
@@ -40,20 +45,20 @@ fn next(py: Python<'_>, result: &Bound<'_, PyAny>) -> PyResult<Next> {
         })
     };
     if result.is(&reroll) {
-        return Ok(Next::Reroll);
+        return Ok(Mapped::Reroll);
     }
     if result.is(&restart) {
-        return Ok(Next::Restart);
+        return Ok(Mapped::Restart);
     }
     if result.is_instance(BREAK.import(py, "icepool.map_tools.common", "Break")?)? {
         let outcome = result.getattr("outcome")?;
-        return Ok(Next::Break(if outcome.is_none() {
+        return Ok(Mapped::Break(if outcome.is_none() {
             None
         } else {
             Some(target(&outcome)?)
         }));
     }
-    Ok(Next::Go(target(result)?))
+    Ok(target(result)?.into())
 }
 
 /// Runs `body` with a `TransitionCache` over `transition` (`TransitionCache._transition`, `._star`, the
@@ -65,13 +70,13 @@ fn with_cache<'py, R>(
     extra_args: Vec<Bound<'py, PyAny>>,
     kwargs: Option<&Bound<'py, PyDict>>,
     body: impl FnOnce(
-        &mut TransitionCache<&mut dyn FnMut(&Value, usize) -> Result<Next, HostErr>>,
+        &mut TransitionCache<Value, &mut TransitionFn<'_>>,
     ) -> Result<R, HostErr>,
 ) -> PyResult<R> {
     let parts = extra_args.iter().map(items).collect::<PyResult<Vec<_>>>()?;
     let joint: Vec<(Vec<Bound<'py, PyAny>>, Quantity)> = iter_cartesian_product(&parts).collect();
     let quantities = joint.iter().map(|(_, q)| q.clone()).collect();
-    let mut call = |state: &Value, i: usize| -> Result<Next, HostErr> {
+    let mut call = |state: &Value, i: usize| -> Result<Mapped<Value>, HostErr> {
         let state = to_py(py, state)?;
         // `self._transition(*curr_state, *extra_outcomes, **self._kwargs)` or `(curr_state, ...)`.
         let mut args: Vec<Bound<'py, PyAny>> = if star {
@@ -83,7 +88,7 @@ fn with_cache<'py, R>(
         let result = transition.call(PyTuple::new(py, args)?, kwargs)?;
         Ok(next(py, &result)?)
     };
-    let call: &mut dyn FnMut(&Value, usize) -> Result<Next, HostErr> = &mut call;
+    let call: &mut TransitionFn<'_> = &mut call;
     body(&mut TransitionCache::new(call, quantities)).map_err(|e| e.0)
 }
 
