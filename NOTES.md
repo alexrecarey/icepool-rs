@@ -417,6 +417,16 @@ turns out wrong. Newest decisions at the top of each section.
     on a tuple count implement `next_state_tuples` as the TypeError.
   - The core trait still has `next_state_values` (other evaluators use it); `PyEvaluator` implements it by
     `next_state_tuples`. C2c removes it from the core trait.
+  - **C2b** made basic/keep/comparison generic the same way. `SumEvaluator` needs `O: Summand` (`OutcomeArith` +
+    `is_none`, false for the integers, `Value::None` for Value: Python's `state is None` is asked at every step, so
+    a sum that is `None`, e.g. `sum(map={1: None})`, starts over; without it the typed `Some(None)` diverged).
+    `MappedSumEvaluator<F, P>` sums `P` (build it with `::new`, PhantomData for E0207). `Size` /
+    `ProductOfCounts` -> `Int`, `Empty` and `Comparison` -> `bool`, `Expand` -> `Vec<O>` (sorted with the generic
+    `outcome::sorted`; descending = reverse, sort, reverse, as Python). `KeepEvaluator` is not a CountFold (its
+    `initial_state` reads the size and `initial_state_counts` raises Python's TypeError for a tuple size), so
+    **`PyEvaluator` now forwards `initial_state_counts`** to the inner evaluator. Every built-in in the runner,
+    icepool-py and icepool-wasm is now `PyEvaluator(..)`; only lexi/argsort still implement
+    `MultisetEvaluator<Value>` directly (C2c).
   - Typed-vs-Python check: value/evaluators.rs `typed_matches_python` evaluates on `Pool<i64>` and `Pool<Value>` and
     asserts the typed finals spelled as Values equal Python's, in order. Reuse it for the next evaluators.
   - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
