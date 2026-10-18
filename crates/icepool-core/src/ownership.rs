@@ -43,6 +43,29 @@ use rustc_hash::FxHashMap;
 /// ```
 pub trait Traverse {
     /// Lists this value's `Arc` children and host objects into `owners`.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::host::{owned_hosts, Owners, Traverse};
+    ///
+    /// /// A host object (here a `String`).
+    /// struct Leaf(Arc<String>);
+    /// impl Traverse for Leaf {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         owners.host(&self.0, &*self.0);
+    ///     }
+    /// }
+    /// /// A container lists its parts by asking each to list itself.
+    /// struct Pair(Leaf, Leaf);
+    /// impl Traverse for Pair {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         self.0.traverse(owners);
+    ///         self.1.traverse(owners);
+    ///     }
+    /// }
+    /// let pair = Pair(Leaf(Arc::new("a".into())), Leaf(Arc::new("b".into())));
+    /// assert_eq!(owned_hosts(&pair).len(), 2);
+    /// ```
     fn traverse<'a>(&'a self, owners: &mut Owners<'a>);
 }
 
@@ -98,12 +121,59 @@ struct Node<'a> {
 
 impl<'a> Owners<'a> {
     /// A clone of `arc` held by the current node.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::host::{owned_hosts, Owners, Traverse};
+    ///
+    /// struct Leaf(Arc<String>);
+    /// impl Traverse for Leaf {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         owners.host(&self.0, &*self.0);
+    ///     }
+    /// }
+    /// /// Two clones of one shared part, as two dice made from one share their outcomes.
+    /// struct Twice(Arc<Leaf>, Arc<Leaf>);
+    /// impl Traverse for Twice {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         owners.arc(&self.0);
+    ///         owners.arc(&self.1);
+    ///     }
+    /// }
+    /// let leaf = Arc::new(Leaf(Arc::new("a".into())));
+    /// let twice = Twice(leaf.clone(), leaf);
+    /// // Both clones are inside the root: the part, and the object only it holds, are the root's alone.
+    /// assert_eq!(owned_hosts(&twice).len(), 1);
+    /// // A third clone held elsewhere keeps them alive whatever the root does.
+    /// let elsewhere = twice.0.clone();
+    /// assert!(owned_hosts(&twice).is_empty());
+    /// # drop(elsewhere);
+    /// ```
     pub fn arc<T: Traverse + ?Sized>(&mut self, arc: &'a Arc<T>) {
         self.arc_with(arc, |owners, x| x.traverse(owners));
     }
 
     /// A clone of `arc` held by the current node, whose contents `list` lists (for an `Arc` of a type that is not
     /// itself `Traverse`, such as a slice of pairs).
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::host::{owned_hosts, Owners, Traverse};
+    ///
+    /// /// Host objects in a shared slice, which is not itself `Traverse`.
+    /// struct Outcomes(Arc<[Arc<String>]>);
+    /// impl Traverse for Outcomes {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         owners.arc_with(&self.0, |owners, objects| {
+    ///             for object in objects {
+    ///                 owners.host(object, &**object);
+    ///             }
+    ///         });
+    ///     }
+    /// }
+    /// let outcomes = Outcomes(vec![Arc::new("a".to_string()), Arc::new("b".to_string())].into());
+    /// assert_eq!(owned_hosts(&outcomes).len(), 2);
+    /// ```
     pub fn arc_with<T: ?Sized>(&mut self, arc: &'a Arc<T>, list: impl FnOnce(&mut Self, &'a T)) {
         self.child(Arc::as_ptr(arc).cast(), Arc::strong_count(arc), |owners| {
             list(owners, arc)
@@ -111,6 +181,24 @@ impl<'a> Owners<'a> {
     }
 
     /// A clone of an `Arc` of a host object held by the current node: a leaf.
+    ///
+    /// ```
+    /// use std::any::Any;
+    /// use std::sync::Arc;
+    /// use icepool_core::host::{owned_hosts, Owners, Traverse};
+    ///
+    /// /// A binding's object, behind an `Arc` of a trait object, as the core holds a `HostRef`.
+    /// struct Holder(Arc<dyn Any + Send + Sync>);
+    /// impl Traverse for Holder {
+    ///     fn traverse<'a>(&'a self, owners: &mut Owners<'a>) {
+    ///         // The object as given back to the host, for it to downcast.
+    ///         owners.host(&self.0, &*self.0);
+    ///     }
+    /// }
+    /// let holder = Holder(Arc::new(7_i64));
+    /// let owned = owned_hosts(&holder);
+    /// assert_eq!(owned[0].downcast_ref::<i64>(), Some(&7));
+    /// ```
     pub fn host<T: ?Sized>(&mut self, arc: &'a Arc<T>, object: &'a dyn Any) {
         let i = self.child(Arc::as_ptr(arc).cast(), Arc::strong_count(arc), |_| {});
         self.nodes[i].host = Some(object);
