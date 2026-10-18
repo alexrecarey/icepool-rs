@@ -8,7 +8,7 @@ import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, z as zDie, type
 import { IcepoolError } from "./errors.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
 import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyFloatRepr, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
-import { HOST, isTrap, wasm } from "./wasm.js";
+import { HOST, callback, isTrap, wasm, withCallbacks } from "./wasm.js";
 
 /** Where a multiset expression is expected, an array of outcomes is a pool of them (Python's implicit conversion
  * of a sequence to a `Pool`).
@@ -1305,9 +1305,8 @@ registerKind("expr", (h) => new Expression(HANDLE, h));
 // `undefined` for what it does not model, and the method then calls the bridge's node instead; a native expression
 // the bridge needs as an argument is made there once, by replaying the bridge call its method stands for (`replay`).
 
-/** How an operator node pushes itself into the core's builder (`register` gives a JS callback an id for the
- * evaluation). */
-type Push = (b: ExpressionBuilder, register: (f: AnyFunction) => number) => void;
+/** How an operator node pushes itself into the core's builder. */
+type Push = (b: ExpressionBuilder) => void;
 type AnyFunction = (...args: never[]) => unknown;
 
 /** A native expression's tree node. @internal */
@@ -1326,9 +1325,72 @@ export type Node =
        * `object.__repr__`, an address). */
       readonly str?: Str;
     }
-  | { readonly kind: "mixture"; readonly inners: readonly (readonly [MultisetExpression, bigint])[] };
+  | { readonly kind: "mixture"; readonly inners: readonly (readonly [MultisetExpression, bigint])[] }
+  /** `MultisetParameter`: argument `argIndex` of the multiset function being traced (evaluator.ts), named `name`
+   * (its `str()`). */
+  | { readonly kind: "parameter"; readonly argIndex: number; readonly name: string };
 
 const isNative = (x: MultisetExpression): boolean => x.node !== undefined;
+
+// --- Multiset function parameters (evaluator.ts traces the bodies) ---
+
+/** Thrown where the bridge would need a parameter of a multiset function traced natively: the bridge cannot take
+ * one, so the function's call is made through the bridge instead (evaluator.ts `MultisetFunction.call`). INTERIM
+ * (task C6f): only deals and multiset tuple expressions still need the bridge. @internal */
+export class BridgeNeeded extends Error {}
+
+/** `MultisetParameter`: an argument of a multiset function, while its body is traced. */
+class Parameter extends Expression {
+  protected override get h(): number {
+    throw new BridgeNeeded("icepool: a multiset function parameter cannot go through the bridge");
+  }
+}
+
+/** The parameter for argument `argIndex` of the function being traced, named `name` (`_make_param`). @internal */
+export function parameter(argIndex: number, name: string): MultisetExpression {
+  return Parameter.native({ kind: "parameter", argIndex, name });
+}
+
+/** `expression._has_parameter`: whether a parameter is anywhere inside (so it is inside a multiset function's
+ * body). Without recursion: an expression may nest deeper than JS's stack holds. @internal */
+export function hasParameter(x: MultisetExpression): boolean {
+  const todo = [x];
+  for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
+    if (next.node?.kind === "parameter") return true;
+    if (next.node !== undefined) todo.push(...childrenOf(next.node));
+  }
+  return false;
+}
+
+/** What a raw result records: a built-in evaluator of the core (by name, with its parameters), a JS evaluator (as
+ * evaluator.ts wraps it for the core), or a call of a multiset function with its keyword arguments. @internal */
+export type RawEvaluator =
+  | { readonly kind: "builtin"; readonly name: string; readonly params: unknown[] }
+  | { readonly kind: "host"; readonly evaluator: object }
+  | { readonly kind: "function"; readonly f: object; readonly kwargs: object };
+
+/** `MultisetFunctionRawResult(evaluator, body_exps, inner_kwargs)`: what an evaluation returns instead of a die
+ * inside a multiset function's body (an input holds a parameter). @internal */
+export class RawResult {
+  constructor(
+    readonly evaluator: RawEvaluator,
+    readonly inputs: readonly MultisetExpression[],
+  ) {}
+
+  /** Pushes it into a trace's builder: its inputs, then itself (src/api/multiset_function.rs). */
+  push(b: ExpressionBuilder): void {
+    for (const x of this.inputs) build(b, x);
+    const ev = this.evaluator;
+    switch (ev.kind) {
+      case "builtin":
+        return b.rawBuiltin(ev.name, ev.params, this.inputs.length);
+      case "host":
+        return b.rawHost(ev.evaluator, this.inputs.length);
+      case "function":
+        return b.rawFunction(ev.f, this.inputs.length, ev.kwargs);
+    }
+  }
+}
 
 /** Python's `isinstance(x, int)` (so also a bool). */
 const isIntArg = (x: unknown): x is Int | boolean =>
@@ -1431,7 +1493,8 @@ function implicit(x: unknown): MultisetExpression | undefined {
   return undefined;
 }
 
-const implicitAll = (xs: readonly unknown[]): MultisetExpression[] | undefined => {
+/** `implicit` of each; `undefined` if any is not native. @internal */
+export const implicitAll = (xs: readonly unknown[]): MultisetExpression[] | undefined => {
   const converted = xs.map(implicit);
   return converted.every((x) => x !== undefined) ? (converted as MultisetExpression[]) : undefined;
 };
@@ -1738,6 +1801,9 @@ function expressionStr(x: MultisetExpression): string | undefined {
       return wasm(() => node.g.toString());
     case "weightless":
       return undefined;
+    // `MultisetParameterBase.__str__`: `self._name`.
+    case "parameter":
+      return node.name;
     case "operator": {
       const children = strs(node.children);
       return children === undefined || node.str === undefined ? undefined : node.str(children);
@@ -1765,6 +1831,7 @@ function sameExpression(a: MultisetExpression, b: MultisetExpression): boolean {
   if (x.kind === "generator" && y.kind === "generator") return wasm(() => x.g.sameKey(y.g));
   // `(WeightlessGenerator, wrapped.hash_key)`.
   if (x.kind === "weightless" && y.kind === "weightless") return sameExpression(x.inner, y.inner);
+  if (x.kind === "parameter" && y.kind === "parameter") return x.argIndex === y.argIndex;
   // `(MultisetMixture, tuple(inners.items()))`.
   if (x.kind === "mixture" && y.kind === "mixture") {
     return x.inners.length === y.inners.length &&
@@ -1788,35 +1855,19 @@ function addInner(data: [MultisetExpression, bigint][], inner: MultisetExpressio
 
 // --- Evaluating ---
 
-/** The JS functions of the evaluations in progress (`map_counts`, `keep_outcomes`), by id. */
-const callbacks = new Map<number, AnyFunction>();
-let nextCallback = 1;
-/** The exception a callback threw, rethrown when the core returns. */
-let pending: { error: unknown } | undefined;
-
-/** Calls a callback for the core: `[true, result]`, or `[false]` with the exception kept in `pending`. */
-function viaCallback(id: number, body: (f: (...args: unknown[]) => unknown) => unknown): unknown[] {
-  try {
-    return [true, body(callbacks.get(id) as (...args: unknown[]) => unknown)];
-  } catch (e) {
-    // A trap in a nested call: the WASM frames below must be abandoned too (see wasm.ts).
-    if (isTrap(e)) throw e;
-    pending = { error: e };
-    return [false];
-  }
-}
-
 Object.assign(HOST, {
   /** `map_counts`' function: `function(outcome, *counts)`. */
-  countFunction: (id: number, outcome: unknown, counts: unknown[]) => viaCallback(id, (f) => f(outcome, ...counts)),
+  countFunction: (f: AnyFunction, outcome: unknown, counts: unknown[]) =>
+    callback(() => (f as (...args: unknown[]) => unknown)(outcome, ...counts)),
   /** `keep_outcomes`' callable: `bool(func(outcome))`. */
-  outcomePredicate: (id: number, outcome: unknown) => viaCallback(id, (f) => pyBool(f(outcome))),
+  outcomePredicate: (f: AnyFunction, outcome: unknown) => callback(() => pyBool((f as (x: unknown) => unknown)(outcome))),
 });
 
 /** The child expressions of a node. */
 function childrenOf(node: Node): readonly MultisetExpression[] {
   switch (node.kind) {
     case "generator":
+    case "parameter":
       return [];
     case "weightless":
       return [node.inner];
@@ -1829,7 +1880,7 @@ function childrenOf(node: Node): readonly MultisetExpression[] {
 
 /** Pushes a native expression into the builder, children first. Without recursion: an expression may nest deeper
  * than JS's stack holds (the core raises Python's `RecursionError` for it, when it prepares the tree). */
-function build(b: ExpressionBuilder, root: MultisetExpression, register: (f: AnyFunction) => number): void {
+export function build(b: ExpressionBuilder, root: MultisetExpression): void {
   const todo: [Node, boolean][] = [[root.node as Node, false]];
   for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
     const [node, childrenDone] = next;
@@ -1846,49 +1897,45 @@ function build(b: ExpressionBuilder, root: MultisetExpression, register: (f: Any
         b.weightless();
         break;
       case "operator":
-        node.push(b, register);
+        node.push(b);
         break;
       case "mixture":
         b.mixture(node.inners.map(([, weight]) => weight));
+        break;
+      case "parameter":
+        b.parameter(node.argIndex, undefined);
         break;
     }
   }
 }
 
+/** `f(b)` with a fresh builder holding the inputs (freed afterwards), called into the core: a JS callback's
+ * exception comes out as itself. */
+export function withInputs<T>(inputs: readonly MultisetExpression[], f: (b: ExpressionBuilder) => T): T {
+  return withCallbacks(() =>
+    wasm((w) => {
+      const b = new w.ExpressionBuilder();
+      let result: T;
+      try {
+        for (const x of inputs) build(b, x);
+        result = f(b);
+      } catch (e) {
+        // After a trap the abandoned call still borrows the builder: it is left behind (a leak, see wasm.ts).
+        if (!isTrap(e)) b.free();
+        throw e;
+      }
+      b.free();
+      return result;
+    }),
+  );
+}
+
 /** `evaluator.evaluate(*inputs)` of the core's built-in evaluator `name` (with `params`: evaluate.rs `with_builtin`);
- * `undefined` if an input is not native. */
+ * `undefined` if an input is not native. Inside a multiset function's body, the raw result recording it. */
 function evaluation(name: string, params: unknown[], inputs: MultisetExpression[]): Die | undefined {
   if (!inputs.every(isNative)) return undefined;
-  const ids: number[] = [];
-  const register = (f: AnyFunction) => {
-    const id = nextCallback++;
-    callbacks.set(id, f);
-    ids.push(id);
-    return id;
-  };
-  try {
-    return Die.wrap(
-      wasm((w) => {
-        const b = new w.ExpressionBuilder();
-        try {
-          for (const x of inputs) build(b, x, register);
-          return b.evaluate(name, params, inputs.length);
-        } finally {
-          b.free();
-        }
-      }),
-    );
-  } catch (e) {
-    // A callback's own exception, rethrown as itself.
-    if (e instanceof IcepoolError && e.kind === "Callback" && pending !== undefined) {
-      const { error } = pending;
-      pending = undefined;
-      throw error;
-    }
-    throw e;
-  } finally {
-    for (const id of ids) callbacks.delete(id);
-  }
+  if (inputs.some(hasParameter)) return new RawResult({ kind: "builtin", name, params }, inputs) as unknown as Die;
+  return Die.wrap(withInputs(inputs, (b) => b.evaluate(name, params, inputs.length)));
 }
 
 /** An evaluation of `self` and the others (implicitly converted). */
@@ -1929,7 +1976,7 @@ function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown)
   }
   if (typeof target === "function") {
     const f = target as AnyFunction;
-    const push: Push = (b, register) => b.filterFunction(invert, register(f));
+    const push: Push = (b) => b.filterFunction(invert, f);
     return operator([x], ["MultisetFilterOutcomes", f, invert], push, { str: filterStr(invert) });
   }
   if (!Array.isArray(target) && typeof target !== "string") return undefined;
@@ -2024,7 +2071,7 @@ function mapCounts(args: unknown[], f: unknown): Expression | undefined {
   const xs = implicitAll(args);
   if (xs === undefined || typeof f !== "function") return undefined;
   const g = f as AnyFunction;
-  return operator(xs, ["MultisetMapCounts", g], (b, register) => b.mapCounts(register(g), xs.length));
+  return operator(xs, ["MultisetMapCounts", g], (b) => b.mapCounts(g, xs.length));
 }
 
 /** `icepool.MultisetMixture(inners)` of a sequence of expressions: each counted once, equal ones together. */

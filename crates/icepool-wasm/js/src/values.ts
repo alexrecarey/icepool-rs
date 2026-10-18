@@ -1093,3 +1093,34 @@ export function pyTypeName(x: unknown): string {
   if (x instanceof Special) return x.name === "Ellipsis" ? "ellipsis" : "RerollType";
   return (x as object).constructor?.name ?? "object";
 }
+
+// --- Evaluator states ---------------------------------------------------------------------------------------------
+
+/** A `MultisetEvaluator` state that is a plain JS object: keyed (hashed, compared) by its canonical JSON. The core
+ * gives it back as a fresh object. @internal */
+export class StateKey {
+  readonly key: string;
+  constructor(key: string) {
+    this.key = key;
+  }
+}
+
+function canonicalJSON(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(canonicalJSON).join(",")}]`;
+  if (x !== null && typeof x === "object") {
+    const o = x as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonicalJSON(o[k])}`).join(",")}}`;
+  }
+  if (typeof x === "bigint") throw new TypeError("icepool: a BigInt inside an object state is not serialisable");
+  return JSON.stringify(x);
+}
+
+/** An evaluator state as a value: plain objects become keys (anywhere inside arrays too); the rest as is.
+ * @internal */
+export function stateValue(x: unknown): unknown {
+  if (Array.isArray(x)) return x.map(stateValue);
+  if (x !== null && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype) {
+    return new StateKey(canonicalJSON(x));
+  }
+  return x;
+}

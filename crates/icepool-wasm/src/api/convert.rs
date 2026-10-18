@@ -9,6 +9,7 @@
 //! | `Fraction`, `complex` | `Fraction` (bigint parts), `Complex` |
 //! | `tuple` | an array |
 //! | `Vector`, `Symbols` | `Vector`, `Symbols` |
+//! | a JS evaluator's state that is a plain object | in: its canonical JSON, made by the TypeScript; out: a fresh object |
 //!
 //! Quantities are always `bigint`s.
 
@@ -18,6 +19,7 @@ use icepool_core::value::{Symbols, Vector};
 use icepool_core::{Error, Quantity, Value};
 use wasm_bindgen::JsValue;
 
+use super::evaluator::StateKey;
 use super::host;
 
 /// JS's `Number.MAX_SAFE_INTEGER`: ints up to it in absolute value go out as numbers.
@@ -129,6 +131,8 @@ pub fn value_from_js(x: &JsValue) -> Result<Value, Error> {
                 .map(value_from_js)
                 .collect::<Result<_, _>>()?,
         ),
+        // An evaluator state that was a plain object (only JS evaluators make these).
+        "state" => StateKey::value(&part(1).as_string().unwrap_or_default()),
         // A `List` is a Python list: unhashable, so never an outcome.
         "list" => return Err(Error::Unhashable { type_name: "list" }),
         _ => {
@@ -194,7 +198,10 @@ pub fn value_to_js(v: &Value) -> Result<JsValue, Error> {
                 .collect::<Result<Vec<_>, Error>>()?;
             host::make_symbols(items, x.py_str().ok())
         }
-        Value::Host(h) => host::make_opaque(&h.repr()),
+        Value::Host(h) => match StateKey::of(v) {
+            Some(key) => host::make_state(key.key()),
+            None => host::make_opaque(&h.repr()),
+        },
     })
 }
 

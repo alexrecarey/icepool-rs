@@ -1,7 +1,7 @@
 // What the typed exports call back for (src/api/host.rs): JS's value classes, made and taken apart for the core.
 
 import { makeError } from "./errors.js";
-import { Complex, Float, Fraction, List, Opaque, Symbols, Vector, type Int, type Outcome } from "./values.js";
+import { Complex, Float, Fraction, List, Opaque, StateKey, Symbols, Vector, type Int, type Outcome } from "./values.js";
 import { HOST } from "./wasm.js";
 
 Object.assign(HOST, {
@@ -13,6 +13,7 @@ Object.assign(HOST, {
     if (x instanceof Complex) return ["complex", x.re, x.im];
     if (x instanceof Vector) return ["vector", x.items, x.hasTruth, x.truthValue];
     if (x instanceof Symbols) return ["symbols", x.items, x.str];
+    if (x instanceof StateKey) return ["state", x.key];
     return ["other", x.constructor?.name ?? "object"];
   },
   makeFloat: (x: number) => new Float(x),
@@ -21,5 +22,7 @@ Object.assign(HOST, {
   makeVector: (items: Outcome[] | null, hasTruth: boolean, truth: Outcome) => Vector.fromCore(items, hasTruth, truth),
   makeSymbols: (items: [string, Int][], str: string | undefined) => Symbols.fromCore(items, str ?? null),
   makeOpaque: (repr: string) => new Opaque(repr),
+  /** A JS evaluator's state that was a plain object, from its canonical JSON. */
+  makeState: (key: string): unknown => JSON.parse(key),
   makeError,
 });

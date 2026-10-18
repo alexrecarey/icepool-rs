@@ -8,8 +8,8 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     /// A JS object as `[tag, ...parts]`: `["array"]` (a tuple), `["list"]` (a `List`, Python's list),
     /// `["float", number]`, `["fraction", bigint, bigint]`, `["complex", number, number]`, `["vector", items | null,
-    /// hasTruth, truth]`, `["symbols", items | null, str]` (items as `[char, count]` pairs), or `["other",
-    /// typeName]` for anything else.
+    /// hasTruth, truth]`, `["symbols", items | null, str]` (items as `[char, count]` pairs), `["state", key]` (an
+    /// evaluator state that is a plain object, by its canonical JSON), or `["other", typeName]` for anything else.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = describe)]
     pub(super) fn describe(x: &JsValue) -> Vec<JsValue>;
 
@@ -64,15 +64,64 @@ extern "C" {
     #[wasm_bindgen(method, structural)]
     pub(super) fn step(this: &Transition, state: JsValue, i: u32) -> Vec<JsValue>;
 
-    /// `map_counts`' JS function registered under `id` (js/src/multiset.ts), called on an outcome and its counts:
-    /// `[true, count]`, or `[false]` when it threw (the TypeScript keeps the exception and rethrows it).
+    /// `map_counts`' JS function `f` (js/src/multiset.ts), called on an outcome and its counts: `[true, count]`, or
+    /// `[false]` when it threw (the TypeScript keeps the exception and rethrows it).
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = countFunction)]
-    pub(super) fn count_function(id: u32, outcome: JsValue, counts: Vec<JsValue>) -> Vec<JsValue>;
+    pub(super) fn count_function(f: &JsValue, outcome: JsValue, counts: Vec<JsValue>) -> Vec<JsValue>;
 
-    /// `keep_outcomes`' JS callable registered under `id`, called on an outcome: `[true, bool(result)]`, or
-    /// `[false]` when it threw.
+    /// `keep_outcomes`' JS callable `f`, called on an outcome: `[true, bool(result)]`, or `[false]` when it threw.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = outcomePredicate)]
-    pub(super) fn outcome_predicate(id: u32, outcome: JsValue) -> Vec<JsValue>;
+    pub(super) fn outcome_predicate(f: &JsValue, outcome: JsValue) -> Vec<JsValue>;
+
+    /// A JS `MultisetEvaluator` as the TypeScript wraps it for one evaluation (js/src/evaluator.ts `HostEvaluator`:
+    /// the evaluator, `evaluate()`'s keyword arguments, and the defaults of the methods it leaves out). Each method
+    /// answers `["ok", value]`, `["reroll"]` (`Reroll` or `Restart`), `["unsupported", message]` (it threw
+    /// `UnsupportedOrder`) or `["throw"]` (it threw something else, which the TypeScript keeps and rethrows).
+    #[derive(Clone)]
+    pub type JsEvaluator;
+
+    /// `initial_state(order, outcomes, *sizes, **kwargs)`: sizes are ints, tuples of ints or null.
+    #[wasm_bindgen(method, structural, js_name = initialState)]
+    pub(super) fn initial_state(this: &JsEvaluator, order: i32, outcomes: JsValue, sizes: Vec<JsValue>) -> Vec<JsValue>;
+
+    /// `next_state(state, order, outcome, *counts)`.
+    #[wasm_bindgen(method, structural, js_name = nextState)]
+    pub(super) fn next_state(
+        this: &JsEvaluator,
+        state: JsValue,
+        order: i32,
+        outcome: JsValue,
+        counts: Vec<JsValue>,
+    ) -> Vec<JsValue>;
+
+    /// `extra_outcomes(outcomes)`, as an array.
+    #[wasm_bindgen(method, structural, js_name = extraOutcomes)]
+    pub(super) fn extra_outcomes(this: &JsEvaluator, outcomes: JsValue) -> Vec<JsValue>;
+
+    /// `final_outcome(final_state, order, outcomes, *sizes, **kwargs)`.
+    #[wasm_bindgen(method, structural, js_name = finalOutcome)]
+    pub(super) fn final_outcome(
+        this: &JsEvaluator,
+        state: JsValue,
+        order: i32,
+        outcomes: JsValue,
+        sizes: Vec<JsValue>,
+    ) -> Vec<JsValue>;
+
+    /// Traces the multiset function `f` (js/src/evaluator.ts `MultisetFunction`) on `inputs` inputs with these
+    /// keyword arguments (`MultisetFunctionEvaluator._prepare` up to the call of the wrapped function): `[true,
+    /// builder, joint]`, the `ExpressionBuilder` holding what the body returned (its raw results, one unless
+    /// `joint`), or `[false]` when the body (or binding its arguments) threw.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = traceFunction)]
+    pub(super) fn trace_function(f: &JsValue, inputs: u32, kwargs: &JsValue) -> Vec<JsValue>;
+
+    /// `icepool.tupleize(*final_outcomes)` of a joint multiset function: `[true, result]` or `[false]`.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = tupleize)]
+    pub(super) fn tupleize(items: Vec<JsValue>) -> Vec<JsValue>;
+
+    /// An evaluator state that was a plain JS object, from its canonical JSON: a fresh object.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = makeState)]
+    pub(super) fn make_state(key: &str) -> JsValue;
 
     /// `String(x)`: a BigInt's decimal digits.
     #[wasm_bindgen(js_name = String)]

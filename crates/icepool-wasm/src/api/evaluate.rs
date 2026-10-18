@@ -7,9 +7,11 @@
 //! core's operators over sources, prepares it (`_prepare`: the flats of dungeonlets, the sources of their free
 //! variables, one way per combination of mixture inners) and runs the evaluator named by the TypeScript.
 //!
-//! The JS functions of `map_counts` and `keep_outcomes` are host callbacks: the TypeScript registers each for the
-//! evaluation and the core calls it by id (`__icepool_wasm_host.countFunction` / `outcomePredicate`). A
-//! callback's own exception goes through the core as `Error::Callback` and the TypeScript rethrows it as itself.
+//! The JS functions of `map_counts` and `keep_outcomes` are host callbacks: the core holds each JS function and calls
+//! it through `__icepool_wasm_host.countFunction` / `outcomePredicate`. A callback's own exception goes through the
+//! core as `Error::Callback` and the TypeScript rethrows it as itself (js/src/wasm.ts `callback`).
+//!
+//! JS evaluators and multiset functions are evaluated over the same tree (`evaluator.rs`, `multiset_function.rs`).
 
 use std::sync::Arc;
 
@@ -44,20 +46,28 @@ use super::die::WasmDie;
 use super::error::{JsResult, OrThrow};
 use super::host;
 use super::multiset::{bound, WasmGenerator};
+use super::multiset_function::Raw;
 
 /// A node of an expression as the core needs it to evaluate.
-enum Node {
+pub(super) enum Node {
     /// A generator: its source is a free variable of the flat.
     Source(MultisetSource<Value>),
     /// A `MultisetOperator` and its children.
     Operator(Operator<Value>, Vec<Node>),
     /// `MultisetMixture`: inner expressions with their weights.
     Mixture(Vec<(Node, Quantity)>),
+    /// `MultisetParameter`: argument `arg_index` of the `@multiset_function` being traced (its `star_index`
+    /// element if starred).
+    Parameter { arg_index: usize, star_index: Option<usize> },
 }
 
 /// One way to prepare an expression: its dungeonlets (postfix order), the sources of its free variables, and the
 /// weight.
 type Part = (Vec<Dungeonlet<Value>>, Vec<MultisetSource<Value>>, Quantity);
+
+/// One way to prepare all the inputs of an evaluation: one flat per input, the sources of their free variables (in
+/// order), and the weight.
+pub(super) type Prepared = (Vec<Flat<Value>>, Vec<MultisetSource<Value>>, Quantity);
 
 impl Node {
     /// `_prepare`: each way to prepare this expression (one, unless a mixture is inside).
@@ -66,6 +76,10 @@ impl Node {
         let _level = level()?;
         match self {
             Node::Source(s) => Ok(vec![(vec![Dungeonlet::FreeVariable], vec![s.clone()], Quantity::ONE)]),
+            // A parameter reads the count of an argument of the enclosing call: no source of its own.
+            &Node::Parameter { arg_index, star_index } => {
+                Ok(vec![(vec![Dungeonlet::Parameter { arg_index, star_index }], Vec::new(), Quantity::ONE)])
+            }
             Node::Operator(operator, children) => {
                 let children = children.iter().map(Node::prepare).collect::<icepool_core::Result<Vec<_>>>()?;
                 // `itertools.product` over the children's preparations.
@@ -115,7 +129,7 @@ fn shifted(d: &Dungeonlet<Value>, offset: usize) -> Dungeonlet<Value> {
 }
 
 /// `itertools.product(*lists)`: every combination of one element from each list, the last varying fastest.
-fn product<T>(lists: &[Vec<T>]) -> Vec<Vec<&T>> {
+pub(super) fn product<T>(lists: &[Vec<T>]) -> Vec<Vec<&T>> {
     let mut result: Vec<Vec<&T>> = vec![Vec::new()];
     for list in lists {
         result = result
@@ -133,36 +147,35 @@ fn product<T>(lists: &[Vec<T>]) -> Vec<Vec<&T>> {
 }
 
 /// The marker of a JS callback's exception inside the core: the TypeScript holds the exception itself.
-fn callback_error() -> Error {
+pub(super) fn callback_error() -> Error {
     Error::Callback(HostError(Arc::new("raised by a JS callback")))
 }
 
 /// A callback's `[true, result]`, or `[false]` when it threw (the TypeScript keeps the exception).
-fn envelope(parts: Vec<JsValue>) -> icepool_core::Result<JsValue> {
+pub(super) fn envelope(parts: Vec<JsValue>) -> icepool_core::Result<JsValue> {
     match parts.first().and_then(JsValue::as_bool) {
         Some(true) => Ok(parts.get(1).cloned().unwrap_or(JsValue::UNDEFINED)),
         _ => Err(callback_error()),
     }
 }
 
-/// `map_counts`' function, registered by the TypeScript under `id`: `function(outcome, *counts)`, an int.
-struct JsCountFunction(u32);
+/// `map_counts`' JS function: `function(outcome, *counts)`, an int.
+struct JsCountFunction(JsValue);
 
 impl CountFunction<Value> for JsCountFunction {
     fn call(&self, outcome: &Value, counts: &[Count]) -> icepool_core::Result<Count> {
         let counts = counts.iter().map(|c| value_to_js(&count_value(c))).collect::<icepool_core::Result<_>>()?;
-        let result = envelope(host::count_function(self.0, value_to_js(outcome)?, counts))?;
+        let result = envelope(host::count_function(&self.0, value_to_js(outcome)?, counts))?;
         value_count(&value_from_js(&result)?)
     }
 }
 
-/// `keep_outcomes`' callable, registered by the TypeScript under `id`: `bool(func(outcome))`, Python's truth taken
-/// by the TypeScript.
-struct JsOutcomePredicate(u32);
+/// `keep_outcomes`' JS callable: `bool(func(outcome))`, Python's truth taken by the TypeScript.
+struct JsOutcomePredicate(JsValue);
 
 impl OutcomePredicate<Value> for JsOutcomePredicate {
     fn test(&self, outcome: &Value) -> icepool_core::Result<bool> {
-        let result = envelope(host::outcome_predicate(self.0, value_to_js(outcome)?))?;
+        let result = envelope(host::outcome_predicate(&self.0, value_to_js(outcome)?))?;
         Ok(result.as_bool().unwrap_or(false))
     }
 }
@@ -178,11 +191,13 @@ fn order(x: i32) -> i64 {
 }
 
 /// Builds the core's tree of one evaluation's inputs from the TypeScript's expressions, in postfix order (each node
-/// after its children), then evaluates them.
+/// after its children), then evaluates them. Tracing a multiset function's body fills one with what the body
+/// returned: its raw results, each over nodes pushed before it (`multiset_function.rs`).
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct ExpressionBuilder {
     stack: Vec<Node>,
+    pub(super) raws: Vec<Raw>,
 }
 
 #[wasm_bindgen]
@@ -261,10 +276,10 @@ impl ExpressionBuilder {
         self.operator(Operator::FilterOutcomes { filter: OutcomeFilter::Set(set.into()), invert }, 1)
     }
 
-    /// `MultisetFilterOutcomes` with a callable, registered under `id`.
+    /// `MultisetFilterOutcomes` with a JS callable.
     #[wasm_bindgen(js_name = filterFunction)]
-    pub fn filter_function(&mut self, invert: bool, id: u32) -> JsResult<()> {
-        let filter = OutcomeFilter::Function(Arc::new(JsOutcomePredicate(id)));
+    pub fn filter_function(&mut self, invert: bool, f: JsValue) -> JsResult<()> {
+        let filter = OutcomeFilter::Function(Arc::new(JsOutcomePredicate(f)));
         self.operator(Operator::FilterOutcomes { filter, invert }, 1)
     }
 
@@ -274,10 +289,10 @@ impl ExpressionBuilder {
         self.operator(Operator::FilterOutcomesBinary { invert }, 2)
     }
 
-    /// `MultisetMapCounts` over the last `arity` nodes, its function registered under `id`.
+    /// `MultisetMapCounts` over the last `arity` nodes, with this JS function.
     #[wasm_bindgen(js_name = mapCounts)]
-    pub fn map_counts(&mut self, id: u32, arity: usize) -> JsResult<()> {
-        self.operator(Operator::MapCounts(Arc::new(JsCountFunction(id))), arity)
+    pub fn map_counts(&mut self, f: JsValue, arity: usize) -> JsResult<()> {
+        self.operator(Operator::MapCounts(Arc::new(JsCountFunction(f))), arity)
     }
 
     /// `MultisetKeep` with a slice index (bounds ints or null; `step` whether one was given).
@@ -343,6 +358,12 @@ impl ExpressionBuilder {
         self.operator(op, 2)
     }
 
+    /// A `MultisetParameter` of the multiset function being traced: argument `arg_index` (its `star_index` element
+    /// if starred).
+    pub fn parameter(&mut self, arg_index: usize, star_index: Option<usize>) {
+        self.stack.push(Node::Parameter { arg_index, star_index });
+    }
+
     /// `MultisetForceOrder(force_order)`.
     #[wasm_bindgen(js_name = forceOrder)]
     pub fn force_order(&mut self, force_order: i32) -> JsResult<()> {
@@ -371,7 +392,7 @@ impl ExpressionBuilder {
 }
 
 impl ExpressionBuilder {
-    fn pop(&mut self, n: usize) -> JsResult<Vec<Node>> {
+    pub(super) fn pop(&mut self, n: usize) -> JsResult<Vec<Node>> {
         if n > self.stack.len() {
             return Err(Error::InvalidArgument("an expression with too few children".into())).or_throw();
         }
@@ -386,15 +407,16 @@ impl ExpressionBuilder {
 }
 
 /// Something to do with a built-in evaluator of the core, whatever its type.
-trait BuiltinVisitor {
-    fn visit<E>(self, evaluator: E) -> JsResult<Die<Value>>
+pub(super) trait BuiltinVisitor {
+    type Out;
+    fn visit<E>(self, evaluator: E) -> JsResult<Self::Out>
     where
-        E: MultisetEvaluator<Value, Final = Value>;
+        E: MultisetEvaluator<Value, Final = Value> + 'static;
 }
 
 /// The built-in evaluator `name` with its parameters (the Python facade's `builtin_spec` names), handed to
 /// `visitor`.
-fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], visitor: V) -> JsResult<Die<Value>> {
+pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], visitor: V) -> JsResult<V::Out> {
     let param = |i: usize| -> JsResult<Value> {
         let p = params.get(i).ok_or_else(|| Error::InvalidArgument(format!("{name} needs a parameter")));
         value_from_js(p.or_throw()?).or_throw()
@@ -482,12 +504,50 @@ fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], visitor: V) -
 struct Run<'a>(&'a [Node]);
 
 impl BuiltinVisitor for Run<'_> {
+    type Out = Die<Value>;
+
     fn visit<E>(self, evaluator: E) -> JsResult<Die<Value>>
     where
-        E: MultisetEvaluator<Value, Final = Value>,
+        E: MultisetEvaluator<Value, Final = Value> + 'static,
     {
         evaluate(&evaluator, self.0).or_throw()
     }
+}
+
+/// `itertools.product(*(exp._prepare() for exp in input_exps))`: each way to prepare the inputs together.
+pub(super) fn prepare_inputs(inputs: &[Node]) -> icepool_core::Result<Vec<Prepared>> {
+    let parts = inputs.iter().map(Node::prepare).collect::<icepool_core::Result<Vec<_>>>()?;
+    Ok(product(&parts)
+        .into_iter()
+        .map(|combination| {
+            let mut flats: Vec<Flat<Value>> = Vec::with_capacity(combination.len());
+            let mut sources = Vec::new();
+            let mut weight = Quantity::ONE;
+            for (flat, s, w) in combination {
+                flats.push(Flat::from(flat.clone()));
+                sources.extend(s.iter().cloned());
+                weight *= w;
+            }
+            (flats, sources, weight)
+        })
+        .collect())
+}
+
+/// The evaluations of `MultisetEvaluatorBase.evaluate`: for each way to prepare the inputs, the final outcomes with
+/// their weights, and the preparation's weight.
+pub(super) type Evaluations<F> = Vec<(Vec<(F, Quantity)>, Quantity)>;
+
+/// Runs `evaluator` over each way to prepare the inputs (`dungeon.evaluate(quest, sources, kwargs)`).
+pub(super) fn evaluations<E>(evaluator: &E, inputs: &[Node]) -> icepool_core::Result<Evaluations<E::Final>>
+where
+    E: MultisetEvaluator<Value>,
+{
+    prepare_inputs(inputs)?
+        .into_iter()
+        .map(|(flats, sources, weight)| {
+            Ok((evaluate_expressions(evaluator, &flats, &sources, top_level_depth_check)?, weight))
+        })
+        .collect()
 }
 
 /// `MultisetEvaluatorBase.evaluate`: for each combination of the inputs' preparations, `Die(final_outcomes,
@@ -496,18 +556,8 @@ fn evaluate<E>(evaluator: &E, inputs: &[Node]) -> icepool_core::Result<Die<Value
 where
     E: MultisetEvaluator<Value, Final = Value>,
 {
-    let parts = inputs.iter().map(Node::prepare).collect::<icepool_core::Result<Vec<_>>>()?;
     let mut data: Vec<(Die<Value>, Quantity)> = Vec::new();
-    for combination in product(&parts) {
-        let mut flats: Vec<Flat<Value>> = Vec::with_capacity(combination.len());
-        let mut sources = Vec::new();
-        let mut weight = Quantity::ONE;
-        for (flat, s, w) in combination {
-            flats.push(Flat::from(flat.clone()));
-            sources.extend(s.iter().cloned());
-            weight *= w;
-        }
-        let finals = evaluate_expressions(evaluator, &flats, &sources, top_level_depth_check)?;
+    for (finals, weight) in evaluations(evaluator, inputs)? {
         let (outcomes, weights): (Vec<_>, Vec<_>) = finals.into_iter().map(|(o, w)| (DieArg::Outcome(o), w)).unzip();
         let die = Die::new(outcomes, weights)?;
         match data.iter_mut().find(|(d, _)| *d == die) {

@@ -12,10 +12,12 @@ mod convert;
 mod die;
 mod error;
 mod evaluate;
+mod evaluator;
 mod function;
 mod host;
 mod map_tools;
 mod multiset;
+mod multiset_function;
 mod value;
 
 pub use die::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};

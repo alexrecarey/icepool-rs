@@ -1,12 +1,45 @@
 // Multiset evaluators written in JS (evaluator/multiset_evaluator.py) and `@multiset_function`
-// (evaluator/multiset_function.py). INTERIM (task C6): through the bridge (rpc.ts).
+// (evaluator/multiset_function.py), evaluated by the core over the TypeScript's expression trees (multiset.ts).
+//
+// As the Python facade keeps upstream's Python here and calls the core for the evaluation, the TypeScript does what
+// multiset_evaluator.py and multiset_function.py do around it: converting the inputs, recording an evaluation
+// inside a multiset function's body (`RawResult`), binding a function's arguments and tracing its body, and mixing
+// the results (`MultisetEvaluatorBase.evaluate`'s `Die(final_data)`). The core (src/api/evaluator.rs,
+// multiset_function.rs) prepares the expressions and runs the driver, calling back the JS evaluator's methods
+// (`HostEvaluator`) and asking for traces (`HOST.traceFunction`) where Python would make them.
+//
+// INTERIM (task C6f): inputs only the bridge models (deals, multiset tuple expressions) still go through the bridge
+// (rpc.ts); so does a function whose body needs the bridge (`BridgeNeeded`).
 
-import { list, opts, type Die, type MapResult } from "./die.js";
-import type { MultiDeal, MultisetTupleExpression } from "./deck.js";
-import type { MultisetArg, MultisetExpression } from "./multiset.js";
-import { HANDLE, Handle, call, callWith, enc, kwargsText, registerEvaluator, registerKind, type EvaluatorMethods } from "./rpc.js";
-import { List, type OrderValue, type Outcome, type Reroll } from "./values.js";
-import { wasm } from "./wasm.js";
+import type { ExpressionBuilder } from "../pkg-node/icepool_wasm.js";
+import { Die, list, opts, pyBool, type DieOutcomes, type MapResult } from "./die.js";
+import { MultisetTupleExpression, type MultiDeal } from "./deck.js";
+import { IcepoolError, UnsupportedOrder } from "./errors.js";
+import { tupleize } from "./functions.js";
+import {
+  BridgeNeeded,
+  MultisetExpression,
+  RawResult,
+  hasParameter,
+  implicitAll,
+  parameter,
+  withInputs,
+  type MultisetArg,
+} from "./multiset.js";
+import {
+  HANDLE,
+  Handle,
+  call,
+  callWith,
+  countBridgeCall,
+  enc,
+  kwargsText,
+  registerEvaluator,
+  registerKind,
+  type EvaluatorMethods,
+} from "./rpc.js";
+import { List, Reroll, Restart, pyTypeName, stateValue, type OrderValue, type Outcome } from "./values.js";
+import { HOST, callback, wasm } from "./wasm.js";
 
 /** A state the core can hash: values, arrays of them, or plain objects (keyed by their JSON).
  *
@@ -104,7 +137,14 @@ export abstract class MultisetEvaluator {
    * ```
    */
   evaluate(...rest: EvaluateArg[]): Die {
-    return evaluateWith(this as unknown as EvaluatorMethods, rest);
+    const [inputs, kwargs] = opts<Record<string, unknown>>(rest);
+    // `implicit_convert_to_expression(arg)` of each input.
+    const exprs = implicitAll(inputs);
+    if (exprs === undefined) return evaluateWith(this as unknown as EvaluatorMethods, inputs, kwargs);
+    const host = new HostEvaluator(this as unknown as EvaluatorMethods, kwargs);
+    // Inside a multiset function's body: the raw result recording the evaluation.
+    if (exprs.some(hasParameter)) return new RawResult({ kind: "host", evaluator: host }, exprs) as unknown as Die;
+    return mixEvaluations(withInputs(exprs, (b) => b.evaluateHost(host, exprs.length) as Evaluations));
   }
 }
 
@@ -126,16 +166,94 @@ export interface MultisetEvaluator {
   extraOutcomes?(outcomes: Outcome[]): Iterable<Outcome>;
 }
 
-function evaluateWith(ev: EvaluatorMethods, rest: readonly unknown[]): Die {
-  const [inputs, kwargs] = opts<Record<string, unknown>>(rest);
+/** `evaluate()` through the bridge (rpc.ts), for inputs the native tree does not model. */
+function evaluateWith(ev: EvaluatorMethods, inputs: readonly unknown[], kwargs: Record<string, unknown>): Die {
   // The core releases the id (rpc.ts HOST.release) once it no longer needs the evaluator: when this call
   // returns, or, inside a multiset function's body, when the function holding the recorded evaluation is dropped.
+  countBridgeCall("evaluate");
   const id = registerEvaluator(ev);
   return callWith((temps) => {
     const args = `[${inputs.map((x) => enc(list(x), temps)).join(",")}]`;
     const kw = kwargsText(kwargs, temps);
     return wasm((w) => w.evaluate(id, args, kw));
   }) as Die;
+}
+
+/** Python's `x in icepool.REROLL_TYPES`. */
+const isRerollType = (x: unknown): boolean => x === Reroll || x === Restart;
+
+/** What a JS evaluator method answers the core (src/api/host.rs `JsEvaluator`): `["ok", value]` or `["reroll"]` (from
+ * `body`), `["unsupported", message]` if it threw `UnsupportedOrder` (where Python's `Dungeon.evaluate` catches it,
+ * the core retries in the other order), else `["throw"]`, the exception kept to be rethrown as itself. */
+function answer(body: () => unknown[], catchesUnsupported = true): unknown[] {
+  const [ok, result] = callback(() => {
+    try {
+      return body();
+    } catch (e) {
+      if (catchesUnsupported && e instanceof UnsupportedOrder) return ["unsupported", e.message];
+      throw e;
+    }
+  });
+  return ok ? (result as unknown[]) : ["throw"];
+}
+
+/** A JS evaluator as the core calls it in one evaluation: with `evaluate()`'s keyword arguments, and Python's
+ * defaults for the methods it leaves out. States go to the core as values (`stateValue`: a plain object as its
+ * canonical JSON). */
+class HostEvaluator {
+  constructor(
+    private readonly ev: EvaluatorMethods,
+    private readonly kwargs: Record<string, unknown>,
+  ) {}
+
+  /** `evaluate()`'s keyword arguments go to `initialState` and `finalOutcome`, as a trailing options object. */
+  private withKwargs(args: unknown[]): unknown[] {
+    return Object.keys(this.kwargs).length ? [...args, this.kwargs] : args;
+  }
+
+  initialState(order: number, outcomes: unknown[], sizes: unknown[]): unknown[] {
+    const { ev } = this;
+    return answer(() => ["ok", ev.initialState ? stateValue(ev.initialState(order, outcomes, ...this.withKwargs(sizes))) : null]);
+  }
+
+  nextState(state: unknown, order: number, outcome: unknown, counts: unknown[]): unknown[] {
+    return answer(() => {
+      const next = this.ev.nextState(state, order, outcome, ...counts);
+      return isRerollType(next) ? ["reroll"] : ["ok", stateValue(next)];
+    });
+  }
+
+  /** Outside `Dungeon.evaluate`'s try: an `UnsupportedOrder` here propagates as it is. */
+  extraOutcomes(outcomes: unknown[]): unknown[] {
+    const { ev } = this;
+    return answer(() => ["ok", ev.extraOutcomes ? Array.from(ev.extraOutcomes(outcomes)) : []], false);
+  }
+
+  finalOutcome(state: unknown, order: number, outcomes: unknown[], sizes: unknown[]): unknown[] {
+    const { ev } = this;
+    return answer(() => {
+      // By default the final outcome is the final state.
+      const outcome = ev.finalOutcome ? ev.finalOutcome(state, order, outcomes, ...this.withKwargs(sizes)) : state;
+      return isRerollType(outcome) ? ["reroll"] : ["ok", outcome];
+    });
+  }
+}
+
+/** What the core's evaluation gives (src/api/evaluator.rs `evaluations_to_js`): per way to prepare the inputs, the
+ * final outcomes, their weights and the preparation's weight. */
+type Evaluations = [unknown[], bigint[], bigint][];
+
+/** The end of `MultisetEvaluatorBase.evaluate`: `final_data[result] += weight` for each `result = Die(final_outcomes,
+ * final_weights)` (equal dice together, as dict keys), then `Die(final_data)`. */
+function mixEvaluations(evaluations: Evaluations): Die {
+  const data: [Die, bigint][] = [];
+  for (const [outcomes, weights, weight] of evaluations) {
+    const result = new Die(outcomes as DieOutcomes, weights);
+    const found = data.find(([d]) => d.equals(result));
+    if (found !== undefined) found[1] += weight;
+    else data.push([result, weight]);
+  }
+  return new Die(data.map(([d]) => d), data.map(([, w]) => w));
 }
 
 /** The methods of an evaluator made by `evaluator(...)`: those of a {@link MultisetEvaluator} subclass, as an
@@ -208,6 +326,17 @@ export function evaluator(methods: EvaluatorDefinition): MultisetEvaluator {
  */
 export class CoreFunction extends Handle {}
 
+/** A JS function's signature as Python would read it (see {@link multisetFunction}). */
+interface Signature {
+  readonly f: (...args: unknown[]) => unknown;
+  /** Its required positional parameters. */
+  readonly params: number;
+  /** Whether it takes any number more (`*args`). */
+  readonly rest: boolean;
+  /** Its keyword-only parameters. */
+  readonly kwonly: readonly string[];
+}
+
 /** A `@multiset_function`: from `multisetFunction(f)`. `f.call(...inputs, { star, ...kwargs })` evaluates it
  * (Python's `f(*inputs, star=star, **kwargs)`); `star` may be left out (then it is inferred), the other options are
  * the function's keyword-only arguments.
@@ -220,6 +349,33 @@ export class CoreFunction extends Handle {}
  * ```
  */
 export class MultisetFunction extends Handle {
+  /** The JS function; `undefined` for a function the bridge made (or once freed). @internal */
+  declare signature?: Signature;
+  /** Whether the bridge has been given this function (it needs its own copy, made once). */
+  private declare bridged?: boolean;
+
+  /** A function of this signature, traced natively (the bridge's copy is made if it is needed). @internal */
+  static native(signature: Signature): MultisetFunction {
+    const f = new MultisetFunction(HANDLE, -1);
+    f.signature = signature;
+    return f;
+  }
+
+  /** The bridge's handle: its own copy of the function, made the first time the bridge needs it. @internal */
+  protected override get h(): number {
+    if (this.handle < 0 && this.signature !== undefined && !this.bridged) {
+      this.bridged = true;
+      this.adopt(bridgeFunction(this.signature), MultisetFunction);
+    }
+    return super.h;
+  }
+
+  /** Frees the function's WASM memory now rather than when it is garbage-collected. @internal */
+  override free(): void {
+    this.signature = undefined;
+    super.free();
+  }
+
   /** Evaluates the function on these inputs: Python's `f(*inputs, star=star, **kwargs)`. The inputs are multisets
    * (pools, deals, expressions, arrays of outcomes); a trailing options object gives `star` (whether to unpack the
    * first input, a `MultiDeal`, into its hands; inferred if left out) and the function's keyword-only arguments.
@@ -236,9 +392,21 @@ export class MultisetFunction extends Handle {
    * ```
    */
   call(...rest: unknown[]): Die {
-    const [args, { star, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
+    const [args, kwargs] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
+    const exprs = this.signature === undefined ? undefined : implicitAll(args);
+    if (exprs !== undefined) {
+      // Inside another function's body: the raw result recording the call.
+      if (exprs.some(hasParameter)) return new RawResult({ kind: "function", f: this, kwargs }, exprs) as unknown as Die;
+      try {
+        return mixEvaluations(withInputs(exprs, (b) => b.evaluateFunction(this, exprs.length, kwargs) as Evaluations));
+      } catch (e) {
+        // The body needs the bridge (it holds a deal): the whole call goes through it.
+        if (!(e instanceof BridgeNeeded)) throw e;
+      }
+    }
+    const { star, ...others } = kwargs;
     // `star` left out (undefined) is inferred; any other value is passed, as Python's `star=...` (even null).
-    const items: [string, unknown][] = Object.entries(kwargs);
+    const items: [string, unknown][] = Object.entries(others);
     if (star !== undefined) items.unshift(["star", star]);
     return call("mf_call_kw", { f: this, args: List.from(args), kwargs: List.from(items) }) as Die;
   }
@@ -306,15 +474,110 @@ export function multisetFunction(
   { params = f.length, rest = false, kwonly = [] }: { params?: number; rest?: boolean; kwonly?: readonly string[] } = {},
 ): MultisetFunction {
   if (typeof f !== "function") throw new TypeError("icepool: multisetFunction takes a function");
+  return MultisetFunction.native({
+    f: f as (...args: unknown[]) => unknown,
+    params: Number(params),
+    rest: Boolean(rest),
+    kwonly: Array.from(kwonly, String),
+  });
+}
+
+/** The bridge's copy of a multiset function (the program runner traces it with its own parameters). */
+function bridgeFunction({ f, params, rest, kwonly }: Signature): MultisetFunction {
+  countBridgeCall("multiset_function");
   return callWith((temps) => {
-    const text = `{"f":${enc(f, temps)},"params":${Number(params)},"var":${rest ? "true" : "false"},"kwonly":${JSON.stringify(Array.from(kwonly, String))}}`;
+    const text = `{"f":${enc(f, temps)},"params":${params},"var":${rest ? "true" : "false"},"kwonly":${JSON.stringify(kwonly)}}`;
     return wasm((w) => w.multiset_function(text));
   }) as MultisetFunction;
 }
 
-/** A multiset function's result in the program language (the fixture tests'). */
-class RawResult extends Handle {}
+// --- Tracing ------------------------------------------------------------------------------------------------------
+
+/** `MultisetFunctionEvaluator._get_positional_name(index)`: the name of a parameter, its `str()`. Python's are the
+ * function's own; a JS function's are not known, so these are the program runner's (`p0`, `p1`, ..., `rest[i]`). */
+function positionalName({ params, rest }: Signature, index: number): string {
+  if (index < params) return `p${index}`;
+  // The exception will be raised later.
+  return rest ? `rest[${index}]` : "(too many args)";
+}
+
+const typeError = (message: string) => new IcepoolError("WrongType", "TypeError", message);
+
+/** Python's iteration of a joint result (`tuple(... for raw in raw_results)`). */
+function pyIterate(x: unknown): unknown[] {
+  if (x !== null && x !== undefined && typeof (x as Iterable<unknown>)[Symbol.iterator] === "function") {
+    return Array.from(x as Iterable<unknown>);
+  }
+  throw typeError(`'${pyTypeName(x)}' object is not iterable`);
+}
+
+/** `convert_die_to_raw_result` of one result into the trace: a raw result stays one; an expression without an
+ * evaluation raises; anything else is a constant. */
+function pushResult(b: ExpressionBuilder, x: unknown): void {
+  if (x instanceof RawResult) return x.push(b);
+  if (x instanceof MultisetExpression || x instanceof MultisetTupleExpression) {
+    throw typeError("The result of a @multiset_function cannot contain expressions without a terminating evaluation.");
+  }
+  b.rawConstant(x, isRerollType(x));
+}
+
+/** Whether a function's result is one result (else it is iterated as a joint result). */
+const isSingle = (x: unknown): boolean =>
+  x instanceof RawResult || x instanceof Die || x instanceof MultisetExpression || x instanceof MultisetTupleExpression;
+
+/** `MultisetFunctionEvaluator._prepare(input_exps, kwargs)` up to the evaluation: binds the arguments, calls the
+ * function with one parameter per input, and gives what it returned as an `ExpressionBuilder` of raw results for
+ * the core (src/api/multiset_function.rs), with whether it is a joint result (several). */
+function trace(fn: MultisetFunction, inputs: number, kwargs: Record<string, unknown>): [ExpressionBuilder, boolean] {
+  const signature = fn.signature as Signature;
+  const { star: starArg, ...kw } = kwargs;
+  // `infer_star`: more required positional parameters than inputs.
+  const star = starArg !== undefined ? pyBool(starArg) : signature.params > inputs;
+  if (star) {
+    // Only a multiset tuple expression (a MultiDeal) has a length to unpack, and those go through the bridge.
+    if (inputs === 0) throw new IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
+    throw typeError("object of this type has no len()");
+  }
+  const vars = Array.from({ length: inputs }, (_, i) => parameter(i, positionalName(signature, i)));
+  // `self._wrapped(*multiset_variables, **kwargs)`: Python binds the arguments to the signature.
+  if (inputs < signature.params || (!signature.rest && inputs > signature.params)) {
+    throw typeError(`wrapped() takes ${signature.params} positional arguments but ${inputs} were given`);
+  }
+  const unexpected = Object.keys(kw).find((k) => !signature.kwonly.includes(k));
+  if (unexpected !== undefined) throw typeError(`wrapped() got an unexpected keyword argument '${unexpected}'`);
+  const missing = signature.kwonly.find((k) => !(k in kw));
+  if (missing !== undefined) throw typeError(`wrapped() missing 1 required keyword-only argument: '${missing}'`);
+  // Python passes **kwargs; JS gets them as a trailing options object.
+  const result = Object.keys(kw).length ? signature.f(...vars, kw) : signature.f(...vars);
+  return wasm((w) => {
+    const b = new w.ExpressionBuilder();
+    try {
+      if (isSingle(result)) {
+        pushResult(b, result);
+        return [b, false];
+      }
+      for (const x of pyIterate(result)) pushResult(b, x);
+      return [b, true];
+    } catch (e) {
+      b.free();
+      throw e;
+    }
+  });
+}
+
+Object.assign(HOST, {
+  /** A trace of a multiset function for the core: `[true, builder, joint]`, or `[false]` if it threw. */
+  traceFunction(fn: MultisetFunction, inputs: number, kwargs: Record<string, unknown>): unknown[] {
+    const [ok, traced] = callback(() => trace(fn, inputs, kwargs));
+    return ok ? [true, ...(traced as [ExpressionBuilder, boolean])] : [false];
+  },
+  /** `icepool.tupleize(*final_outcomes)` of a joint multiset function. */
+  tupleize: (items: unknown[]) => callback(() => tupleize(...(items as Outcome[]))),
+});
+
+/** A multiset function's result in the program language (the fixture tests'), made by the bridge. */
+class BridgeRawResult extends Handle {}
 
 registerKind("fn", (h) => new CoreFunction(HANDLE, h));
 registerKind("mfunc", (h) => new MultisetFunction(HANDLE, h));
-registerKind("raw", (h) => new RawResult(HANDLE, h));
+registerKind("raw", (h) => new BridgeRawResult(HANDLE, h));

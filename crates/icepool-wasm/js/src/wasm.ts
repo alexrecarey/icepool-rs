@@ -62,6 +62,37 @@ export function isTrap(e: unknown): boolean {
   return e instanceof WebAssembly.RuntimeError;
 }
 
+/** The exception a JS callback threw, rethrown as itself when the core returns (see `withCallbacks`). */
+let pending: { error: unknown } | undefined;
+
+/** Runs a JS callback for the core: `[true, result]`, or `[false]` with the exception kept here. The core then
+ * returns `Error::Callback`, which `withCallbacks` turns back into the exception itself. A trap is rethrown at once:
+ * it must abandon the WASM frames below too (see the top of this file). */
+export function callback(body: () => unknown): unknown[] {
+  try {
+    return [true, body()];
+  } catch (e) {
+    if (isTrap(e)) throw e;
+    pending = { error: e };
+    return [false];
+  }
+}
+
+/** `f()`, a call into the core that may call JS callbacks (through `callback`): a callback's own exception is
+ * rethrown as itself. Calls nest (a callback may call into the core again): each rethrows its own callbacks'. */
+export function withCallbacks<T>(f: () => T): T {
+  try {
+    return f();
+  } catch (e) {
+    if (e instanceof IcepoolError && e.kind === "Callback" && pending !== undefined) {
+      const { error } = pending;
+      pending = undefined;
+      throw error;
+    }
+    throw e;
+  }
+}
+
 /** The exports only some builds have: Cargo features `runner` and `khepri` (the npm package has neither, so the
  * generated types the package compiles against lack them). */
 interface OptionalExports {

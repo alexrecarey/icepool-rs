@@ -25,6 +25,8 @@ import {
   Reroll,
   Restart,
   Ellipsis,
+  StateKey,
+  stateValue,
   type Outcome,
 } from "./values.js";
 
@@ -85,33 +87,6 @@ export function enc(x: unknown, temps: number[] | null): string {
   // with Python's `==` (so `1`, `1.0` and `true` are one key, as in Python; a JS Map keeps them apart).
   if (x instanceof Map) return `{"$map":[${Array.from(x, ([k, v]) => `[${e(k)},${e(v)}]`).join(",")}]}`;
   throw new TypeError(`icepool: cannot pass ${Object.prototype.toString.call(x)} to the core`);
-}
-
-/** An evaluator state that is a plain JS object: keyed (hashed, compared) by its canonical JSON. */
-export class StateKey {
-  readonly key: string;
-  constructor(key: string) {
-    this.key = key;
-  }
-}
-
-function canonicalJSON(x: unknown): string {
-  if (Array.isArray(x)) return `[${x.map(canonicalJSON).join(",")}]`;
-  if (x !== null && typeof x === "object") {
-    const o = x as Record<string, unknown>;
-    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonicalJSON(o[k])}`).join(",")}}`;
-  }
-  if (typeof x === "bigint") throw new TypeError("icepool: a BigInt inside an object state is not serialisable");
-  return JSON.stringify(x);
-}
-
-/** An evaluator state as a value: plain objects become keys (anywhere inside arrays too); the rest as is. */
-export function stateValue(x: unknown): unknown {
-  if (Array.isArray(x)) return x.map(stateValue);
-  if (x !== null && typeof x === "object" && Object.getPrototypeOf(x) === Object.prototype) {
-    return new StateKey(canonicalJSON(x));
-  }
-  return x;
 }
 
 // --- JS-JSON -> JS ------------------------------------------------------------------------------------------------
@@ -202,9 +177,14 @@ export function callWith(f: (temps: number[]) => string): unknown {
  * typed exports). */
 export const bridgeCalls = new Map<string, number>();
 
+/** Counts a call through the bridge: a node, or another of its exports (`evaluate`, `multiset_function`). */
+export function countBridgeCall(name: string): void {
+  bridgeCalls.set(name, (bridgeCalls.get(name) ?? 0) + 1);
+}
+
 /** Calls a node of the program language by name: `call("add", { a: d(6), b: 1 })`. */
 export function call(op: string, args: Record<string, unknown> = {}): unknown {
-  bridgeCalls.set(op, (bridgeCalls.get(op) ?? 0) + 1);
+  countBridgeCall(op);
   return callWith((temps) => {
     const text = argsText(args, temps);
     return wasm((w) => w.call(op, text));
