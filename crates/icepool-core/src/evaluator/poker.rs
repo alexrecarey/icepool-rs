@@ -612,3 +612,185 @@ where
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The poker evaluators on typed `i64` pools. Every expected die is Python icepool's answer to the same
+    //! evaluation (the comment above each gives the Python).
+
+    use super::*;
+    use crate::evaluator::{evaluate, MultisetSource};
+    use crate::{d, Die, Outcome, Pool, Quantity};
+
+    fn int(i: i64) -> Int {
+        Int::from(i)
+    }
+
+    fn ints(xs: &[i64]) -> Vec<Int> {
+        xs.iter().map(|&x| int(x)).collect()
+    }
+
+    /// `Die(dict)`: outcomes with their quantities.
+    fn die<O: Outcome>(items: impl IntoIterator<Item = (O, u32)>) -> Die<O> {
+        Die::from_weights(items)
+    }
+
+    #[test]
+    fn largest_count() {
+        // `d(6).pool(4).largest_count()`
+        let expected = die([(int(1), 360), (int(2), 810), (int(3), 120), (int(4), 6)]);
+        assert_eq!(
+            d(6).pool(4).evaluate(&LargestCountEvaluator).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn largest_count_and_outcome_prefers_the_higher_outcome() {
+        // `LargestCountAndOutcomeEvaluator().evaluate(d(3).pool(2))`
+        let expected = die([
+            ((int(1), 2), 2),
+            ((int(1), 3), 4),
+            ((int(2), 1), 1),
+            ((int(2), 2), 1),
+            ((int(2), 3), 1),
+        ]);
+        let result = d(3).pool(2).evaluate(&LargestCountAndOutcomeEvaluator);
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn highest_outcome_and_count() {
+        // `HighestOutcomeAndCountEvaluator().evaluate(d(6).pool(3))`, the first rows.
+        let result = d(6)
+            .pool(3)
+            .evaluate(&HighestOutcomeAndCountEvaluator)
+            .unwrap();
+        let first: Vec<_> = result.items().iter().take(4).cloned().collect();
+        let q = |x: u8| Quantity::from(x);
+        assert_eq!(
+            first,
+            [
+                ((1, int(3)), q(1)),
+                ((2, int(1)), q(3)),
+                ((2, int(2)), q(3)),
+                ((2, int(3)), q(1))
+            ]
+        );
+        assert_eq!(result.len(), 16);
+    }
+
+    #[test]
+    fn all_counts_with_and_without_a_filter() {
+        // `d(6).pool(3).all_counts()`, whose default is `filter=1`.
+        let positive = d(6).pool(3).evaluate(&AllCountsEvaluator {
+            filter: Some(int(1)),
+        });
+        let expected = die([
+            (ints(&[1, 1, 1]), 120),
+            (ints(&[2, 1]), 90),
+            (ints(&[3]), 6),
+        ]);
+        assert_eq!(positive.unwrap(), expected);
+        // `AllCountsEvaluator(filter='all').evaluate(d(6).pool(3))`: zero counts too, one per outcome.
+        let all = d(6).pool(3).evaluate(&AllCountsEvaluator { filter: None });
+        let expected = die([
+            (ints(&[1, 1, 1, 0, 0, 0]), 120),
+            (ints(&[2, 1, 0, 0, 0, 0]), 90),
+            (ints(&[3, 0, 0, 0, 0, 0]), 6),
+        ]);
+        assert_eq!(all.unwrap(), expected);
+        // `AllCountsEvaluator(filter=2).evaluate(d(4).pool(3))`
+        let pairs = d(4).pool(3).evaluate(&AllCountsEvaluator {
+            filter: Some(int(2)),
+        });
+        let expected = die([(ints(&[]), 24), (ints(&[2]), 36), (ints(&[3]), 4)]);
+        assert_eq!(pairs.unwrap(), expected);
+    }
+
+    #[test]
+    fn straights() {
+        // `d(6).pool(5).largest_straight()`
+        let expected = die([
+            (int(1), 906),
+            (int(2), 3390),
+            (int(3), 2280),
+            (int(4), 960),
+            (int(5), 240),
+        ]);
+        assert_eq!(
+            d(6).pool(5).evaluate(&LargestStraightEvaluator).unwrap(),
+            expected
+        );
+        // `d(6).pool(3).highest(2).largest_straight()`: only the kept dice count.
+        let kept = d(6).pool(3).highest(2).evaluate(&LargestStraightEvaluator);
+        assert_eq!(kept.unwrap(), die([(int(1), 141), (int(2), 75)]));
+        // `LargestStraightAndOutcomeEvaluator('high').evaluate(d(4).pool(2))`
+        let evaluator = LargestStraightAndOutcomeEvaluator {
+            prioritize_highest: true,
+        };
+        let expected = die([
+            ((int(1), 1), 1),
+            ((int(1), 2), 1),
+            ((int(1), 3), 3),
+            ((int(1), 4), 5),
+            ((int(2), 2), 2),
+            ((int(2), 3), 2),
+            ((int(2), 4), 2),
+        ]);
+        assert_eq!(d(4).pool(2).evaluate(&evaluator).unwrap(), expected);
+        // `AllStraightsEvaluator().evaluate(d(4).pool(3))`
+        let expected = die([
+            (ints(&[1, 1, 1]), 22),
+            (ints(&[2, 1]), 30),
+            (ints(&[3]), 12),
+        ]);
+        assert_eq!(
+            d(4).pool(3).evaluate(&AllStraightsEvaluator).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn largest_count_with_wilds() {
+        // `LargestCountWithWildEvaluator(wild=lambda x: x == 6, wild_low=None, wild_high=lambda x: x == 1)
+        //  .evaluate(d(6).pool(3))`. The three selectors share one type, so they are fn pointers here.
+        type Select = fn(&i64) -> Result<bool>;
+        let evaluator: LargestCountWithWildEvaluator<Select> =
+            LargestCountWithWildEvaluator::new(|&x| Ok(x == 6), |_| Ok(false), |&x| Ok(x == 1));
+        let expected = die([(int(1), 60), (int(2), 120), (int(3), 36)]);
+        assert_eq!(d(6).pool(3).evaluate(&evaluator).unwrap(), expected);
+    }
+
+    #[test]
+    fn count_subset_takes_two_inputs() {
+        // `CountSubsetEvaluator().evaluate(d(3).pool(3), [1, 2])`: how many times `{1, 2}` fits in the roll.
+        let right = Pool::new(vec![(Die::single(1), 1), (Die::single(2), 1)]).unwrap();
+        let sources = [
+            MultisetSource::Pool(d(3).pool(3).source()),
+            MultisetSource::Pool(right.source()),
+        ];
+        let evaluator = CountSubsetEvaluator::<Int> {
+            empty_divisor: None,
+        };
+        let result = Die::from_weights(evaluate(&evaluator, &sources).unwrap());
+        assert_eq!(result, die([(int(0), 15), (int(1), 12)]));
+        // An empty right side divides by zero unless `empty_divisor` says what to answer.
+        let empty = Pool::<i64>::new(vec![]).unwrap();
+        let sources = [
+            MultisetSource::Pool(d(3).pool(1).source()),
+            MultisetSource::Pool(empty.source()),
+        ];
+        assert!(matches!(
+            evaluate(&evaluator, &sources),
+            Err(Error::DivisionByZero(_))
+        ));
+        let evaluator = CountSubsetEvaluator {
+            empty_divisor: Some(int(-1)),
+        };
+        assert_eq!(
+            evaluate(&evaluator, &sources).unwrap(),
+            [(int(-1), Quantity::from(3u8))]
+        );
+    }
+}
