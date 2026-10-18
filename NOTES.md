@@ -318,8 +318,9 @@ turns out wrong. Newest decisions at the top of each section.
     Python test (helpers in `test/upstream.mjs`); `{ todo: "API: ..." }` marks a known API discrepancy.
 
 - **Crates and production builds (C5, C5b, design sections 5 and 8).** Follow-up: C6c-C6l (JS API off the
-  runner), C2f (khepri crate), C3d (the runner off core's hidden modules: already done by C3b, which moved the
-  runner and khepri too; C3d only has to confirm `grep -rn "doc(hidden)" crates/icepool-core/src` is empty).
+  runner), C2f (khepri crate), C3d (done: confirmed C3b had already moved the runner and khepri off
+  core's hidden modules; `grep -rn "doc(hidden)" crates/*/src` is empty and the runner names only
+  `icepool_core::{root, value, host, evaluator, expression, random}`).
   - `crates/icepool-harness` (`publish = false`, test-only) is the JSON program runner (`src/`, was
     icepool-core's `src/program/` until C5b; its `mod.rs` is now `lib.rs`), the `icepool-run` binary (same name, so
     `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and the protected fixtures test
