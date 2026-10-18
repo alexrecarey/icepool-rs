@@ -7,3 +7,4 @@ loop/logs/
 .loop/
 dist/
 node_modules/
+.claude/worktrees/
