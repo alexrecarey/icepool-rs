@@ -1,7 +1,6 @@
 //! `WasmDie`: a die of the core, under the TypeScript `Die` (js/src/die.ts), which does Python's argument
 //! juggling (population/die.py, population/base.py) and calls these for the work.
 
-use icepool_core::value::{PyDie, PyStatistics};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 
@@ -11,6 +10,7 @@ use icepool_core::population::Comparison;
 use icepool_core::value::Data;
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::pystr::py_repr;
+use icepool_core::value::{PyDie, PyStatistics};
 use icepool_core::value::{matmul_dice, BinOp, Num, UnOp};
 use icepool_core::expand::tupleize_dice;
 use icepool_core::memory;

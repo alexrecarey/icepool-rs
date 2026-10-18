@@ -2,7 +2,6 @@
 //! `_pop_min` / `_pop_max`, `sign`, `cmp`, `is_in`, `count`, `if_else`, `__repr__`, and `icepool.from_cumulative`
 //! (function.py).
 
-use icepool_core::value::PyDie;
 use super::function::harmonize;
 use super::map::{contains, the_die};
 use super::ops::{die_with_agains, matmul, py_iter, to_die, unhashable_list, wrong_type};
@@ -10,6 +9,7 @@ use super::{PErr, PValue};
 use icepool_core::counts::OrderedMerge;
 use icepool_core::population::Comparison;
 use icepool_core::value::BinOp;
+use icepool_core::value::PyDie;
 use icepool_core::{Die, Value};
 
 /// `die.zero()`: every outcome times `0`, which must resolve to a single outcome.

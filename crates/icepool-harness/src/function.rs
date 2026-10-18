@@ -2,7 +2,6 @@
 //! `pointwise_max/min`, `min/max_outcome`, `consecutive`, `sorted_union`, `harmonize_denominators`, `from_rv`),
 //! map_tools/function.py `reduce` / `accumulate`, and wallenius.py. Nodes in harness/grammar/function.py.
 
-use icepool_core::value::PyDie;
 use std::sync::Arc;
 
 use dashu_int::IBig;
@@ -15,6 +14,7 @@ use super::ops::{binary, d, py_iter, to_die, unhashable_list, weights_die, wrong
 use super::statistics::new_or_self;
 use super::{raise, PErr, PValue};
 use icepool_core::function;
+use icepool_core::value::PyDie;
 use icepool_core::value::builtins::{fraction, limit_denominator, py_min_max};
 use icepool_core::value::function as value_function;
 use icepool_core::value::{BinOp, UnOp};

@@ -4,7 +4,6 @@
 //! This layer does Python's argument juggling (optional arguments, `getattr` names, `star` inference); the core
 //! does the rest.
 
-use icepool_core::value::{PyDie, PyStatistics};
 use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die, the_population};
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type, Key};
@@ -12,6 +11,7 @@ use super::{raise, PErr, PValue};
 use icepool_core::population::{check_public_attr, Comparison};
 use icepool_core::value::Data;
 use icepool_core::value::builtins::{getattr, getitem, Index};
+use icepool_core::value::{PyDie, PyStatistics};
 use icepool_core::{Die, Error, Value};
 
 /// An argument that must be a plain value (an outcome, a number): the generators never pass dice here.

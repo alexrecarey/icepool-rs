@@ -2,12 +2,12 @@
 //! `format_probability_inverse`, `common_outcome_length`, seeded `sample`, `==` / `!=` (`DieWithTruth`) and their
 //! truth values, `equals`, and `hash_key` comparisons.
 
-use icepool_core::value::PyDie;
 use super::catalogue::truthy;
 use super::collection::attribute_error;
 use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
 use icepool_core::random::Random;
+use icepool_core::value::PyDie;
 use icepool_core::value::format::{
     common_outcome_length as outcome_length, format as format_population, Formatted,
 };

@@ -6,8 +6,8 @@
 //! mappings in `Deck.map`, `_select_outcomes`) and builds the result object; the work is the core's, and Python
 //! callables (`outcome_type`, `Deck.map`'s function, a sequence's `in` / `index`) are called back from here.
 
-use icepool_core::value::PyDie;
 use icepool_core::expand::iter_cartesian_product as core_product;
+use icepool_core::value::PyDie;
 use icepool_core::{Deck, Die, Value};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};

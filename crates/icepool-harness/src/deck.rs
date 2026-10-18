@@ -3,7 +3,6 @@
 //! The keep-like nodes (`pool_keep`, `pool_highest`, ...) and the evaluations take a `Deal` as they take a pool
 //! (`pool::KeepGen`); this file has what is particular to decks and deals.
 
-use icepool_core::value::PyDie;
 use std::borrow::Cow;
 
 use dashu_int::IBig;
@@ -15,6 +14,7 @@ use super::ops::{
 use super::statistics;
 use super::{raise, PErr, PValue};
 use icepool_core::creation_args::DieArg;
+use icepool_core::value::PyDie;
 use icepool_core::value::format::Formatted;
 use icepool_core::value::Data;
 use icepool_core::value::Num;
