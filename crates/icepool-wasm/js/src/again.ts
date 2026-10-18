@@ -279,7 +279,6 @@ export interface AgainExpression {
   invert(): AgainExpression;
 }
 
-
 /** The function an expression applies: the name of Python's `operator` function (`operator.add` is `"add"`). Two
  * expressions' functions are equal (in `hash_key`) when their names are. @internal */
 export type AgainFunction = BinaryName | "neg" | "pos" | "abs" | "invert" | "matmul";

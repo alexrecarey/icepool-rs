@@ -7,6 +7,7 @@
 //   Fraction, complex, Vector, Symbols: the classes below. None is null.
 
 import type { Die } from "./die.js";
+import { IcepoolError } from "./errors.js";
 import { binary, round, unary } from "./operators.js";
 import { wasm } from "./wasm.js";
 
@@ -641,13 +642,25 @@ export class Vector implements Iterable<Outcome> {
     Object.assign(v, { items, hasTruth, truthValue });
     return v;
   }
-  /** `len(v)`: the number of elements (0 for a `VectorWithTruthOnly`). */
+  /** `len(v)`: the number of elements. A `VectorWithTruthOnly` (from comparing Vectors of different lengths) has
+   * none to count: a `ValueError`, as in Python. */
   get length(): number {
-    return this.items?.length ?? 0;
+    return this.data().length;
   }
-  /** Iterates over the elements, so that `[...v]` is an array of them. */
+  /** Iterates over the elements, so that `[...v]` is an array of them (a `ValueError` for a `VectorWithTruthOnly`). */
   [Symbol.iterator](): Iterator<Outcome> {
-    return (this.items ?? [])[Symbol.iterator]();
+    return this.data()[Symbol.iterator]();
+  }
+  /** Python's `_data`, which a `VectorWithTruthOnly` lacks. */
+  private data(): Outcome[] {
+    if (this.items === null) {
+      throw new IcepoolError(
+        "InvalidArgument",
+        "ValueError",
+        "The result of a comparison between vectors of different lengths can only be used as a truth value.",
+      );
+    }
+    return this.items;
   }
   /** `truediv`: `/`, elementwise.
    *
