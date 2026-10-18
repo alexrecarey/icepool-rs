@@ -151,7 +151,7 @@ function kwargsObject(kwargs) {
 
 const isDie = (x) => x instanceof ip.Die;
 const isOperand = (x) => x instanceof ip.Die || x instanceof ip.AgainExpression;
-const isKeep = (x) => x instanceof ip.Pool || x instanceof ip.Deal;
+const isKeep = (x) => x instanceof ip.KeepGenerator;
 const isExpr = (x) => x instanceof ip.MultisetExpression;
 const isList = (x) => x instanceof ip.List;
 const camel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -339,12 +339,13 @@ const IDIOMATIC = {
 
   // Pools and multiset expressions.
   pool: ({ dice, times }) => isList(dice) && ok(new ip.Pool(dice, times)),
-  pool_highest: ({ pool, keep, drop }) => isKeep(pool) && ok(pool.highest(keep, drop)),
-  pool_lowest: ({ pool, keep, drop }) => isKeep(pool) && ok(pool.lowest(keep, drop)),
+  pool_highest: ({ pool, keep, drop }) => isExpr(pool) && ok(pool.highest(keep, drop)),
+  pool_lowest: ({ pool, keep, drop }) => isExpr(pool) && ok(pool.lowest(keep, drop)),
   pool_middle: ({ pool, keep, tie }) => isKeep(pool) && ok(pool.middle(keep, { tie })),
-  pool_keep: ({ pool, index }) => isKeep(pool) && ok(pool.keep(index)),
-  pool_index: ({ pool, index }) => isKeep(pool) && ok(pool.at(index)),
-  pool_slice: ({ pool, start, stop, step }) => isKeep(pool) && ok(pool.slice(start, stop, step)),
+  pool_keep: ({ pool, index }) => isExpr(pool) && ok(pool.keep(index)),
+  pool_index: ({ pool, index }) => isExpr(pool) && ok(pool.at(index)),
+  pool_slice: ({ pool, start, stop, step }) => isExpr(pool) && ok(pool.slice(start, stop, step)),
+  pool_info: ({ pool }) => pool instanceof ip.Pool && ok(pool.info()),
   pool_mul: ({ pool, n }) => isExpr(pool) && ok(pool.mul(n)),
   pool_neg: ({ pool }) => isExpr(pool) && ok(pool.neg()),
   pool_add: ({ a, b }) => isExpr(a) && ok(a.add(b)),
@@ -367,6 +368,22 @@ const IDIOMATIC = {
     ]),
   ),
   mx_evaluate: ({ expr, method }) => isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
+  weightless_evaluate: ({ expr, method }) =>
+    isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
+  // `a < b` and the like with an expression on the left: its subset comparisons (`==` / `!=` give a die with a
+  // truth value, which the API has no method for).
+  mx_compare: ({ a, o, b }) => {
+    const methods = { "<": "lt", ">": "gt", "<=": "issubset", ">=": "issuperset" };
+    if (!(o in methods)) return undefined;
+    if (isExpr(a)) return ok(a[methods[o]](b));
+    // A plain left operand's own operator returns NotImplemented: Python calls the expression's reflected one.
+    const reflected = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" }[o];
+    const plain = a === null || isList(a) || (Array.isArray(a) && !(a instanceof ip.MultisetExpression)) ||
+      ["number", "bigint", "string", "boolean"].includes(typeof a) || a instanceof ip.Float || a instanceof ip.Fraction;
+    return isExpr(b) && plain && ok(b[methods[reflected]](a));
+  },
+  mx_rfloordiv: ({ other, pool }) => isExpr(pool) && ok(pool.rfloordiv(other)),
+  mx_str: ({ expr }) => isExpr(expr) && ok(String(expr)),
   mx_binary: ({ a, o, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[o];
     return isExpr(a) && m !== undefined && ok(a[m](b));

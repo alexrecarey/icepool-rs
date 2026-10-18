@@ -10,11 +10,13 @@ use icepool_core::compound_keep::CompoundKeep;
 use icepool_core::evaluator::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
 use icepool_core::evaluator::MultisetSource;
 use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
+use icepool_core::value::pystr::py_repr;
+use icepool_core::value::recursion::level;
 use icepool_core::{Die, Error, Int, Pool, Value};
 use wasm_bindgen::prelude::*;
 
 use super::convert::{int_from_js, int_to_js, quantity_to_js, value_from_js, values_to_js};
-use super::die::WasmDie;
+use super::die::{die_repr, WasmDie};
 use super::error::{JsResult, OrThrow};
 
 /// `Pool(dice, times)` once the TypeScript has itemized its arguments and converted each element to a die
@@ -203,6 +205,12 @@ impl WasmGenerator {
         }
     }
 
+    /// `str(generator)`: `Pool.__str__` or `CompoundKeepGenerator.__str__`.
+    #[wasm_bindgen(js_name = toString)]
+    pub fn to_string(&self) -> JsResult<String> {
+        self.g.source().and_then(|s| source_str(&s)).or_throw()
+    }
+
     // --- Pool only ---------------------------------------------------------------------------------------------
 
     /// `raw_size()`: the number of dice before the keep tuple is applied.
@@ -243,6 +251,28 @@ impl WasmGenerator {
             Generator::Compound(_) => Err(Error::MissingAttribute("a CompoundKeepGenerator is not a Pool".into()))
                 .or_throw(),
         }
+    }
+}
+
+/// `str()` of a keep generator from its source, which keeps its dice and keep tuple: `Pool.__str__` (a header, then
+/// `  {repr(die)} : {count},` per die, in `hash_key` order) or `CompoundKeepGenerator.__str__` (its inners').
+fn source_str(source: &MultisetSource<Value>) -> icepool_core::Result<String> {
+    let _level = level()?;
+    let keep_tuple_repr = |keep_tuple: &[Int]| py_repr(&Value::tuple(keep_tuple.iter().map(Value::from).collect()));
+    match source {
+        MultisetSource::Pool(p) => {
+            let raw_size: usize = p.dice().iter().map(|(_, count)| count).sum();
+            let mut text = format!("Pool of {raw_size} dice with keep_tuple={}\n", keep_tuple_repr(p.keep_tuple())?);
+            for (die, count) in p.dice() {
+                text += &format!("  {} : {count},\n", die_repr(die, "Die")?);
+            }
+            Ok(text)
+        }
+        MultisetSource::CompoundKeep(c) => {
+            let inners = c.inner_sources().iter().map(source_str).collect::<icepool_core::Result<Vec<_>>>()?;
+            Ok(format!("CompoundKeep([{}], keep_tuple={})", inners.join(", "), keep_tuple_repr(c.keep_tuple())?))
+        }
+        _ => Err(Error::Unported("str() of this generator".into())),
     }
 }
 

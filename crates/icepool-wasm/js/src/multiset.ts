@@ -7,7 +7,7 @@ import { AgainExpression } from "./again.js";
 import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, z as zDie, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
-import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
+import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyFloatRepr, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, isTrap, wasm } from "./wasm.js";
 
 /** Where a multiset expression is expected, an array of outcomes is a pool of them (Python's implicit conversion
@@ -390,7 +390,7 @@ export class MultisetExpression extends Handle {
    */
   unique(n: Int = 1): MultisetExpression {
     const c = intConstant(n);
-    return mxCounts(this, "unique", null, n, () => (c === undefined ? undefined : operator([this], ["MultisetUnique", c], (b) => b.unique(c))));
+    return mxCounts(this, "unique", null, n, () => (c === undefined ? undefined : unique(this, c)));
   }
   /** `MultisetExpression.keep_counts(comparison, n)`: keeps the counts that fit the comparison with `n`, treating
    * the rest as zero. `keepCounts(">=", 2)` keeps pairs, triplets, etc. and drops singles.
@@ -597,6 +597,19 @@ export class MultisetExpression extends Handle {
     return native(this, () => versus(this, false, comparison, other), bridge);
   }
 
+  /** Python's `str(expression)`: a pool lists its dice, an operator shows its operands.
+   *
+   * @example
+   * ```ts
+   * pool([1]).toString(); //=> "Pool of 1 dice with keep_tuple=(1,)\n  Die({1: 1}) : 1,\n"
+   * pool([1]).union([2]).toString().split("\n")[0]; //=> "(Pool of 1 dice with keep_tuple=(1,)"
+   * ```
+   */
+  override toString(): string {
+    const native = isNative(this) ? expressionStr(this) : undefined;
+    return native ?? (call("mx_str", { expr: this }) as string);
+  }
+
   // Evaluation.
   /** `MultisetExpression.sum()`: evaluation: the sum of all elements.
    *
@@ -774,6 +787,22 @@ export class MultisetExpression extends Handle {
   countSubset(divisor: MultisetArg, { emptyDivisor = null }: { emptyDivisor?: Int | null } = {}): Die {
     const native = isPlainValue(emptyDivisor) && isNative(this) ? evaluationOf("count_subset", [emptyDivisor], this, divisor) : undefined;
     return native ?? (call("pool_count_subset", { pool: this, divisor: list(divisor), empty_divisor: emptyDivisor }) as Die);
+  }
+  /** Python's `other // self` (`__rfloordiv__`): `other.countSubset(self)`, an array of outcomes being a pool.
+   *
+   * @example
+   * ```ts
+   * pool([1, 1]).rfloordiv([1, 1, 1, 1, 2, 2]).items(); //=> [[2, 1n]]
+   * ```
+   */
+  rfloordiv(other: MultisetArg): Die {
+    const make = () => {
+      // `Die.__floordiv__` converts the expression into a one-outcome die, which cannot sort it.
+      if (other instanceof Die) throw typeError("Items do not appear to be sortable.");
+      const left = implicit(other);
+      return left === undefined ? undefined : evaluation("count_subset", [null], [left, this]);
+    };
+    return native(this, make, () => call("mx_rfloordiv", { other: list(other), pool: this }));
   }
   /** `MultisetExpression.isdisjoint(other)`: evaluation: whether no outcome has a positive count in both multisets.
    * Negative counts count as zero.
@@ -1220,6 +1249,9 @@ export type Node =
       readonly key: readonly unknown[];
       /** False for a `MultisetKeep` given a `List` index, whose `hash_key` cannot be hashed. */
       readonly hashable: boolean;
+      /** `str()` given its children's; absent for the operators without a `__str__` (theirs is
+       * `object.__repr__`, an address). */
+      readonly str?: Str;
     }
   | { readonly kind: "mixture"; readonly inners: readonly (readonly [MultisetExpression, bigint])[] };
 
@@ -1273,17 +1305,44 @@ function keepable(x: MultisetExpression): WasmGenerator | undefined {
 }
 
 /** A `MultisetOperator` node over `children`. */
-function operator(children: MultisetExpression[], key: unknown[], push: Push, hashable = true): Expression {
-  return Expression.native({ kind: "operator", children, push, key: key.map(keyPart), hashable });
+function operator(
+  children: MultisetExpression[],
+  key: unknown[],
+  push: Push,
+  { str, hashable = true }: { str?: Str; hashable?: boolean } = {},
+): Expression {
+  return Expression.native({ kind: "operator", children, push, key: key.map(keyPart), hashable, str });
 }
+
+/** `str()` of an operator, given its children's. */
+type Str = (children: readonly string[]) => string;
+/** `str()` of a count-adjusting operator: `(child op n)`. */
+const countStr = (op: string, n: Int): Str => ([c]) => `(${c} ${op} ${n})`;
 
 /** A binary operator (operator/binary.py) by its class's name. */
 function binaryOperator(name: string, children: MultisetExpression[]): Expression {
-  return operator(children, [name], (b) => b.binary(name, children.length));
+  // `'(' + (' ' + self.symbol() + ' ').join(str(child) for child in self._children) + ')'`
+  const symbol = BINARY_SYMBOLS[name];
+  return operator(children, [name], (b) => b.binary(name, children.length), { str: (cs) => `(${cs.join(` ${symbol} `)})` });
 }
 
+const BINARY_SYMBOLS: Record<string, string> = {
+  MultisetIntersection: "&",
+  MultisetDifferenceDropNegative: "-",
+  MultisetDifferenceKeepNegative: "-",
+  MultisetUnion: "|",
+  MultisetAdditiveUnion: "+",
+  MultisetSymmetricDifference: "^",
+};
+
 /** `+expr`: `MultisetKeepCounts(expr, comparison='>=', constant=0)`. */
-const positive = (x: MultisetExpression) => operator([x], ["MultisetKeepCounts", ">=", 0], (b) => b.keepCounts(">=", 0));
+const positive = (x: MultisetExpression) => keepCountsOperator(x, ">=", 0);
+
+/** `MultisetKeepCounts(expr, comparison=comparison, constant=n)`. */
+function keepCountsOperator(x: MultisetExpression, comparison: string, n: Int): Expression {
+  const str: Str = ([c]) => `${c}.keep_counts('${comparison}', ${n})`;
+  return operator([x], ["MultisetKeepCounts", comparison, n], (b) => b.keepCounts(comparison, n), { str });
+}
 
 /** `implicit_convert_to_expression(x)`: an expression stays itself; a sequence (an array, a str) becomes
  * `Pool(x)`; anything else raises `ImplicitConversionError` (a `TypeError`). */
@@ -1422,9 +1481,22 @@ function mapMixture(
   return Expression.native({ kind: "mixture", inners: data });
 }
 
-/** `MultisetKeep(expr, index=slice(start, stop, step))`. */
-function keepSliceOperator(x: MultisetExpression, start: Int | null, stop: Int | null, step: boolean): Expression {
-  return operator([x], ["MultisetKeep", "slice", start, stop, step], (b) => b.keepSlice(start, stop, step));
+/** `MultisetKeep(expr, index=slice(start, stop, step))` (`step` as given, which only `str()` shows). */
+function keepSliceOperator(x: MultisetExpression, start: Int | null, stop: Int | null, step: unknown = null, given: unknown[] = [start, stop]): Expression {
+  const hasStep = step !== null && step !== undefined;
+  const bounds = [...given, step].map(indexRepr);
+  const str: Str | undefined = bounds.every((b) => b !== undefined) ? ([c]) => `${c}[slice(${bounds.join(", ")})]` : undefined;
+  return operator([x], ["MultisetKeep", "slice", start, stop, hasStep], (b) => b.keepSlice(start, stop, hasStep), { str });
+}
+
+/** Python's `repr()` of an element of a keep index (an int, `None`, `...`, a float); `undefined` for others. */
+function indexRepr(x: unknown): string | undefined {
+  if (x === null || x === undefined) return "None";
+  if (x === Ellipsis) return "Ellipsis";
+  if (typeof x === "boolean") return x ? "True" : "False";
+  if (isIntArg(x)) return String(x);
+  if (typeof x === "number") return pyFloatRepr(x);
+  return undefined;
 }
 
 /** A keep-like operation (`lowest`, `highest`, `middle`) keeping `[start:stop]`: a keep generator without negative
@@ -1434,7 +1506,7 @@ function keepSlice(x: MultisetExpression, start: Int | null, stop: Int | null): 
   if (inners !== undefined) return mapMixture(inners, (inner) => keepSlice(inner, start, stop));
   const g = keepable(x);
   if (g !== undefined) return generator(wasm(() => g.keepSlice(start, stop, false)));
-  return keepSliceOperator(x, start, stop, false);
+  return keepSliceOperator(x, start, stop);
 }
 
 /** `expr.highest(keep, drop)` / `expr.lowest(keep, drop)`. */
@@ -1473,13 +1545,20 @@ function keepIndex(x: MultisetExpression, index: unknown): MultisetExpression | 
     if (counts.some((c) => c === undefined)) return undefined;
     const seq = counts as (Int | null)[];
     // A list index makes the expression unhashable.
-    return operator([x], ["MultisetKeep", "seq", ...seq], (b) => b.keepSequence(seq), !(index instanceof List));
+    const list = index instanceof List;
+    // `str()` of the index: a list's or tuple's repr.
+    const items = index.map(indexRepr).join(", ");
+    const shown = list ? `[${items}]` : index.length === 1 ? `(${items},)` : `(${items})`;
+    const str: Str = ([c]) => `${c}[${shown}]`;
+    return operator([x], ["MultisetKeep", "seq", ...seq], (b) => b.keepSequence(seq), { str, hashable: !list });
   }
   // Neither a slice nor a sequence: refused when evaluated, by its type.
   const typeName = index instanceof Die ? index.constructor.name : isPlainValue(index) && typeof index !== "string" &&
     !(index instanceof Vector) && !(index instanceof Symbols) ? pyTypeName(index) : undefined;
   if (typeName === undefined) return undefined;
-  return operator([x], ["MultisetKeep", "invalid", typeName], (b) => b.keepInvalid(typeName));
+  const shown = indexRepr(index);
+  const str: Str | undefined = shown === undefined ? undefined : ([c]) => `${c}[${shown}]`;
+  return operator([x], ["MultisetKeep", "invalid", typeName], (b) => b.keepInvalid(typeName), { str });
 }
 
 /** `expr[start:stop:step]`. */
@@ -1491,7 +1570,7 @@ function keepSliceIndex(x: MultisetExpression, start: unknown, stop: unknown, st
   const g = keepable(x);
   if (g === undefined) {
     // `MultisetKeep(index=slice)`: the bounds are only looked at when evaluated.
-    return s === undefined || t === undefined ? undefined : keepSliceOperator(x, s, t, hasStep);
+    return s === undefined || t === undefined ? undefined : keepSliceOperator(x, s, t, step, [start, stop]);
   }
   // A bound that is neither an int nor None is only looked at when the list is sliced, after the checks for a step.
   if (s === undefined || t === undefined) {
@@ -1511,7 +1590,7 @@ function multiplyCounts(x: MultisetExpression, n: Int): MultisetExpression | und
   if (inners !== undefined) return mapMixture(inners, (inner) => multiplyCounts(inner, n));
   const g = generatorOf(x);
   if (g !== undefined) return generator(wasm(() => g.multiplyCounts(n)));
-  return operator([x], ["MultisetMultiplyCounts", n], (b) => b.multiplyCounts(n));
+  return operator([x], ["MultisetMultiplyCounts", n], (b) => b.multiplyCounts(n), { str: countStr("*", n) });
 }
 
 /** `expr * n` / `expr % n` with a non-int `n`: `__mul__` and `__mod__` return NotImplemented, so Python asks `n`. */
@@ -1572,6 +1651,31 @@ function binary(x: MultisetExpression, op: string, other: unknown): MultisetExpr
   if (y === undefined) return undefined;
   // `KeepGenerator.__add__` is `self.additive_union(other)`.
   return op === "+" ? methodAdditiveUnion([x, y]) : binaryOperator(name, [x, y]);
+}
+
+/** `str(expression)`; `undefined` where Python's is `object.__repr__`, a memory address. */
+function expressionStr(x: MultisetExpression): string | undefined {
+  const node = x.node as Node;
+  const strs = (xs: readonly MultisetExpression[]) => {
+    const all = xs.map(expressionStr);
+    return all.every((s) => s !== undefined) ? (all as string[]) : undefined;
+  };
+  switch (node.kind) {
+    case "generator":
+      return wasm(() => node.g.toString());
+    case "weightless":
+      return undefined;
+    case "operator": {
+      const children = strs(node.children);
+      return children === undefined || node.str === undefined ? undefined : node.str(children);
+    }
+    case "mixture": {
+      // `'MultisetMixture({\n' + ',\n'.join(f'{k}: {v}' for k, v in self._inner_expressions.items()) + '})'`
+      const inners = strs(node.inners.map(([inner]) => inner));
+      if (inners === undefined) return undefined;
+      return `MultisetMixture({\n${inners.map((s, i) => `${s}: ${node.inners[i][1]}`).join(",\n")}})`;
+    }
+  }
 }
 
 /** Whether `hash(expression)` works: its `hash_key` holds nothing unhashable. */
@@ -1723,9 +1827,15 @@ function evaluationOf(name: string, params: unknown[], self: MultisetExpression,
 // --- The other operators ---
 
 const floordivCounts = (x: MultisetExpression, n: Int) =>
-  operator([x], ["MultisetFloordivCounts", n], (b) => b.floordivCounts(n));
+  operator([x], ["MultisetFloordivCounts", n], (b) => b.floordivCounts(n), { str: countStr("//", n) });
 const moduloCounts = (x: MultisetExpression, n: Int) =>
-  operator([x], ["MultisetModuloCounts", n], (b) => b.moduloCounts(n));
+  operator([x], ["MultisetModuloCounts", n], (b) => b.moduloCounts(n), { str: countStr("%", n) });
+
+/** `MultisetUnique(expr, constant=n)`. */
+function unique(x: MultisetExpression, n: Int): Expression {
+  const str: Str = ([c]) => (Number(n) === 1 ? `${c}.unique()` : `${c}.unique(${n})`);
+  return operator([x], ["MultisetUnique", n], (b) => b.unique(n), { str });
+}
 
 /** `expr.keep_counts(comparison, n)`: the constructor checks the comparison. */
 function keepCounts(x: MultisetExpression, comparison: unknown, n: unknown): Expression | undefined {
@@ -1733,7 +1843,7 @@ function keepCounts(x: MultisetExpression, comparison: unknown, n: unknown): Exp
   if (!KEEP_COUNTS_COMPARISONS.includes(comparison)) throw valueError(`Invalid comparison ${comparison}`);
   const c = constant(n);
   if (c === undefined) return undefined;
-  return operator([x], ["MultisetKeepCounts", comparison, c], (b) => b.keepCounts(comparison, c));
+  return keepCountsOperator(x, comparison, c);
 }
 
 /** `expr.keep_outcomes(target)` / `drop_outcomes` (`invert`): an expression target counts while positive
@@ -1741,11 +1851,13 @@ function keepCounts(x: MultisetExpression, comparison: unknown, n: unknown): Exp
 function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown): Expression | undefined {
   if (target instanceof MultisetExpression) {
     if (!isNative(target)) return undefined;
-    return operator([x, target], ["MultisetFilterOutcomesBinary", invert], (b) => b.filterBinary(invert));
+    const str: Str = ([c, t]) => `${c}.${invert ? "drop" : "keep"}_outcomes(${t})`;
+    return operator([x, target], ["MultisetFilterOutcomesBinary", invert], (b) => b.filterBinary(invert), { str });
   }
   if (typeof target === "function") {
     const f = target as AnyFunction;
-    return operator([x], ["MultisetFilterOutcomes", f, invert], (b, register) => b.filterFunction(invert, register(f)));
+    const push: Push = (b, register) => b.filterFunction(invert, register(f));
+    return operator([x], ["MultisetFilterOutcomes", f, invert], push, { str: filterStr(invert) });
   }
   if (!Array.isArray(target) && typeof target !== "string") return undefined;
   // `frozenset(outcomes)`: every element hashable.
@@ -1753,8 +1865,11 @@ function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown)
   if (items.some((item) => item instanceof List)) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
   if (!items.every(isPlainValue)) return undefined;
   // A new function per operator: such operators never compare equal.
-  return operator([x], ["MultisetFilterOutcomes", {}, invert], (b) => b.filterSet(invert, items));
+  return operator([x], ["MultisetFilterOutcomes", {}, invert], (b) => b.filterSet(invert, items), { str: filterStr(invert) });
 }
+
+/** The unary filter shows neither its function nor its set of outcomes. */
+const filterStr = (invert: boolean): Str => ([c]) => `${c}.${invert ? "drop" : "keep"}_outcomes(...)`;
 
 /** An `Order` argument: -1, 0 or 1. */
 const orderOf = (x: unknown): number | undefined => {
