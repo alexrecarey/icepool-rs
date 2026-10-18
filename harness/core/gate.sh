@@ -70,14 +70,14 @@ if [ "$MODE" = long ] && [ -f crates/icepool-wasm/Cargo.toml ]; then
   # crates/icepool-wasm/run-wasm.sh speaks the icepool-run protocol (stdin/stdout JSON lines) through the WASM build
   # under node. Once it exists, every fixture and a fuzz run go through WASM too.
   if [ -x crates/icepool-wasm/run-wasm.sh ]; then
-    step "fixtures through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fixtures verify --oracle-sample 0
-    step "fuzz through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --seed 21 --count 3000
-    step "khepri sweep through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --ops khepri --seed 71 --count 500
+    step "fixtures through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_COMPLEX_RTOL=1e-12 ICEPOOL_PORT_TIMEOUT=120 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fixtures verify --oracle-sample 0
+    step "fuzz through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_COMPLEX_RTOL=1e-12 ICEPOOL_PORT_TIMEOUT=120 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --seed 21 --count 3000
+    step "khepri sweep through wasm" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_COMPLEX_RTOL=1e-12 ICEPOOL_PORT_TIMEOUT=120 ICEPOOL_RUN="$ROOT/crates/icepool-wasm/run-wasm.sh" $H fuzz --ops khepri --seed 71 --count 500
   fi
   # The JS facade's own suite: every fixture through the JS API, API tests, type check. Needs node >= 22.
   NODE22="$HOME/.local/node22/bin"
   if command -v wasm-pack > /dev/null && [ -x "$NODE22/node" ]; then
-    step "JS suite" env ICEPOOL_FLOAT_ULPS=2 PATH="$NODE22:$PATH" crates/icepool-wasm/js/build.sh --test
+    step "JS suite" env ICEPOOL_FLOAT_ULPS=2 ICEPOOL_COMPLEX_RTOL=1e-12 ICEPOOL_PORT_TIMEOUT=120 PATH="$NODE22:$PATH" crates/icepool-wasm/js/build.sh --test
   fi
 fi
 if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS_BASE:-}" ]; then

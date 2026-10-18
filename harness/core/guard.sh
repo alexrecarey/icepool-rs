@@ -10,7 +10,7 @@ BAD=0
 fail() { echo "GUARD: $*"; BAD=1; }
 
 PROTECTED=(harness/core harness/__init__.py crates/icepool-harness/tests/fixtures.rs loop baselines oracle.lock
-           AGENTS.md CLAUDE.md .claude rust-toolchain.toml pyproject.toml uv.lock docs PROGRESS.md)
+           AGENTS.md CLAUDE.md .claude rust-toolchain.toml pyproject.toml uv.lock docs/ANALYSIS.md docs/LOOP-PLAN.md docs/semantics.md docs/reviews PROGRESS.md)
 changed="$(git diff --name-only "$BASE" "$HEAD" -- "${PROTECTED[@]}")"
 [ -z "$changed" ] || fail "protected files changed:"$'\n'"$changed"
 

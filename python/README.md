@@ -23,8 +23,8 @@ and [API reference](https://highdiceroller.github.io/icepool/apidoc/latest/icepo
   natively, user evaluators, sources and operators as callbacks. What the core cannot take raises
   `NotImplementedError("icepool_rs: ...")`.
 
-[MODULE-MAP.md](../MODULE-MAP.md) says which files are *verbatim* copies and which are *switched*, with the PyO3
-file each switched module calls; [FACADE-AUDIT.md](../FACADE-AUDIT.md) says what of each module still runs in
+[MODULE-MAP.md](../docs/MODULE-MAP.md) says which files are *verbatim* copies and which are *switched*, with the PyO3
+file each switched module calls; [FACADE-AUDIT.md](../docs/FACADE-AUDIT.md) says what of each module still runs in
 Python under `rust`, and why.
 
 ## The wheel

@@ -130,7 +130,7 @@ Where Python does something odd or wrong, the port copies it and [DIVERGENCES.md
 a drafted upstream test. The only results that are not bit-exact are some floats under WASM (within 2 ULP, also
 recorded there).
 
-[MODULE-MAP.md](MODULE-MAP.md) maps every upstream module to the Rust, Python and TypeScript files that port it,
+[MODULE-MAP.md](docs/MODULE-MAP.md) maps every upstream module to the Rust, Python and TypeScript files that port it,
 and `scripts/upstream_changes.py OLD NEW` lists what changed upstream between two releases and which of those files
 to revisit.
 
@@ -149,7 +149,7 @@ to revisit.
 | `scripts/` | `check-production.sh` (no test code in what ships), `upstream_changes.py` |
 | `docs/` | analysis, loop plan, Python semantics the port copies, the library design, reviews |
 | `.github/workflows/` | CI |
-| `loop/`, `tasks.json`, `PROGRESS.md`, `NOTES.md`, `QUESTIONS.md`, `FACADE-AUDIT.md` | the loop's machinery and records |
+| `loop/`, `tasks.json`, `PROGRESS.md`, `NOTES.md`, `QUESTIONS.md` | the loop's machinery and records |
 
 ## Building and testing
 
@@ -180,11 +180,11 @@ stay with the loop.
 
 ## Further reading
 
-- [MODULE-MAP.md](MODULE-MAP.md): upstream module -> Rust, Python and TypeScript files
+- [MODULE-MAP.md](docs/MODULE-MAP.md): upstream module -> Rust, Python and TypeScript files
 - [python/DIFFERENCES.md](python/DIFFERENCES.md): what differs from upstream icepool on the Rust backend
 - [docs/design/library-architecture.md](docs/design/library-architecture.md): the typed core, APIs, crates and builds
 - [docs/semantics.md](docs/semantics.md): the Python semantics the port must copy
 - [DIVERGENCES.md](DIVERGENCES.md): Python behaviour copied but thought wrong
-- [FACADE-AUDIT.md](FACADE-AUDIT.md): what of the Python facade still runs in Python, module by module
+- [FACADE-AUDIT.md](docs/FACADE-AUDIT.md): what of the Python facade still runs in Python, module by module
 - [docs/ANALYSIS.md](docs/ANALYSIS.md), [docs/LOOP-PLAN.md](docs/LOOP-PLAN.md), [AGENTS.md](AGENTS.md),
   [NOTES.md](NOTES.md): the project and the loop that builds it

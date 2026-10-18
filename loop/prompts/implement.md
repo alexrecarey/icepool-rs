@@ -12,6 +12,8 @@ What happens after you stop, run by a script you cannot influence:
    unreachable-looking todo!()s, missing comments.
 4. If all pass, your branch is merged and pushed. If not, the next attempt gets the failure report.
 
+Never run commands with the oracle checkout ($ICEPOOL_ORACLE) as the working directory (uv writes a uv.lock there).
+
 Uncommitted work is committed for you, but commit yourself in small steps with clear messages.
 End every commit message with:  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 

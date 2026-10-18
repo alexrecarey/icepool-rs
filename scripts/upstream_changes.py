@@ -35,7 +35,7 @@ import sys
 
 UPSTREAM_DIR = "src/icepool/"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_MAP = os.path.join(ROOT, "MODULE-MAP.md")
+DEFAULT_MAP = os.path.join(ROOT, "docs", "MODULE-MAP.md")
 # A table row whose first cell is a backticked .py path, e.g. "| `population/die.py` | `die.rs` | ...".
 ROW = re.compile(r"^\|\s*`([^`]+\.py)`\s*\|")
 
@@ -117,7 +117,7 @@ def main():
     parser.add_argument("--repo", default=os.path.expanduser(
         os.environ.get("ICEPOOL_ORACLE", "~/code/alexrecarey/icepool-oracle")),
         help="the upstream icepool checkout (default: $ICEPOOL_ORACLE)")
-    parser.add_argument("--map", default=DEFAULT_MAP, help="the module map (default: MODULE-MAP.md at the root)")
+    parser.add_argument("--map", default=DEFAULT_MAP, help="the module map (default: docs/MODULE-MAP.md)")
     parser.add_argument("--stat", action="store_true", help="also print git's diffstat of src/icepool/")
     args = parser.parse_args()
 

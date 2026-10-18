@@ -42,6 +42,21 @@ _PART = r"(?:inf|nan|[\d.]+(?:e[+-]\d+)?)"
 _COMPLEX = re.compile(rf"^complex: (?:\((-?{_PART})([+-]{_PART})j\)|(-?{_PART})j)$")
 
 
+# Complex arithmetic amplifies last-bit differences in the underlying float math (complex pow goes through exp/log/
+# sin/cos), so under the tolerance complex parts may also differ by a relative COMPLEX_RTOL (WASM runs only).
+COMPLEX_RTOL = float(os.environ.get("ICEPOOL_COMPLEX_RTOL", "0"))
+
+
+def _part_close(a, b):
+    if _float_close(a, b):
+        return True
+    try:
+        fa, fb = float(a), float(b)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(fa) and math.isfinite(fb) and abs(fa - fb) <= COMPLEX_RTOL * max(abs(fa), abs(fb))
+
+
 def _complex_parts(r):
     m = isinstance(r, str) and _COMPLEX.match(r)
     return m and ((m[1], m[2]) if m[3] is None else ("0", m[3]))
@@ -54,7 +69,7 @@ def _eq(a, b):
             return a["float"] == b["float"] or _float_close(a["float"], b["float"])
         if set(a) == {"repr"} and set(b) == {"repr"} and a != b:
             pa, pb = _complex_parts(a["repr"]), _complex_parts(b["repr"])
-            return bool(pa and pb) and all(_float_close(x, y) for x, y in zip(pa, pb))
+            return bool(pa and pb) and all(_part_close(x, y) for x, y in zip(pa, pb))
         return a.keys() == b.keys() and all(_eq(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(_eq(x, y) for x, y in zip(a, b))

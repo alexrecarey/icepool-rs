@@ -890,5 +890,12 @@
     ],
     "milestone": null,
     "details": "Continues C3c (read NOTES.md 'Typed API completion (C3c)'). C3c gave every top-level public item of evaluator, expression and value a doctest; their methods (about 250: trait methods such as MultisetEvaluator::next_state, inherent ones such as MappedSumEvaluator::new, PoolSource::pop) and the 8 top-level items of host and random still have none. Measure with scripts/doctest-coverage.py (rustdoc JSON on nightly; use a private CARGO_TARGET_DIR, the shared one's doc/ is overwritten by other builds) with `-m`. Each example short and asserting what the method does, numbers checked against the oracle. Also: a typed Deck::deal_hands (Python's deck.deal([a, b]) -> MultiDeal). Doc-only otherwise: every fixture still passes, cargo doc -D warnings clean."
+  },
+  {
+    "id": "C9",
+    "title": "Bring docs/design/library-architecture.md and the docs up to date",
+    "deps": [],
+    "milestone": null,
+    "details": "docs/design/ is agent-maintained now (only docs/ANALYSIS.md, LOOP-PLAN.md, semantics.md and reviews/ stay protected). Update docs/design/library-architecture.md to describe what exists (QUESTIONS.md 'C8: the design doc and AGENTS.md against what exists now' lists the gaps: icepool-khepri crate, runner in icepool-harness, C6 migration as done, the wheel built by scripts/build-wheel.sh, check-production.sh's actual checks, the file splits). Drop the paragraph in docs/MODULE-MAP.md that waits for its move; check every link to MODULE-MAP.md and FACADE-AUDIT.md (now in docs/). Make it read as the library's architecture document, not a plan."
   }
 ]

@@ -157,7 +157,7 @@ docs/design/library-architecture.md are now out of date, and I cannot edit docs/
 The runner still reaches core's `#[doc(hidden)] pub mod`s, as the bindings do; task C3d (after C3b) moves it onto
 deliberate APIs.
 
-## C8: MODULE-MAP.md belongs in docs/ (docs/ is protected)
+## C8: MODULE-MAP.md belongs in docs/ (done 2026-10-18: moved with FACADE-AUDIT.md; docs/ is now agent-maintained except ANALYSIS, LOOP-PLAN, semantics, reviews)
 
 C8 asks for `docs/MODULE-MAP.md`: every upstream module -> the Rust, Python facade, PyO3, TypeScript and WASM files
 that port it, with a status and the oracle commit. `docs/` is protected, so it is at the root as `MODULE-MAP.md`
@@ -175,7 +175,7 @@ FACADE-AUDIT.md, QUESTIONS.md) are plain names, not links, so nothing else break
 protects it, so updating it (each re-pin of the oracle, each new module) becomes the loop owner's job, or the map
 should go to an unprotected place instead (see the next entry).
 
-## C8: proposed layout for the loop's files at the repo root
+## C8: proposed layout for the loop's files at the repo root (2026-10-18: accepted in principle; the loop owner moves them once the run is finished)
 
 Today the root mixes the library with the loop's machinery and records: `PROGRESS.md`, `tasks.json`,
 `QUESTIONS.md`, `NOTES.md`, `FACADE-AUDIT.md`, `harness-reports/`, `harness-out/` (gitignored), `loop/`,
@@ -228,7 +228,7 @@ What each consumer would need to change:
   own references.
 - tasks.json details and PROGRESS.md entries name the old paths; leave them, they are history.
 
-## C8: the design doc and AGENTS.md against what exists now (both protected)
+## C8: the design doc and AGENTS.md against what exists now (2026-10-18: AGENTS.md layout fixed; docs/design is agent-maintained now, task C9 updates it)
 
 docs/design/library-architecture.md, in the sections C8 reads (and a few around them):
 
@@ -260,7 +260,7 @@ that `crates/icepool-core/tests/fixtures.rs` is protected; both moved to `crates
 protects `crates/icepool-harness/tests/fixtures.rs`). Its "How to do a task" step 3 says "Wire it into
 `program/`": now `crates/icepool-harness/src/`.
 
-## L202610180909: the reviewer wrote a `uv.lock` into the oracle checkout (loop/prompts is the loop's)
+## L202610180909: the reviewer wrote a `uv.lock` into the oracle checkout (done 2026-10-18: both prompts say never to run with the oracle as cwd)
 
 The long gate of 2026-10-18 09:00 failed "oracle pinned and clean" on an untracked `uv.lock` in
 `~/code/alexrecarey/icepool-oracle`, written at 08:59:56 by the C3c review running `cd ~/code/alexrecarey/icepool-oracle

@@ -19,8 +19,11 @@ writing Rust, and port its explanatory comments along with the code.
 
 | Path | What | Who may edit |
 |---|---|---|
-| `crates/icepool-core/` | the Rust core + `program/` (JSON program runner) + `src/bin/icepool-run.rs` | you |
-| `crates/icepool-core/tests/fixtures.rs` | runs every fixture natively | **protected** |
+| `crates/icepool-core/` | the Rust core library | you |
+| `crates/icepool-py/`, `crates/icepool-wasm/`, `crates/icepool-khepri/` | Python bindings, JS/TS bindings, khepri's engine | you |
+| `crates/icepool-harness/` | test-only: the JSON program runner + `icepool-run` binary | you |
+| `crates/icepool-harness/tests/fixtures.rs` | runs every fixture natively | **protected** |
+| `docs/` | library docs (module map, facade audit, design): maintain them. `docs/ANALYSIS.md`, `docs/LOOP-PLAN.md`, `docs/semantics.md`, `docs/reviews/` are **protected** | you |
 | `harness/core/` | gate, guard, comparison, fuzzer, fixture tools | **protected** |
 | `harness/grammar/` | program-language nodes (Python side) + `status.json` | you (add nodes; status only pending -> ported) |
 | `harness/catalogue/` | named functions/evaluators usable in programs (Python side) | you |
@@ -56,7 +59,7 @@ documented in `harness/core/grammar_api.py` and `harness/core/encode.py`; Python
 1. Read your task in `tasks.json`, the last part of `PROGRESS.md`, `NOTES.md`, and `.loop/last-failure.md` if it
    exists (your previous attempt failed: start from that).
 2. Read the Python you are porting in `$ICEPOOL_ORACLE/src/icepool/`.
-3. Implement it in Rust. Wire it into `program/` so the grammar nodes run.
+3. Implement it in Rust. Wire it into the runner (`crates/icepool-harness/src/`) so the grammar nodes run.
 4. **Grow the tests in the same task:**
    - add grammar nodes for the feature (Python side: a direct call into icepool, nothing else; a generator that
      keeps programs small);

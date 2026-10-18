@@ -37,7 +37,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "harness-out")
 FIXTURES = os.path.join(ROOT, "fixtures")
 ORACLE_TIMEOUT_S = 3
-PORT_TIMEOUT_S = 20
+PORT_TIMEOUT_S = int(os.environ.get("ICEPOOL_PORT_TIMEOUT", "20"))
 
 
 class OracleTimeout(Exception):
