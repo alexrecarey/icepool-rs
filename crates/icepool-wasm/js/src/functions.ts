@@ -4,11 +4,11 @@
 // `meanTimeToAbsorb`, `mapToPool`, `fromRv` and `highest` / `lowest` / `middle` still go through the bridge (rpc.ts).
 
 import { AgainExpression } from "./again.js";
-import { Die, DieWithTruth, dictItems, opts, pyBool, unpacked, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
+import { Die, dictItems, opts, pyBool, unpack, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import type { MultisetExpression } from "./multiset.js";
 import { Handle, call } from "./rpc.js";
-import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, pyTypeName, valueTruth, type Float, type Int, type Outcome } from "./values.js";
+import { Break, Fraction, List, Reroll, Restart, Vector, pyTypeName, type Float, type Int, type Outcome } from "./values.js";
 import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { isTrap, wasm } from "./wasm.js";
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
@@ -289,7 +289,7 @@ export function map(f: Repl, ...rest: unknown[]): Die {
  * argument slowest; anything else is passed as it is), unpacking the first if `star` (inferred from `f.length`, as
  * Python counts parameters), and the results become `Die(results, quantities, again options)`: dice among them are
  * mixed in, `Reroll` drops out, Again expressions are rolled again, and a `Break` is unwrapped. `undefined` where
- * the bridge must do it (multiset expression or deck arguments, an outcome a starred `f` cannot unpack). */
+ * the bridge must do it (multiset expression or deck arguments: task C6i). */
 function mapSimple(
   f: Repl,
   args: unknown[],
@@ -301,6 +301,7 @@ function mapSimple(
   if (args.length === 0) {
     if (f instanceof Map) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repl must be a callable.");
     // `Die([repl(**kwargs)])`, where a `Break` is not unwrapped.
+    if (typeof f !== "function") throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(f)}' object is not callable`);
     const fn = f as (...args: unknown[]) => unknown;
     return new Die([(hasKwargs ? fn(kwargs) : fn()) as MapResult]);
   }
@@ -320,15 +321,13 @@ function mapSimple(
     // Keyword arguments reach `f` as a trailing options object, when there are any.
     transition = (xs) => (hasKwargs ? fn(...xs, kwargs) : fn(...xs));
     starred = star === null || star === undefined ? fn.length > args.length : pyBool(star);
-    if (starred && !items[0].every(([o]) => unpacked(o) !== undefined)) return undefined;
   } else {
-    // Anything else (a callable of the bridge's): the bridge says.
-    return undefined;
+    throw notARepl();
   }
   const results: MapResult[] = [];
   const quantities: bigint[] = [];
   for (const [outcomes, quantity] of jointItems(items)) {
-    const xs = starred ? [...(unpacked(outcomes[0]) as unknown[]), ...outcomes.slice(1)] : outcomes;
+    const xs = starred ? [...unpack(outcomes[0]), ...outcomes.slice(1)] : outcomes;
     let result = transition(xs);
     // `Break()` stands for the first outcome (before unpacking), `Break(x)` for `x`.
     if (result instanceof Break) result = result.outcome === null ? outcomes[0] : result.outcome;
@@ -348,6 +347,9 @@ export function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]):
   return new Map(outcomes.map((o, j) => [o, found[j] < 0 ? o : values[plain[found[j]]]]));
 }
 
+/** common.py `transition_and_star`'s error for a `repl` that is neither a function nor a Map. */
+const notARepl = () => new IcepoolError("WrongType", "TypeError", "repl must be a callable or a mapping.");
+
 /** `itertools.product` of `[outcome, quantity]` lists: each joint outcome with the product of the quantities,
  * the last list varying fastest. */
 function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
@@ -363,7 +365,7 @@ function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint
 
 /** `map(repl, *args, repeat=repeat)` on the core's `TransitionCache`: Python's checks on `repeat`, then the Markov
  * process from `Die([first_arg])` (`Infinity` / `'inf'`: the absorbing Markov chain). `undefined` where the bridge
- * must do it (multiset expression or deck arguments, a callable of the bridge's). */
+ * must do it (multiset expression or deck arguments: task C6i). */
 function mapRepeat(f: Repl, args: unknown[], star: unknown, kwargs: Record<string, unknown>, repeat: unknown): Die | undefined {
   if (args.length === 0) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repeat cannot be used.");
   const [first, ...extra] = args;
@@ -403,7 +405,7 @@ interface TransitionCacheArgs {
  * (a function, unpacking the state if `star`; or a Map, `mapping.get(state, state)`, as common.py
  * `transition_and_star` makes it) on the state and the `i`th joint outcome of the extra arguments, keyword
  * arguments as a trailing options object, and tells the core what it returned. `undefined` where the bridge must
- * do it (multiset expression or deck arguments, a callable of the bridge's). */
+ * do it (multiset expression or deck arguments: task C6i). */
 function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: Record<string, unknown>): TransitionCacheArgs | undefined {
   if (extraArgs.some((a) => a instanceof Handle)) return undefined;
   const joint = [...jointItems(extraArgs.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]])))];
@@ -419,12 +421,11 @@ function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: R
     const fn = f as (...args: unknown[]) => unknown;
     const starred = star === null || star === undefined ? fn.length > extraArgs.length + 1 : pyBool(star);
     transition = (state, extra) => {
-      const first = starred ? unpacked(state) : [state];
-      if (first === undefined) throw new IcepoolError("WrongType", "TypeError", `Value after * must be an iterable, not ${pyTypeName(state)}`);
+      const first = starred ? unpack(state) : [state];
       return hasKwargs ? fn(...first, ...extra, kwargs) : fn(...first, ...extra);
     };
   } else {
-    return undefined;
+    throw notARepl();
   }
   const step = (state: unknown, i: number): unknown[] => {
     try {
@@ -868,10 +869,7 @@ export function formatProbabilityInverse(probability: number | Fraction, intStar
  * ```
  */
 export function truth(x: unknown): boolean {
-  if (x instanceof DieWithTruth) return x.truth();
-  if (x instanceof Vector || x instanceof Symbols) return valueTruth(x);
-  if (x instanceof AgainExpression) return pyBool(x);
-  return call("truth", { x }) as boolean;
+  return pyBool(x);
 }
 
 // --- Python's operators on any operands ---------------------------------------------------------------------------

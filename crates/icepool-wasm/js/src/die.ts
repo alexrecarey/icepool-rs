@@ -4,10 +4,10 @@
 
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDepth } from "./again.js";
-import { diePool, type MultisetExpression, type Pool } from "./multiset.js";
+import { diePool, isDeck, isMultisetExpression, type MultisetExpression, type Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
-import { map, mapAndTime, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
+import { map, mapAndTime, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
   Complex,
@@ -150,16 +150,17 @@ const isInt = (x: unknown): x is Int => typeof x === "bigint" || Number.isIntege
 /** `Infinity` as Python's `'inf'` (a depth or a count without a limit). */
 const inf = <T>(x: T): T | "inf" => (x === Infinity ? "inf" : x);
 
-/** `implicit_convert_to_die(x)` where the core can do it directly: a die as it is, `Reroll` the empty die, a plain
- * value `Die([x])`. `undefined` for the rest (an Again expression, a tuple holding dice, ...), which the caller
- * hands to the bridge. */
+/** `implicit_convert_to_die(x)`: a die as it is, `Reroll` the empty die, anything else `Die([x])` (a tuple holding
+ * dice is a die of tuples). `undefined` for a pool, deck or multiset expression, whose own operators Python calls
+ * (still the bridge's: tasks C6j, C6l). */
 function nativeDie(x: unknown): WasmDie | undefined {
   if (x instanceof Die) return x.w;
   // A Map is Python's dict, which `Die([x])` cannot hash.
   if (x instanceof Map) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'dict'");
   if (x === Reroll || x === Restart) return wasm((w) => w.WasmDie.empty());
   if (isPlainValue(x)) return wasm((w) => w.WasmDie.single(x));
-  return undefined;
+  if (x instanceof Handle) return undefined;
+  return new Die([x as Outcome]).w;
 }
 
 /** `die <op> expr` (`reflected`: `expr <op> die`) for an Again expression: dice return `NotImplemented` for one, so
@@ -201,25 +202,76 @@ export function pyBool(x: unknown): boolean {
     }
     return x.truthValue;
   }
-  // A Vector or Symbols has its own truth value; a plain die raises: the core says.
+  // A Vector or Symbols has its own truth value.
   if (x instanceof Vector || x instanceof Symbols) return wasm((w) => w.valueTruth(x));
-  if (x instanceof Die || x instanceof Handle) return call("truth", { x }) as boolean;
+  if (x instanceof Die) throw dieTruthError();
+  // A deck is a mapping: true unless empty.
+  if (isDeck(x)) return x.outcomes().length > 0;
+  if (isMultisetExpression(x)) throw new IcepoolError("Unported", "NotImplementedError", "the truth value of a pool");
   return true; // any other object, as Python's default
 }
 
-/** `*x` for an outcome, where JS can unpack it as Python would (a tuple, a str); `undefined` otherwise. */
-export function unpacked(x: unknown): unknown[] | undefined {
-  if (Array.isArray(x)) return x;
-  if (typeof x === "string") return [...x];
-  return undefined;
+/** `Die.__bool__`: only the result of `==` or `!=` has a truth value. */
+function dieTruthError(): IcepoolError {
+  return new IcepoolError(
+    "WrongType",
+    "TypeError",
+    "A `Die` only has a truth value if it is the result of == or !=.\n" +
+      "This could result from trying to use a die in an if-statement,\n" +
+      "in which case you should use `die.if_else()` instead.\n" +
+      "Or it could result from trying to use a `Die` inside a tuple or vector outcome,\n" +
+      "in which case you should use `tupleize()` or `vectorize().",
+  );
 }
 
-/** A reroll depth as the core takes it: a non-negative int, or `null` for no limit (Infinity, Python's 'inf');
- * `undefined` for anything else, which the caller hands to the bridge (for Python's error). */
-function depthArg(depth: unknown): number | null | undefined {
+/** `*x` for an outcome: Python unpacks any iterable (a tuple, the characters of a str, the elements of a Vector,
+ * the keys of a Symbols, in its order); anything else is a `TypeError`. */
+export function unpack(x: unknown): unknown[] {
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string") return [...x];
+  if (x instanceof Vector) return [...x];
+  if (x instanceof Symbols) return (x.items ?? Symbols.from(x.str ?? "").items ?? []).map(([c]) => c);
+  throw new IcepoolError("WrongType", "TypeError", `Value after * must be an iterable, not ${pyTypeName(x)}`);
+}
+
+/** Python's `len(x)` of a sequence or a mapping (`TypeError` for anything else). */
+function pyLen(x: unknown): number {
+  if (typeof x === "string") return [...x].length;
+  if (Array.isArray(x)) return x.length;
+  if (x instanceof Vector) return x.length;
+  if (x instanceof Map) return x.size;
+  if (x instanceof Die || isDeck(x)) return x.outcomes().length;
+  if (x instanceof Symbols) return unpack(x).length;
+  if (x instanceof Handle) throw new IcepoolError("Unported", "NotImplementedError", `len() of a ${pyTypeName(x)}`);
+  throw new IcepoolError("WrongType", "TypeError", `object of type '${pyTypeName(x)}' has no len()`);
+}
+
+/** Python's `seq.index(x)` for an `x` known to be `in` it: the position of the first element equal to it (of a
+ * str: where the substring starts, in characters). Mappings have no `index` (`AttributeError`), except that
+ * `Symbols.__getattr__` makes `symbols.index` the Symbols `symbols['index']`, which is not callable. */
+function pyIndex(seq: unknown, x: unknown): number {
+  if (typeof seq === "string") return [...seq.slice(0, seq.indexOf(x as string))].length;
+  if (Array.isArray(seq) || seq instanceof Vector) return [...seq].findIndex((e) => pyBool(ops.eq(e, x)));
+  if (seq instanceof Symbols) throw new IcepoolError("WrongType", "TypeError", "'Symbols' object is not callable");
+  throw new IcepoolError("MissingAttribute", "AttributeError", `'${pyTypeName(seq)}' object has no attribute 'index'`);
+}
+
+/** A reroll depth as the core takes it: a non-negative int, or `null` for no limit (Infinity, Python's 'inf').
+ * Python compares anything else with 0: `depth < 0` raises `TypeError` for a non-number, and a negative depth
+ * `ValueError`. */
+function rerollDepth(depth: unknown): number | null {
   if (depth === Infinity || depth === "inf") return null;
-  if (isInt(depth) && depth >= 0 && depth < 2 ** 32) return Number(depth);
-  return undefined;
+  if (typeof depth === "boolean") return Number(depth);
+  if (isInt(depth)) {
+    if (depth < 0) throw new IcepoolError("InvalidArgument", "ValueError", "reroll depth cannot be negative.");
+    // Python would compute for a very long time (or run out of memory) with a depth this large.
+    if (depth >= 2 ** 32) throw new IcepoolError("Unported", "NotImplementedError", "huge reroll depth");
+    return Number(depth);
+  }
+  if (typeof depth === "number" || depth instanceof Float || depth instanceof Fraction) {
+    throw new IcepoolError("Unported", "NotImplementedError", "non-int reroll depth");
+  }
+  throw new IcepoolError("WrongType", "TypeError", `'<' not supported between instances of '${pyTypeName(depth)}' and 'int'`);
 }
 
 // --- Die ----------------------------------------------------------------------------------------------------------
@@ -589,18 +641,18 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     // `==` reflects to itself: the expression's `__eq__` with the die as its operand.
     if (other instanceof AgainExpression) return (ne ? other.ne(this) : other.eq(this)) as DieWithTruth;
     const o = nativeDie(other);
-    const viaBridge = () => call(ne ? "ne" : "eq", { a: this, b: other }) as DieWithTruth;
-    if (o === undefined) return viaBridge();
+    if (o === undefined) return call(ne ? "ne" : "eq", { a: this, b: other }) as DieWithTruth;
     const w = this.w;
     // The truth value compares with the operand as it was given (a die is never equal to a plain outcome).
     const same = other instanceof Die ? wasm(() => w.equals(other.w, false)) : false;
     let data: WasmDie;
     try {
       data = wasm(() => w.binary(ne ? raw().BinaryOp.Ne : raw().BinaryOp.Eq, o));
-    } catch {
-      // Python computes the data lazily: the bridge keeps the error for whoever asks for it, leaving the truth
-      // value usable.
-      return viaBridge();
+    } catch (e) {
+      // Python computes the data lazily: the error is kept for whoever asks for it, leaving the truth value
+      // usable. (What the port lacks, or a bug in the core, is not Python's error: it is raised now.)
+      if (!(e instanceof IcepoolError) || e.kind === "Unported" || e.kind === "Panic") throw e;
+      return DieWithTruth.failedWith(e, same !== ne);
     }
     return DieWithTruth.wrapTruth(data, same !== ne);
   }
@@ -718,33 +770,54 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
 
   /** `Population._select_outcomes(which, star)`: one flag per outcome. A function is called on each outcome in
    * order (unpacked if `star`, which is inferred from its `length` as Python counts parameters); an array is a
-   * collection the outcome must be `in` (Python's `==`). `undefined` where the bridge must do it (a Map, an
-   * outcome a starred function cannot unpack, ...). Decks select their cards with it too. @internal */
-  selection(which: unknown, star: unknown): Uint8Array | undefined {
+   * collection the outcome must be `in` (see {@link Die.memberships}). Decks select their cards with it too.
+   * @internal */
+  selection(which: unknown, star: unknown): Uint8Array {
     if (typeof which === "function") {
       const f = which as (...args: unknown[]) => unknown;
       const starred = star === null || star === undefined ? f.length > 1 : pyBool(star);
-      const outcomes: unknown[] = this.outcomes();
-      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
-      if (args.some((a) => a === undefined)) return undefined;
-      return Uint8Array.from(args, (a) => (pyBool(f(...(a as unknown[]))) ? 1 : 0));
+      return Uint8Array.from(this.outcomes(), (o) => (pyBool(starred ? f(...unpack(o)) : f(o)) ? 1 : 0));
     }
-    // A str: `outcome in which` is a substring test, which only takes a str.
-    if (typeof which === "string") {
-      return Uint8Array.from(this.outcomes(), (o: unknown) => {
+    return this.memberships(which);
+  }
+
+  /** Python's `outcome in collection` for each outcome, as one flag each: a sequence (an array, compared with
+   * Python's `==` element by element; a Vector), a str (a substring test, which only takes a str), a Map (its
+   * keys: Python's dict), a die or a deck (mappings: their outcomes). A Symbols is a mapping whose `__getitem__`
+   * never raises `KeyError` (a missing character counts 0), so `Mapping.__contains__` finds anything it can index
+   * with: anything with a `len()` (DIVERGENCES.md). Anything else is not iterable (`TypeError`), which Python
+   * only finds out if there is an outcome to test. @internal */
+  memberships(collection: unknown): Uint8Array {
+    const outcomes: unknown[] = this.outcomes();
+    if (outcomes.length === 0) return new Uint8Array(0);
+    if (typeof collection === "string") {
+      return Uint8Array.from(outcomes, (o) => {
         if (typeof o !== "string") {
           throw new IcepoolError("WrongType", "TypeError", `'in <string>' requires string as left operand, not ${pyTypeName(o)}`);
         }
-        return which.includes(o) ? 1 : 0;
+        return collection.includes(o) ? 1 : 0;
       });
     }
-    // A collection the outcome must be `in`: an array, or a Map (Python's dict: its keys).
-    const collection = which instanceof Map ? [...which.keys()] : which;
-    if (Array.isArray(collection) && collection.every(isPlainValue)) {
-      const w = this.w;
-      return Uint8Array.from(wasm(() => w.memberships(collection)));
+    if (collection instanceof Symbols) return Uint8Array.from(outcomes, (o) => (pyLen(o), 1));
+    let members: readonly unknown[];
+    if (Array.isArray(collection)) members = collection;
+    else if (collection instanceof Vector) members = [...collection];
+    else if (collection instanceof Map) members = [...collection.keys()];
+    else if (collection instanceof Die) members = collection.outcomes();
+    else if (isDeck(collection)) members = collection.outcomes();
+    else if (collection instanceof Handle) {
+      throw new IcepoolError("Unported", "NotImplementedError", "membership in a pool or a multiset function");
+    } else {
+      throw new IcepoolError("WrongType", "TypeError", `argument of type '${pyTypeName(collection)}' is not iterable`);
     }
-    return undefined;
+    // `Reroll` is an enum member, equal only to itself: never to an outcome. The rest must be values (a die in a
+    // list would compare as a `DieWithTruth`, which the port does not model here).
+    const values = members.filter((m) => m !== Reroll && m !== Restart);
+    if (!values.every(isPlainValue)) {
+      throw new IcepoolError("Unported", "NotImplementedError", "membership in a collection holding dice or lists");
+    }
+    const w = this.w;
+    return Uint8Array.from(wasm(() => w.memberships(values)));
   }
 
   /** `die.reroll(which, star=, depth=)`: rerolls the selected outcomes.
@@ -769,15 +842,11 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   reroll(which: Which = null, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
-    const d = depthArg(depth);
-    if (d !== undefined) {
-      const mask = which === null ? this.lowest1() : this.selection(which, star);
-      if (mask !== undefined) {
-        const w = this.w;
-        return Die.wrap(wasm(() => w.reroll(mask, d ?? undefined)));
-      }
-    }
-    return call("reroll", { die: this, which: list(which), star, depth: inf(depth) }) as Die;
+    // The outcomes first, then the depth, as Python.
+    const mask = which === null ? this.lowest1() : this.selection(which, star);
+    const d = rerollDepth(depth);
+    const w = this.w;
+    return Die.wrap(wasm(() => w.reroll(mask, d ?? undefined)));
   }
   /** `die.filter(which, star=, depth=)`: rerolls until getting one of the selected outcomes; the complement of
    * `reroll`.
@@ -793,19 +862,15 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   filter(which: Which, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
-    const d = depthArg(depth);
-    const mask = d !== undefined && which !== null ? this.selection(which, star) : undefined;
-    if (mask !== undefined) {
-      const w = this.w;
-      return Die.wrap(wasm(() => w.reroll(mask.map((m) => 1 - m), d ?? undefined)));
-    }
-    return call("filter", { die: this, which: list(which), star, depth: inf(depth) }) as Die;
+    const mask = this.selection(which, star);
+    const d = rerollDepth(depth);
+    const w = this.w;
+    return Die.wrap(wasm(() => w.reroll(mask.map((m) => 1 - m), d ?? undefined)));
   }
-  /** The selection of the lowest outcome alone (`undefined` for an empty die: the bridge raises). */
-  private lowest1(): Uint8Array | undefined {
-    const n = this.size;
-    if (n === 0) return undefined;
-    const mask = new Uint8Array(n);
+  /** `{self.min_outcome()}`: the selection of the lowest outcome alone (which raises for an empty die). */
+  private lowest1(): Uint8Array {
+    this.minOutcome();
+    const mask = new Uint8Array(this.size);
     mask[0] = 1;
     return mask;
   }
@@ -849,13 +914,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   split(which: Which = null, { star = null }: { star?: boolean | null } = {}): [Die, Die] {
-    const mask = which === null ? undefined : this.selection(which, star);
-    if (mask !== undefined) {
-      const w = this.w;
-      const [selected, rest] = wasm(() => w.split(mask));
-      return [Die.wrap(selected), Die.wrap(rest)];
-    }
-    return call("split", { die: this, which: list(which), star }) as [Die, Die];
+    const mask = this.selection(which, star);
+    const w = this.w;
+    const [selected, rest] = wasm(() => w.split(mask));
+    return [Die.wrap(selected), Die.wrap(rest)];
   }
   /** `die.explode(which, star=, depth=9, end=None)`: the selected outcomes are rolled again and added to the
    * total.
@@ -879,7 +941,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     { star = null, depth = 9, end = null }: { star?: boolean | null; depth?: Int; end?: Operand | typeof Reroll | null } = {},
   ): Die {
     // `outcome_set`: by default the max outcome alone (which raises for an empty die).
-    let selected: Uint8Array | undefined;
+    let selected: Uint8Array;
     if (which === null) {
       this.maxOutcome();
       selected = new Uint8Array(this.size);
@@ -887,7 +949,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     } else {
       selected = this.selection(which, star);
     }
-    if (selected === undefined) return call("explode", { die: this, which: list(which), star, depth, end }) as Die;
     if (isNegative(depth)) throw new IcepoolError("InvalidArgument", "ValueError", "depth cannot be negative.");
     if (pyBool(ops.eq(depth, 0))) return this;
     // `self.map(map_final, again_depth=depth, again_end=end)`, where `map_final` adds `Again` to the selected
@@ -1006,23 +1067,33 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   groupBy(key: Callback<Outcome> | Map<unknown, Outcome>, { star = null }: { star?: boolean | null } = {}): Map<Outcome, Die> {
+    const outcomes: unknown[] = this.outcomes();
+    let keys: unknown[];
     if (typeof key === "function") {
       const f = key as (...args: unknown[]) => unknown;
       const starred = star === null || star === undefined ? f.length > 1 : pyBool(star);
-      const outcomes: unknown[] = this.outcomes();
-      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
-      if (!args.some((a) => a === undefined)) {
-        const keys = args.map((a) => f(...(a as unknown[])));
-        if (keys.every(isPlainValue)) {
-          const w = this.w;
-          const groups = wasm(() => w.groupBy(keys)) as [Outcome, WasmDie][];
-          return new Map(groups.map(([k, d]) => [k, Die.wrap(d)]));
-        }
-        // Keys the core cannot hold (dice, Reroll): the bridge groups by them, given as a Map of outcome -> key.
-        key = new Map(outcomes.map((o, i) => [o, keys[i] as Outcome]));
-      }
+      keys = outcomes.map((o) => (starred ? f(...unpack(o)) : f(o)));
+    } else if (key instanceof Map) {
+      // `key_map.get(o, o)`: outcomes not in the mapping are their own key.
+      const found = mappingGet(key, outcomes);
+      keys = outcomes.map((o) => found.get(o));
+    } else {
+      throw new IcepoolError("MissingAttribute", "AttributeError", `'${pyTypeName(key)}' object has no attribute 'get'`);
     }
-    return new Map(call("group_by", { die: this, key, star }) as [Outcome, Die][]);
+    return this.grouped(keys);
+  }
+  /** The dice of the outcomes with the same key (one key per outcome), by key: Python's dict of the keys, so keys
+   * equal by Python's `==` and hash (`1`, `1.0` and `true`; dice that `equals`) are one, spelt as the first. */
+  private grouped(keys: unknown[]): Map<Outcome, Die> {
+    const w = this.w;
+    if (keys.every(isPlainValue)) {
+      const groups = wasm(() => w.groupBy(keys)) as [Outcome, WasmDie][];
+      return new Map(groups.map(([k, d]) => [k, Die.wrap(d)]));
+    }
+    // Keys the core cannot hold (dice, Reroll): grouped by the index of each one's first equal key.
+    const first = firstEqualKeys(keys);
+    const groups = wasm(() => w.groupBy(first)) as [number, WasmDie][];
+    return new Map(groups.map(([i, d]) => [keys[i] as Outcome, Die.wrap(d)]));
   }
   /** `die.group_by[index]`: {@link Die.groupBy} with the outcome's element at `index` as the key, for dice of
    * tuples.
@@ -1034,7 +1105,9 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   groupByIndex(index: Int): Map<Outcome, Die> {
-    return new Map(call("group_by_index", { die: this, index }) as [Outcome, Die][]);
+    // `self(lambda x: x[index])`.
+    const w = this.w;
+    return this.grouped(wasm(() => w.getitems(index)));
   }
   /** `die.is_in(outcomes)`: a die of whether the roll is `in` the outcomes (Python's `==`).
    * @example
@@ -1043,10 +1116,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   isIn(outcomes: readonly Outcome[]): Die {
-    const mask = Array.isArray(outcomes) ? this.selection(outcomes, false) : undefined;
-    if (mask === undefined) return call("is_in", { die: this, outcomes: list(outcomes) }) as Die;
     // `self.map(lambda x: x in outcomes)`.
-    return new Die(Array.from(mask, (m) => m === 1), this.quantities());
+    return new Die(Array.from(this.memberships(outcomes), (m) => m === 1), this.quantities());
   }
   /** `die.count(rolls, outcomes)`: rolls this die `rolls` times and counts how many are `in` the outcomes.
    * @example
@@ -1058,7 +1129,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   count(rolls: Int, outcomes: readonly Outcome[]): Die {
-    if (!Array.isArray(outcomes)) return call("die_count", { die: this, rolls, outcomes: list(outcomes) }) as Die;
     return this.isIn(outcomes).rmatmul(rolls);
   }
   /** `die.if_else(outcome_if_true, outcome_if_false, again_count=, again_depth=, again_end=)`: the ternary
@@ -1420,13 +1490,13 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   toOneHot(outcomes: readonly Outcome[] | null = null): Die {
     const w = this.w;
     if (outcomes === null) return Die.wrap(wasm(() => w.toOneHot(this.size, Int32Array.from(this.outcomes(), (_, i) => i))));
-    if (!Array.isArray(outcomes) || !outcomes.every(isPlainValue)) {
-      return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Die;
-    }
-    // `outcomes.index(outcome)` for each outcome in `outcomes` (Python's `==`), else -1; `[False] * len(outcomes)`
-    // is made for each outcome, so an empty die never asks for the length.
-    const positions = this.outcomes().map((o) => outcomes.findIndex((x) => pyBool(ops.eq(x, o))));
-    return Die.wrap(wasm(() => w.toOneHot(this.isEmpty() ? 0 : outcomes.length, Int32Array.from(positions))));
+    // `[False] * len(outcomes)` is made for each outcome, so an empty die never asks for the length.
+    if (this.isEmpty()) return Die.wrap(wasm(() => w.toOneHot(0, new Int32Array(0))));
+    const len = pyLen(outcomes);
+    // `outcomes.index(outcome)` for each outcome `in` outcomes, else -1.
+    const found = this.memberships(outcomes);
+    const positions = this.outcomes().map((o, i) => (found[i] ? pyIndex(outcomes, o) : -1));
+    return Die.wrap(wasm(() => w.toOneHot(len, Int32Array.from(positions))));
   }
   /** `Die.unary_operator(op)`: performs `op` on each outcome; outcomes that map to the same result have their
    * quantities merged. This is what the unary operators (`neg`, `abs`, `round`, ...) do, so it is mostly useful
@@ -2011,8 +2081,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   quantityWhere(which: Callback, { star = null }: { star?: boolean | null } = {}): bigint {
-    const mask = typeof which === "function" ? this.selection(which, star) : undefined;
-    if (mask === undefined) return BigInt(call("quantity_where", { die: this, which, star }) as Int);
+    const mask = this.predicateSelection(which, star);
     const w = this.w;
     return wasm(() => w.quantityWhere(mask)) as bigint;
   }
@@ -2030,10 +2099,14 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   probabilityWhere(which: Callback, { star = null, percent = false }: { star?: boolean | null; percent?: boolean } = {}): Fraction | number {
-    const mask = typeof which === "function" ? this.selection(which, star) : undefined;
-    if (mask === undefined) return call("probability_where", { die: this, which, star, percent }) as Fraction | number;
+    const mask = this.predicateSelection(which, star);
     const w = this.w;
     return wasm(() => w.probabilityWhere(mask, pyBool(percent))) as Fraction | number;
+  }
+  /** The outcomes for which `which(outcome)` holds: `quantity_where` calls it, so it must be callable. */
+  private predicateSelection(which: unknown, star: unknown): Uint8Array {
+    if (typeof which !== "function") throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(which)}' object is not callable`);
+    return this.selection(which, star);
   }
 
   private stat(f: (w: WasmDie) => unknown): unknown {
@@ -2197,6 +2270,8 @@ export class DieWithTruth extends Die<boolean> {
   private truthValue = false;
   /** The handle of a result whose data raised (kept so the error comes back when the data is used). @internal */
   private errorHandle = -1;
+  /** The error of a result whose data raised, for one made here (`failedWith`). @internal */
+  private error: IcepoolError | null = null;
 
   /** Wraps a core die with its truth value. @internal */
   static wrapTruth(w: WasmDie, truth: boolean): DieWithTruth {
@@ -2204,6 +2279,17 @@ export class DieWithTruth extends Die<boolean> {
     die.core = w;
     die.truthValue = truth;
     die.errorHandle = -1;
+    die.error = null;
+    return die;
+  }
+
+  /** A result whose data raised `error`: it comes back from every use but `truth()` and `equals`. @internal */
+  static failedWith(error: IcepoolError, truth: boolean): DieWithTruth {
+    const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
+    die.core = null;
+    die.truthValue = truth;
+    die.errorHandle = -1;
+    die.error = error;
     return die;
   }
 
@@ -2213,12 +2299,14 @@ export class DieWithTruth extends Die<boolean> {
     die.core = null;
     die.truthValue = truth;
     die.errorHandle = handle;
+    die.error = null;
     failedRegistry.register(die, handle);
     return die;
   }
 
   /** @internal */
   override get w(): WasmDie {
+    if (this.error !== null) throw this.error;
     if (this.core === null && this.errorHandle >= 0) {
       const h = this.errorHandle;
       // Throws the data's error.
@@ -2396,15 +2484,7 @@ function sequence(x: unknown): unknown[] {
  * last. @internal */
 export function dictItems(map: Map<unknown, unknown>): [unknown[], unknown[]] {
   const entries = [...map];
-  // Each entry's first equal key: plain keys by the core's dict, dice and Again expressions by their `==`.
-  const plain = entries.flatMap(([k], i) => (k instanceof Die || k instanceof AgainExpression ? [] : [i]));
-  const firstPlain = wasm((w) => w.dictKeys(plain.map((i) => entries[i][0])));
-  const first: number[] = [];
-  plain.forEach((i, j) => (first[i] = plain[firstPlain[j]]));
-  entries.forEach(([k], i) => {
-    if (k instanceof Die) first[i] = entries.findIndex(([e]) => e instanceof Die && e.equals(k));
-    else if (k instanceof AgainExpression) first[i] = entries.findIndex(([e]) => e instanceof AgainExpression && pyBool(e.eq(k)));
-  });
+  const first = firstEqualKeys(entries.map(([k]) => k));
   const keys: unknown[] = [];
   const values: unknown[] = [];
   const slots = new Map<number, number>();
@@ -2419,6 +2499,31 @@ export function dictItems(map: Map<unknown, unknown>): [unknown[], unknown[]] {
     }
   });
   return [keys, values];
+}
+
+/** The keys of a Python dict made from `keys` in order: for each key, the index of the first key equal to it
+ * (itself if none is). Plain keys are compared by the core's dict (`1`, `1.0` and `true` are one key; arrays
+ * with equal elements), dice by `equals`, Again expressions by their `==`, anything else (`Reroll`, a pool...) by
+ * identity. A list or a Map is unhashable (`TypeError`). @internal */
+export function firstEqualKeys(keys: readonly unknown[]): number[] {
+  const unhashable = (k: unknown): string | undefined =>
+    k instanceof List ? "list" : k instanceof Map ? "dict" : Array.isArray(k) ? k.map(unhashable).find((t) => t) : undefined;
+  for (const k of keys) {
+    const type = unhashable(k);
+    if (type !== undefined) throw new IcepoolError("Unhashable", "TypeError", `unhashable type: '${type}'`);
+    // A tuple holding a die compares its elements with `==` (a `DieWithTruth`), which is not modelled here.
+    if (Array.isArray(k) && !isPlainValue(k)) throw new IcepoolError("Unported", "NotImplementedError", "a dict key that is a tuple holding dice");
+  }
+  const plain = keys.flatMap((k, i) => (isPlainValue(k) ? [i] : []));
+  const firstPlain = wasm((w) => w.dictKeys(plain.map((i) => keys[i])));
+  const first: number[] = [];
+  plain.forEach((i, j) => (first[i] = plain[firstPlain[j]]));
+  keys.forEach((k, i) => {
+    if (k instanceof Die) first[i] = keys.findIndex((e) => e instanceof Die && e.equals(k));
+    else if (k instanceof AgainExpression) first[i] = keys.findIndex((e) => e instanceof AgainExpression && pyBool(e.eq(k)));
+    else if (!isPlainValue(k)) first[i] = keys.indexOf(k);
+  });
+  return first;
 }
 
 /** Python's `t == 1` for a time (so `1.0` and `True` count too). @internal */

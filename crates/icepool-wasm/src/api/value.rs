@@ -101,7 +101,8 @@ pub fn vector_method(v: JsValue, name: &str, arg: JsValue) -> JsResult<JsValue> 
 }
 
 /// A `Symbols`' method `name` (snake_case) or protocol (see `protocol`), with one argument (`count_subset`: the
-/// array `[divisor, empty_divisor]`; `getattr`: `s.<arg>`, which is `s[arg]` for a public name).
+/// array `[divisor, empty_divisor]`; `count_subset_mapping`: a mapping's `[key, count]` items; `getattr`:
+/// `s.<arg>`, which is `s[arg]` for a public name).
 #[wasm_bindgen(js_name = symbolsMethod)]
 pub fn symbols_method(s: JsValue, name: &str, arg: JsValue) -> JsResult<JsValue> {
     let s = value_from_js(&s).or_throw()?;
@@ -131,6 +132,19 @@ pub fn symbols_method(s: JsValue, name: &str, arg: JsValue) -> JsResult<JsValue>
         "count_subset" => match arg() {
             Ok(Value::Tuple(t)) if t.len() == 2 => symbols.count_subset(&t[0], Some(&t[1])),
             Ok(_) => Err(Error::Unported("count_subset arguments".into())),
+            Err(e) => Err(e),
+        },
+        // `self // mapping` (e.g. a die): `count_subset` of the mapping, given as its `(key, count)` items.
+        "count_subset_mapping" => match arg() {
+            Ok(Value::Tuple(items)) => items
+                .iter()
+                .map(|kv| match kv {
+                    Value::Tuple(kv) if kv.len() == 2 => Ok((kv[0].clone(), kv[1].clone())),
+                    _ => Err(Error::Unported("count_subset_mapping items".into())),
+                })
+                .collect::<icepool_core::Result<Vec<_>>>()
+                .and_then(|items| symbols.count_subset_items(items, None)),
+            Ok(_) => Err(Error::Unported("count_subset_mapping arguments".into())),
             Err(e) => Err(e),
         },
         // `functools.reduce(operator.add, args, initial=self)`: `reduce` takes no keyword arguments before Python

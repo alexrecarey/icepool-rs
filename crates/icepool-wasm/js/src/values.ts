@@ -1091,6 +1091,7 @@ export function pyTypeName(x: unknown): string {
   if (x instanceof Float) return "float";
   if (x instanceof Complex) return "complex";
   if (x instanceof Special) return x.name === "Ellipsis" ? "ellipsis" : "RerollType";
+  if (x instanceof Map) return "dict";
   return (x as object).constructor?.name ?? "object";
 }
 

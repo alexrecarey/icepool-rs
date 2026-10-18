@@ -80,7 +80,10 @@ export function evaluate(x) {
     }
     // A method only for well-formed calls: the node's exact argument names (else Python's TypeError via call()).
     const wellFormed = canon(Object.keys(args).sort()) === canon(NODE_ARGS[op] ?? null);
-    const idiomatic = !LAZY.has(op) && wellFormed && IDIOMATIC[op]?.(args);
+    // A callable only the bridge has (a catalogue function JS has no counterpart for: `builtin_max`, whose
+    // parameters Python cannot count, or one whose arity differs) cannot reach the public API: the node runs
+    // generically.
+    const idiomatic = !LAZY.has(op) && wellFormed && !Object.values(args).some(holdsCoreFunction) && IDIOMATIC[op]?.(args);
     if (idiomatic !== undefined && idiomatic !== false) {
       count(usage.idiomatic, op);
       return idiomatic.value;
@@ -149,6 +152,7 @@ function kwargsObject(kwargs) {
 
 // --- The idiomatic routes: op -> args -> { value } (or undefined when the arguments do not fit the method) --------
 
+const holdsCoreFunction = (x) => x instanceof ip.CoreFunction || (Array.isArray(x) && x.some(holdsCoreFunction));
 const isDie = (x) => x instanceof ip.Die;
 const isOperand = (x) => x instanceof ip.Die || x instanceof ip.AgainExpression;
 const isKeep = (x) => x instanceof ip.KeepGenerator;
@@ -192,8 +196,6 @@ const IDIOMATIC = {
   symbols: ({ x }) => (typeof x === "string" || isList(x)) && ok(ip.Symbols.from(x)),
   // `Die({k: v, ...})`: a JS Map, whose keys `Die` compares as Python's dict does.
   weights: ({ items }) => isPairs(items) && ok(new ip.Die(new Map(items))),
-  truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
-  again_truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
   equals_self: ({ x }) => x instanceof ip.AgainExpression && ok(x.equals(x)),
   // The factories' own arity is checked by the core's catalogue (a TypeError). The "mapping" dict is a JS Map
   // (whose keys the core compares as Python's dict does).
@@ -500,7 +502,7 @@ const IDIOMATIC = {
   deck_info: ({ deck }) => deck instanceof ip.Deck && ok([deck.items(), deck.size(), deck.length]),
   deal_info: ({ deal }) => deal instanceof ip.Deal && ok(deal.info()),
   multi_deal_info: ({ multi_deal }) => multi_deal instanceof ip.MultiDeal && ok(multi_deal.info()),
-  deck_split: ({ deck, which, star }) => deck instanceof ip.Deck && which !== null && ok(deck.split(which, { star })),
+  deck_split: ({ deck, which, star }) => deck instanceof ip.Deck && ok(deck.split(which, { star })),
   deck_zero: ({ deck }) => deck instanceof ip.Deck && ok(deck.zero()),
   pop_append: ({ population, outcome, quantity }) =>
     (isDie(population) || population instanceof ip.Deck) && ok(population.append(outcome, quantity)),
@@ -527,7 +529,7 @@ const IDIOMATIC = {
     (a instanceof ip.Vector || a instanceof ip.Symbols) && typeof name === "string" && name in a &&
     ok(name === "round" ? a.round(ndigits) : a[name]()),
   coll_truth: ({ x }) => ok(ip.truth(x)),
-  truth: ({ x }) => x instanceof ip.DieWithTruth && ok(x.truth()),
+  truth: ({ x }) => ok(ip.truth(x)),
   again_truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
 };
 

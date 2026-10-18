@@ -1588,6 +1588,13 @@ const deckClasses: { Deal: typeof KeepGenerator; Deck: Class; MultisetTupleExpre
   MultisetTupleExpression: class {},
 };
 
+/** Whether `x` is a multiset expression or a multiset tuple expression. @internal */
+export const isMultisetExpression = (x: unknown): boolean =>
+  x instanceof MultisetExpression || x instanceof deckClasses.MultisetTupleExpression;
+
+/** Whether `x` is a deck.ts `Deck` (a mapping of its cards, for Python's `in`). @internal */
+export const isDeck = (x: unknown): x is { outcomes(): Outcome[] } => x instanceof deckClasses.Deck;
+
 /** Registers deck.ts's `Deal`, `Deck` and `MultisetTupleExpression`. @internal */
 export function registerDeckClasses(classes: typeof deckClasses): void {
   Object.assign(deckClasses, classes);

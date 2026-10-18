@@ -13,6 +13,7 @@ use super::ops::{die_arg, missing_attribute, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
 use icepool_core::creation_args::DieArg;
 use icepool_core::expand::iter_cartesian_product;
+use icepool_core::value::builtins::py_len;
 use icepool_core::Error;
 use icepool_core::{Die, Quantity, Value};
 
@@ -254,8 +255,8 @@ pub(super) fn the_population(x: PValue) -> Result<Die<Value>, PErr> {
     }
 }
 
-/// `x in collection`, for the collections a program can give: lists, tuples, strs (substring), dice and mappings
-/// (keys).
+/// `x in collection`, for the collections a program can give: lists, tuples, Vectors, strs (substring), dice and
+/// mappings (keys).
 pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
     match collection {
         PValue::DieWithTruthError(e, _) => Err(e.clone().into()),
@@ -281,6 +282,21 @@ pub(super) fn contains(collection: &PValue, x: &Value) -> Result<bool, PErr> {
             Value::Str(sub) => Ok(s.contains(&**sub)),
             _ => wrong_type("'in <string>' requires string as left operand"),
         },
+        // A `Vector` is a sequence: `==` element by element.
+        PValue::Value(Value::Vector(v)) => {
+            for item in v.data()?.iter() {
+                if item.eq_op(x, false)?.truthy()? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        // A `Symbols` is a Mapping whose `__getitem__` never raises KeyError (a missing character counts 0), so
+        // `Mapping.__contains__` finds any key it can index with: anything with a `len()` (DIVERGENCES.md).
+        PValue::Value(Value::Symbols(_)) => {
+            py_len(x)?;
+            Ok(true)
+        }
         PValue::Value(v) => wrong_type(format!(
             "argument of type '{}' is not iterable",
             v.type_name()

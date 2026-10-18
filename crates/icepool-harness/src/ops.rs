@@ -964,8 +964,16 @@ pub(super) fn binary(op: BinOp, a: PValue, b: PValue) -> Result<PValue, PErr> {
             None => apply(&to_die(a)?, op, &b),
         },
         (PValue::Value(a), PValue::Value(b)) => Ok(PValue::Value(a.binary(op, &b)?)),
+        // `Reroll` is an enum member: it has no operators (`==` is the `eq` node's).
+        (
+            PValue::Reroll | PValue::Restart | PValue::Value(_),
+            PValue::Reroll | PValue::Restart | PValue::Value(_),
+        ) => wrong_type(format!(
+            "unsupported operand type(s) for {}: 'RerollType'",
+            op.symbol()
+        )),
         _ => Err(PErr::Unimplemented(
-            "operators on lists, Reroll, tuples of dice, functions".into(),
+            "operators on lists, tuples of dice, functions".into(),
         )),
     }
 }

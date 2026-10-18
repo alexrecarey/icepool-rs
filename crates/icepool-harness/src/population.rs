@@ -4,7 +4,8 @@
 
 use super::deck::{deck_from_data, the_deck};
 use super::map::{contains, select, the_die};
-use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die};
+use super::catalogue::Func;
+use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type};
 use super::{PErr, PValue};
 use icepool_core::population::Data;
 use icepool_core::value::builtins::py_len;
@@ -83,23 +84,22 @@ fn index_of(outcomes: &PValue, x: &Value) -> Result<Option<i64>, PErr> {
             }
             found
         }
-        PValue::Value(Value::Tuple(items)) => {
-            let mut found = None;
-            for (i, item) in items.iter().enumerate() {
-                if item.eq_op(x, false)?.truthy()? {
-                    found = Some(i);
-                    break;
-                }
-            }
-            found
-        }
+        PValue::Value(Value::Tuple(items)) => position(items, x)?,
+        PValue::Value(Value::Vector(v)) => position(v.data()?, x)?,
         PValue::Value(Value::Str(s)) => match x {
             Value::Str(sub) => s.find(&**sub).map(|b| s[..b].chars().count()),
             _ => None,
         },
+        // Mappings have no `index`.
         PValue::Die(_) | PValue::DieWithTruth(..) => {
             return missing_attribute("'Die' object has no attribute 'index'")
         }
+        PValue::Func(f) if matches!(**f, Func::Mapping(_)) => {
+            return missing_attribute("'dict' object has no attribute 'index'")
+        }
+        PValue::Deck(_) => return missing_attribute("'Deck' object has no attribute 'index'"),
+        // `Symbols.__getattr__` makes `symbols.index` the Symbols `symbols['index']`, which is not callable.
+        PValue::Value(Value::Symbols(_)) => return wrong_type("'Symbols' object is not callable"),
         _ => {
             return Err(PErr::Unimplemented(
                 "to_one_hot over this kind of sequence".into(),
@@ -110,11 +110,26 @@ fn index_of(outcomes: &PValue, x: &Value) -> Result<Option<i64>, PErr> {
     Ok(position.map(|i| i as i64))
 }
 
+/// The position of the first of `items` equal to `x` (Python's `==`).
+fn position(items: &[Value], x: &Value) -> Result<Option<usize>, PErr> {
+    for (i, item) in items.iter().enumerate() {
+        if item.eq_op(x, false)?.truthy()? {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
 /// `len(outcomes)`.
 fn sequence_len(outcomes: &PValue) -> Result<usize, PErr> {
     match outcomes {
         PValue::List(items) | PValue::Tuple(items) => Ok(items.len()),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d.len()),
+        PValue::Deck(d) => Ok(d.outcomes().count()),
+        PValue::Func(f) => match &**f {
+            Func::Mapping(m) => Ok(m.len()),
+            _ => wrong_type("object of type 'function' has no len()"),
+        },
         PValue::Value(v) => Ok(py_len(v)?),
         _ => Err(PErr::Unimplemented(
             "to_one_hot over this kind of sequence".into(),

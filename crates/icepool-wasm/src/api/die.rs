@@ -7,7 +7,7 @@ use std::cell::{Cell, RefCell};
 use dashu_int::IBig;
 use icepool_core::format::{common_outcome_length, format as format_population, Formatted};
 use icepool_core::population::{Comparison, Data};
-use icepool_core::value::builtins::Index;
+use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{matmul_dice, BinOp, Num, UnOp};
 use icepool_core::expand::tupleize_dice;
@@ -423,6 +423,15 @@ impl WasmDie {
             .or_throw()?
             .into_iter()
             .map(|(k, d)| Ok(JsValue::from(vec![value_to_js(&k).or_throw()?, WasmDie::new(d).into()])))
+            .collect()
+    }
+
+    /// `outcome[index]` for each outcome, in order (the keys of `die.group_by[index]`).
+    pub fn getitems(&self, index: JsValue) -> JsResult<Vec<JsValue>> {
+        let index = Index::Item(value(&index)?);
+        self.die
+            .outcomes()
+            .map(|o| value_to_js(&getitem(o, &index).or_throw()?).or_throw())
             .collect()
     }
 

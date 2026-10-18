@@ -1,13 +1,14 @@
 // Python's operators on any operands (`a + b` is `binary("add", a, b)`): the dispatch Python does between dice,
 // Again expressions and plain values. A die on either side is a die operation (die.ts), an Again expression on
-// either side a bigger expression (again.ts); two plain values are the core's `Value` operators; what remains
-// (Python's odd corners) goes through the bridge.
+// either side a bigger expression (again.ts); two plain values are the core's `Value` operators; `Reroll` is an
+// enum member, which only has `==`. Pools, decks and multiset expressions still go through the bridge (tasks
+// C6j, C6l).
 
 import { AgainExpression } from "./again.js";
 import { Die } from "./die.js";
 import { IcepoolError } from "./errors.js";
-import { call } from "./rpc.js";
-import { Symbols, isPlainValue, type Int } from "./values.js";
+import { Handle, call } from "./rpc.js";
+import { Reroll, Restart, Symbols, isPlainValue, pyTypeName, type Int } from "./values.js";
 import { raw, wasm } from "./wasm.js";
 
 export type BinaryName =
@@ -27,6 +28,23 @@ const UNARY = { neg: "Neg", pos: "Pos", invert: "Invert", abs: "Abs", trunc: "Tr
  * Python calls the right operand's reflected one: comparisons swap sides (`3 < die` is `die > 3`), `==` / `!=` too,
  * the arithmetic operators keep the order (`3 - die` is `die.__rsub__(3)`). */
 const REFLECTED = { lt: "gt", le: "ge", gt: "lt", ge: "le", eq: "eq", ne: "ne" } as const;
+
+/** Python's spelling of each operator, for its `TypeError`s. */
+const SYMBOL: Record<BinaryName, string> = {
+  add: "+", sub: "-", mul: "*", truediv: "/", floordiv: "//", mod: "%", pow: "** or pow()", lshift: "<<", rshift: ">>",
+  and: "&", or: "|", xor: "^", lt: "<", le: "<=", gt: ">", ge: ">=", eq: "==", ne: "!=",
+};
+
+const typeError = (message: string) => new IcepoolError("WrongType", "TypeError", message);
+
+/** Python's `TypeError` for operands that do not support `op`. */
+function unsupported(op: BinaryName, a: unknown, b: unknown): IcepoolError {
+  const types = `'${pyTypeName(a)}' and '${pyTypeName(b)}'`;
+  if (op === "lt" || op === "le" || op === "gt" || op === "ge") return typeError(`'${SYMBOL[op]}' not supported between instances of ${types}`);
+  return typeError(`unsupported operand type(s) for ${SYMBOL[op]}: ${types}`);
+}
+
+const isRerollType = (x: unknown) => x === Reroll || x === Restart;
 
 /** The reflected method of `op` on a die or an Again expression (`rsub` for `sub`, `gt` for `lt`). */
 function reflected(op: BinaryName): string {
@@ -48,15 +66,28 @@ export function binary(op: BinaryName, a: unknown, b: unknown): unknown {
   }
   if (b instanceof Die) {
     // Except that `str % die` is printf-style formatting, and `Symbols // die` counts the die as a mapping: the
-    // left operand's own operator does know those. The bridge has them.
-    const leftKnows = (op === "mod" && typeof a === "string") || (op === "floordiv" && a instanceof Symbols);
-    if (!leftKnows) return (b as unknown as Record<string, (x: unknown) => unknown>)[reflected(op)](a);
+    // left operand's own operator does know those.
+    if (op === "mod" && typeof a === "string") {
+      // A mapping argument is never "not all converted", so without conversion specifiers the result is the
+      // string itself.
+      if (a.includes("%")) throw new IcepoolError("Unported", "NotImplementedError", "str % formatting with conversion specifiers");
+      return a;
+    }
+    // `count_subset` of the die's quantities.
+    if (op === "floordiv" && a instanceof Symbols) return wasm((w) => w.symbolsMethod(a, "count_subset_mapping", b.items()));
+    return (b as unknown as Record<string, (x: unknown) => unknown>)[reflected(op)](a);
   }
   if (isPlainValue(a) && isPlainValue(b)) {
     const code = raw().BinaryOp[BINARY[op]];
     return wasm((w) => w.valueBinary(code, a, b));
   }
-  return call(op, { a, b });
+  if (a instanceof Handle || b instanceof Handle) return call(op, { a, b });
+  // `Reroll` is equal only to itself, and has no other operator.
+  if ((isRerollType(a) || isPlainValue(a)) && (isRerollType(b) || isPlainValue(b))) {
+    if (op === "eq" || op === "ne") return (a === b) !== (op === "ne");
+    throw unsupported(op, a, b);
+  }
+  throw new IcepoolError("Unported", "NotImplementedError", "operators on lists, tuples of dice, functions");
 }
 
 /** `<op> a` with Python's semantics. */
@@ -73,7 +104,11 @@ export function unary(op: UnaryName, a: unknown): unknown {
     const code = raw().UnaryOp[UNARY[op]];
     return wasm((w) => w.valueUnary(code, a));
   }
-  return call(op, { a });
+  if (a instanceof Handle) return call(op, { a });
+  const type = pyTypeName(a);
+  if (op === "trunc" || op === "floor" || op === "ceil") throw typeError(`type ${type} doesn't define __${op}__ method`);
+  if (op === "abs") throw typeError(`bad operand type for abs(): '${type}'`);
+  throw typeError(`bad operand type for unary ${{ neg: "-", pos: "+", invert: "~" }[op]}: '${type}'`);
 }
 
 /** `n @ die` with Python's semantics: a die on either side sums rolls; an Again expression on either side (dice
@@ -83,7 +118,9 @@ export function matmul(n: unknown, die: unknown): unknown {
   if (die instanceof AgainExpression) return die.rmatmul(n as Int);
   if (die instanceof Die) return die.rmatmul(n as Int | Die);
   if (n instanceof Die) return n.matmul(die as Int);
-  return call("matmul", { n, die });
+  if (n instanceof Handle || die instanceof Handle) return call("matmul", { n, die });
+  // No outcome type has `@`.
+  throw typeError(`unsupported operand type(s) for @: '${pyTypeName(n)}' and '${pyTypeName(die)}'`);
 }
 
 /** `round(a, ndigits)` with Python's semantics. */
@@ -91,5 +128,7 @@ export function round(a: unknown, ndigits: Int | null = null): unknown {
   if (a instanceof Die) return a.round(ndigits);
   if (a instanceof AgainExpression) throw new IcepoolError("WrongType", "TypeError", "type AgainExpression doesn't define __round__ method");
   if (isPlainValue(a) && isPlainValue(ndigits)) return wasm((w) => w.valueRound(a, ndigits));
-  return call("round", { a, ndigits });
+  if (a instanceof Handle || (ndigits as unknown) instanceof Handle) return call("round", { a, ndigits });
+  if (!isPlainValue(a)) throw typeError(`type ${pyTypeName(a)} doesn't define __round__ method`);
+  throw typeError(`'${pyTypeName(ndigits)}' object cannot be interpreted as an integer`);
 }

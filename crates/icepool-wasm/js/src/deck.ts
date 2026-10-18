@@ -11,7 +11,7 @@
 import type { WasmDeck, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import { IcepoolError } from "./errors.js";
-import { Die, dictItems, isOne, itemize, list, pyBool, unpacked, type Callback, type MapResult, type Which } from "./die.js";
+import { Die, dictItems, isOne, itemize, list, pyBool, unpack, type Callback, type MapResult, type Which } from "./die.js";
 import { mappingGet, ops, tupleize } from "./functions.js";
 import {
   BridgeNeeded,
@@ -230,7 +230,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    */
   map(f: Callback<MapResult> | Map<Outcome, MapResult>, { star = null }: { star?: boolean | null } = {}): Deck {
     const outcomes = this.outcomes();
-    let results: unknown[] | undefined;
+    let results: unknown[];
     if (f instanceof Map) {
       // `repl[outcome] if outcome in repl else outcome`: a dict lookup.
       const values = mappingGet(f, outcomes);
@@ -239,12 +239,13 @@ export class Deck extends Replayable implements Iterable<Outcome> {
       const fn = f as (...args: unknown[]) => unknown;
       // `infer_star(repl)`: more than one required positional parameter.
       const starred = star === null || star === undefined ? fn.length > 1 : pyBool(star);
-      const args = outcomes.map((o) => (starred ? unpacked(o) : [o]));
-      if (args.every((a) => a !== undefined)) results = args.map((a) => fn(...(a as unknown[])));
+      results = outcomes.map((o) => (starred ? fn(...unpack(o)) : fn(o)));
+    } else {
+      // Python treats anything else as a mapping (`outcome in repl`, `repl[outcome]`).
+      throw new IcepoolError("Unported", "NotImplementedError", "deck.map with this repl");
     }
     // `Deck([transition_function(outcome) for outcome in self.outcomes()], times=self.quantities())`.
-    if (results !== undefined) return new Deck(results as DeckOutcomes, this.values());
-    return call("deck_map", { deck: this, repl: f, star }) as Deck;
+    return new Deck(results as DeckOutcomes, this.values());
   }
 
   // Binary operators: `self op Counter(other)`, then `Deck(+data)`.
@@ -405,8 +406,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   split(which: Which, { star = null }: { star?: boolean | null } = {}): [Deck, Deck] {
-    const mask = which === null ? undefined : this.population().selection(which, star);
-    if (mask === undefined) return call("deck_split", { deck: this, which: list(which), star }) as [Deck, Deck];
+    const mask = this.population().selection(which, star);
     const w = this.w;
     const [selected, rest] = wasm(() => w.split(mask));
     return [Deck.wrap(selected), Deck.wrap(rest)];
