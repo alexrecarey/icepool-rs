@@ -17,6 +17,13 @@ function native(f) {
   assert.equal(total(), before, `bridge calls: ${JSON.stringify([...bridgeCalls])}`);
   return result;
 }
+/** Asserts that `f` throws what `check` accepts, without a call through the bridge. */
+function nativeThrows(f, check) {
+  const total = () => [...bridgeCalls.values()].reduce((a, b) => a + b, 0);
+  const before = total();
+  assert.throws(f, check);
+  assert.equal(total(), before, `bridge calls: ${JSON.stringify([...bridgeCalls])}`);
+}
 const repr = (f) => native(() => f().repr());
 const pythonType = (name) => (e) => e instanceof ip.IcepoolError && e.pythonType === name;
 const d4 = d(4);
@@ -151,4 +158,50 @@ test("a native expression handed to the bridge is made there once, by replaying 
   const before = bridgeCalls.get("pool_highest") ?? 0;
   p.add(deal).size();
   assert.equal(bridgeCalls.get("pool_highest") ?? 0, before);
+});
+
+// --- C6j: `==` / `!=` of expressions, a die meeting an expression ---------------------------------------------------
+
+test("eq / ne: a DieWithTruth whose truth compares the expressions, Python's identity fallback", () => {
+  const p = d6.pool(2);
+  const same = native(() => p.eq(p));
+  assert.ok(same instanceof ip.DieWithTruth);
+  assert.equal(native(() => [same.truth(), same.repr()].join(" ")), "true DieWithTruth({False: 1230, True: 66})");
+  // Equal hash keys: the same pool made twice, the same compound keep, the same operator.
+  assert.equal(native(() => p.eq(d6.pool(2)).truth()), true);
+  assert.equal(native(() => d6.pool(3).highest(2).eq(d6.pool(3).highest(2)).repr()), "DieWithTruth({False: 43410, True: 3246})");
+  assert.equal(native(() => d6.pool(3).highest(2).eq(d6.pool(3).highest(2)).truth()), true);
+  assert.equal(native(() => pool([1, 2]).add([3]).eq(pool([1, 2]).add([3])).truth()), true);
+  // An array is a pool for the die, but no expression for the truth value.
+  const listed = native(() => p.eq([1, 2]));
+  assert.deepEqual(native(() => [listed.truth(), listed.repr()]), [false, "DieWithTruth({False: 34, True: 2})"]);
+  assert.deepEqual(native(() => pool([1, 2]).eq([2, 1]).items()), [[true, 1n]]);
+  assert.equal(native(() => p.ne(p).repr()), "DieWithTruth({False: 66, True: 1230})");
+  assert.equal(native(() => p.ne(p).truth()), false);
+  assert.equal(native(() => p.ne(d6.pool(3)).truth()), true);
+  assert.equal(native(() => p.ne(d6.pool(3)).repr()), "DieWithTruth({True: 7776})");
+  // Not a multiset: `NotImplemented` both ways, then identity.
+  assert.equal(native(() => pool([1, 2]).eq(3)), false);
+  assert.equal(native(() => pool([1, 2]).ne(null)), true);
+  // An Again expression's own `==`.
+  assert.ok(native(() => p.eq(ip.Again)) instanceof ip.AgainExpression);
+  // `Pool(die)` / `Pool(deck)` refuse: a ValueError, which is no NotImplemented.
+  nativeThrows(() => p.eq(d6), pythonType("ValueError"));
+  nativeThrows(() => p.ne(new ip.Deck([1])), pythonType("ValueError"));
+});
+
+test("eq / ne: the die's error comes back only when it is used", () => {
+  const lazy = native(() => pool([1]).eq(new ip.Deck("ab").deal(1)));
+  assert.equal(lazy.truth(), false);
+  assert.ok(lazy.equals(lazy));
+  nativeThrows(() => lazy.probability(true), (e) => pythonType("TypeError")(e) && /'<' not supported/.test(e.message));
+});
+
+test("a die on the left of an operator with an expression: Die([expr]) cannot be sorted", () => {
+  const p = d6.pool(2);
+  const sortable = (e) => pythonType("TypeError")(e) && e.message === "Items do not appear to be sortable.";
+  for (const f of [() => d6.eq(p), () => d6.ne(p), () => d6.lt(p), () => d6.ge(p), () => d6.add(p), () => d6.radd(p),
+    () => d6.and(p), () => d6.matmul(p), () => d6.cmp(p), () => ip.ops.lt(d6, p), () => ip.ops.add(d6, p)]) {
+    nativeThrows(f, sortable);
+  }
 });

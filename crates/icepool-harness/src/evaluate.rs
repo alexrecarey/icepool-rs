@@ -218,9 +218,9 @@ pub fn straight_and_outcome_evaluate(priority: PValue, arg: PValue) -> Result<PV
     die(PyEvaluator(evaluator), &[implicit_convert(arg)?])
 }
 
-/// `keep_evaluator.evaluate(pool, index=index)`.
+/// `keep_evaluator.evaluate(pool, index=index)`: `evaluate` converts its argument (a sequence is a pool).
 pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
-    let pools = [method_self(p)?];
+    let pools = [implicit_convert(p)?];
     let index = match value(index)? {
         Value::None => None,
         Value::Int(i) => Some(i.into()),
@@ -727,6 +727,30 @@ pub fn builtin_evaluate(
     let simple = |kwargs: &[(String, PValue)]| {
         ctor_kwargs.is_empty() && kwargs.is_empty() && positional == 0
     };
+    // How many inputs the evaluator's `next_state` takes (argsort: any). With another number Python raises from the
+    // evaluator's own methods, as each one's signature has it (and with no outcomes to call `next_state` with,
+    // possibly not at all): not modelled. (`LexiComparisonEvaluator` checks its inputs itself.)
+    let arity = match &*name {
+        "CountSubsetEvaluator"
+        | "IsProperSubsetEvaluator"
+        | "IsSubsetEvaluator"
+        | "IsProperSupersetEvaluator"
+        | "IsSupersetEvaluator"
+        | "IsEqualSetEvaluator"
+        | "IsNotEqualSetEvaluator"
+        | "IsDisjointSetEvaluator" => Some(2),
+        "LexiComparisonEvaluator"
+        | "ArgsortEvaluatorDrop"
+        | "ArgsortEvaluatorLeft"
+        | "ArgsortEvaluatorRight"
+        | "ArgsortGroupedEvaluator" => None,
+        _ => Some(1),
+    };
+    if arity.is_some_and(|n| py_iter(args.clone()).is_ok_and(|a| a.len() != n)) {
+        return Err(PErr::Unimplemented(format!(
+            "builtin_evaluate of {name} with another number of inputs"
+        )));
+    }
     let comparison = match &*name {
         "IsProperSubsetEvaluator" => Some(Comparison::IsProperSubset),
         "IsSubsetEvaluator" => Some(Comparison::IsSubset),

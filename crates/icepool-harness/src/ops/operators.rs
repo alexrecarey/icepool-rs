@@ -71,6 +71,11 @@ pub(crate) fn unary_op(op: &str) -> Option<UnOp> {
 pub(crate) fn to_die(x: PValue) -> Result<Die<Value>, PErr> {
     match x {
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(d),
+        // `Die([expr])` cannot sort its one outcome: an expression's `<` is an evaluation, a die with no truth
+        // value (a multiset tuple expression has no `<`).
+        PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_) | PValue::Expr(_) => {
+            wrong_type("Items do not appear to be sortable.")
+        }
         x => Ok(Die::new(vec![die_arg(x)?], vec![Quantity::ONE])?),
     }
 }
