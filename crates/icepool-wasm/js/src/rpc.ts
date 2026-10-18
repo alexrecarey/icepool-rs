@@ -1,5 +1,5 @@
 // INTERIM (task C6, see NOTES.md): the JSON-op bridge to the program runner (src/facade.rs) for the parts of the
-// API that have not moved onto the typed exports yet (pools, decks, evaluators, the keep family of Die...).
+// API that have not moved onto the typed exports yet (decks and deals, the keep family of Die...).
 // Each such method is one node of the harness's program language (harness/grammar/), run by the core's program
 // layer, so it computes exactly what the oracle-checked node computes. This file goes away when the last of them
 // moves (task C6g).

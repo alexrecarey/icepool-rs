@@ -1300,8 +1300,11 @@ registerKind("expr", (h) => new Expression(HANDLE, h));
 // nodes, crates/icepool-harness/src/expression.rs, pool.rs and evaluate.rs, which copy Python's); an evaluation walks
 // the tree into the core's `ExpressionBuilder` (src/api/evaluate.rs).
 //
-// INTERIM (tasks C6e, C6f): whatever the tree does not model (deals, multiset tuple expressions, multiset function
-// parameters, JS evaluators, arguments of other types) still goes through the bridge. Each function below returns
+// Multiset function parameters are nodes too (`Parameter`), and an evaluation holding one returns a `RawResult`
+// (evaluator.ts traces the bodies).
+//
+// INTERIM (task C6f): whatever the tree does not model (deals, multiset tuple expressions, arguments of other
+// types) still goes through the bridge. Each function below returns
 // `undefined` for what it does not model, and the method then calls the bridge's node instead; a native expression
 // the bridge needs as an argument is made there once, by replaying the bridge call its method stands for (`replay`).
 

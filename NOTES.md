@@ -36,7 +36,49 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6d-C6g and C6i (tasks.json); the docs are C6b.
+- **The TypeScript API (C6, design section 6).** Rest in C6f, C6g, C6i, C6j (tasks.json); the docs are C6b.
+  - **C6e (JS evaluators, multisetFunction).** Both run natively over C6d's tree; only deals and multiset tuple
+    expressions (C6f) still take the bridge.
+    - **JS evaluators**: `MultisetEvaluator.evaluate` converts the inputs (`implicitAll`), wraps the evaluator in a
+      TS `HostEvaluator` (evaluator.ts: kwargs, Python's defaults for missing methods, `stateValue`) and calls
+      `ExpressionBuilder.evaluateHost`; the core's `HostEvaluator` (src/api/evaluator.rs, `MultisetEvaluator<Value>`,
+      `Final = JsValue`) calls the wrapper's methods (src/api/host.rs `JsEvaluator`, structural methods), which
+      answer `["ok", v]` / `["reroll"]` (Reroll or Restart) / `["unsupported", msg]` (-> `Error::UnsupportedOrder`,
+      the driver retries; not for `extraOutcomes`, where Python lets it propagate) / `["throw"]`. Plain-object
+      states are `StateKey`s (values.ts; `describe` -> `["state", key]`, Rust `StateKey` host object, back as
+      `JSON.parse(key)`). The core returns per preparation `[final_outcomes, final_weights, weight]` and the TS
+      mixes them (`mixEvaluations`: `new Die(outcomes, weights)` each, equal dice merged by `equals`, then `new
+      Die(dice, weights)`), as `MultisetEvaluatorBase.evaluate` does: a final outcome may be a die.
+    - **multisetFunction**: a TS `MultisetFunction` holding the JS function and its signature (`signature`; one made
+      by the bridge has none). `call` converts the inputs; with a parameter among them it returns a `RawResult`
+      (multiset.ts: `{kind: builtin | host | function}` + inputs; built-in evaluations return one from
+      `evaluation()`), else `ExpressionBuilder.evaluateFunction(f, n, kwargs)`. The core prepares it as the runner's
+      multiset_function.rs does (src/api/multiset_function.rs: `prepare_function` / `prepare_single` /
+      `prepare_joint` / `prepare_raw` with a recursion level each) and asks for each trace through
+      `HOST.traceFunction` (evaluator.ts `trace`: star inference, the binding TypeErrors, parameters `p0...` /
+      `rest[i]`, calling the body, then the result pushed into a fresh `ExpressionBuilder` as raw results, which the
+      core takes back with `TryFromJsValue`). So nested functions are traced lazily, once per preparation of the
+      outer inputs, as in Python (and the trap test's 40-deep self-call traps inside the core). Joint results:
+      `HOST.tupleize` (functions.ts `tupleize`). A starred call with native inputs raises the runner's errors (only a
+      MultiDeal has a length).
+    - **Parameters** are node kind `"parameter"` (class `Parameter`, `str()` its name, `sameExpression` by index).
+      Their bridge handle getter throws `BridgeNeeded`: a body that needs the bridge (a deal inside, e.g.
+      `a.add(deck.deal(1))`) aborts the native attempt, and `MultisetFunction.call` redoes the whole call through
+      the bridge (`mf_call_kw`, with the bridge's copy of the function made once, `bridgeFunction`). C6f should
+      remove this when deals are native.
+    - **Callbacks** are held by the core as JS values now (no id registry): `countFunction(f, ...)` /
+      `outcomePredicate(f, ...)`, and every callback envelope goes through wasm.ts `callback` (exception kept in
+      `pending`) and `withCallbacks` (turns `Error::Callback` back into it; calls nest). multiset.ts `withInputs(inputs,
+      f)` is the one way to run something on a fresh builder: after a trap it leaves the builder alone (the
+      abandoned Rust frame still borrows it: `free()` would throw "attempted to take ownership ... while it was
+      borrowed" over the trap).
+    - The fixture summary now also counts the bridge's `evaluate` (a JS evaluator through the bridge) and
+      `multiset_function` (a bridge copy of a function). At C6e: `mf_call_kw` 205 -> 80, `evaluate` 36: all deals or
+      MultiDeals (C6f), plus `additive_union()` of nothing (s4c, not native in C6d) and an evaluator name the JS
+      catalogue lacks (k6). To find what causes a count: run each fixture with test/fixtures.mjs `check` and diff
+      internal.js `bridgeCalls` around it, grouped by file.
+    - Upstream tests translated: neon_city_overdrive_test.py, pool_direction_test.py. evaluator_cache_test.py and
+      order_test.py read private internals (`_cache`, `_make_source`, `merge_order_preferences`): no JS counterpart.
   - **C6d (pools, keep, multiset expressions, built-in evaluations).** The expression tree is the TypeScript's
     (design section 6's decision; docs/ is protected, so the details are here and in multiset.ts's header): a
     `MultisetExpression` has a `node` (`@internal`): a keep generator of the core (`WasmGenerator`,
@@ -56,13 +98,13 @@ turns out wrong. Newest decisions at the top of each section.
     instead. A native expression the bridge needs (as an argument, or `toWire`) is made there by replaying the
     bridge call its method stands for (`replayWith`, run once by the overridden `h` getter), so the bridge's
     `pool` / `die_pool` / `mx_*` counts in the fixture summary are now mostly replays caused by other areas'
-    nodes (JS evaluators `evaluate` C6e, decks/deals C6f, argsort/lexi/wild/sum(map) C6h). To see what causes
+    nodes (decks/deals C6f, argsort/lexi/wild/sum(map) C6h; JS evaluators were C6e). To see what causes
     them: run each fixture with test/fixtures.mjs `check`, diff internal.js `bridgeCalls` around it, and group the
     differences by the program's other ops.
-  - **Callbacks** (`mapCounts`' function, `keepOutcomes(f)`) are registered by id for one evaluation; the core
-    calls `__icepool_wasm_host.countFunction` / `outcomePredicate`; an exception is kept in `pending` and the core
-    returns `Error::Callback`, which `evaluation` turns back into the exception itself (traps rethrown at once).
-    C6e can reuse this for JS evaluators.
+  - **Callbacks** (`mapCounts`' function, `keepOutcomes(f)`): the core holds the JS function and calls
+    `__icepool_wasm_host.countFunction` / `outcomePredicate`; an exception is kept in `pending` and the core
+    returns `Error::Callback`, which `withCallbacks` turns back into the exception itself (traps rethrown at once).
+    See C6e above for the shared machinery.
   - **Adapter routes added** (test/fixtures.mjs): `pool_info`, `weightless_evaluate`, `mx_compare` (< <= > >=,
     reflected for a plain left operand), `mx_rfloordiv` (new `rfloordiv` method), `mx_str` (new `toString`, Python's
     `__str__`); keep-like nodes take any expression, `isKeep` is `KeepGenerator`. Left on the bridge: `==` / `!=`
