@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Python wheel that ships (design/library-architecture.md section 8): the `icepool` facade
+# Builds the Python wheel that ships (docs/design/library-architecture.md section 8): the `icepool` facade
 # (python/icepool) and the `icepool_rs` extension (crates/icepool-py), with ICEPOOL_BACKEND defaulting to `rust`.
 #
 # maturin packs only the Python sources inside its project directory (the one holding pyproject.toml) and follows

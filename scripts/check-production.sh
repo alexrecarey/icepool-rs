@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Production builds contain no test code (design/library-architecture.md section 8). Builds what ships, the Python
+# Production builds contain no test code (docs/design/library-architecture.md section 8). Builds what ships, the Python
 # wheel (scripts/build-wheel.sh: the icepool facade and the icepool_rs extension) and the npm package (npm pack of
 # crates/icepool-wasm/js), lists their contents and symbols, and fails if any test, fixture, runner, harness or
 # JSON-program code is in them, or if the wheel is not a usable package:

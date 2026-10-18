@@ -16,7 +16,7 @@ The default is a build-time constant: the wheel adds `icepool/_wheel.py` (crates
 runs as it always has.
 
 `RUST` is the extension module when the backend is `rust`, else `None`; switched code tests `if RUST:` (each such
-place is marked `icepool-rs:`). FACADE-AUDIT.md at the repository root lists every module, what of it still runs in
+place is marked `icepool-rs:`). docs/FACADE-AUDIT.md lists every module, what of it still runs in
 Python under `rust` and why (by design, or the task that covers it).
 """
 

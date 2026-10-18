@@ -11,9 +11,9 @@
 //! - [`Traverse`] / [`owned_hosts`]: which host objects a core value alone owns, for the host's cycle collector;
 //!   [`set_interrupt_check`]: the host's check (Ctrl-C) that the core's long loops poll.
 //!
-//! Their arguments and results are core types only. (The JS facade's callables and evaluators, `HostFunction` and
-//! `HostEvaluator`, still live with the program runner in icepool-harness, whose values they take: until task C6e
-//! gives them a typed home in icepool-wasm.)
+//! Their arguments and results are core types only. User callables and evaluators are each binding's own (a
+//! `MultisetEvaluator<Value>` calling the host object back: icepool-py's `evaluate.rs`, icepool-wasm's
+//! `api/evaluator.rs`), as are the program runner's (icepool-harness's `host.rs`).
 
 mod object;
 mod operator;

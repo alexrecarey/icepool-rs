@@ -5,9 +5,6 @@ Where each module of upstream icepool lives in this port. Oracle: `70168f56d807e
 itself"). Written by task C8, 2026-10-18, by reading the files (the Rust files cite their Python source in their
 module comments).
 
-This file belongs in `docs/MODULE-MAP.md`; `docs/` is protected, so it is at the root until the loop owner moves it
-(QUESTIONS.md, "C8: MODULE-MAP.md belongs in docs/").
-
 **Reading the table.** One row per `.py` file under upstream's `src/icepool/`, upstream path in backticks in the
 first column. `scripts/upstream_changes.py` parses these rows (any table row whose first cell is a backticked
 `.py` path), so keep that shape when editing.
@@ -28,7 +25,7 @@ first column. `scripts/upstream_changes.py` parses these rows (any table row who
   - *internal*: helpers with no public API of their own.
 - **Oracle**: the upstream commit the row was last checked against.
 
-FACADE-AUDIT.md says, module by module, what of the Python facade still runs in Python under `rust` and why.
+[FACADE-AUDIT.md](FACADE-AUDIT.md) says, module by module, what of the Python facade still runs in Python under `rust` and why.
 
 | Upstream | Rust core | Python facade | PyO3 | TypeScript | WASM exports | Status | Oracle |
 |---|---|---|---|---|---|---|---|
@@ -101,8 +98,8 @@ Rust core modules with no upstream counterpart: `die_ops.rs` (the typed `std::op
 the dynamic outcome with Python's semantics: CPython's numeric tower, `sorted()`, `str()`/`repr()`, `complex`,
 builtins, recursion limits), `host/` (callbacks a binding implements), `interrupt.rs` (Ctrl-C), `memory.rs`
 (allocation size checks), `ownership.rs` (cycle collection support), `random.rs` (CPython's Mersenne Twister, for
-the runner and the JS `sample`), `khepri.rs` (application code behind the `khepri` feature; task C2f moves it to
-its own crate).
+the runner and the JS `sample`). khepri's engine, application code rather than library, is its own crate,
+`crates/icepool-khepri`.
 
 Python facade files with no upstream counterpart: `python/icepool/backend.py` (the `ICEPOOL_BACKEND` switch) and
 `python/icepool/evaluator/evaluator_rust.py` (which evaluations go to the core). PyO3: `convert.rs` (Python objects
@@ -114,4 +111,5 @@ bridge to the program runner, left out of the npm package); WASM: `src/facade.rs
 `src/runner.rs` (test-only `run`), `src/khepri.rs` (`calculate`).
 
 The test-only program runner, `crates/icepool-harness/src/`, mirrors the same upstream modules as JSON program
-nodes (see `harness/grammar/status.json` for every node and its status).
+nodes (see `harness/grammar/status.json` for every node and its status). How the crates fit together:
+[design/library-architecture.md](design/library-architecture.md).

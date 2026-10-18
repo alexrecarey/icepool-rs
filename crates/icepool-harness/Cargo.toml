@@ -21,7 +21,8 @@ icepool-khepri = { path = "../icepool-khepri", optional = true }
 
 [features]
 # The runner's `khepri` node (the khepri sweep, the khepri fixtures): on by default, so every workspace build and
-# test runs it. icepool-wasm's interim bridge turns it off (until task C6g; see its Cargo.toml).
+# test runs it. icepool-wasm's test-only `runner` feature turns it off unless its `khepri` feature asks for it (see
+# its Cargo.toml).
 default = ["khepri"]
 khepri = ["dep:icepool-khepri"]
 

@@ -24,6 +24,9 @@ evaluates to.
 npm install icepool-wasm
 ```
 
+The package is not on npm yet. Until it is, build it from the repository with `crates/icepool-wasm/js/build.sh
+--pack` and install the tarball that writes (`npm install path/to/icepool-wasm-0.1.0.tgz`).
+
 ```ts
 import { d, Die, Pool } from "icepool-wasm";
 ```

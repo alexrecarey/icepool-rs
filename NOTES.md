@@ -20,9 +20,14 @@ turns out wrong. Newest decisions at the top of each section.
   `runner` feature makes the wasm crate recompile (~12 s) and harness+wasm ~25 s here, still over the harness's
   20 s, so only building the same features in the gate's "wasm build" step does. run-wasm.sh's staleness check now
   also watches crates/icepool-harness (it missed it since C5b, so harness-only changes ran on a stale build).
+- **The docs (C9).** `docs/` is agent-maintained except ANALYSIS.md, LOOP-PLAN.md, semantics.md and reviews/.
+  docs/design/library-architecture.md now describes what exists (sections 1-8) plus a short history (section 9),
+  not a plan: when a task changes a crate, a feature flag, the public root, the error model, the wheel or
+  check-production.sh, update its section in the same task (and docs/MODULE-MAP.md when a file moves). Links
+  between docs are relative (`docs/MODULE-MAP.md` links `FACADE-AUDIT.md` and `design/library-architecture.md`).
+  The JS README and guide say `npm install icepool-wasm` plus a note that the package is not published yet.
 - **Presentation (C8, design section 7 and 9.8).** README.md (the project, the three bindings with checked
-  snippets, parity story, layout, commands); MODULE-MAP.md at the root (docs/ is protected; QUESTIONS.md asks to
-  move it): one row per upstream `src/icepool/*.py` with core / facade / PyO3 / TS / wasm files and status. Keep
+  snippets, parity story, layout, commands); docs/MODULE-MAP.md (moved there by the loop owner): one row per upstream `src/icepool/*.py` with core / facade / PyO3 / TS / wasm files and status. Keep
   the row shape (first cell a backticked upstream path): `scripts/upstream_changes.py OLD NEW` parses it to list
   what upstream changed between two refs and what to revisit (stdlib only; never fetches; the oracle checkout has
   tags only up to v0.25.4, commit `33e7e650` is v2.2.2). python/README.md and python/DIFFERENCES.md (what differs
@@ -800,15 +805,16 @@ turns out wrong. Newest decisions at the top of each section.
     model. The runner's explode/reroll could build a `PoolMixture<Value>` (it is generic over `OutcomeOrder`), but
     its `evaluate` needs `Outcome` finals, so a `Value`-final evaluate would be needed first, for no gain.
 
-- **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** is the plan C1-C8 follow (in
-  `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
+- **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** describes the library C1-C8
+  built (rewritten from plan to description by C9). The short of it: generic code
   is written against the sealed `OutcomeOrder` (associated `Incomparable` error: `Infallible` for every `Ord` type by
   blanket impl, `Error` for `Value`); the typed API is `impl<O: Outcome> Die<O>` with no `Result` from comparisons;
   `py_*` and the timsort port live only in `src/value/`; Python-only behaviour is `value::Py*` extension traits on
   `Die<Value>` (inherent typed methods with unmet bounds are skipped, so `die.mean()` resolves per type; associated
   functions without `self` must not share names: rustc reports them ambiguous). Built-in evaluators get typed
-  finals, converted to `Value` per final state by `evaluate_into` before the die is built, as Python builds it.
-  Errors: one domain variant maps to exactly one Python exception; the mapping lives in icepool-py and the runner.
+  finals, converted to `Value` per final outcome by `value::evaluators::PyEvaluator` (`IntoValue`) before the die
+  is built, as Python builds it. Errors: one domain variant maps to exactly one Python exception; the mapping lives
+  in icepool-py, icepool-wasm and the runner.
   Runner: crates/icepool-harness (C5b).
 - **Cycles and the collector (R4).** The review's "leak" (20k x `d(6).map(lambda o, big=big: o)` +
   `pool(3).sum()`, maxrss +1.7 MB) was warm-up: after 500 warm-up iterations 20k more add 0 KB of maxrss and a few KB
