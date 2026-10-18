@@ -37,6 +37,41 @@ turns out wrong. Newest decisions at the top of each section.
     auto-import off for that example.
 
 - **The TypeScript API (C6, design section 6).** Rest in C6d-C6g and C6i (tasks.json); the docs are C6b.
+  - **C6d (pools, keep, multiset expressions, built-in evaluations).** The expression tree is the TypeScript's
+    (design section 6's decision; docs/ is protected, so the details are here and in multiset.ts's header): a
+    `MultisetExpression` has a `node` (`@internal`): a keep generator of the core (`WasmGenerator`,
+    src/api/multiset.rs: a `Pool` or a compound keep, made by `PoolBuilder` / `mergePools` / `compound`, with the
+    keep-tuple arithmetic), a weightless generator, an operator (children, a `push` that adds it to the builder, a
+    `key` = Python's `_expression_key` for mixtures' dict, a `str`), or a mixture. Python's juggling is in
+    multiset.ts, ported from the runner's nodes (crates/icepool-harness/src/expression.rs, pool.rs, evaluate.rs:
+    they already copy Python's quirks; **port the node's semantics, not the Python method's**: e.g. JS
+    `additiveUnion` is the bridge's `mx_method`, i.e. `MultisetExpression.additive_union` called on the class, an
+    operator even for two pools, while `add` merges pools). An evaluation walks the tree (iteratively: expressions
+    nest deeper than JS's stack) into `ExpressionBuilder` (src/api/evaluate.rs), which prepares it (mixtures:
+    one preparation per combination) and runs a built-in evaluator by the Python facade's names; results mix
+    as `Die(final_data)`. `top_level_depth_check` (icepool_core::evaluator, moved from the runner) gives Python's
+    RecursionError near 1000 outcomes.
+  - **Fallback by replay.** Every native function returns `undefined` for what it does not model (deals, tuple
+    expressions, multiset-function parameters, JS evaluators, odd arguments), and the method calls its bridge node
+    instead. A native expression the bridge needs (as an argument, or `toWire`) is made there by replaying the
+    bridge call its method stands for (`replayWith`, run once by the overridden `h` getter), so the bridge's
+    `pool` / `die_pool` / `mx_*` counts in the fixture summary are now mostly replays caused by other areas'
+    nodes (JS evaluators `evaluate` C6e, decks/deals C6f, argsort/lexi/wild/sum(map) C6h). To see what causes
+    them: run each fixture with test/fixtures.mjs `check`, diff internal.js `bridgeCalls` around it, and group the
+    differences by the program's other ops.
+  - **Callbacks** (`mapCounts`' function, `keepOutcomes(f)`) are registered by id for one evaluation; the core
+    calls `__icepool_wasm_host.countFunction` / `outcomePredicate`; an exception is kept in `pending` and the core
+    returns `Error::Callback`, which `evaluation` turns back into the exception itself (traps rethrown at once).
+    C6e can reuse this for JS evaluators.
+  - **Adapter routes added** (test/fixtures.mjs): `pool_info`, `weightless_evaluate`, `mx_compare` (< <= > >=,
+    reflected for a plain left operand), `mx_rfloordiv` (new `rfloordiv` method), `mx_str` (new `toString`, Python's
+    `__str__`); keep-like nodes take any expression, `isKeep` is `KeepGenerator`. Left on the bridge: `==` / `!=`
+    of expressions (a `DieWithTruth` whose data error is lazy: no JS method), a die on the left of a comparison.
+    Building a deep expression no longer raises (as in Python); evaluating it does (api.test.mjs updated).
+  - **New JS methods** (C6h (7) listed them as missing): `argsort`, `argsortGrouped`, `leximin`, `leximax` (the
+    `argsort` / `lexi` built-ins of evaluate.rs), plus `rfloordiv` and `toString`. Still missing (C6h): `sum(map)`,
+    `largestCount({ wild... })`, `allStraightsReduceCounts`. The rest of the multiset bridge traffic in this area
+    (`==` / `!=`, a die on the left, evaluator objects of built-in classes) is task C6j.
   - **C6c (Die, Again, the free functions).** Done natively: `new Die(...)` in full (creation_args' `itemize` in
     die.ts `makeDie` / `itemize` / `dictItems`: Maps keyed as Python dicts, tuples holding dice, any times, again
     options with times or a Map), Again, explode, ifElse, map with a Map repl / kwargs / again options, map(repeat),

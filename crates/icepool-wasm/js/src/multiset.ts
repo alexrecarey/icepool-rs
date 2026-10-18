@@ -885,6 +885,72 @@ export class MultisetExpression extends Handle {
     return compare(this, other, "is_not_equal_set") ?? poolCompare(this, other, "not_equal_set");
   }
 
+  // Sorting and lexicographic comparisons.
+  /** `MultisetExpression.argsort(*args, order=Order.Descending, limit=None, limit_pad=None, tie)` (experimental):
+   * evaluation: which of this multiset and `args` each sorted element comes from, as a tuple of indexes (0 for
+   * this one), from the first element in `order` on. `tie` (required) says what equal elements of different
+   * multisets do: `"drop"` (none of them count), `"left"` or `"right"` (the leftmost or rightmost index first).
+   * `limit` keeps at most that many indexes; `limitPad` pads short results to `limit` with it.
+   *
+   * @param rest - The other multisets, then the options `{ tie, order, limit, limitPad }`.
+   *
+   * @example
+   * ```ts
+   * pool([1, 3]).argsort([2], { tie: "drop" }).items(); //=> [[[0, 1, 0], 1n]]
+   * pool([1, 3]).argsort([2], [3], { tie: "left" }).items(); //=> [[[0, 2, 1, 0], 1n]]
+   * ```
+   */
+  argsort(...rest: (MultisetArg | { order?: OrderValue; limit?: Int | null; limitPad?: Int | null; tie: "drop" | "left" | "right" })[]): Die {
+    type Options = { order: OrderValue; limit: Int | null; limitPad: Int | null; tie: string };
+    const [others, { order = Order.Descending, limit = null, limitPad = null, tie }] = opts<Options>(rest);
+    const make = () => {
+      const params = [tie, order, limit, limitPad];
+      return params.every(isPlainValue) ? evaluationOf("argsort", params, this, ...others) : undefined;
+    };
+    const args = List.of(this, ...others.map(list));
+    return make() ?? (call("argsort", { args, order, limit, limit_pad: limitPad, tie }) as Die);
+  }
+  /** `MultisetExpression.argsort_grouped(*args, order=Order.Descending, limit=None)` (experimental): evaluation: as
+   * {@link MultisetExpression.argsort}, but equal elements of different multisets form one group, a tuple of their
+   * indexes.
+   *
+   * @param rest - The other multisets, then the options `{ order, limit }`.
+   *
+   * @example
+   * ```ts
+   * pool([1, 3]).argsortGrouped([3], [2]).items(); //=> [[[[0, 1], [2], [0]], 1n]]
+   * ```
+   */
+  argsortGrouped(...rest: (MultisetArg | { order?: OrderValue; limit?: Int | null })[]): Die {
+    const [others, { order = Order.Descending, limit = null }] = opts<{ order: OrderValue; limit: Int | null }>(rest);
+    const make = () => ([order, limit].every(isPlainValue) ? evaluationOf("argsort_grouped", [order, limit], this, ...others) : undefined);
+    return make() ?? (call("argsort_grouped", { args: List.of(this, ...others.map(list)), order, limit }) as Die);
+  }
+  /** `MultisetExpression.leximin(comparison, other, extra='high')`: evaluation: compares the two multisets
+   * lexicographically after sorting each in ascending order: 1 if the comparison holds, else 0 (with `"cmp"`: -1,
+   * 0 or 1). `extra` says what an element without a counterpart counts as: `"low"`, `"high"`, or
+   * `"drop"` (left out).
+   *
+   * @example
+   * ```ts
+   * pool([1, 3]).leximin("<", [1, 4]).items(); //=> [[1, 1n]]
+   * ```
+   */
+  leximin(comparison: Comparison | "cmp", other: MultisetArg, extra: "low" | "high" | "drop" = "high"): Die {
+    return lexi(this, false, comparison, other, extra);
+  }
+  /** `MultisetExpression.leximax(comparison, other, extra='high')`: as {@link MultisetExpression.leximin}, sorting
+   * each in descending order.
+   *
+   * @example
+   * ```ts
+   * pool([1, 3]).leximax("cmp", [1, 4]).items(); //=> [[-1, 1n]]
+   * ```
+   */
+  leximax(comparison: Comparison | "cmp", other: MultisetArg, extra: "low" | "high" | "drop" = "high"): Die {
+    return lexi(this, true, comparison, other, extra);
+  }
+
   /** `MultisetExpression.map_counts(...args, { function })`: maps the counts to new counts: `function` takes
    * `(outcome, ...counts)`, one count per argument, and returns the combined count.
    *
@@ -930,6 +996,13 @@ function mxEvaluate(expr: MultisetExpression, method: string): Die {
 }
 function poolCompare(pool: MultisetExpression, other: MultisetArg, cmp: string): Die {
   return call("pool_compare", { pool, other: list(other), cmp }) as Die;
+}
+/** `self.leximin(comparison, other, extra)` / `leximax` (`max`). */
+function lexi(self: MultisetExpression, max: boolean, comparison: unknown, other: unknown, extra: unknown): Die {
+  const native = typeof comparison === "string" && typeof extra === "string" && isNative(self)
+    ? evaluationOf("lexi", [max, comparison, extra], self, other)
+    : undefined;
+  return native ?? (call(max ? "pool_leximax" : "pool_leximin", { pool: self, comparison, other: list(other), extra }) as Die);
 }
 /** A comparison evaluator (evaluator/comparison.py) of `self` and `other`, natively. */
 function compare(self: MultisetExpression, other: unknown, name: string): Die | undefined {

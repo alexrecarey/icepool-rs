@@ -13,17 +13,19 @@
 
 use std::sync::Arc;
 
+use icepool_core::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
 use icepool_core::evaluator::basic::{
     EmptyEvaluator, ExpandEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
 };
 use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
 use icepool_core::evaluator::keep::KeepEvaluator;
+use icepool_core::evaluator::lexi::{compute_lexi_tuple_with_extra, LexiComparisonEvaluator};
 use icepool_core::evaluator::poker::{
     AllCountsEvaluator, AllStraightsEvaluator, CountSubsetEvaluator, HighestOutcomeAndCountEvaluator,
     LargestCountAndOutcomeEvaluator, LargestCountEvaluator, LargestStraightAndOutcomeEvaluator,
     LargestStraightEvaluator,
 };
-use icepool_core::evaluator::{evaluate_expressions, top_level_depth_check, MultisetEvaluator, MultisetSource};
+use icepool_core::evaluator::{evaluate_expressions, top_level_depth_check, MultisetEvaluator, MultisetSource, Order};
 use icepool_core::expression::{count_value, value_count, Dungeonlet, Flat};
 use icepool_core::host::HostError;
 use icepool_core::operator::{
@@ -398,6 +400,20 @@ fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], visitor: V) -
         value_from_js(p.or_throw()?).or_throw()
     };
     let flag = |i: usize| -> JsResult<bool> { Ok(param(i)? == Value::Bool(true)) };
+    let text = |i: usize| -> JsResult<String> {
+        match param(i)? {
+            Value::Str(s) => Ok(s.to_string()),
+            _ => Err(Error::Unported(format!("{name} needs a str"))).or_throw(),
+        }
+    };
+    // `limit`: an int or None.
+    let limit = |i: usize| -> JsResult<Option<i64>> {
+        match param(i)? {
+            Value::None => Ok(None),
+            Value::Int(n) => i64::try_from(&n).map(Some).or_else(|_| Err(Error::Unported("a limit beyond 64 bits".into())).or_throw()),
+            _ => Err(Error::Unported("a limit that is not an int".into())).or_throw(),
+        }
+    };
     let v = visitor;
     match name {
         "sum" => v.visit(SumEvaluator),
@@ -435,6 +451,29 @@ fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], visitor: V) -
         "is_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsEqualSet)),
         "is_not_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsNotEqualSet)),
         "is_disjoint_set" => v.visit(ComparisonEvaluator(Comparison::IsDisjointSet)),
+        // `(tie, order, limit, limit_pad)`.
+        "argsort" => v.visit(ArgsortEvaluator {
+            tie: match text(0)?.as_str() {
+                "drop" => Tie::Drop,
+                "left" => Tie::Left,
+                "right" => Tie::Right,
+                _ => return Err(Error::InvalidArgument("tie must be \"drop\", \"left\", or \"right\".".into())).or_throw(),
+            },
+            order: param(1)?,
+            limit: limit(2)?,
+            limit_pad: match param(3)? {
+                Value::None => None,
+                pad => Some(pad),
+            },
+        }),
+        // `(order, limit)`.
+        "argsort_grouped" => v.visit(ArgsortGroupedEvaluator { order: param(0)?, limit: limit(1)? }),
+        // `(max, comparison, extra)`: `leximax` (else `leximin`) with lexi.py's `compute_lexi_tuple_with_extra`.
+        "lexi" => {
+            let sort_order = if flag(0)? { Order::Descending } else { Order::Ascending };
+            let lexi_tuple = compute_lexi_tuple_with_extra(&text(1)?, sort_order.value(), &text(2)?).or_throw()?;
+            v.visit(LexiComparisonEvaluator { sort_order, lexi_tuple })
+        }
         _ => Err(Error::Unported(format!("no built-in evaluator {name:?}"))).or_throw(),
     }
 }

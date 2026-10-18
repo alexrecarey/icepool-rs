@@ -339,6 +339,10 @@ const IDIOMATIC = {
 
   // Pools and multiset expressions.
   pool: ({ dice, times }) => isList(dice) && ok(new ip.Pool(dice, times)),
+  // `Pool(dict(items), times)`: a JS Map, whose keys the Pool compares as Python's dict does.
+  pool_dict: ({ items, times }) => isPairs(items) && ok(new ip.Pool(new Map(items), times)),
+  d_pool: ({ die_sizes, mapping }) => standardPool(ip.dPool, die_sizes, mapping),
+  z_pool: ({ die_sizes, mapping }) => standardPool(ip.zPool, die_sizes, mapping),
   pool_highest: ({ pool, keep, drop }) => isExpr(pool) && ok(pool.highest(keep, drop)),
   pool_lowest: ({ pool, keep, drop }) => isExpr(pool) && ok(pool.lowest(keep, drop)),
   pool_middle: ({ pool, keep, tie }) => isKeep(pool) && ok(pool.middle(keep, { tie })),
@@ -383,6 +387,13 @@ const IDIOMATIC = {
     return isExpr(b) && plain && ok(b[methods[reflected]](a));
   },
   mx_rfloordiv: ({ other, pool }) => isExpr(pool) && ok(pool.rfloordiv(other)),
+  // `MultisetExpression.argsort(*args, ...)` called on the class: with an expression first, its method.
+  argsort: ({ args, order, limit, limit_pad, tie }) =>
+    isList(args) && args.length > 0 && isExpr(args[0]) && ok(args[0].argsort(...args.slice(1), { order, limit, limitPad: limit_pad, tie })),
+  argsort_grouped: ({ args, order, limit }) =>
+    isList(args) && args.length > 0 && isExpr(args[0]) && ok(args[0].argsortGrouped(...args.slice(1), { order, limit })),
+  pool_leximin: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximin(comparison, other, extra)),
+  pool_leximax: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximax(comparison, other, extra)),
   mx_str: ({ expr }) => isExpr(expr) && ok(String(expr)),
   mx_binary: ({ a, o, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[o];
@@ -492,6 +503,13 @@ const IDIOMATIC = {
   truth: ({ x }) => x instanceof ip.DieWithTruth && ok(x.truth()),
   again_truth: ({ x }) => x instanceof ip.AgainExpression && ok(ip.truth(x)),
 };
+
+/** `icepool.d_pool(dict(die_sizes) if mapping else die_sizes)` (or `z_pool`), if the arguments fit (else undefined:
+ * the generic call). */
+function standardPool(f, dieSizes, mapping) {
+  if (mapping === true) return isPairs(dieSizes) ? ok(f(new Map(dieSizes))) : undefined;
+  return mapping === false && isList(dieSizes) ? ok(f(dieSizes)) : undefined;
+}
 
 /** `icepool.Wallenius(dict(data) if mapping else data)` as a JS `Wallenius` (a Map for the dict), if the arguments
  * fit (else undefined: the generic call). */
