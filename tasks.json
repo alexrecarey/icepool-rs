@@ -1,5 +1,12 @@
 [
   {
+    "id": "L202610180909",
+    "title": "Fix the long gate",
+    "deps": [],
+    "milestone": null,
+    "details": "The long gate went red on main. Log: /home/alex/code/alexrecarey/icepool-rs-logs/iterations/long-20261018-0900.log. Failing steps: --- oracle pinned and clean: FAILED (1s) --- fixtures through wasm: FAILED (42s) --- fuzz through wasm: FAILED (3s) . Reproduce, fix the port (not the checks), import any fuzz failures as fixtures."
+  },
+  {
     "id": "L202610180503",
     "title": "Fix the long gate",
     "deps": [],
