@@ -10,9 +10,15 @@
 
 use dashu_int::IBig;
 
-use super::sort::sorted_reverse;
+use super::sort::{sorted, sorted_reverse};
 use super::{BinOp, Value};
 use crate::error::{Error, Result};
+use crate::evaluator::basic::{
+    EmptyEvaluator, ExpandEvaluator, MappedSumEvaluator, ProductOfCountsEvaluator, SizeEvaluator,
+    SumEvaluator, Summand,
+};
+use crate::evaluator::comparison::{step, Comparison, ComparisonEvaluator};
+use crate::evaluator::keep::KeepEvaluator;
 use crate::evaluator::poker::{
     consecutive_span, AllCountsEvaluator, AllStraightsEvaluator, AllStraightsReduceCountsEvaluator,
     CountFilter, CountSubsetEvaluator, HighestOutcomeAndCountEvaluator, IntegerOutcome,
@@ -21,6 +27,7 @@ use crate::evaluator::poker::{
 };
 use crate::evaluator::{tuple_compared_with_int, tuple_unsupported, Final, MultisetEvaluator};
 use crate::order::Order;
+use crate::pool::Count;
 use crate::Int;
 
 /// A typed value as Python spells it.
@@ -127,6 +134,13 @@ impl IntegerOutcome for Value {
     }
 }
 
+/// Python's `None` is the one summand that makes a sum start over (`state is None`).
+impl Summand for Value {
+    fn is_none(&self) -> bool {
+        matches!(self, Value::None)
+    }
+}
+
 /// A [`PyEvaluator`]'s state: the evaluator's own typed state until the first tuple count, then Python's.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum PyState<S> {
@@ -186,6 +200,18 @@ where
     ) -> Result<Self::State> {
         Ok(PyState::Typed(
             self.0.initial_state(order, outcomes, sizes)?,
+        ))
+    }
+
+    /// The evaluator's own, which may read a tuple size (`KeepEvaluator`).
+    fn initial_state_counts(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<Self::State> {
+        Ok(PyState::Typed(
+            self.0.initial_state_counts(order, outcomes, sizes)?,
         ))
     }
 
@@ -479,6 +505,207 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
     }
 }
 
+/// `SumEvaluator.next_state` after the (optional) map, with Python's operators: `count == 1` is `False` for a tuple
+/// count, an `int` outcome times it repeats the tuple, and `state + ...` concatenates.
+fn add_to_sum(state: Value, outcome: Value, count: &Value) -> Result<Value> {
+    Ok(match state {
+        Value::None if *count == Value::from(1) => outcome,
+        Value::None => outcome.binary(BinOp::Mul, count)?,
+        state => state.binary(BinOp::Add, &outcome.binary(BinOp::Mul, count)?)?,
+    })
+}
+
+impl TupleCounts for SumEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Option<Value>>,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(add_to_sum(
+            state.value(),
+            outcome.clone(),
+            &counts[0],
+        )?))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        Ok(state_as_outcome(state))
+    }
+}
+
+/// As [`SumEvaluator`], on the mapped outcome.
+impl<F: Fn(&Value) -> Result<Value>> TupleCounts for MappedSumEvaluator<F, Value> {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Option<Value>>,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(add_to_sum(
+            state.value(),
+            (self.map)(outcome)?,
+            &counts[0],
+        )?))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        Ok(state_as_outcome(state))
+    }
+}
+
+/// `state + count`: `0 + tuple` is `TypeError`.
+impl TupleCounts for SizeEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Int>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(state.value().binary(BinOp::Add, &counts[0])?))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        // `final_state or 0`
+        Ok(Final::Outcome(if state.truthy()? {
+            state.clone()
+        } else {
+            Value::from(0)
+        }))
+    }
+}
+
+/// `state * count`: `1 * tuple` is the tuple, then a tuple times a tuple is `TypeError` (and times an `int`
+/// repeats it).
+impl TupleCounts for ProductOfCountsEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Int>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        Ok(Some(state.value().binary(BinOp::Mul, &counts[0])?))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        Ok(state_as_outcome(state))
+    }
+}
+
+/// A tuple count: `count == 0` is `False`.
+impl TupleCounts for EmptyEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<bool>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        // `state and (count == 0)`
+        let state = state.value();
+        Ok(Some(if state.truthy()? {
+            Value::Bool(counts[0] == Value::from(0))
+        } else {
+            state
+        }))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        Ok(Final::Outcome(Value::Bool(self.final_of(state.truthy()?))))
+    }
+}
+
+/// A tuple count: `(outcome, ) * count` is `TypeError` (a tuple times a tuple).
+impl TupleCounts for ExpandEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Vec<Value>>,
+        _: Order,
+        outcome: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        // `(state or ()) + (outcome, ) * count`; the typed state is the tuple, `()` where Python has `None`.
+        let more = Value::tuple(vec![outcome.clone()]).binary(BinOp::Mul, &counts[0])?;
+        Ok(Some(state.value().binary(BinOp::Add, &more)?))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        let items = items(state).to_vec();
+        let sorted = if self.ascending {
+            sorted(items)?
+        } else {
+            sorted_reverse(items)?
+        };
+        Ok(Final::Outcome(Value::tuple(sorted)))
+    }
+}
+
+/// `max(count, 0)` of a tuple count: `TypeError`.
+impl TupleCounts for KeepEvaluator {
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        _: &[Value],
+    ) -> Result<Option<Value>> {
+        Err(tuple_compared_with_int(">"))
+    }
+}
+
+/// [`ComparisonEvaluator::any_all`] for counts that may be tuples, with Python's operators (`<` between tuples is
+/// lexicographic, giving a bool for tuples of ints; between a tuple and an int `TypeError`; `==` just `False`).
+/// Python evaluates the pair left to right, and `left > 0 and right > 0` stops at a false left.
+fn any_all_values(comparison: Comparison, left: &Value, right: &Value) -> Result<(bool, bool)> {
+    use BinOp::{Ge, Gt, Le, Lt};
+    use Comparison::*;
+    let cmp = |op, a: &Value, b: &Value| a.binary(op, b)?.truthy();
+    let zero = Value::from(0);
+    Ok(match comparison {
+        IsProperSubset => (cmp(Lt, left, right)?, cmp(Le, left, right)?),
+        IsSubset => (true, cmp(Le, left, right)?),
+        IsProperSuperset => (cmp(Gt, left, right)?, cmp(Ge, left, right)?),
+        IsSuperset => (true, cmp(Ge, left, right)?),
+        IsEqualSet => (true, left == right),
+        IsNotEqualSet => (left != right, true),
+        IsDisjointSet => (true, !(cmp(Gt, left, &zero)? && cmp(Gt, right, &zero)?)),
+    })
+}
+
+/// A comparison's state as Python spells it (`None` or `(has_any, has_all)`), typed again.
+fn comparison_state(state: &Value) -> Option<(bool, bool)> {
+    match items(state) {
+        [Value::Bool(has_any), Value::Bool(has_all)] => Some((*has_any, *has_all)),
+        _ => None,
+    }
+}
+
+/// The comparisons of tuple counts are Python's (see [`any_all_values`]); the state stays a pair of bools.
+impl TupleCounts for ComparisonEvaluator {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Option<(bool, bool)>>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<Value>> {
+        let this = any_all_values(self.0, &counts[0], &counts[1])?;
+        Ok(Some(
+            step(comparison_state(&state.value()), this).into_value(),
+        ))
+    }
+
+    fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
+        Ok(Final::Outcome(Value::Bool(
+            self.final_of(comparison_state(state)),
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,19 +714,66 @@ mod tests {
     use crate::pool::MultisetSource;
     use crate::{Pool, Quantity};
 
-    fn pool<O: crate::outcome::OutcomeOrder + From<i64>>(
+    /// `keep.len()` d`sides`, counted as `keep` says (one count per sorted roll; negative counts too).
+    fn kept<O: crate::outcome::OutcomeOrder + From<i64>>(
         sides: i64,
-        n: usize,
+        keep: &[i64],
     ) -> MultisetSource<O> {
+        let keep: Vec<Int> = keep.iter().map(|&k| Int::from(k)).collect();
         MultisetSource::Pool(
-            Pool::new(vec![(try_d(sides).unwrap(), n)])
+            Pool::from_parts(&[(try_d(sides).unwrap(), keep.len())], keep.into())
                 .unwrap()
                 .source(),
         )
     }
 
-    /// Evaluates `evaluator` on `n`d`sides` typed (`i64` outcomes) and as Python does (`Value` outcomes): the
-    /// typed finals, as Python spells them, are exactly Python's finals.
+    /// Evaluates `typed` on `i64` outcomes and `PyEvaluator(python)` on `Value` outcomes, each on the pools
+    /// `pools` builds: the typed finals, as Python spells them, are exactly Python's finals.
+    fn typed_matches_python_with<T, P>(
+        typed: &T,
+        python: P,
+        pools: impl Fn() -> (Vec<MultisetSource<i64>>, Vec<MultisetSource<Value>>),
+    ) -> Vec<(T::Final, Quantity)>
+    where
+        T: MultisetEvaluator<i64>,
+        T::Final: IntoValue + Clone,
+        P: TupleCounts,
+        P::Final: IntoValue,
+    {
+        let (typed_pools, python_pools) = pools();
+        let typed = evaluate(typed, &typed_pools).unwrap();
+        let python = evaluate(&PyEvaluator(python), &python_pools).unwrap();
+        let spelled: Vec<_> = typed
+            .iter()
+            .map(|(f, q)| (f.clone().into_value(), q.clone()))
+            .collect();
+        assert_eq!(spelled, python);
+        typed
+    }
+
+    /// [`typed_matches_python_with`] for an evaluator of any outcome type on `keep.len()`d`sides` kept as `keep`.
+    fn typed_matches_kept<E>(
+        evaluator: E,
+        sides: i64,
+        keep: &[i64],
+    ) -> Vec<(<E as MultisetEvaluator<i64>>::Final, Quantity)>
+    where
+        E: MultisetEvaluator<i64> + TupleCounts,
+        <E as MultisetEvaluator<i64>>::Final: IntoValue + Clone,
+        <E as MultisetEvaluator<Value>>::Final: IntoValue,
+    {
+        // The evaluator has no state of its own between evaluations, so the typed run can borrow it first.
+        let typed = evaluate(&evaluator, &[kept::<i64>(sides, keep)]).unwrap();
+        let python = evaluate(&PyEvaluator(evaluator), &[kept::<Value>(sides, keep)]).unwrap();
+        let spelled: Vec<_> = typed
+            .iter()
+            .map(|(f, q)| (f.clone().into_value(), q.clone()))
+            .collect();
+        assert_eq!(spelled, python);
+        typed
+    }
+
+    /// [`typed_matches_kept`] on `n`d`sides`.
     fn typed_matches_python<E>(
         evaluator: E,
         sides: i64,
@@ -510,14 +784,7 @@ mod tests {
         <E as MultisetEvaluator<i64>>::Final: IntoValue + Clone,
         <E as MultisetEvaluator<Value>>::Final: IntoValue,
     {
-        let typed = evaluate(&evaluator, &[pool::<i64>(sides, n)]).unwrap();
-        let python = evaluate(&PyEvaluator(evaluator), &[pool::<Value>(sides, n)]).unwrap();
-        let spelled: Vec<_> = typed
-            .iter()
-            .map(|(f, q)| (f.clone().into_value(), q.clone()))
-            .collect();
-        assert_eq!(spelled, python);
-        typed
+        typed_matches_kept(evaluator, sides, &vec![1; n])
     }
 
     #[test]
@@ -538,5 +805,98 @@ mod tests {
             3,
         );
         typed_matches_python(AllStraightsEvaluator, 5, 3);
+    }
+
+    #[test]
+    fn typed_basic_evaluators_agree_with_python() {
+        // Negative and zero counts as well as ordinary ones.
+        for keep in [&[1, 1, 1][..], &[-1, 0, 2], &[], &[0, 0]] {
+            typed_matches_kept(SumEvaluator, 4, keep);
+            typed_matches_kept(SizeEvaluator, 4, keep);
+            typed_matches_kept(ProductOfCountsEvaluator, 4, keep);
+            typed_matches_kept(EmptyEvaluator { any: false }, 4, keep);
+            typed_matches_kept(EmptyEvaluator { any: true }, 4, keep);
+            typed_matches_kept(ExpandEvaluator { ascending: true }, 4, keep);
+            typed_matches_kept(ExpandEvaluator { ascending: false }, 4, keep);
+        }
+        // `d(6).pool(3).sum()`: 3..=18.
+        let sums: Vec<(i64, Quantity)> = typed_matches_python(SumEvaluator, 6, 3);
+        assert_eq!(sums.len(), 16);
+        typed_matches_python_with(
+            &MappedSumEvaluator::new(|o: &i64| Ok(o * 3 - 7)),
+            MappedSumEvaluator::new(|o: &Value| {
+                o.binary(BinOp::Mul, &Value::from(3))?
+                    .binary(BinOp::Sub, &Value::from(7))
+            }),
+            || (vec![kept(5, &[1, -2, 1])], vec![kept(5, &[1, -2, 1])]),
+        );
+    }
+
+    #[test]
+    fn a_sum_mapped_to_none_starts_over() {
+        // `Die([1, 2]).pool(1).sum(map={1: None})`: `None * 0` is `TypeError` once 1 was not rolled.
+        let python = PyEvaluator(MappedSumEvaluator::new(|o: &Value| {
+            Ok(if *o == Value::from(1) {
+                Value::None
+            } else {
+                o.clone()
+            })
+        }));
+        let error = evaluate(&python, &[kept::<Value>(2, &[1])]).err();
+        assert!(matches!(error, Some(Error::WrongType(_))), "{error:?}");
+        // `Die([1]).pool(1).sum(map={1: None})`: the final state is `None`, which no die has as an outcome.
+        assert!(evaluate(&python, &[kept::<Value>(1, &[1])]).is_err());
+    }
+
+    #[test]
+    fn typed_keep_evaluator_agrees_with_python() {
+        for index in [None, Some(0), Some(1), Some(-1), Some(-3)] {
+            let index = index.map(Int::from);
+            let keep = |index: &Option<Int>| KeepEvaluator {
+                index: index.clone(),
+            };
+            typed_matches_kept(keep(&index), 4, &[1, 1, 1]);
+            // A count of -1 may cancel an element of the same outcome: only the first two are always there.
+            if index
+                .as_ref()
+                .is_none_or(|i| *i == Int::ZERO || *i == Int::from(-1))
+            {
+                typed_matches_kept(keep(&index), 4, &[1, -1, 2]);
+            }
+        }
+        // Too few elements: `IndexError`, typed and as Python.
+        let keep = || KeepEvaluator {
+            index: Some(Int::from(5)),
+        };
+        let short = |e: Error| matches!(e, Error::IndexOutOfRange(_));
+        assert!(evaluate(&keep(), &[kept::<i64>(4, &[1, 1])]).is_err_and(short));
+        assert!(evaluate(&PyEvaluator(keep()), &[kept::<Value>(4, &[1, 1])]).is_err_and(short));
+    }
+
+    #[test]
+    fn typed_comparison_evaluators_agree_with_python() {
+        use Comparison::*;
+        for comparison in [
+            IsProperSubset,
+            IsSubset,
+            IsProperSuperset,
+            IsSuperset,
+            IsEqualSet,
+            IsNotEqualSet,
+            IsDisjointSet,
+        ] {
+            for (left, right) in [(&[1, 1][..], &[1][..]), (&[1, -1], &[0, 2]), (&[], &[])] {
+                typed_matches_python_with(
+                    &ComparisonEvaluator(comparison),
+                    ComparisonEvaluator(comparison),
+                    || {
+                        (
+                            vec![kept(3, left), kept(3, right)],
+                            vec![kept(3, left), kept(3, right)],
+                        )
+                    },
+                );
+            }
+        }
     }
 }

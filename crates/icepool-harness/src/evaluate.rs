@@ -134,11 +134,11 @@ where
 pub fn evaluation(op: &str, p: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     match op {
-        "pool_sum" => die(SumEvaluator, &pools),
-        "pool_size" => die(SizeEvaluator, &pools),
-        "pool_empty" => die(EmptyEvaluator { any: false }, &pools),
-        "pool_any" => die(EmptyEvaluator { any: true }, &pools),
-        "pool_product_of_counts" => die(ProductOfCountsEvaluator, &pools),
+        "pool_sum" => die(PyEvaluator(SumEvaluator), &pools),
+        "pool_size" => die(PyEvaluator(SizeEvaluator), &pools),
+        "pool_empty" => die(PyEvaluator(EmptyEvaluator { any: false }), &pools),
+        "pool_any" => die(PyEvaluator(EmptyEvaluator { any: true }), &pools),
+        "pool_product_of_counts" => die(PyEvaluator(ProductOfCountsEvaluator), &pools),
         "pool_highest_outcome_and_count" => {
             die(PyEvaluator(HighestOutcomeAndCountEvaluator), &pools)
         }
@@ -185,7 +185,7 @@ pub fn expand(p: PValue, order: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     // `order != Order.Ascending` (an `IntEnum`, so `1` and `True` are ascending too).
     let ascending = value(order)? == Value::from(1);
-    die(ExpandEvaluator { ascending }, &pools)
+    die(PyEvaluator(ExpandEvaluator { ascending }), &pools)
 }
 
 /// `pool.largest_straight_and_outcome(priority)`.
@@ -230,7 +230,7 @@ pub fn keep_evaluate(p: PValue, index: PValue) -> Result<PValue, PErr> {
             ))
         }
     };
-    die(KeepEvaluator { index }, &pools)
+    die(PyEvaluator(KeepEvaluator { index }), &pools)
 }
 
 /// `pool.count_subset(divisor, empty_divisor=empty_divisor)`.
@@ -260,7 +260,7 @@ pub fn compare(op: &str, p: PValue, other: PValue) -> Result<PValue, PErr> {
         "not_equal_set" => Comparison::IsNotEqualSet,
         _ => return Err(PErr::Unimplemented(op.into())),
     };
-    die(ComparisonEvaluator(comparison), &[left, right])
+    die(PyEvaluator(ComparisonEvaluator(comparison)), &[left, right])
 }
 
 /// `EVALUATORS[name](*params).evaluate(*args, **kwargs)` (harness/catalogue/evaluators.py).
@@ -341,13 +341,11 @@ fn call_values(f: &Func, args: &[Value]) -> icepool_core::Result<Value> {
 pub fn sum_map(p: PValue, map: PValue) -> Result<PValue, PErr> {
     let pools = [method_self(p)?];
     match map {
-        PValue::Value(Value::None) => die(SumEvaluator, &pools),
+        PValue::Value(Value::None) => die(PyEvaluator(SumEvaluator), &pools),
         PValue::Func(f) => die(
-            MappedSumEvaluator {
-                map: move |o: &Value| {
-                    plain(f.call(vec![PValue::Value(o.clone())]).map_err(core_error)?)
-                },
-            },
+            PyEvaluator(MappedSumEvaluator::new(move |o: &Value| {
+                plain(f.call(vec![PValue::Value(o.clone())]).map_err(core_error)?)
+            })),
             &pools,
         ),
         // `{k: v for k, v in map.items()}`
@@ -581,8 +579,9 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
             (_, Some((comparison, reflected))) => {
                 // `self._compare(other, ...)`, NotImplemented on TypeError.
                 let attempt = |left: MExpr, other: PValue, comparison: Comparison| {
-                    implicit_convert(other)
-                        .and_then(|right| die(ComparisonEvaluator(comparison), &[left, right]))
+                    implicit_convert(other).and_then(|right| {
+                        die(PyEvaluator(ComparisonEvaluator(comparison)), &[left, right])
+                    })
                 };
                 match attempt(left, b.clone(), comparison) {
                     Err(e) if is_type_error(&e) => {
@@ -633,7 +632,7 @@ pub fn compare_operator(op: &str, a: PValue, b: PValue) -> Result<PValue, PErr> 
                         truth,
                     ));
                 }
-                match die(ComparisonEvaluator(comparison), &exprs) {
+                match die(PyEvaluator(ComparisonEvaluator(comparison)), &exprs) {
                     Ok(PValue::Die(d)) => Ok(PValue::DieWithTruth(d, truth)),
                     Ok(_) => Err(PErr::Unimplemented(
                         "a comparison result that is not a die".into(),
@@ -742,12 +741,14 @@ pub fn builtin_evaluate(
         if !simple(&kwargs) {
             return unsupported();
         }
-        return die(ComparisonEvaluator(comparison), &exprs()?);
+        return die(PyEvaluator(ComparisonEvaluator(comparison)), &exprs()?);
     }
     match &*name {
-        "SumEvaluator" if simple(&kwargs) => die(SumEvaluator, &exprs()?),
-        "SizeEvaluator" if simple(&kwargs) => die(SizeEvaluator, &exprs()?),
-        "ProductOfCountsEvaluator" if simple(&kwargs) => die(ProductOfCountsEvaluator, &exprs()?),
+        "SumEvaluator" if simple(&kwargs) => die(PyEvaluator(SumEvaluator), &exprs()?),
+        "SizeEvaluator" if simple(&kwargs) => die(PyEvaluator(SizeEvaluator), &exprs()?),
+        "ProductOfCountsEvaluator" if simple(&kwargs) => {
+            die(PyEvaluator(ProductOfCountsEvaluator), &exprs()?)
+        }
         "HighestOutcomeAndCountEvaluator" if simple(&kwargs) => {
             die(PyEvaluator(HighestOutcomeAndCountEvaluator), &exprs()?)
         }
@@ -779,7 +780,7 @@ pub fn builtin_evaluate(
                 Some(PValue::Value(Value::Bool(b))) => b,
                 Some(_) => return unsupported(),
             };
-            die(EmptyEvaluator { any }, &exprs()?)
+            die(PyEvaluator(EmptyEvaluator { any }), &exprs()?)
         }
         "ExpandEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
             // `reverse = order != Order.Ascending` in `final_outcome`.
@@ -787,7 +788,7 @@ pub fn builtin_evaluate(
                 None => true,
                 Some(order) => value(order)? == Value::from(1),
             };
-            die(ExpandEvaluator { ascending }, &exprs()?)
+            die(PyEvaluator(ExpandEvaluator { ascending }), &exprs()?)
         }
         "KeepEvaluator" if positional == 0 && ctor_kwargs.is_empty() => {
             let Some(index) = only(&kwargs, "index")? else {
@@ -798,7 +799,7 @@ pub fn builtin_evaluate(
                 Value::Int(i) => Some(i.into()),
                 _ => return unsupported(),
             };
-            die(KeepEvaluator { index }, &exprs()?)
+            die(PyEvaluator(KeepEvaluator { index }), &exprs()?)
         }
         "AllCountsEvaluator" if positional == 0 && kwargs.is_empty() => {
             let filter = match only(&ctor_kwargs, "filter")? {

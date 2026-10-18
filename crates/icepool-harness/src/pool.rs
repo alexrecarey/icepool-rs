@@ -22,6 +22,7 @@ use icepool_core::evaluator::keep::KeepEvaluator;
 use icepool_core::evaluator::MultisetSource;
 use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
 use icepool_core::operator::MultisetKeepIndex;
+use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::Error;
 use icepool_core::Order;
@@ -29,7 +30,10 @@ use icepool_core::{Deal, Die, Int, Pool, Value};
 
 /// `pool.sum()`.
 fn pool_sum(pool: Pool<Value>) -> Result<PValue, PErr> {
-    run(SumEvaluator, &[MExpr::Gen(KeepGen::Pool(pool))])
+    run(
+        PyEvaluator(SumEvaluator),
+        &[MExpr::Gen(KeepGen::Pool(pool))],
+    )
 }
 
 /// A Python int (or bool) argument, exactly. `None` for anything else.
@@ -410,15 +414,18 @@ pub fn pool_keep(pool: PValue, index: PValue) -> Result<PValue, PErr> {
             let i = i64::try_from(i).unwrap_or(i64::MAX);
             // The keep tuple (or its IndexError) first; then Python evaluates it into a Die.
             let kept = g.keep(&KeepIndex::Int(i))?;
-            run(KeepEvaluator { index: None }, &[MExpr::Gen(kept)])
+            run(
+                PyEvaluator(KeepEvaluator { index: None }),
+                &[MExpr::Gen(kept)],
+            )
         }
         (MExpr::Gen(g), None) if !g.has_negative_keeps() => {
             Ok(into_pvalue(MExpr::Gen(g.keep(&sequence_index(index)?)?)))
         }
         (_, Some(i)) => run(
-            KeepEvaluator {
+            PyEvaluator(KeepEvaluator {
                 index: Some(i.into()),
-            },
+            }),
             &[e],
         ),
         (_, None) => {

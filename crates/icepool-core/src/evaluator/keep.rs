@@ -1,11 +1,10 @@
 //! Port of icepool `evaluator/keep.py`.
 
-use super::basic::int;
-use super::{tuple_compared_with_int, Final, MultisetEvaluator};
+use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
 use crate::pool::Count;
-use crate::{Int, Value};
+use crate::Int;
 
 /// Produces the outcome at a given sorted index (`KeepEvaluator`).
 ///
@@ -17,17 +16,13 @@ pub struct KeepEvaluator {
     pub index: Option<Int>,
 }
 
-impl MultisetEvaluator<Value> for KeepEvaluator {
+/// Not a `CountFold`: `initial_state` reads the size.
+impl<O: crate::outcome::OutcomeOrder> MultisetEvaluator<O> for KeepEvaluator {
     /// `(result, remaining)`: the outcome found (or `None`), and how many elements are left to see before it.
-    type State = (Value, Int);
-    type Final = Value;
+    type State = (Option<O>, Int);
+    type Final = O;
 
-    fn initial_state(
-        &self,
-        order: Order,
-        _: &[Value],
-        sizes: &[Option<Int>],
-    ) -> Result<(Value, Int)> {
+    fn initial_state(&self, order: Order, _: &[O], sizes: &[Option<Int>]) -> Result<Self::State> {
         let remaining = match &self.index {
             None => Int::ONE,
             Some(index) if (order.value() > 0) != !index.is_negative() => match &sizes[0] {
@@ -38,7 +33,7 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
             Some(index) if !index.is_negative() => index + 1,
             Some(index) => -index,
         };
-        Ok((Value::None, remaining))
+        Ok((None, remaining))
     }
 
     /// Python passes a tuple size on to `initial_state`, which reads it only to count from the other end
@@ -46,9 +41,9 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
     fn initial_state_counts(
         &self,
         order: Order,
-        outcomes: &[Value],
+        outcomes: &[O],
         sizes: &[Option<Count>],
-    ) -> Result<(Value, Int)> {
+    ) -> Result<Self::State> {
         let size = match &sizes[0] {
             Some(Count::Int(size)) => Some(size.clone()),
             Some(Count::Tuple(_)) => {
@@ -71,47 +66,34 @@ impl MultisetEvaluator<Value> for KeepEvaluator {
         false
     }
 
-    /// `max(count, 0)` of a tuple count: `TypeError`.
-    fn next_state_values(
-        &self,
-        _: &(Value, Int),
-        _: Order,
-        _: &Value,
-        _: &[Value],
-    ) -> Result<Option<(Value, Int)>> {
-        Err(tuple_compared_with_int(">"))
-    }
-
     fn next_state(
         &self,
-        state: &(Value, Int),
+        state: &Self::State,
         _: Order,
-        outcome: &Value,
+        outcome: &O,
         counts: &[Int],
-    ) -> Result<Option<(Value, Int)>> {
+    ) -> Result<Option<Self::State>> {
         let (result, remaining) = state;
         let remaining = (remaining - counts[0].clone().max(Int::ZERO)).max(Int::ZERO);
-        let result = if remaining.is_zero() && *result == Value::None {
-            outcome.clone()
-        } else {
-            result.clone()
+        let result = match result {
+            None if remaining.is_zero() => Some(outcome.clone()),
+            result => result.clone(),
         };
         Ok(Some((result, remaining)))
     }
 
     fn final_outcome(
         &self,
-        final_state: &(Value, Int),
+        final_state: &Self::State,
         _: Order,
-        _: &[Value],
+        _: &[O],
         _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
+    ) -> Result<Final<O>> {
         match final_state {
-            (Value::None, remaining) => Err(Error::IndexOutOfRange(format!(
-                "Evaluation ended {} element(s) short of reaching the kept index.",
-                int(remaining)
+            (None, remaining) => Err(Error::IndexOutOfRange(format!(
+                "Evaluation ended {remaining} element(s) short of reaching the kept index."
             ))),
-            (result, _) => Ok(Final::Outcome(result.clone())),
+            (Some(result), _) => Ok(Final::Outcome(result.clone())),
         }
     }
 }

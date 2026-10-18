@@ -131,21 +131,21 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
     };
     let v = visitor;
     match name {
-        "sum" => v.visit(SumEvaluator),
-        "size" => v.visit(SizeEvaluator),
-        "product_of_counts" => v.visit(ProductOfCountsEvaluator),
-        "empty" => v.visit(EmptyEvaluator {
+        "sum" => v.visit(PyEvaluator(SumEvaluator)),
+        "size" => v.visit(PyEvaluator(SizeEvaluator)),
+        "product_of_counts" => v.visit(PyEvaluator(ProductOfCountsEvaluator)),
+        "empty" => v.visit(PyEvaluator(EmptyEvaluator {
             any: param(0)?.extract()?,
-        }),
-        "expand" => v.visit(ExpandEvaluator {
+        })),
+        "expand" => v.visit(PyEvaluator(ExpandEvaluator {
             ascending: param(0)?.extract()?,
-        }),
-        "keep" => v.visit(KeepEvaluator {
+        })),
+        "keep" => v.visit(PyEvaluator(KeepEvaluator {
             index: match param(0)? {
                 index if index.is_none() => None,
                 index => Some(count_from_py(index)?),
             },
-        }),
+        })),
         "highest_outcome_and_count" => v.visit(PyEvaluator(HighestOutcomeAndCountEvaluator)),
         "all_counts" => v.visit(PyEvaluator(AllCountsEvaluator {
             filter: from_py(param(0)?)?,
@@ -166,13 +166,15 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
             }))
         }
         "all_straights" => v.visit(PyEvaluator(AllStraightsEvaluator)),
-        "is_proper_subset" => v.visit(ComparisonEvaluator(Comparison::IsProperSubset)),
-        "is_subset" => v.visit(ComparisonEvaluator(Comparison::IsSubset)),
-        "is_proper_superset" => v.visit(ComparisonEvaluator(Comparison::IsProperSuperset)),
-        "is_superset" => v.visit(ComparisonEvaluator(Comparison::IsSuperset)),
-        "is_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsEqualSet)),
-        "is_not_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsNotEqualSet)),
-        "is_disjoint_set" => v.visit(ComparisonEvaluator(Comparison::IsDisjointSet)),
+        "is_proper_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsProperSubset))),
+        "is_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsSubset))),
+        "is_proper_superset" => v.visit(PyEvaluator(ComparisonEvaluator(
+            Comparison::IsProperSuperset,
+        ))),
+        "is_superset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsSuperset))),
+        "is_equal_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsEqualSet))),
+        "is_not_equal_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsNotEqualSet))),
+        "is_disjoint_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsDisjointSet))),
         // `(tie, order, limit, limit_pad)`: the order as its `Order` value, which is all `order != self._order`
         // compares.
         "argsort" => v.visit(ArgsortEvaluator {

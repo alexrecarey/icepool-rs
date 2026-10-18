@@ -504,18 +504,18 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
     };
     let v = visitor;
     match name {
-        "sum" => v.visit(SumEvaluator),
-        "size" => v.visit(SizeEvaluator),
-        "product_of_counts" => v.visit(ProductOfCountsEvaluator),
-        "empty" => v.visit(EmptyEvaluator { any: flag(0)? }),
-        "expand" => v.visit(ExpandEvaluator { ascending: flag(0)? }),
-        "keep" => v.visit(KeepEvaluator {
+        "sum" => v.visit(PyEvaluator(SumEvaluator)),
+        "size" => v.visit(PyEvaluator(SizeEvaluator)),
+        "product_of_counts" => v.visit(PyEvaluator(ProductOfCountsEvaluator)),
+        "empty" => v.visit(PyEvaluator(EmptyEvaluator { any: flag(0)? })),
+        "expand" => v.visit(PyEvaluator(ExpandEvaluator { ascending: flag(0)? })),
+        "keep" => v.visit(PyEvaluator(KeepEvaluator {
             index: match param(0)? {
                 Value::None => None,
                 Value::Int(i) => Some(i.into()),
                 _ => return Err(Error::Unported("a keep index that is not an int".into())).or_throw(),
             },
-        }),
+        })),
         "highest_outcome_and_count" => v.visit(PyEvaluator(HighestOutcomeAndCountEvaluator)),
         "all_counts" => v.visit(PyEvaluator(AllCountsEvaluator { filter: param(0)? })),
         "largest_count" => v.visit(PyEvaluator(LargestCountEvaluator)),
@@ -532,13 +532,13 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
             v.visit(PyEvaluator(LargestStraightAndOutcomeEvaluator { prioritize_highest: flag(0)? }))
         }
         "all_straights" => v.visit(PyEvaluator(AllStraightsEvaluator)),
-        "is_proper_subset" => v.visit(ComparisonEvaluator(Comparison::IsProperSubset)),
-        "is_subset" => v.visit(ComparisonEvaluator(Comparison::IsSubset)),
-        "is_proper_superset" => v.visit(ComparisonEvaluator(Comparison::IsProperSuperset)),
-        "is_superset" => v.visit(ComparisonEvaluator(Comparison::IsSuperset)),
-        "is_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsEqualSet)),
-        "is_not_equal_set" => v.visit(ComparisonEvaluator(Comparison::IsNotEqualSet)),
-        "is_disjoint_set" => v.visit(ComparisonEvaluator(Comparison::IsDisjointSet)),
+        "is_proper_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsProperSubset))),
+        "is_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsSubset))),
+        "is_proper_superset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsProperSuperset))),
+        "is_superset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsSuperset))),
+        "is_equal_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsEqualSet))),
+        "is_not_equal_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsNotEqualSet))),
+        "is_disjoint_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsDisjointSet))),
         // `(tie, order, limit, limit_pad)`.
         "argsort" => v.visit(ArgsortEvaluator {
             tie: match text(0)?.as_str() {
