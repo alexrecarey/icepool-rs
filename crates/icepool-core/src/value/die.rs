@@ -120,8 +120,6 @@ pub trait PyDie {
 
 impl PyDie for Die<Value> {
     fn cmp_die(&self, other: &Self) -> Result<Self> {
-        use crate::value::BinOp;
-        use crate::Value;
         let truth = Value::Bool(true);
         let mut data = Vec::new();
         // `None` is `==`, which has no `BinOp`.
@@ -142,8 +140,6 @@ impl PyDie for Die<Value> {
         cache: &mut Vec<crate::Value>,
         target: &crate::Value,
     ) -> Result<crate::Value> {
-        use crate::value::BinOp;
-        use crate::Value;
         let zero = Value::from(0);
         // `target = max(target, 0)`: keeps `target` unless `0 > target`.
         let target = if zero.binary(BinOp::Gt, target)?.truthy()? {
