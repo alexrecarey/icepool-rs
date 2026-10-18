@@ -5,6 +5,26 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Rust tests of the typed core (C7, design section 9.7).** Plain `cargo test -p icepool-core` needs no Python.
+  - `crates/icepool-core/tests/typed_vs_value.rs`: property tests, each typed `Die<i64>` path (operators,
+    comparisons, `sum_rolls`, `map`, clip/truncate/quantities, `Pool::evaluate` with keeps, `highest/lowest_single`)
+    against the same operation on `Die<Value>` (what the bindings run, so what the fixtures check), compared by
+    `Debug` spelling so `True` vs `1` counts; pools also against brute-force enumeration of every roll. Random
+    dice come from a seeded xorshift in the file, not proptest: proptest is not on the allowed-dependency list
+    (CLAUDE.md), and a fixed seed makes every failure reproduce by its case number. Rust `/` `%` truncate where
+    Python's `//` `%` floor, so those are compared on non-negative operands only.
+  - Unit tests (`#[cfg(test)]`) in die.rs, pool.rs, population.rs, map_tools/mod.rs, evaluator/{poker,basic,
+    comparison}.rs; `evaluator::test_util` (cfg(test)) builds `Value` pools for the Value-only evaluators.
+    Expected values are the oracle's answers, with the Python in a comment above each
+    (`PYTHONPATH=$ICEPOOL_ORACLE/src uv run python -c '...'`). `Value`'s `Display` is Python's `repr`
+    (`Fraction(7, 1)`, not `7`). Raw `evaluator::evaluate` returns finals in evaluation order, unsorted and
+    unmerged: build a die before comparing.
+  - Doctests: every method of `Die` (both impls) and the `Pool`, `Deck`, `Deal` accessors. Not covered: the
+    `PoolSource`/`MultisetSource`/`DealSource` plumbing, `Die::new`/`Deck::new` (their `DieArg` is
+    `#[doc(hidden)]`), `MultiDeal`, `Int`, `Order`, and the `#[doc(hidden)]` modules; task C7b.
+  - `cargo fmt` reformats files beyond yours (and the guard rejects any change to protected files): run
+    `rustfmt --edition 2021 <file>` on the files you touched instead, and `--check` a `mod.rs` first (it recurses).
+
 - **The JS package's documentation (C6b, design section 7).** In `crates/icepool-wasm/js`: `README.md` (the npm
   page), `docs/guide.md` (the guide; also shipped in the package), TSDoc on every public symbol, and the TypeDoc
   reference (`build.sh --docs` = `npm run docs`, config `typedoc.json`, output `docs/api/`, gitignored).
