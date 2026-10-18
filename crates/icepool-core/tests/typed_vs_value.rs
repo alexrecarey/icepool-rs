@@ -13,9 +13,10 @@ use icepool_core::evaluator::poker::{
     AllCountsEvaluator, LargestCountEvaluator, LargestStraightEvaluator,
 };
 use icepool_core::evaluator::{self, Final, MultisetEvaluator, MultisetSource, Order};
+use icepool_core::map_tools::{self, TransitionCache};
 use icepool_core::value::evaluators::IntoValue;
 use icepool_core::value::{matmul_dice, BinOp, UnOp};
-use icepool_core::{Die, Int, Outcome, Pool, Quantity, Result, Value};
+use icepool_core::{AgainEnd, Depth, Die, Int, Mapped, Outcome, Pool, Quantity, Result, Value};
 
 /// How many random cases each property tries.
 const CASES: usize = 300;
@@ -371,5 +372,110 @@ fn single_die_keeps_agree_with_pools() {
             pool.lowest(1).evaluate(&Sum).unwrap(),
             "{case}"
         );
+    });
+}
+
+#[test]
+fn reroll_and_filter_agree_with_value_masks() {
+    for_cases(9, |rng, case| {
+        let die = rng.die(-3, 3);
+        let threshold = rng.range(-3, 3);
+        let depth = match rng.range(0, 3) {
+            3 => Depth::Infinite,
+            n => Depth::Finite(n as u32),
+        };
+        let case = format!("case {case}: {die:?} reroll <= {threshold}, {depth:?}");
+        // The bindings compute the selection themselves, one flag per outcome, and call `reroll_where`.
+        let value = to_value(&die);
+        let mask: Vec<bool> = die.outcomes().map(|&x| x <= threshold).collect();
+        let unmask: Vec<bool> = mask.iter().map(|m| !m).collect();
+        match (
+            die.reroll(|&x| x <= threshold, depth),
+            value.reroll_where(&mask, depth),
+        ) {
+            (Ok(typed), Ok(value)) => assert_same(&typed, &value, &case),
+            (typed, value) => assert_eq!(typed.err(), value.err(), "{case}"),
+        }
+        match (
+            die.filter(|&x| x <= threshold, depth),
+            value.reroll_where(&unmask, depth),
+        ) {
+            (Ok(typed), Ok(value)) => assert_same(&typed, &value, &case),
+            (typed, value) => assert_eq!(typed.err(), value.err(), "{case}"),
+        }
+    });
+}
+
+#[test]
+fn explode_agrees_on_value_outcomes() {
+    for_cases(10, |rng, case| {
+        let die = rng.die(-2, 4);
+        let which = rng.range(-2, 4);
+        let depth = rng.range(0, 3) as u64;
+        let case = format!("case {case}: {die:?}.explode([{which}], depth={depth})");
+        for end in [AgainEnd::Zero, AgainEnd::Reroll, AgainEnd::Outcome(1)] {
+            let value_end = match &end {
+                AgainEnd::Outcome(o) => AgainEnd::Outcome(Value::from(*o)),
+                AgainEnd::Zero => AgainEnd::Zero,
+                _ => AgainEnd::Reroll,
+            };
+            let typed = die.explode(|&x| x == which, depth, end);
+            let value = to_value(&die).explode(|x| *x == Value::from(which), depth, value_end);
+            // A die that explodes on every outcome has no zero to end with: both raise.
+            match (typed, value) {
+                (Ok(typed), Ok(value)) => assert_same(&typed, &value, &case),
+                (typed, value) => assert_eq!(typed.err(), value.err(), "{case}"),
+            }
+        }
+    });
+}
+
+#[test]
+fn repeated_maps_agree_with_value_states() {
+    for_cases(11, |rng, case| {
+        let die = rng.die(0, 4);
+        let (step, cap) = (rng.range(1, 2), rng.range(3, 6));
+        let repeat = rng.range(1, 4) as u64;
+        let case =
+            format!("case {case}: {die:?}.map(lambda x: min(x + {step}, {cap}), repeat={repeat})");
+        // `lambda x: min(x + step, cap)`, typed and as the bindings run it.
+        let typed_step = |&x: &i64| Mapped::Outcome((x + step).min(cap));
+        let value_step = |x: &Value, _: usize| -> Result<Mapped<Value>> {
+            let next = x.binary(BinOp::Add, &Value::from(step))?;
+            Ok(Mapped::Outcome(Value::py_min(next, Value::from(cap))?))
+        };
+        let value_cache = || TransitionCache::new(value_step, vec![Quantity::ONE]);
+        let value = map_tools::map_repeat(&mut value_cache(), &to_value(&die), Some(repeat));
+        assert_same(
+            &die.map_repeat(typed_step, repeat).unwrap(),
+            &value.unwrap(),
+            &case,
+        );
+        let (value, time) =
+            map_tools::absorbing_markov_chain(&mut value_cache(), &to_value(&die)).unwrap();
+        assert_same(&die.map_to_absorption(typed_step).unwrap(), &value, &case);
+        assert_eq!(
+            die.mean_time_to_absorb(typed_step).unwrap(),
+            time.unwrap(),
+            "{case}"
+        );
+        // `map_and_time`: typed `(state, time)` pairs against Python's tuples.
+        let typed = die.map_and_time(typed_step, repeat).unwrap();
+        let value =
+            map_tools::map_and_time(&mut value_cache(), &to_value(&die), Some(repeat)).unwrap();
+        let typed: Vec<_> = typed
+            .items()
+            .iter()
+            .map(|((s, t), q)| {
+                (
+                    format!(
+                        "{:?}",
+                        Value::tuple(vec![Value::from(*s), Value::from(*t as i64)])
+                    ),
+                    q.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(typed, spelled(&value), "{case}");
     });
 }
