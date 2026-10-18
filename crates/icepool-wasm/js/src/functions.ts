@@ -8,7 +8,7 @@ import { Die, DieWithTruth, dictItems, opts, pyBool, unpacked, type AgainOptions
 import { IcepoolError } from "./errors.js";
 import type { MultisetExpression } from "./multiset.js";
 import { Handle, call, callWith, enc, kwargsText } from "./rpc.js";
-import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
+import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, pyTypeName, valueTruth, type Float, type Int, type Outcome } from "./values.js";
 import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { isTrap, wasm } from "./wasm.js";
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
@@ -415,7 +415,7 @@ function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: R
     const starred = star === null || star === undefined ? fn.length > extraArgs.length + 1 : pyBool(star);
     transition = (state, extra) => {
       const first = starred ? unpacked(state) : [state];
-      if (first === undefined) throw new IcepoolError("WrongType", "TypeError", "argument after * must be an iterable");
+      if (first === undefined) throw new IcepoolError("WrongType", "TypeError", `Value after * must be an iterable, not ${pyTypeName(state)}`);
       return hasKwargs ? fn(...first, ...extra, kwargs) : fn(...first, ...extra);
     };
   } else {

@@ -1,0 +1,3 @@
+{"program":{"op":"weights","items":[[1,2],[{"bool":true},3],[{"float":"1.0"},4]]},"expected":{"ok":true,"die":[[1,4]]}}
+{"program":{"op":"map","f":{"op":"fn","name":"mapping","params":[[[1,4],[{"bool":true},9]]]},"args":[{"op":"d","sides":4}],"star":null},"expected":{"ok":true,"die":[[2,1],[3,1],[4,1],[9,1]]}}
+{"program":{"op":"cdf_distance","a":{"op":"die","outcomes":[1]},"b":{"op":"tuple","items":[]},"stat":{"str":"cramer_von_mises"}},"expected":{"ok":false,"error":"AttributeError"}}

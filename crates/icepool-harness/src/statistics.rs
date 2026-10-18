@@ -7,10 +7,10 @@
 use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die, the_population};
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type, Key};
-use super::{PErr, PValue};
+use super::{raise, PErr, PValue};
 use icepool_core::population::{check_public_attr, Comparison, Data};
 use icepool_core::value::builtins::{getattr, getitem, Index};
-use icepool_core::{Die, Value};
+use icepool_core::{Die, Error, Value};
 
 /// An argument that must be a plain value (an outcome, a number): the generators never pass dice here.
 fn value(x: PValue) -> Result<Value, PErr> {
@@ -156,12 +156,31 @@ pub fn quantile(die: PValue, method: PValue, args: PValue) -> Result<PValue, PEr
 
 /// `getattr(a, stat)(b)` for `kolmogorov_smirnov` and `cramer_von_mises`.
 pub fn cdf_distance(a: PValue, b: PValue, stat: PValue) -> Result<PValue, PErr> {
-    let (a, b) = (the_die(a)?, the_die(b)?);
-    Ok(PValue::Value(match &value(stat)? {
-        Value::Str(s) if &**s == "kolmogorov_smirnov" => a.kolmogorov_smirnov(&b)?,
-        Value::Str(s) if &**s == "cramer_von_mises" => a.cramer_von_mises(&b)?,
+    let a = the_die(a)?;
+    let ks = match &value(stat)? {
+        Value::Str(s) if &**s == "kolmogorov_smirnov" => true,
+        Value::Str(s) if &**s == "cramer_von_mises" => false,
         _ => return Err(PErr::Unimplemented("this distance".into())),
-    }))
+    };
+    // A plain `other` (a tuple: `d.sequence(0)` is `()`) has no `probability`, but Python only asks it once per
+    // outcome of `sorted_union(self, other)`: with nothing in either, `max()` of nothing raises ValueError and
+    // `sum(..., start=Fraction(0))` is 0.
+    let b = match b {
+        b @ (PValue::Value(_) | PValue::List(_) | PValue::Tuple(_)) => {
+            let other = py_iter(b)?.into_iter().map(value).collect::<Result<Vec<_>, _>>()?;
+            let union = icepool_core::function::sorted_union([a.outcomes().collect::<Vec<_>>(), other.iter().collect()])?;
+            if union.is_empty() {
+                return if ks {
+                    raise(Error::InvalidArgument("max() iterable argument is empty".into()))
+                } else {
+                    Ok(PValue::Value(Value::Fraction(dashu_ratio::RBig::ZERO)))
+                };
+            }
+            return missing_attribute("only dice have this method");
+        }
+        b => the_die(b)?,
+    };
+    Ok(PValue::Value(if ks { a.kolmogorov_smirnov(&b)? } else { a.cramer_von_mises(&b)? }))
 }
 
 /// `die.marginals[index]`.

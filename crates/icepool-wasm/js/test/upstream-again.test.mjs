@@ -55,7 +55,7 @@ test("test_again_infinity", () => {
   assert.ok(dieEq(die, new Die([1, 2, 3, 4, 5, Infinity])));
 });
 
-test("test_owod", { todo: "API (task C6c): new Die(Map with an Again key, { againDepth }) throws 'a Map of quantities takes no times or again'" }, () => {
+test("test_owod", () => {
   const result = new Die(new Map([[0, 7n], [1, 2n], [Again.add(1), 1n]]), { againDepth: 3 });
   const subExpected = new Die(new Map([[-1, 7n], [0, 2n], [1, 1n]]));
   let expected = subExpected;
@@ -66,8 +66,14 @@ test("test_owod", { todo: "API (task C6c): new Die(Map with an Again key, { agai
   assert.ok(dieEq(result, expected));
 });
 
-// `is_additive` is an internal property of AgainExpression, not exposed by the JS API.
-test.skip("test_is_additive", () => {});
+test("test_is_additive", () => {
+  assert.ok(Again.isAdditive);
+  assert.ok(Again.add(Again).isAdditive);
+  assert.ok(Again.rmatmul(2).isAdditive);
+  assert.ok(!Again.rmul(2).isAdditive);
+  assert.ok(Again.rmatmul(d6).isAdditive);
+  assert.ok(!Again.rmatmul(d6.sub(2)).isAdditive);
+});
 
 for (const n of [0, 1, 2]) {
   test(`test_again_count[${n}]`, () => {

@@ -7,7 +7,7 @@ import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDe
 import type { MultisetExpression, Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
-import { map, mapAndTime, meanTimeToAbsorb, ops, stochasticRound, tupleize } from "./functions.js";
+import { map, mapAndTime, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
   Complex,
@@ -1842,6 +1842,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   kolmogorovSmirnov(other: Die): Fraction | number {
+    if (!(other instanceof Die)) return this.plainCdfDistance(other, true);
     const o = other.w;
     return this.stat((w) => w.kolmogorovSmirnov(o)) as Fraction | number;
   }
@@ -1854,8 +1855,19 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   cramerVonMises(other: Die): Fraction | number {
+    if (!(other instanceof Die)) return this.plainCdfDistance(other, false);
     const o = other.w;
     return this.stat((w) => w.cramerVonMises(o)) as Fraction | number;
+  }
+  /** A CDF distance to an `other` that is not a population (`d(3).sequence(0)` is `[]`), which has no
+   * `probability`: Python only asks it once per outcome of `sorted_union(self, other)`, so with nothing in either,
+   * `max()` of nothing raises (`ks`) or `sum(..., start=Fraction(0))` is 0. */
+  private plainCdfDistance(other: unknown, ks: boolean): Fraction {
+    if (sortedUnion(this.outcomes(), other as Outcome[]).length === 0) {
+      if (ks) throw new IcepoolError("InvalidArgument", "ValueError", "max() iterable argument is empty");
+      return new Fraction(0n, 1n);
+    }
+    throw new IcepoolError("MissingAttribute", "AttributeError", `'${pyTypeName(other)}' object has no attribute 'probability'`);
   }
   /** `Die.covariance(i, j)`: the covariance of elements `i` and `j` of tuple outcomes; a {@link Fraction} for int
    * (or Fraction) elements, a float otherwise.
