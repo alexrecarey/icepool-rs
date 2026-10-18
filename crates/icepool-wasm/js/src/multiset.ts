@@ -5,7 +5,7 @@
 import type { ExpressionBuilder, WasmDie, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import type { MultisetTupleExpression } from "./deck.js";
-import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, unpack, z as zDie, type Callback, type Comparison, type DieOutcomes, type Operand } from "./die.js";
+import { Die, DieWithTruth, d as dDie, dictItems, itemize, list, opts, pyBool, unpack, z as zDie, type Callback, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
 import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyFloatRepr, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
@@ -1018,6 +1018,46 @@ export class MultisetExpression extends Replayable {
   notEqualSet(other: MultisetArg): Die {
     return compare(this, other, "is_not_equal_set") ?? poolCompare(this, other, "not_equal_set");
   }
+  /** Python's `self == other`: a die of bools as {@link MultisetExpression.equalSet}, which also has a truth value
+   * ({@link DieWithTruth.truth}): whether the two are the same expression (Python's `self.equals(other)`, so
+   * `pool([1, 2]).eq([1, 2])` is not true: an array is no expression). As in Python, an error computing the die
+   * comes back only when the die is used. `other` that is no multiset (a number, `null`...) gives Python's
+   * identity fallback: `false`; an `AgainExpression`'s own `==` makes an expression.
+   *
+   * @example
+   * ```ts
+   * const p = d(6).pool(2);
+   * p.eq(p).truth(); //=> true
+   * p.eq(d(6).pool(2)).truth(); //=> true
+   * p.eq([1, 2]).truth(); //=> false
+   * pool([1, 2]).eq([2, 1]).items(); //=> [[true, 1n]]
+   * pool([1, 2]).eq(3); //=> false
+   * ```
+   */
+  eq(other: AgainExpression): AgainExpression;
+  eq(other: MultisetOperand): DieWithTruth;
+  eq(other: unknown): DieWithTruth | AgainExpression | boolean;
+  eq(other: unknown): DieWithTruth | AgainExpression | boolean {
+    return equality(this, other, false);
+  }
+  /** Python's `self != other`: as {@link MultisetExpression.eq}, with {@link MultisetExpression.notEqualSet}'s die
+   * and the opposite truth value; `true` for an `other` that is no multiset.
+   *
+   * @example
+   * ```ts
+   * const p = d(6).pool(2);
+   * p.ne(p).truth(); //=> false
+   * p.ne(d(6).pool(3)).truth(); //=> true
+   * pool([1, 2]).ne([1, 3]).items(); //=> [[true, 1n]]
+   * pool([1, 2]).ne(null); //=> true
+   * ```
+   */
+  ne(other: AgainExpression): AgainExpression;
+  ne(other: MultisetOperand): DieWithTruth;
+  ne(other: unknown): DieWithTruth | AgainExpression | boolean;
+  ne(other: unknown): DieWithTruth | AgainExpression | boolean {
+    return equality(this, other, true);
+  }
 
   // Sorting and lexicographic comparisons.
   /** `MultisetExpression.argsort(*args, order=Order.Descending, limit=None, limit_pad=None, tie)` (experimental):
@@ -1197,6 +1237,42 @@ function lexi(self: MultisetExpression, max: boolean, comparison: unknown, other
     : undefined;
   return native ?? (call(max ? "pool_leximax" : "pool_leximin", { pool: self, comparison, other: list(other), extra }) as Die);
 }
+/** `self == other` (`ne`: `!=`): `MultisetExpression.__eq__` / `__ne__`, i.e. `self._compare(other,
+ * IsEqualSetEvaluator, truth_value_callback=lambda: self.equals(other))` with `NotImplemented` on `TypeError`. */
+function equality(self: MultisetExpression, other: unknown, ne: boolean): DieWithTruth | AgainExpression | boolean {
+  const bridge = () => call("mx_compare", { a: self, o: ne ? "!=" : "==", b: list(other) }) as DieWithTruth;
+  let right: Input | undefined;
+  try {
+    right = isNative(self) ? implicit(other) : undefined;
+  } catch (e) {
+    // `ImplicitConversionError` (a `TypeError`): `NotImplemented`, so Python asks the other operand. An Again
+    // expression's `==` makes a bigger expression; nothing else knows multisets, so Python falls back to identity.
+    // (`Pool(die)`'s `ValueError` is no `TypeError`: it propagates.)
+    if (!(e instanceof IcepoolError) || e.pythonType !== "TypeError") throw e;
+    if (other instanceof AgainExpression) {
+      const operand = self as unknown as Operand;
+      return ne ? other.ne(operand) : other.eq(operand);
+    }
+    return ne;
+  }
+  if (right === undefined) return bridge();
+  // `self.equals(other)`: the same `hash_key` (only an expression has one that can match).
+  const truth = (isMultisetExpression(other) && sameExpression(self, other as Input)) !== ne;
+  const inputs = [self, right];
+  // In a multiset function's body the data callback gets a raw result, which it refuses.
+  if (inputs.some(hasParameter)) return DieWithTruth.failedWith(typeError("Did not resolve to a die."), truth);
+  let data: Die | undefined;
+  try {
+    data = evaluation(ne ? "is_not_equal_set" : "is_equal_set", [], inputs);
+  } catch (e) {
+    // Python computes the data lazily: its error comes back only when the die is used, leaving the truth value
+    // usable. (What the port lacks, or a bug in the core, is not Python's error: it is raised now.)
+    if (!(e instanceof IcepoolError) || e.kind === "Unported" || e.kind === "Panic") throw e;
+    return DieWithTruth.failedWith(e, truth);
+  }
+  return data === undefined ? bridge() : DieWithTruth.wrapTruth(data.w, truth);
+}
+
 /** A comparison evaluator (evaluator/comparison.py) of `self` and `other`, natively. */
 function compare(self: MultisetExpression, other: unknown, name: string): Die | undefined {
   return isNative(self) ? evaluationOf(name, [], self, other) : undefined;
@@ -1222,8 +1298,8 @@ function sumMap(map: unknown): (outcome: unknown) => unknown {
 /** poker.py `make_select_function(which)` for the core: `null` selects nothing; a function is called, its result
  * handed over as it is (the core takes its truth where Python does: `is_wild or ...` may never ask), except one
  * that is not a plain value (a die), whose truth is taken now; any other collection becomes the elements of
- * `frozenset(which)` (a mapping's keys), which the core hashes. */
-function selectFunction(which: unknown): unknown {
+ * `frozenset(which)` (a mapping's keys), which the core hashes. @internal */
+export function selectFunction(which: unknown): unknown {
   if (which === null || which === undefined) return null;
   if (typeof which === "function") {
     return (outcome: unknown) => {
@@ -2320,6 +2396,14 @@ function evaluation(name: string, params: unknown[], inputs: Input[]): Die | und
   if (!inputs.every(isNative)) return undefined;
   if (inputs.some(hasParameter)) return new RawResult({ kind: "builtin", name, params }, inputs) as unknown as Die;
   return Die.wrap(withInputs(inputs, (b) => b.evaluate(name, params, inputs.length)));
+}
+
+/** `evaluator.evaluate(*args)` of the core's built-in evaluator `name` (evaluate.rs `with_builtin`), the arguments
+ * implicitly converted; `undefined` if one is not native. For the fixtures' evaluator objects of the built-in
+ * classes (internal.ts `evaluateBuiltin`). @internal */
+export function builtinEvaluation(name: string, params: unknown[], args: readonly unknown[]): Die | undefined {
+  const inputs = implicitAll(args);
+  return inputs === undefined ? undefined : evaluation(name, params, inputs);
 }
 
 /** An evaluation of `self` and the others (implicitly converted). */

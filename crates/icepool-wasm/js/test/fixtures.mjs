@@ -162,6 +162,14 @@ const isList = (x) => x instanceof ip.List;
 const isIntValue = (x) => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
 const camel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 const ok = (value) => ({ value });
+
+/** `getattr(icepool.evaluator, cls)(*params, **dict(ctor)).evaluate(*args, **dict(kwargs))` natively, if it can be. */
+function builtinEvaluate(cls, params, ctor, kwargs, args) {
+  const pairs = (xs) => Array.isArray(xs) && xs.every((kv) => Array.isArray(kv) && kv.length === 2 && typeof kv[0] === "string");
+  if (typeof cls !== "string" || !Array.isArray(params) || !pairs(ctor) || !pairs(kwargs) || !Array.isArray(args)) return undefined;
+  const die = internal.evaluateBuiltin(cls, params, ctor, kwargs, args);
+  return die !== undefined && ok(die);
+}
 /** A sequence of `[key, value]` pairs (what `dict(...)` takes without raising). */
 const isPairs = (x) => Array.isArray(x) && x.every((kv) => Array.isArray(kv) && kv.length === 2);
 
@@ -196,7 +204,7 @@ const IDIOMATIC = {
   symbols: ({ x }) => (typeof x === "string" || isList(x)) && ok(ip.Symbols.from(x)),
   // `Die({k: v, ...})`: a JS Map, whose keys `Die` compares as Python's dict does.
   weights: ({ items }) => isPairs(items) && ok(new ip.Die(new Map(items))),
-  equals_self: ({ x }) => x instanceof ip.AgainExpression && ok(x.equals(x)),
+  equals_self: ({ x }) => (x instanceof ip.AgainExpression || isDie(x)) && ok(x.equals(x)),
   // The factories' own arity is checked by the core's catalogue (a TypeError). The "mapping" dict is a JS Map
   // (whose keys the core compares as Python's dict does).
   fn: ({ name, params }) => {
@@ -388,18 +396,25 @@ const IDIOMATIC = {
     isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
   weightless_evaluate: ({ expr, method }) =>
     isExpr(expr) && typeof method === "string" && MX_EVALUATIONS.has(method) && ok(expr[camel(method)]()),
-  // `a < b` and the like with an expression on the left: its subset comparisons (`==` / `!=` give a die with a
-  // truth value, which the API has no method for).
+  // `a < b` and the like with an expression on the left: its subset comparisons, or `==` / `!=` (a die with a
+  // truth value, or Python's identity fallback).
   mx_compare: ({ a, o, b }) => {
-    const methods = { "<": "lt", ">": "gt", "<=": "issubset", ">=": "issuperset" };
+    const methods = { "<": "lt", ">": "gt", "<=": "issubset", ">=": "issuperset", "==": "eq", "!=": "ne" };
     if (!(o in methods)) return undefined;
     if (isExpr(a)) return ok(a[methods[o]](b));
+    // A die converts the expression first: `Die([expr])`, Python's TypeError.
+    if (isDie(a) && isExpr(b)) return ok(a[{ "<": "lt", ">": "gt", "<=": "le", ">=": "ge", "==": "eq", "!=": "ne" }[o]](b));
     // A plain left operand's own operator returns NotImplemented: Python calls the expression's reflected one.
-    const reflected = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" }[o];
+    const reflected = { "<": ">", ">": "<", "<=": ">=", ">=": "<=", "==": "==", "!=": "!=" }[o];
     const plain = a === null || isList(a) || (Array.isArray(a) && !(a instanceof ip.MultisetExpression)) ||
       ["number", "bigint", "string", "boolean"].includes(typeof a) || a instanceof ip.Float || a instanceof ip.Fraction;
     return isExpr(b) && plain && ok(b[methods[reflected]](a));
   },
+  // The evaluator objects of the built-in classes, which the API has no counterpart for (internal.ts
+  // `evaluateBuiltin`; what it does not model stays on the bridge).
+  builtin_evaluate: ({ evaluator, params, ctor_kwargs, kwargs, args }) => builtinEvaluate(evaluator, params, ctor_kwargs, kwargs, args),
+  keep_evaluate: ({ pool, index }) => builtinEvaluate("KeepEvaluator", [], [], [["index", index]], [pool]),
+  straight_and_outcome_evaluate: ({ priority, arg }) => builtinEvaluate("LargestStraightAndOutcomeEvaluator", [priority], [], [], [arg]),
   mx_rfloordiv: ({ other, pool }) => isExpr(pool) && ok(pool.rfloordiv(other)),
   // `MultisetExpression.argsort(*args, ...)` called on the class: with an expression first, its method.
   argsort: ({ args, order, limit, limit_pad, tie }) =>
@@ -416,7 +431,9 @@ const IDIOMATIC = {
   // `Deck.__op__` takes any iterable: it counts an expression's items (dice).
   mx_binary: ({ a, o, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[o];
-    return (isExpr(a) || a instanceof ip.Deck) && m !== undefined && ok(a[m](b));
+    // A die converts the expression first: `Die([expr])`, Python's TypeError.
+    const dieLeft = isDie(a) && isExpr(b);
+    return (isExpr(a) || a instanceof ip.Deck || dieLeft) && m !== undefined && ok(a[m](b));
   },
   mx_counts: ({ expr, o, comparison, n }) => {
     if (!isExpr(expr)) return undefined;

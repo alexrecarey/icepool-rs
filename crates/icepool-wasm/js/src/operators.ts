@@ -1,8 +1,8 @@
 // Python's operators on any operands (`a + b` is `binary("add", a, b)`): the dispatch Python does between dice,
 // Again expressions and plain values. A die on either side is a die operation (die.ts), an Again expression on
 // either side a bigger expression (again.ts); two plain values are the core's `Value` operators; `Reroll` is an
-// enum member, which only has `==`. Pools, decks and multiset expressions still go through the bridge (tasks
-// C6j, C6l).
+// enum member, which only has `==`. Pools, decks and multiset expressions without a die still go through the
+// bridge (task C6l).
 
 import { AgainExpression } from "./again.js";
 import { Die } from "./die.js";

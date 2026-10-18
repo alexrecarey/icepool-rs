@@ -5,11 +5,11 @@ import { ip, assertDieEquals } from "./upstream.mjs";
 
 const { Pool, Die } = ip;
 
-test("test_pool_roll_eq", { todo: "API: no `MultisetExpression ==` (Python's `Pool.__eq__` gives a DieWithTruth comparing the pools as objects)" }, () => {
-  // Best effort: `equalSet` is the die part of Python's `==`; its truth (the pools' identity) is not exposed.
-  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).equalSet(new Pool([1, 2, 3, 4]))));
-  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).notEqualSet(new Pool([1, 1, 2, 2, 3, 3, 4, 4]))));
-  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).notEqualSet(ip.d(4).pool(1))));
+test("test_pool_roll_eq", () => {
+  // Python's `==` / `!=` of pools: a DieWithTruth whose truth compares the pools as objects (their hash keys).
+  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).eq(new Pool([1, 2, 3, 4]))));
+  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).ne(new Pool([1, 1, 2, 2, 3, 3, 4, 4]))));
+  assert.ok(ip.truth(new Pool([1, 2, 3, 4]).ne(ip.d(4).pool(1))));
 });
 
 test("test_pool_roll_sum", () => {

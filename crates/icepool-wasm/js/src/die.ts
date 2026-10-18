@@ -192,14 +192,17 @@ export const list = <T>(xs: T): T => (xs instanceof List ? xs : Array.isArray(xs
 const isInt = (x: unknown): x is Int => typeof x === "bigint" || Number.isInteger(x);
 
 /** `implicit_convert_to_die(x)`: a die as it is, `Reroll` the empty die, anything else `Die([x])` (a tuple holding
- * dice is a die of tuples). `undefined` for a pool, deck or multiset expression, whose own operators Python calls
- * (still the bridge's: tasks C6j, C6l). */
+ * dice is a die of tuples). `undefined` for a deck, whose own operators Python calls (still the bridge's: task
+ * C6l). */
 function nativeDie(x: unknown): WasmDie | undefined {
   if (x instanceof Die) return x.w;
   // A Map is Python's dict, which `Die([x])` cannot hash.
   if (x instanceof Map) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'dict'");
   if (x === Reroll || x === Restart) return wasm((w) => w.WasmDie.empty());
   if (isPlainValue(x)) return wasm((w) => w.WasmDie.single(x));
+  // `Die([expr])` cannot sort its one outcome (an expression's `<` is an evaluation, a die with no truth value):
+  // Python's `TypeError`, raised by the constructor.
+  if (isMultisetExpression(x)) return new Die([x as Outcome]).w;
   if (x instanceof Handle) return undefined;
   return new Die([x as Outcome]).w;
 }
@@ -1738,6 +1741,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   equals(other: unknown, { simplify = false }: { simplify?: boolean } = {}): boolean {
+    // `self is other` comes first: a die whose data raised (a lazy `==` result) still equals itself.
+    if (this === other) return true;
     if (!(other instanceof Die)) {
       // Python asks `isinstance(other, Die)` before looking at any data, even its own (this only checks that
       // the die was not freed).

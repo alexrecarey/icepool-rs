@@ -625,6 +625,25 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
             let lexi_tuple = compute_lexi_tuple_with_extra(&text(1)?, sort_order.value(), &text(2)?).or_throw()?;
             v.visit(PyEvaluator(LexiComparisonEvaluator { sort_order, lexi_tuple }))
         }
+        // `(sort_order, lexi_tuple)`: `LexiComparisonEvaluator().evaluate(..., sort_order=, lexi_tuple=)` given the
+        // five results directly (an `Order` value and five ints).
+        "lexi_tuple" => {
+            let Value::Int(order) = param(0)? else {
+                return Err(Error::Unported("a sort order that is not an int".into())).or_throw();
+            };
+            let sort_order = i64::try_from(&order).ok().and_then(Order::from_int);
+            let lexi_tuple = host::array_from(params.get(1).unwrap_or(&JsValue::NULL))
+                .iter()
+                .map(|x| match value_from_js(x) {
+                    Ok(Value::Int(i)) => i64::try_from(&i).ok(),
+                    _ => None,
+                })
+                .collect::<Option<Vec<i64>>>();
+            let (Some(sort_order), Some(&[a, b, c, d, e])) = (sort_order, lexi_tuple.as_deref()) else {
+                return Err(Error::Unported("lexi_tuple needs an order and five ints".into())).or_throw();
+            };
+            v.visit(PyEvaluator(LexiComparisonEvaluator { sort_order, lexi_tuple: (a, b, c, d, e) }))
+        }
         _ => Err(Error::Unported(format!("no built-in evaluator {name:?}"))).or_throw(),
     }
 }
