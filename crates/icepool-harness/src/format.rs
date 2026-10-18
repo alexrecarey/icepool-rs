@@ -68,6 +68,10 @@ pub fn format_probability_inverse(probability: PValue, args: PValue) -> Result<P
 
 /// `die.common_outcome_length()`: an int or `None`.
 pub fn common_outcome_length(die: PValue) -> Result<PValue, PErr> {
+    // A plain value (e.g. the `()` that `die.sequence(0)` is) has no such method.
+    if let PValue::Value(_) = die {
+        return attribute_error(&die, "common_outcome_length");
+    }
     let (d, _) = named_die(&die)?;
     Ok(PValue::Value(match outcome_length(d)? {
         Some(n) => Value::from(n as i64),

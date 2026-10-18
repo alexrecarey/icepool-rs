@@ -1,0 +1,6 @@
+{"program":{"op":"common_outcome_length","die":{"op":"die_sequence","die":{"op":"d","sides":4},"rolls":0}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"common_outcome_length","die":{"op":"die_sequence","die":{"op":"d","sides":4},"rolls":2}},"expected":{"ok":true,"value":2}}
+{"program":{"op":"common_outcome_length","die":3},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"common_outcome_length","die":{"str":"ab"}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"common_outcome_length","die":{"tuple":[1,2]}},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"common_outcome_length","die":{"op":"d","sides":6}},"expected":{"ok":true,"value":null}}

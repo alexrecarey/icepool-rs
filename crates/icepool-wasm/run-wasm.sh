@@ -26,8 +26,10 @@ STAMP="$PKG/icepool_wasm_bg.wasm"
 
 stale() {
   [ -f "$STAMP" ] || return 0
-  [ -n "$(find "$ROOT/crates/icepool-core/src" "$HERE/src" "$ROOT/Cargo.lock" "$HERE/Cargo.toml" \
-    "$ROOT/crates/icepool-core/Cargo.toml" -newer "$STAMP" -print -quit)" ]
+  # The runner (the `run` export) is icepool-harness's since C5b: its sources count too.
+  [ -n "$(find "$ROOT/crates/icepool-core/src" "$ROOT/crates/icepool-harness/src" "$HERE/src" "$ROOT/Cargo.lock" \
+    "$HERE/Cargo.toml" "$ROOT/crates/icepool-core/Cargo.toml" "$ROOT/crates/icepool-harness/Cargo.toml" \
+    -newer "$STAMP" -print -quit)" ]
 }
 
 if stale; then
