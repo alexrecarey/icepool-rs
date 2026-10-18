@@ -1,6 +1,7 @@
 //! `Again` for typed outcomes: an expression over `O: OutcomeArith` built with Rust's operators
 //! (`Again::new() + 1`), the dice made from such expressions in depth mode (`Die(..., again_depth=, again_end=)`,
-//! `die.map(..., again_depth=)`), and `Die.explode`, which is depth-mode `Again` (population/die.py).
+//! `die.map(..., again_depth=)`) and count mode (`Die(..., again_count=)`, a Markov chain over typed states), and
+//! `Die.explode`, which is depth-mode `Again` (population/die.py).
 //!
 //! The expression is the engine's [`AgainExpression`] over [`AgainOp`] (the arithmetic `OutcomeArith` has) and
 //! `DieArg<O>` (an operand is an outcome; once `Again` is replaced, a die). Python's `Again` takes any operator and
@@ -16,7 +17,9 @@ use super::{evaluate_agains_using_depth, AgainArg, AgainExpression};
 use crate::creation_args::DieArg;
 use crate::die::Die;
 use crate::error::{Error, Result};
-use crate::outcome::OutcomeArith;
+use crate::map_tools::{map_repeat, TransitionCache};
+use crate::outcome::{Outcome, OutcomeArith};
+use crate::Mapped;
 use crate::Quantity;
 
 /// The operations a typed [`Again`] expression applies: Python's `operator.add`, `sub`, `mul` and `neg`.
@@ -171,8 +174,11 @@ pub enum AgainEnd<O> {
     /// This die.
     Die(Die<O>),
     /// `icepool.Reroll`: an expression still holding an `Again` at the last level drops out, rerolling until an
-    /// outcome without `Again` comes up.
+    /// outcome without `Again` comes up. (Count mode: the rolls past the count are rolls of the outcomes that are
+    /// not `Again`.)
     Reroll,
+    /// `icepool.Restart` (count mode only): a roll that would pass the count restarts the whole roll.
+    Restart,
 }
 
 /// The function of an expression, applied to its evaluated arguments: outcomes as `OutcomeArith` has it, and
@@ -222,31 +228,24 @@ impl<O: OutcomeArith> Die<O> {
     ) -> Result<Self> {
         let (outcomes, times): (Vec<_>, Vec<_>) = outcomes
             .into_iter()
-            .map(|(outcome, quantity)| {
-                let outcome = match outcome {
-                    AgainOutcome::Again(again) => again.arg(),
-                    AgainOutcome::Outcome(o) => outcome_arg(o),
-                    AgainOutcome::Die(d) => AgainArg::Other(DieArg::Die(d)),
-                    AgainOutcome::Reroll => AgainArg::Other(DieArg::Reroll),
-                };
-                (outcome, quantity)
-            })
+            .map(|(outcome, quantity)| (outcome_or_again(outcome), quantity))
             .unzip();
         if !outcomes.iter().any(|x| matches!(x, AgainArg::Again(_))) {
-            let outcomes = outcomes
-                .into_iter()
-                .filter_map(|x| match x {
-                    AgainArg::Other(x) => Some(x),
-                    AgainArg::Again(_) => None,
-                })
-                .collect();
-            return Die::new(outcomes, times);
+            return Die::new(plain(outcomes), times);
         }
         let end = match end {
-            AgainEnd::Zero => Some(DieArg::Outcome(not_again_zero(&outcomes, &times)?)),
+            AgainEnd::Zero => Some(DieArg::Outcome(zero_outcome(&not_again_die(
+                &outcomes, &times,
+            )?)?)),
             AgainEnd::Outcome(o) => Some(DieArg::Outcome(o)),
             AgainEnd::Die(d) => Some(DieArg::Die(d)),
             AgainEnd::Reroll => None,
+            // Every outcome that is an expression raises this, so the first one does.
+            AgainEnd::Restart => {
+                return Err(Error::InvalidArgument(
+                    "Restart is not compatible with again_depth.".into(),
+                ))
+            }
         };
         let result = evaluate_agains_using_depth(
             &outcomes,
@@ -324,12 +323,154 @@ impl<O: OutcomeArith> Die<O> {
     }
 }
 
-/// `compute_not_again_die(outcomes, times).zero_outcome()`: the zero of the die of the outcomes that are not
-/// `Again` expressions (nor `Reroll`, nor an empty die: `outcome not in icepool.REROLL_TYPES` compares with `==`).
-fn not_again_zero<O: OutcomeArith>(
+/// A state of count mode's process: `(flat, not_again, again, index)`, the total so far, the rolls that ended a
+/// chain, the rolls still pending, and the number of steps taken.
+type CountState<O> = (O, i64, i64, u64);
+
+impl<O: Outcome + OutcomeArith> Die<O> {
+    /// `Die(outcomes, times, again_count=count, again_end=end)` (`evaluate_agains_using_count`): each `Again` is
+    /// rolled again, up to `count` rolls in total beyond the first; the rolls past that count as `end`
+    /// ([`AgainEnd::Zero`]: a zero, [`AgainEnd::Reroll`]: a roll of the outcomes that are not `Again`,
+    /// [`AgainEnd::Restart`]: the whole roll starts over). Only additive expressions (sums of `Again`s and
+    /// outcomes) are allowed: an [`Error::InvalidArgument`] otherwise, as Python's `ValueError`.
+    ///
+    /// ```
+    /// use icepool_core::{Again, AgainEnd, Die, Quantity};
+    /// // `Die([1, 2, 3 + Again], again_count=1)`: at most one extra roll.
+    /// let outcomes = vec![(1.into(), Quantity::ONE), (2.into(), Quantity::ONE), ((3i64 + Again::new()).into(), Quantity::ONE)];
+    /// let die = Die::with_again_count(outcomes, 1, AgainEnd::Zero).unwrap();
+    /// assert_eq!(die, Die::from_weights([(1, 3u32), (2, 3), (4, 1), (5, 1), (6, 1)]));
+    /// ```
+    pub fn with_again_count(
+        outcomes: Vec<(AgainOutcome<O>, Quantity)>,
+        count: u64,
+        end: AgainEnd<O>,
+    ) -> Result<Self> {
+        let (outcomes, times): (Vec<_>, Vec<_>) = outcomes
+            .into_iter()
+            .map(|(outcome, quantity)| (outcome_or_again(outcome), quantity))
+            .unzip();
+        if !outcomes.iter().any(|x| matches!(x, AgainArg::Again(_))) {
+            return Die::new(plain(outcomes), times);
+        }
+        let not_again_die = not_again_die(&outcomes, &times)?;
+        let zero = zero_outcome(&not_again_die)?;
+        let again_end_die = match end {
+            AgainEnd::Zero => Some(Die::single(zero.clone())),
+            AgainEnd::Outcome(o) => Some(Die::single(o)),
+            AgainEnd::Die(d) => Some(d),
+            AgainEnd::Reroll => Some(not_again_die.clone()),
+            AgainEnd::Restart => None,
+        };
+        // `make_step_outcome`, "add_flat, add_not_again, add_again": an expression adds its value with `Again`
+        // as zero, and leaves its count of `Again`s pending (the roll itself is done); anything else ends a chain.
+        let mut steps = Vec::with_capacity(outcomes.len());
+        for outcome in &outcomes {
+            steps.push(DieArg::Outcome(match outcome {
+                AgainArg::Again(expr) => {
+                    if !expr.is_additive() {
+                        return Err(Error::InvalidArgument(
+                            "again_count mode cannot be used with a non-additive AgainExpression."
+                                .into(),
+                        ));
+                    }
+                    let DieArg::Outcome(flat) =
+                        expr.evaluate(&DieArg::Outcome(zero.clone()), &call, 0)?
+                    else {
+                        unreachable!("an additive typed expression of outcomes is an outcome")
+                    };
+                    (flat, 0, again_count(expr) - 1)
+                }
+                AgainArg::Other(_) => (zero.clone(), 1, -1),
+            }));
+        }
+        let step_die = Die::new(steps, times)?;
+        let steps = step_die.items();
+        let restart = again_end_die.is_none();
+        let limit = count + 1;
+        // `step(flat, not_again, again, index, roll)`.
+        let step = |state: &CountState<O>, i: usize| -> Result<Mapped<CountState<O>>> {
+            let (flat, not_again, again, index) = state;
+            if *again == 0 || *index >= limit {
+                return Ok(Mapped::Outcome(state.clone()));
+            }
+            let (add_flat, add_not_again, add_again) = &steps[i].0;
+            let next = (
+                flat.try_add(add_flat)?,
+                not_again + add_not_again,
+                again + add_again,
+                index + 1,
+            );
+            if restart && next.3 as i128 + next.2 as i128 > limit as i128 {
+                return Ok(Mapped::Restart);
+            }
+            Ok(Mapped::Outcome(next))
+        };
+        let quantities = steps.iter().map(|(_, q)| q.clone()).collect();
+        let mut cache = TransitionCache::new(step, quantities);
+        let initial = Die::single((zero, 0, 1, 0));
+        let final_state = map_repeat(&mut cache, &initial, Some(limit))?;
+        // `finalize`: `flat + not_again @ not_again_die (+ again @ again_end_die)`.
+        let mut results = Vec::with_capacity(final_state.len());
+        let mut quantities = Vec::with_capacity(final_state.len());
+        for ((flat, not_again, again, _), quantity) in final_state.items() {
+            let add = |a: &Die<O>, b: &Die<O>| a.binary_operator(b, O::try_add);
+            let mut result = add(
+                &Die::single(flat.clone()),
+                &not_again_die.matmul(&[(*not_again, Quantity::ONE)])?,
+            )?;
+            if let Some(end) = &again_end_die {
+                result = add(&result, &end.matmul(&[(*again, Quantity::ONE)])?)?;
+            }
+            results.push(DieArg::Die(result));
+            quantities.push(quantity.clone());
+        }
+        Die::new(results, quantities)
+    }
+}
+
+/// `_again_count`: the number of `Again`s in an additive expression (its sums applied to 1 for each `Again` and 0
+/// for anything else).
+fn again_count<O>(expr: &AgainExpression<AgainOp, DieArg<O>>) -> i64 {
+    match expr {
+        AgainExpression::Again { .. } => 1,
+        AgainExpression::Apply { args, .. } => args
+            .iter()
+            .map(|arg| match arg {
+                AgainArg::Again(a) => again_count(a),
+                AgainArg::Other(_) => 0,
+            })
+            .sum(),
+    }
+}
+
+/// An outcome given to `Die()` with `Again`, as the engine's argument.
+fn outcome_or_again<O>(outcome: AgainOutcome<O>) -> AgainArg<AgainOp, DieArg<O>> {
+    match outcome {
+        AgainOutcome::Again(again) => AgainArg::Again(again.0),
+        AgainOutcome::Outcome(o) => outcome_arg(o),
+        AgainOutcome::Die(d) => AgainArg::Other(DieArg::Die(d)),
+        AgainOutcome::Reroll => AgainArg::Other(DieArg::Reroll),
+    }
+}
+
+/// The outcomes, none of them `Again`, as `Die()` takes them.
+fn plain<O>(outcomes: Vec<AgainArg<AgainOp, DieArg<O>>>) -> Vec<DieArg<O>> {
+    outcomes
+        .into_iter()
+        .filter_map(|x| match x {
+            AgainArg::Other(x) => Some(x),
+            AgainArg::Again(_) => None,
+        })
+        .collect()
+}
+
+/// `compute_not_again_die(outcomes, times)`: the die of the outcomes that are not `Again` expressions (nor
+/// `Reroll`, nor an empty die: `outcome not in icepool.REROLL_TYPES` compares with `==`).
+fn not_again_die<O: OutcomeArith>(
     outcomes: &[AgainArg<AgainOp, DieArg<O>>],
     times: &[Quantity],
-) -> Result<O> {
+) -> Result<Die<O>> {
     let (outcomes, times): (Vec<_>, Vec<_>) = outcomes
         .iter()
         .zip(times)
@@ -345,8 +486,12 @@ fn not_again_zero<O: OutcomeArith>(
             "Die.__new__() missing 1 required positional argument: 'outcomes'".into(),
         ));
     }
-    // `die.zero().outcomes()[0]`.
-    Ok(Die::new(outcomes, times)?.zero()?.min_outcome()?.clone())
+    Die::new(outcomes, times)
+}
+
+/// `die.zero_outcome()`: `die.zero().outcomes()[0]`.
+fn zero_outcome<O: OutcomeArith>(die: &Die<O>) -> Result<O> {
+    Ok(die.zero()?.min_outcome()?.clone())
 }
 
 #[cfg(test)]
@@ -498,6 +643,112 @@ mod tests {
         ));
         // `d(2).map(lambda x: Again + 1, again_depth=1, again_end=0)`
         assert_eq!(all_again(AgainEnd::Outcome(0)).unwrap(), die(&[(2, 4)]));
+    }
+
+    /// `Die(outcomes, times, again_count=count, again_end=end)` of plain outcomes and an expression.
+    fn count_mode(
+        outcomes: Vec<AgainOutcome<i64>>,
+        times: &[u32],
+        count: u64,
+        end: AgainEnd<i64>,
+    ) -> Result<Die<i64>> {
+        let outcomes = outcomes
+            .into_iter()
+            .zip(times.iter().map(|&t| Quantity::from(t)))
+            .collect();
+        Die::with_again_count(outcomes, count, end)
+    }
+
+    #[test]
+    fn count_mode_with_each_kind_of_end() {
+        let twice = || (3i64 + Again::new() + Again::new()).into();
+        // `Die([1, 2, 3 + Again + Again], again_count=2, again_end=icepool.Restart)`
+        let restarted = count_mode(
+            vec![1.into(), 2.into(), twice()],
+            &[1, 1, 1],
+            2,
+            AgainEnd::Restart,
+        );
+        assert_eq!(
+            restarted.unwrap(),
+            die(&[(1, 9), (2, 9), (5, 1), (6, 2), (7, 1)])
+        );
+        // ... `again_end=icepool.Reroll`
+        let rerolled = count_mode(
+            vec![1.into(), 2.into(), twice()],
+            &[1, 1, 1],
+            2,
+            AgainEnd::Reroll,
+        );
+        let want = die(&[
+            (1, 144),
+            (2, 144),
+            (5, 16),
+            (6, 32),
+            (7, 16),
+            (9, 8),
+            (10, 24),
+            (11, 24),
+            (12, 8),
+            (13, 1),
+            (14, 4),
+            (15, 6),
+            (16, 4),
+            (17, 1),
+        ]);
+        assert_eq!(rerolled.unwrap(), want);
+        // `Die([1, 2, 3 + Again + Again], again_count=3, again_end=10)`
+        let ended = count_mode(
+            vec![1.into(), 2.into(), twice()],
+            &[1, 1, 1],
+            3,
+            AgainEnd::Outcome(10),
+        );
+        let want = die(&[
+            (1, 27),
+            (2, 27),
+            (5, 3),
+            (6, 6),
+            (7, 3),
+            (18, 2),
+            (19, 4),
+            (20, 2),
+            (40, 3),
+            (41, 3),
+            (62, 1),
+        ]);
+        assert_eq!(ended.unwrap(), want);
+        // `Die([1, Reroll, 3 + Again], [1, 1, 2], again_count=1, again_end=d(2))`: `Reroll` ends a chain as a
+        // step, but is not among the outcomes rolled.
+        let outcomes = vec![1.into(), AgainOutcome::Reroll, (3i64 + Again::new()).into()];
+        let mixed = count_mode(outcomes, &[1, 1, 2], 1, AgainEnd::Die(d(2)));
+        assert_eq!(mixed.unwrap(), die(&[(1, 4), (4, 2), (7, 1), (8, 1)]));
+    }
+
+    #[test]
+    fn count_mode_agrees_with_depth_mode_for_one_again() {
+        // `Die([1, 2, 3, 4, 5, 6 + Again], again_count=2)` is `d(6).explode(depth=2)`.
+        let outcomes = (1..=5)
+            .map(AgainOutcome::from)
+            .chain([(6i64 + Again::new()).into()])
+            .collect();
+        let counted = count_mode(outcomes, &[1; 6], 2, AgainEnd::Zero).unwrap();
+        assert_eq!(
+            counted,
+            d(6).explode(|&x| x == 6, 2, AgainEnd::Zero).unwrap()
+        );
+    }
+
+    #[test]
+    fn modes_refuse_what_python_refuses() {
+        // `Die([1, 2 * Again], again_count=1)`, `Die([1, 2 * Again], again_depth=1, again_end=icepool.Restart)`
+        let outcomes = || vec![1.into(), (2i64 * Again::new()).into()];
+        let counted = count_mode(outcomes(), &[1, 1], 1, AgainEnd::Zero);
+        assert!(matches!(counted, Err(Error::InvalidArgument(m)) if m.contains("non-additive")));
+        let quantities =
+            |o: Vec<AgainOutcome<i64>>| o.into_iter().map(|o| (o, Quantity::ONE)).collect();
+        let depth = Die::with_again_depth(quantities(outcomes()), 1, AgainEnd::Restart);
+        assert!(matches!(depth, Err(Error::InvalidArgument(m)) if m.contains("Restart")));
     }
 
     #[test]
