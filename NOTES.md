@@ -93,8 +93,37 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6i, C6j, C6k, then C6l (removing the bridge: the
+- **The TypeScript API (C6, design section 6).** Rest in C6j, C6k, then C6l (removing the bridge: the
   rest of C6g); the docs are C6b.
+  - **C6i (the keep family, the to-pool methods, expression and deck arguments).** No call site in die.ts,
+    functions.ts, keep.ts or to-pool.ts reaches the bridge any more (stack-tagged tally over every fixture, as in
+    C6g below; what is left is multiset.ts / deck.ts / evaluator.ts: C6j, C6k).
+    - `src/keep.ts` (population/keep.py and Die.highest/lowest/middle/keep/keepSlice): Python's slices on the core's
+      `keepDropSlice`, `canonical_slice` in BigInts, the single highest/lowest on `WasmDie.keepSingle(rolls, highest)`
+      / free `keepSingleOf(dice, highest)` (src/api/to_pool.rs; it takes the dice over, so pass `die.w.copy()`), the
+      rest `pool(...).slice(start, stop).sum()`. Non-int `rolls` / `keep` / `drop` are Unported, as in the runner.
+      The free functions' one argument is Python's `arg0` iterable: `pyLen` first (TypeError), then a die's or deck's
+      outcomes, a Map's keys, `unpack`; `middle` hands its one argument itself to `pool(...)` (a die: ValueError).
+    - `src/to-pool.ts`: `mapToPoolOf` (map_to_pool: `transition_and_star`, `iter_cartesian_product`, `Reroll` drops,
+      an expression as it is, else `new Pool(result)`, then `mixtureOf`), explode/reroll on the core's
+      `explodeCounts` / `rerollComposition`. Their results remember the old bridge call (`native(null, make, bridge)`)
+      in case a node not moved yet needs a handle (C6l removes that). `functions.ts` `bindKwargs` is gone.
+    - **Arguments.** `cartesianItems(arg)` (functions.ts) is `_items_for_cartesian_product`: a die's or deck's items,
+      a multiset expression's `expand().items()`. `map` expands expressions first (as function.py does); the
+      transition caches (map(repeat), mapAndTime, meanTimeToAbsorb) and mapToPool expand lazily, which gives the same.
+      `new Die(...)`: a deck is a mapping (its items as a die), a tuple holding decks their Deck of tuples, a multiset
+      expression the TypeError `Counts` raises unless its weight is 0 (then dropped: zero weights leave
+      `weighted_lcm` alone); a tuple holding an expression is Unported (no core outcome holds one). `tupleize` /
+      `vectorize` (`cartesianProduct`) make a Deck of decks (the deck's own constructor, as deck.ts imports
+      functions.ts), dice and decks mixed are Python's TypeError, expressions expand among dice and stay elements
+      otherwise. `Deck.toOneHot` is the population's, made a deck. The public types are unchanged (they do not
+      advertise decks or expressions to `tupleize` & co.).
+    - **The runner** was wrong where the new fixtures looked (now as Python): map_to_pool expands expression args,
+      `Die([pool])` raises TypeError (ops/dice.rs `new_die`), a tuple of decks in `Die(...)` (map.rs `tupleize`),
+      `middle(die / deck / int)`, `middle(keep=None)`, `highest(deck)`.
+    - Adapter (test/fixtures.mjs): highest/lowest/middle take any `args` (Python's `arg0`), to_one_hot decks,
+      cartesian_product -> tupleize/vectorize. Tests: test/keep-to-pool.test.mjs (each checks no bridge call),
+      test/upstream-map-to-pool.test.mjs (map_to_pool_test.py); fixtures/c6i/edge-cases.jsonl.
   - **C6h (what documenting found).** Tests: `test/discrepancies.test.mjs` (one test per item, expected values from
     the oracle); fixtures `fixtures/c6h/edge-cases.jsonl` (what the runner sees: messages are not compared by the
     fixtures, the API test checks them).

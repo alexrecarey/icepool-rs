@@ -4,7 +4,7 @@
 // together). The arithmetic of the pool compositions is the core's (src/api/to_pool.rs); here are Python's calling
 // conventions and the pools each composition stands for, as in the runner (crates/icepool-harness/src/to_pool.rs).
 
-import { Die, isOptions, list, pyBool, unpack, type PoolRepl, type Which } from "./die.js";
+import { Die, list, opts, pyBool, unpack, type PoolRepl, type Which } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { cartesianItems, jointItems, mappingGet, notARepl, unexpectedKeyword, MAPPING_LAMBDA } from "./functions.js";
 import { MultisetExpression, Pool, mixtureOf, native } from "./multiset.js";
@@ -15,9 +15,9 @@ import { wasm } from "./wasm.js";
 
 const unported = (what: string) => new IcepoolError("Unported", "NotImplementedError", what);
 
-/** `icepool.map_to_pool(repl, *args, star=star, **kwargs)`: `repl` (`qualname` names it in Python's `TypeError`
- * for a keyword argument it does not take, when it is the identity lambda of `Die.map_to_pool`) called with every
- * joint outcome of the arguments. `bridge` is the bridge call the result stands for. @internal */
+/** `icepool.map_to_pool(repl, *args, star=star, **kwargs)`: `repl` (a function, a Map, or `Die.map_to_pool`'s
+ * identity lambda) called with every joint outcome of the arguments. `bridge` is the bridge call the result stands
+ * for. @internal */
 export function mapToPoolOf(
   repl: PoolRepl | typeof IDENTITY,
   args: readonly unknown[],
@@ -92,8 +92,7 @@ const typeError = (message: string) => new IcepoolError("WrongType", "TypeError"
 /** `die.map_to_pool(repl, *extra_args, star=star, **kwargs)`: `icepool.map_to_pool(repl, die, ...)`, where a missing
  * `repl` is `lambda x: x` (the outcomes are the pools' contents). @internal */
 export function dieMapToPool(die: Die, repl: PoolRepl | null, rest: readonly unknown[]): MultisetExpression {
-  const [args, options] = splitOptions(rest);
-  const { star = null, ...kwargs } = options;
+  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
   const bridge = () => {
     const [bound, boundStar] = bindForBridge(repl, args.length + 1, star, kwargs, "Die.map_to_pool.<locals>.<lambda>");
     return call("die_map_to_pool", { die, f: bound, args: List.from(args), star: boundStar });
@@ -103,19 +102,12 @@ export function dieMapToPool(die: Die, repl: PoolRepl | null, rest: readonly unk
 
 /** `icepool.map_to_pool(repl, *args, star=, **kwargs)` of the API's arguments. @internal */
 export function mapToPool(repl: PoolRepl, rest: readonly unknown[]): MultisetExpression {
-  const [args, options] = splitOptions(rest);
-  const { star = null, ...kwargs } = options;
+  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
   const bridge = () => {
     const [bound, boundStar] = bindForBridge(repl, args.length, star, kwargs);
     return call("map_to_pool", { f: bound, args: List.from(args), star: boundStar });
   };
   return mapToPoolOf(repl, args, star, kwargs, bridge);
-}
-
-/** Splits a trailing options object off the arguments. */
-function splitOptions(rest: readonly unknown[]): [unknown[], { star?: unknown; [kwarg: string]: unknown }] {
-  const last = rest[rest.length - 1];
-  return isOptions(last) ? [rest.slice(0, -1), last] : [[...rest], {}];
 }
 
 /** `repl` with Python's `**kwargs` bound, for the bridge's copy of a result (which calls `repl` with none): a

@@ -6,18 +6,16 @@
 
 import { Die, dictItems, pyLen, unpack } from "./die.js";
 import { IcepoolError } from "./errors.js";
-import { isDeck, pool, type MultisetExpression } from "./multiset.js";
+import { isDeck, pool } from "./multiset.js";
 import { binary } from "./operators.js";
 import { AgainExpression } from "./again.js";
-import { type Int, type Outcome } from "./values.js";
+import { type Ellipsis, type Int, type Outcome } from "./values.js";
 import { wasm } from "./wasm.js";
 
 /** Python's `isinstance(x, int)` (a bool is one). */
 const isPyInt = (x: unknown): x is Int | boolean =>
   typeof x === "bigint" || typeof x === "boolean" || (typeof x === "number" && Number.isInteger(x));
 
-/** An int argument as a BigInt (a bool as 0 or 1). */
-const big = (x: Int | boolean): bigint => (typeof x === "boolean" ? BigInt(x) : BigInt(x));
 
 const valueError = (message: string) => new IcepoolError("InvalidArgument", "ValueError", message);
 const unported = (what: string) => new IcepoolError("Unported", "NotImplementedError", what);
@@ -54,7 +52,7 @@ function canonicalSlice([start, stop]: Bounds, length: bigint): [bigint, bigint]
 /** A number of rolls: an int, as the runner takes it (Python would go on with a float until `pool(rolls)`). */
 function rollsCount(rolls: unknown): bigint {
   if (!isPyInt(rolls)) throw unported("non-int rolls");
-  return big(rolls);
+  return BigInt(rolls);
 }
 
 /** `die._highest_single(rolls)` (`highest`) / `die._lowest_single(rolls)`: roll this die several times and keep the
@@ -90,8 +88,9 @@ export function dieKeep(die: Die, rolls: Int | readonly Int[], index: Int | read
     if (index === null || index === undefined) {
       throw valueError("If the number of rolls is an integer, an index argument must be provided.");
     }
-    const kept = die.pool(rolls).keep(index as Int);
-    return isPyInt(index) ? kept : (kept as unknown as MultisetExpression).sum();
+    const rolled = die.pool(rolls);
+    if (isPyInt(index)) return rolled.keep(index as Int);
+    return rolled.keep(index as readonly (Int | typeof Ellipsis)[]).sum();
   }
   if (index !== null && index !== undefined) throw valueError("Only one index sequence can be given.");
   return die.pool(pyLen(rolls)).keep(rolls as readonly Int[]).sum();
