@@ -74,7 +74,6 @@ dependencies = [
  "dashu-int",
  "dashu-ratio",
  "rustc-hash",
- "serde_json",
 ]
 
 [[package]]
@@ -84,6 +83,17 @@ dependencies = [
  "dashu-base",
  "dashu-int",
  "dashu-ratio",
+ "icepool-core",
+ "icepool-khepri",
+ "rustc-hash",
+ "serde_json",
+]
+
+[[package]]
+name = "icepool-khepri"
+version = "0.1.0"
+dependencies = [
+ "dashu-int",
  "icepool-core",
  "rustc-hash",
  "serde_json",
@@ -107,6 +117,7 @@ dependencies = [
  "dashu-ratio",
  "icepool-core",
  "icepool-harness",
+ "icepool-khepri",
  "serde_json",
  "wasm-bindgen",
 ]

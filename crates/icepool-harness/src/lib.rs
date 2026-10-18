@@ -275,8 +275,8 @@ pub fn call(op: &str, args: Vec<(&str, PValue)>) -> Result<PValue, PErr> {
 #[cfg(feature = "khepri")]
 fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
     match (m.len(), m.get("input")) {
-        (2, Some(input)) => Ok(PValue::Die(icepool_core::khepri::engine_values(
-            &icepool_core::khepri::Input::from_json(input)?,
+        (2, Some(input)) => Ok(PValue::Die(icepool_khepri::engine_values(
+            &icepool_khepri::Input::from_json(input)?,
         )?)),
         _ => raise(Error::WrongType("expected arguments [\"input\"]".into())),
     }

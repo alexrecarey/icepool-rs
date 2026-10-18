@@ -22,10 +22,12 @@ dashu-int = "0.6"
 dashu-ratio = "0.6"
 # Only wasm-bindgen itself: the few JS globals we need (JSON, BigInt, Reflect) are declared below, not via js-sys.
 wasm-bindgen = "0.2"
+# khepri's engine, for `calculate` (feature `khepri`).
+icepool-khepri = { path = "../icepool-khepri", optional = true }
 
 [dev-dependencies]
 # The unit tests of `run` and `calculate` run in every test build, whatever the features (src/lib.rs).
-icepool-core = { path = "../icepool-core", features = ["khepri"] }
+icepool-khepri = { path = "../icepool-khepri" }
 icepool-harness = { path = "../icepool-harness" }
 
 [features]
@@ -33,7 +35,7 @@ icepool-harness = { path = "../icepool-harness" }
 # The `run` export, test-only: run-wasm.sh drives the fixtures and the fuzzer through it.
 runner = []
 # The `calculate` export: khepri's engine, for khepri's own build (build.sh).
-khepri = ["icepool-core/khepri", "icepool-harness/khepri"]
+khepri = ["dep:icepool-khepri", "icepool-harness/khepri"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

@@ -11,15 +11,5 @@ dashu-base = "0.6"
 dashu-int = "0.6"
 dashu-ratio = "0.6"
 rustc-hash = "2"
-# The library itself has no JSON: only khepri's engine input (`khepri`) reads it.
-# arbitrary_precision: exact big integers in khepri's `rolls`.
-serde_json = { version = "1", features = ["arbitrary_precision"], optional = true }
 
-[dev-dependencies]
-serde_json = { version = "1", features = ["arbitrary_precision"] }
-
-[features]
-# None default: a plain build of this crate is the library alone.
-# khepri's f2f engine (src/khepri.rs): application code on the typed core, not part of the library. For the
-# runner's `khepri` node and icepool-wasm's `calculate`. It moves into its own crate in task C2f.
-khepri = ["dep:serde_json"]
+# No features: the library alone. khepri's engine is its own crate since C2f (crates/icepool-khepri).

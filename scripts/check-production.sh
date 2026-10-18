@@ -4,7 +4,7 @@
 # and symbols, and fails if any test, fixture, runner, harness or JSON-program code is in them:
 #
 #   1. dependency graph: icepool-py and icepool-wasm (as built alone, which is how maturin and wasm-pack build them)
-#      depend on neither icepool-harness nor serde_json, and use icepool-core without its `khepri` feature;
+#      depend on neither icepool-harness, serde_json nor icepool-khepri (khepri's engine);
 #   2. wheel contents: no test, fixture, harness, catalogue, run-facade or program files;
 #   3. the extension module holds no harness, runner (panic locations embed source paths, so any linked runner code
 #      shows: `icepool-harness`, and `src/program/`, its old home in icepool-core) or serde_json strings, and no
@@ -80,7 +80,7 @@ check_tree() {
   shift 2
   tree="$(cargo tree -p "$pkg" -e normal,features --prefix none "$@" 2>&1)" || { fail "cargo tree -p $pkg: $tree"; return; }
   echo "  $pkg: $(grep -c ' v[0-9]' <<< "$tree") normal dependency lines"
-  grep -q 'icepool-core feature "khepri"' <<< "$tree" && fail "$pkg turns on icepool-core's khepri feature"
+  grep -q 'icepool-khepri v' <<< "$tree" && fail "$pkg has icepool-khepri (khepri's engine)"
   local pattern
   for pattern in 'serde_json v' 'icepool-harness v'; do
     if grep -q "$pattern" <<< "$tree"; then

@@ -1,11 +1,9 @@
-//! `khepri::calculate_json` (the WASM build's entry point) against khepri-f2f's `f2f.calculate` itself.
+//! `icepool_khepri::calculate_json` (the WASM build's entry point) against khepri-f2f's `f2f.calculate` itself.
 //!
 //! khepri_calculate.json holds 40 engine inputs from the khepri sweep generator (harness/grammar/khepri.py) with
 //! what `f2f.calculate` returned for each on the oracle. The khepri sweep checks the exact die; this checks the
 //! last step too: `rolls` exactly (it passes 2**53) and every `chance` to the bit.
-#![cfg(feature = "khepri")]
-
-use icepool_core::khepri::calculate_json;
+use icepool_khepri::calculate_json;
 use serde_json::Value;
 
 #[test]

@@ -7,8 +7,8 @@
 //!   language in, its JSON result out. `run-wasm.sh` drives it so every fixture and fuzz run can go through WASM.
 //! - `calculate(engineInput)` (feature `khepri`, `khepri.rs`): khepri's engine, the drop-in for `f2f.calculate`.
 //!
-//! Their unit tests run in every test build (`cfg(test)`), where the dev-dependencies on icepool-core and
-//! icepool-harness turn on the khepri features they need.
+//! Their unit tests run in every test build (`cfg(test)`), where the dev-dependencies on icepool-khepri and
+//! icepool-harness (with its default `khepri`) bring in what they need.
 //!
 //! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`. The panic hook installed at
 //! start-up keeps its message; the TypeScript API (js/src/wasm.ts) then calls `recover()` and throws an

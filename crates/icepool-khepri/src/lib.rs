@@ -17,16 +17,14 @@ use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 use serde_json::{json, Map, Value as Json};
 
-use crate::again::AgainEnd;
-use crate::counts::Counts;
-use crate::evaluator::{evaluate, Final, MultisetEvaluator};
-use crate::keep_tuple::{highest_slice, KeepIndex};
-use crate::order::Order;
-use crate::outcome::{OutcomeArith, OutcomeOrder};
-use crate::pool::MultisetSource;
-use crate::value::ratio_to_f64;
-use crate::Int;
-use crate::{d, Die, DieArg, Error, Pool, Quantity, Result, Value};
+use icepool_core::counts::Counts;
+use icepool_core::evaluator::{evaluate, Final, MultisetEvaluator, MultisetSource};
+use icepool_core::keep_tuple::{highest_slice, KeepIndex};
+use icepool_core::value::ratio_to_f64;
+use icepool_core::{
+    d, AgainEnd, Die, DieArg, Error, Int, Order, OutcomeArith, OutcomeOrder, Pool, Quantity,
+    Result, Value,
+};
 
 /// The roll's outcome: `(a_crit, a_hit, b_crit, b_hit)`.
 pub type Roll = [i64; 4];

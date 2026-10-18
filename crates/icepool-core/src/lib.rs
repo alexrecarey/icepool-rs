@@ -71,9 +71,6 @@ pub mod interrupt;
 pub mod keep;
 #[doc(hidden)]
 pub mod keep_tuple;
-#[cfg(feature = "khepri")]
-#[doc(hidden)]
-pub mod khepri;
 #[doc(hidden)]
 pub mod map_tools;
 #[doc(hidden)]

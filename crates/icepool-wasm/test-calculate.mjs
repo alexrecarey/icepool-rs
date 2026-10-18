@@ -1,5 +1,5 @@
 // calculate() through the node WASM build against what khepri-f2f's f2f.calculate returned on the oracle
-// (crates/icepool-core/tests/khepri_calculate.json: 40 inputs): rolls exactly, every chance to the bit.
+// (crates/icepool-khepri/tests/khepri_calculate.json: 40 inputs): rolls exactly, every chance to the bit.
 //   node crates/icepool-wasm/test-calculate.mjs <node package dir>   (run-wasm.sh --test builds it and runs this)
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -15,7 +15,7 @@ const here = path.dirname(new URL(import.meta.url).pathname);
 
 // rolls passes 2**53, where JSON.parse would round: keep its source text (node >= 21 passes it to the reviver).
 const cases = JSON.parse(
-  readFileSync(path.join(here, "../icepool-core/tests/khepri_calculate.json"), "utf8"),
+  readFileSync(path.join(here, "../icepool-khepri/tests/khepri_calculate.json"), "utf8"),
   (key, value, context) => (key === "rolls" ? BigInt(context.source) : value),
 );
 assert.equal(cases.length, 40);

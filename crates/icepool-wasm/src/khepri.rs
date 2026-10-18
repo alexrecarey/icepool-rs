@@ -32,7 +32,7 @@ pub fn calculate(engine_input: &JsValue) -> Result<JsValue, JsError> {
         .ok_or_else(|| JsError::new("TypeError: the engine input is not a JSON object"))?;
     let input: Json = serde_json::from_str(&text).map_err(|e| JsError::new(&e.to_string()))?;
     let out =
-        icepool_core::khepri::calculate_json(&input).map_err(|e| JsError::new(&e.to_string()))?;
+        icepool_khepri::calculate_json(&input).map_err(|e| JsError::new(&e.to_string()))?;
     let js =
         json_parse(&out.to_string()).map_err(|_| JsError::new("calculate: result is not JSON"))?;
     let rolls = &out["rolls"];
