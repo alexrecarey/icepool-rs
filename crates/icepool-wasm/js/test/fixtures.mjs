@@ -352,7 +352,9 @@ const IDIOMATIC = {
   pool_middle: ({ pool, keep, tie }) => isKeep(pool) && ok(pool.middle(keep, { tie })),
   pool_keep: ({ pool, index }) => isExpr(pool) && ok(pool.keep(index)),
   pool_index: ({ pool, index }) => isExpr(pool) && ok(pool.at(index)),
-  pool_slice: ({ pool, start, stop, step }) => isExpr(pool) && ok(pool.slice(start, stop, step)),
+  // A multiset tuple expression's `__getitem__` with a slice: some of its multisets.
+  pool_slice: ({ pool, start, stop, step }) =>
+    (isExpr(pool) || pool instanceof ip.MultisetTupleExpression) && ok(pool.slice(start, stop, step)),
   pool_info: ({ pool }) => pool instanceof ip.Pool && ok(pool.info()),
   pool_mul: ({ pool, n }) => isExpr(pool) && ok(pool.mul(n)),
   pool_neg: ({ pool }) => isExpr(pool) && ok(pool.neg()),
@@ -400,10 +402,11 @@ const IDIOMATIC = {
     isList(args) && args.length > 0 && isExpr(args[0]) && ok(args[0].argsortGrouped(...args.slice(1), { order, limit })),
   pool_leximin: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximin(comparison, other, extra)),
   pool_leximax: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximax(comparison, other, extra)),
-  mx_str: ({ expr }) => isExpr(expr) && ok(String(expr)),
+  mx_str: ({ expr }) => (isExpr(expr) || expr instanceof ip.Deck) && ok(String(expr)),
+  // `Deck.__op__` takes any iterable: it counts an expression's items (dice).
   mx_binary: ({ a, o, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[o];
-    return isExpr(a) && m !== undefined && ok(a[m](b));
+    return (isExpr(a) || a instanceof ip.Deck) && m !== undefined && ok(a[m](b));
   },
   mx_counts: ({ expr, o, comparison, n }) => {
     if (!isExpr(expr)) return undefined;

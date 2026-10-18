@@ -1577,20 +1577,19 @@ export function native<T>(self: Input | null, make: () => T | undefined, bridge:
   return made;
 }
 
-/** The class of a native deal: deck.ts's `Deal`, which registers itself (deck.ts imports this module). */
-let dealClass: typeof KeepGenerator = KeepGenerator;
+type Class = abstract new (...args: never[]) => object;
 
-/** Registers deck.ts's `Deal`. @internal */
-export function registerDealClass(cls: typeof KeepGenerator): void {
-  dealClass = cls;
-}
+/** deck.ts's classes, which register themselves there (deck.ts imports this module, so this one cannot import
+ * them). */
+const deckClasses: { Deal: typeof KeepGenerator; Deck: Class; MultisetTupleExpression: Class } = {
+  Deal: KeepGenerator,
+  Deck: class {},
+  MultisetTupleExpression: class {},
+};
 
-/** deck.ts's `MultisetTupleExpression`, which registers itself. */
-let tupleExpressionClass: abstract new (...args: never[]) => object = class {};
-
-/** Registers deck.ts's `MultisetTupleExpression`. @internal */
-export function registerTupleExpressionClass(cls: abstract new (...args: never[]) => object): void {
-  tupleExpressionClass = cls;
+/** Registers deck.ts's `Deal`, `Deck` and `MultisetTupleExpression`. @internal */
+export function registerDeckClasses(classes: typeof deckClasses): void {
+  Object.assign(deckClasses, classes);
 }
 
 /** `len()` of a native multiset tuple expression; `undefined` for one only the bridge holds. */
@@ -1610,12 +1609,12 @@ function tupleLen(x: TupleExpressionLike): number | undefined {
 }
 
 /** Whether `x` is a native multiset tuple expression. */
-const isTupleExpression = (x: Input): boolean => x instanceof tupleExpressionClass;
+const isTupleExpression = (x: unknown): boolean => x instanceof deckClasses.MultisetTupleExpression;
 
 /** A keep generator of the core as an expression: a `Pool`, a `Deal`, or a `KeepGenerator` for a compound keep.
  * @internal */
 export function generator(g: WasmGenerator): KeepGenerator {
-  return (g.isPool() ? Pool : g.isDeal() ? dealClass : KeepGenerator).native({ kind: "generator", g });
+  return (g.isPool() ? Pool : g.isDeal() ? deckClasses.Deal : KeepGenerator).native({ kind: "generator", g });
 }
 
 /** A hand of a native multiset tuple expression: `MultisetTupleIndex(child, index=index)`. @internal */
@@ -1679,9 +1678,10 @@ function keepCountsOperator(x: Input, comparison: string, n: Int): Expression {
  * `ImplicitConversionError` (a `TypeError`). */
 function implicit(x: unknown): Input | undefined {
   if (x instanceof MultisetExpression) return isNative(x) ? x : undefined;
-  if (x instanceof tupleExpressionClass) return isNative(x as TupleExpressionLike) ? (x as TupleExpressionLike) : undefined;
+  if (isTupleExpression(x)) return isNative(x as TupleExpressionLike) ? (x as TupleExpressionLike) : undefined;
   if (Array.isArray(x) || typeof x === "string") return poolOf(x, 1);
-  if (x instanceof Die) throw valueError(`A Pool cannot be constructed with a ${x.constructor.name} argument.`);
+  // A die or deck is a mapping, which `Pool` refuses.
+  if (x instanceof Die || x instanceof deckClasses.Deck) throw notAPool(x);
   // An `AgainExpression` is neither a mapping nor a sequence; nor is a number.
   if (x instanceof AgainExpression || x === null || x === undefined || ["number", "bigint", "boolean"].includes(typeof x) ||
     x instanceof Float || x instanceof Fraction || x instanceof Complex) {
@@ -1704,8 +1704,11 @@ function poolOf(dice: unknown, times: unknown): Pool | undefined {
   return g === undefined ? undefined : Pool.native({ kind: "generator", g });
 }
 
+/** `Pool(die)`, `Pool(deck)`, `Pool(multi_deal)`: refused. */
+const notAPool = (x: object) => valueError(`A Pool cannot be constructed with a ${x.constructor.name} argument.`);
+
 function poolGenerator(dice: unknown, times: unknown): WasmGenerator | undefined {
-  if (dice instanceof Die) throw valueError(`A Pool cannot be constructed with a ${dice.constructor.name} argument.`);
+  if (dice instanceof Die || dice instanceof deckClasses.Deck || isTupleExpression(dice)) throw notAPool(dice as object);
   if (!(Array.isArray(dice) || typeof dice === "string" || dice instanceof Map)) return undefined;
   // Pools, decks and expressions among the dice: the bridge's.
   const keys = dice instanceof Map ? [...dice.keys()] : [...dice];
@@ -2210,7 +2213,7 @@ function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown)
   // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
   // `MultisetTupleIndex`es (`range(len(target))`), whose hashes (of `(type, index)`) no outcome's matches, so nothing
   // is in it.
-  if (target instanceof tupleExpressionClass) {
+  if (isTupleExpression(target)) {
     if (tupleLen(target as TupleExpressionLike) === undefined) return undefined;
     return operator([x], ["MultisetFilterOutcomes", {}, invert], (b) => b.filterSet(invert, []), { str: filterStr(invert) });
   }

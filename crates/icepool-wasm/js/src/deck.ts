@@ -25,8 +25,7 @@ import {
   keepTupleBounded,
   mixtureOf,
   native,
-  registerDealClass,
-  registerTupleExpressionClass,
+  registerDeckClasses,
   tupleIndex,
   type TupleNode,
 } from "./multiset.js";
@@ -970,8 +969,6 @@ export class Deal extends KeepGenerator {
   }
 }
 
-registerDealClass(Deal);
-
 /** A multiset tuple expression: several hands (a `MultiDeal`, a tuple parameter of a multiset function, a slice
  * of either). `hand(i)` is one hand (Python's `x[i]`), `slice(...)` some of them.
  *
@@ -1180,7 +1177,7 @@ registerKind("multi_deal", (h) => {
     wasm((w) => w.release(h));
   }
 });
-registerTupleExpressionClass(MultisetTupleExpression);
+registerDeckClasses({ Deal, Deck, MultisetTupleExpression });
 
 // A tuple parameter or slice of the bridge's own tracing: only the bridge holds it.
 registerKind("tuple_expr", (h) => new MultisetTupleExpression(HANDLE, h));
