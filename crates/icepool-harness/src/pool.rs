@@ -514,6 +514,10 @@ pub fn pool_middle(pool: PValue, keep: PValue, tie: PValue) -> Result<PValue, PE
         MExpr::Gen(g) => g,
         _ => return missing_attribute("object has no attribute 'middle'"),
     };
+    // `keep < 0` with `keep=None`.
+    if matches!(keep, PValue::Value(Value::None)) {
+        return wrong_type("'<' not supported between instances of 'NoneType' and 'int'");
+    }
     let keep = exact_int(&keep, "keep")?;
     let tie = match &tie {
         PValue::Value(Value::Str(s)) => match &**s {
@@ -589,9 +593,23 @@ pub fn die_keep_slice(
 
 /// `icepool.middle(args, keep=keep, tie=tie, default=default)` with the dice (or outcomes) in one iterable.
 pub fn middle(args: PValue, keep: PValue, tie: PValue, default: PValue) -> Result<PValue, PErr> {
-    // `len(args) == 0`, before anything else looks at the arguments.
+    // `len(args) == 0`, before anything else looks at the arguments (then `Pool(args)` refuses a die or a deck).
     let empty = match &args {
         PValue::List(a) | PValue::Tuple(a) => a.is_empty(),
+        PValue::Die(d) | PValue::DieWithTruth(d, _) => d.is_empty(),
+        PValue::Deck(d) => d.items().is_empty(),
+        // Strs, tuples, Vectors and Symbols have a length.
+        PValue::Value(
+            v @ (Value::Str(_) | Value::Tuple(_) | Value::Vector(_) | Value::Symbols(_)),
+        ) => {
+            return Err(PErr::Unimplemented(format!(
+                "middle() of a {}",
+                v.type_name()
+            )))
+        }
+        PValue::Value(v) => {
+            return wrong_type(format!("object of type '{}' has no len()", v.type_name()))
+        }
         _ => return Err(PErr::Unimplemented("middle() of this argument".into())),
     };
     if empty {
@@ -764,10 +782,11 @@ pub fn highest_lowest(
     default: PValue,
 ) -> Result<PValue, PErr> {
     let args = match args {
-        // `len(args)`: a die has one, but iterating it gives its outcomes.
+        // `len(args)`: a die (or a deck) has one, but iterating it gives its outcomes.
         args @ (PValue::List(_)
         | PValue::Tuple(_)
         | PValue::Die(_)
+        | PValue::Deck(_)
         | PValue::Value(Value::Str(_) | Value::Tuple(_))) => py_iter(args)?,
         PValue::Value(v) => {
             return wrong_type(format!("object of type '{}' has no len()", v.type_name()))

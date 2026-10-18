@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use super::catalogue::Func;
 use super::expression::{add_inner, as_expression, binary_op, MExpr};
-use super::map::{arg_items, call, select, star_arg, the_die};
+use super::map::{arg_items, call, expand_arg, select, star_arg, the_die};
 use super::ops::wrong_type;
 use super::pool::{die_pool, pool, pool_highest_lowest, KeepGen};
 use super::{raise, PErr, PValue};
@@ -49,9 +49,12 @@ pub fn map_to_pool(f: PValue, args: PValue, star: PValue) -> Result<PValue, PErr
         PValue::Func(mapping) => (mapping, false),
         _ => return wrong_type("repl must be a callable or a mapping."),
     };
-    // Unlike `map`, multiset expressions among the args are not expanded: `iter_cartesian_product` passes them
-    // as they are.
-    let items: Vec<_> = args.into_iter().map(arg_items).collect();
+    // `iter_cartesian_product` expands a multiset expression into the items of its `expand()`
+    // (`_items_for_cartesian_product`).
+    let items: Vec<_> = args
+        .into_iter()
+        .map(|arg| expand_arg(arg).map(arg_items))
+        .collect::<Result<_, _>>()?;
     mixture_of_pools(f, star, &items)
 }
 

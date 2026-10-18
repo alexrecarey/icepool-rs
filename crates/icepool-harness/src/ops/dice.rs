@@ -193,13 +193,27 @@ pub(crate) fn new_die(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, P
             return Ok(d.clone());
         }
     }
-    let args: Vec<DieArg<Value>> = objects.into_iter().map(die_arg).collect::<Result<_, _>>()?;
-    let quantities = args
-        .iter()
-        .zip(times)
-        .map(|(a, t)| weight(a, t))
-        .collect::<Result<_, _>>()?;
-    Ok(PValue::Die(Die::new(args, quantities)?))
+    // A multiset expression is an outcome no die can sort: `Counts` raises once the weights are merged, unless its
+    // zero weight drops it first (a zero weight leaves the other scale factors alone).
+    let mut unsortable = false;
+    let mut args = Vec::with_capacity(objects.len());
+    let mut quantities = Vec::with_capacity(objects.len());
+    for (x, t) in objects.into_iter().zip(times) {
+        let multiset = matches!(x, PValue::Pool(_) | PValue::Deal(_) | PValue::MultiDeal(_));
+        if multiset || matches!(x, PValue::Expr(_)) {
+            let w = weight(&DieArg::Reroll, t)?;
+            unsortable |= !w.is_zero();
+            continue;
+        }
+        let arg = die_arg(x)?;
+        quantities.push(weight(&arg, t)?);
+        args.push(arg);
+    }
+    let die = Die::new(args, quantities)?;
+    if unsortable {
+        return wrong_type("Items do not appear to be sortable.");
+    }
+    Ok(PValue::Die(die))
 }
 
 /// `creation_args.itemize(keys, times)`: a sequence of keys and one multiplier per key (a Python number, checked

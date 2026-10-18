@@ -2491,6 +2491,8 @@ function mixture(inners: readonly unknown[]): Expression | undefined {
 /** `generator.middle(keep, tie=tie)`. */
 function middle(x: MultisetExpression, keep: unknown, tie: unknown): MultisetExpression | undefined {
   const g = generatorOf(x);
+  // `keep < 0` with `keep=None`.
+  if (g !== undefined && keep === null) throw typeError("'<' not supported between instances of 'NoneType' and 'int'");
   if (g === undefined || !isIntArg(keep)) return undefined;
   const [start, stop] = wasm((w) => w.middleSlice(g.keepSize(), intOf(keep), tie)) as (Int | null)[];
   return keepSlice(x, start, stop);

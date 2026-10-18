@@ -216,16 +216,27 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
     {
         return missing_attribute("'RerollType' object has no attribute 'values'");
     }
-    if !items.iter().any(|x| matches!(x, PValue::Die(_))) {
+    let (dice, decks) = (
+        items.iter().any(|x| matches!(x, PValue::Die(_))),
+        items.iter().any(|x| matches!(x, PValue::Deck(_))),
+    );
+    if dice && decks {
+        return wrong_type(
+            "Arguments to vector() of type Population must all be Die or all be Deck, not a mixture of the two.",
+        );
+    }
+    if !dice && !decks {
         // A tuple holding a list or a nested tuple of dice: an unhashable or die-valued outcome.
         return Err(PErr::Unimplemented(
             "tuple outcomes holding lists or dice".into(),
         ));
     }
+    // A deck of tuples is a mapping to `expand_arg` too, with the same products of quantities as a die's.
     let mut parts = Vec::with_capacity(items.len());
     for x in items {
         parts.push(match x {
             PValue::Die(d) => d.items().to_vec(),
+            PValue::Deck(d) => d.items().to_vec(),
             PValue::Value(v) => vec![(v, Quantity::ONE)],
             _ => {
                 return Err(PErr::Unimplemented(
