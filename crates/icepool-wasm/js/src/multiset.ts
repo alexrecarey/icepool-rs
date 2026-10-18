@@ -333,6 +333,65 @@ export class MultisetExpression extends Replayable {
     return mxBinary(this, "^", other);
   }
 
+  // The reflected operators: `[1, 2] + pool` is `pool.radd([1, 2])`. Python calls them when the left operand has no
+  // operator for multisets: a sequence (an array or a string), a mapping, or a multiset tuple expression (whose
+  // counts, tuples, then flow into the operator). A number or `null` on the left is Python's TypeError. A die,
+  // deck or Again expression has operators of its own: use those (`die.add(pool)`).
+
+  /** Python's `other + self` (`__radd__`): {@link MultisetExpression.additiveUnion} of the two, `other` first (on
+   * a pool or a deal, `self.additiveUnion(other)`: the same multiset).
+   *
+   * @example
+   * ```ts
+   * pool([2, 3]).radd([1, 2]).expand().items(); //=> [[[1, 2, 2, 3], 1n]]
+   * ```
+   */
+  radd(other: MultisetOperand): MultisetExpression {
+    return mxReflected(this, "+", other);
+  }
+  /** Python's `other - self` (`__rsub__`): {@link MultisetExpression.difference} of `other` and this, negative
+   * counts set to zero.
+   *
+   * @example
+   * ```ts
+   * pool([2]).rsub([1, 2, 2]).expand().items(); //=> [[[1, 2], 1n]]
+   * pool([1]).rsub(3); //=> throws TypeError
+   * ```
+   */
+  rsub(other: MultisetOperand): MultisetExpression {
+    return mxReflected(this, "-", other);
+  }
+  /** Python's `other & self` (`__rand__`): {@link MultisetExpression.intersection} of `other` and this.
+   *
+   * @example
+   * ```ts
+   * pool([2, 2, 3]).rand([1, 2, 2]).expand().items(); //=> [[[2, 2], 1n]]
+   * ```
+   */
+  rand(other: MultisetOperand): MultisetExpression {
+    return mxReflected(this, "&", other);
+  }
+  /** Python's `other | self` (`__ror__`): {@link MultisetExpression.union} of `other` and this.
+   *
+   * @example
+   * ```ts
+   * pool([2, 3]).ror([1, 2, 2]).expand().items(); //=> [[[1, 2, 2, 3], 1n]]
+   * ```
+   */
+  ror(other: MultisetOperand): MultisetExpression {
+    return mxReflected(this, "|", other);
+  }
+  /** Python's `other ^ self` (`__rxor__`): {@link MultisetExpression.symmetricDifference}, which is symmetric.
+   *
+   * @example
+   * ```ts
+   * pool([2, 3]).rxor([1, 2, 2]).expand().items(); //=> [[[1, 2, 3], 1n]]
+   * ```
+   */
+  rxor(other: MultisetOperand): MultisetExpression {
+    return mxReflected(this, "^", other);
+  }
+
   // Keeping some of the sorted elements.
   /** `MultisetExpression.highest(keep=None, drop=None)`: keeps some of the highest elements and drops the rest.
    * Unlike the die and free-function versions this does not sum: follow it with `.sum()`, or another evaluation.
@@ -1216,6 +1275,10 @@ function mxMethod(self: MultisetExpression, name: string, operatorName: string, 
 function mxBinary(self: MultisetExpression, o: string, other: unknown): MultisetExpression {
   return native(self, () => binary(self, o, other), () => call("mx_binary", { a: self, o, b: list(other) })) as MultisetExpression;
 }
+/** `other op self` for `op` in `+ - & | ^`, by the expression's reflected operator. */
+function mxReflected(self: MultisetExpression, o: string, other: unknown): MultisetExpression {
+  return native(self, () => reflectedBinary(self, o, other), () => call("mx_binary", { a: list(other), o, b: self })) as MultisetExpression;
+}
 /** A count-adjusting operation: `make` natively, else the bridge's node `mx_counts`. */
 function mxCounts(expr: MultisetExpression, o: string, comparison: Comparison | null, n: unknown, make: () => unknown): MultisetExpression {
   return native(expr, make, () => {
@@ -1913,13 +1976,17 @@ function implicit(x: unknown): Input | undefined {
   if (Array.isArray(x) || typeof x === "string") return poolOf(x, 1);
   // A die or deck is a mapping, which `Pool` refuses.
   if (x instanceof Die || x instanceof deckClasses.Deck) throw notAPool(x);
-  // An `AgainExpression` is neither a mapping nor a sequence; nor is a number.
-  if (x instanceof AgainExpression || x === null || x === undefined || ["number", "bigint", "boolean"].includes(typeof x) ||
-    x instanceof Float || x instanceof Fraction || x instanceof Complex) {
+  if (notConvertible(x)) {
     throw typeError(`Argument of type ${x instanceof AgainExpression ? "AgainExpression" : pyTypeName(x)} cannot be implicitly converted to a Pool.`);
   }
   return undefined;
 }
+
+/** Whether `implicit_convert_to_expression(x)` raises `ImplicitConversionError`: an `AgainExpression` is neither a
+ * mapping nor a sequence; nor is a number or `None`. */
+const notConvertible = (x: unknown): boolean =>
+  x instanceof AgainExpression || x === null || x === undefined || ["number", "bigint", "boolean"].includes(typeof x) ||
+  x instanceof Float || x instanceof Fraction || x instanceof Complex;
 
 /** `implicit` of each; `undefined` if any is not native. @internal */
 export const implicitAll = (xs: readonly unknown[]): Input[] | undefined => {
@@ -2221,6 +2288,26 @@ function binary(x: MultisetExpression, op: string, other: unknown): MultisetExpr
   if (y === undefined) return undefined;
   // `KeepGenerator.__add__` is `self.additive_union(other)`.
   return op === "+" ? methodAdditiveUnion([x, y]) : binaryOperator(name, [x, y]);
+}
+
+/** `other op expr` for `op` in `+ - & | ^` (`MultisetExpression.__radd__` & co.), `other` being no expression: a
+ * sequence or mapping, or a multiset tuple expression (which has no operators of its own, so its counts, tuples,
+ * flow into the operator). */
+function reflectedBinary(x: MultisetExpression, op: string, other: unknown): MultisetExpression | undefined {
+  // `__rop__` returns `NotImplemented` on an `ImplicitConversionError`, and so did the other operand's own
+  // `__op__` (a number's, `None`'s): Python raises TypeError.
+  if (notConvertible(other)) throw typeError(`unsupported operand type(s) for ${op}`);
+  const y = implicit(other);
+  if (y === undefined) return undefined;
+  const [name] = BINARY[op];
+  switch (op) {
+    // `KeepGenerator.__radd__` is `self.additive_union(other)`; `MultisetExpression.__radd__` is
+    // `additive_union(other, self)`.
+    case "+": return generatorOf(x) !== undefined ? methodAdditiveUnion([x, y]) : binaryOperator(name, [y, x]);
+    // Symmetric: `symmetric_difference(self, other)`.
+    case "^": return binaryOperator(name, [x, y]);
+    default: return binaryOperator(name, [y, x]);
+  }
 }
 
 /** `str(expression)`; `undefined` where Python's is `object.__repr__`, a memory address. */

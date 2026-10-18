@@ -222,3 +222,50 @@ test("Pool(pool) is that pool; with other times a pool of its dice; no sequence 
   nativeThrows(() => new Pool([p]), sortable);
   nativeThrows(() => new Pool([d6, p]), sortable);
 });
+
+test("reflected operators: a sequence on the left, the operands in Python's order", () => {
+  const p = d4.pool(2);
+  // `KeepGenerator.__radd__` is `self.additive_union(other)`: two pools merge.
+  const merged = native(() => p.radd([1, 2]));
+  assert.ok(merged instanceof Pool);
+  assert.equal(repr(() => merged.sum()), "Die({5: 1, 6: 2, 7: 3, 8: 4, 9: 3, 10: 2, 11: 1})");
+  // On another expression the other operand comes first.
+  const q = native(() => p.sub([1]));
+  assert.equal(native(() => String(q.radd([1, 2]))),
+    "(Pool of 2 dice with keep_tuple=(1, 1)\n  Die({1: 1}) : 1,\n  Die({2: 1}) : 1,\n + (Pool of 2 dice with keep_tuple=(1, 1)\n" +
+    "  Die({1: 1, 2: 1, 3: 1, 4: 1}) : 2,\n - Pool of 1 dice with keep_tuple=(1,)\n  Die({1: 1}) : 1,\n))");
+  assert.equal(repr(() => q.radd([1, 2]).sum()), "Die({4: 1, 5: 2, 6: 2, 7: 3, 8: 2, 9: 3, 10: 2, 11: 1})");
+  assert.equal(repr(() => q.rsub([3, 3, 4]).size()), "Die({1: 3, 2: 9, 3: 4})");
+  assert.equal(repr(() => p.rand([1, 2, 2]).sum()), "Die({0: 4, 1: 5, 2: 4, 3: 2, 4: 1})");
+  assert.equal(repr(() => p.ror([1, 4]).sum()), "Die({5: 2, 6: 1, 7: 4, 8: 4, 9: 2, 10: 2, 11: 1})");
+  assert.equal(repr(() => p.rxor([1, 4]).size()), "Die({0: 2, 2: 10, 4: 4})");
+  // `^` is symmetric: the expression stays on the left.
+  assert.equal(native(() => String(q.rxor([1]))),
+    "((Pool of 2 dice with keep_tuple=(1, 1)\n  Die({1: 1, 2: 1, 3: 1, 4: 1}) : 2,\n - Pool of 1 dice with keep_tuple=(1,)\n" +
+    "  Die({1: 1}) : 1,\n) ^ Pool of 1 dice with keep_tuple=(1,)\n  Die({1: 1}) : 1,\n)");
+  assert.equal(repr(() => new Pool("bc").ror("ab").expand()), "Die({('a', 'b', 'c'): 1})");
+});
+
+test("reflected operators: what Python raises", () => {
+  const p = d4.pool(2);
+  // A number's (or None's) own operator returns NotImplemented, and so does the expression's reflected one.
+  for (const x of [3, null, 1.5, true, new ip.Fraction(1n, 2n), ip.Again]) {
+    for (const m of ["radd", "rsub", "rand", "ror", "rxor"]) {
+      nativeThrows(() => p[m](x), (e) => pythonType("TypeError")(e) && /unsupported operand/.test(e.message));
+    }
+  }
+  // A die or deck is a mapping, which `Pool` refuses (on the left, their own operators run: `d4.add(p)`).
+  nativeThrows(() => p.radd(d4), pythonType("ValueError"));
+  nativeThrows(() => p.rsub(new ip.Deck([1])), pythonType("ValueError"));
+});
+
+test("reflected operators: a multiset tuple expression on the left gets its tuple counts into the operator", () => {
+  const p = d4.pool(2);
+  const hands = native(() => new ip.Deck([1, 2]).deal([1, 1]));
+  const sum = native(() => p.radd(hands));
+  // `KeepGenerator.__radd__`: the pool first.
+  assert.match(native(() => String(sum)), /^\(Pool of 2 dice[^]* \+ MultiDeal of hand_groups=\(\(1, 1\), \(1, 1\)\)/);
+  assert.ok(native(() => p.rsub(hands)) instanceof MultisetExpression);
+  // Adding the int counts to tuple counts is Python's TypeError, when evaluated.
+  assert.throws(() => sum.expand(), (e) => pythonType("TypeError")(e) && /unsupported operand/.test(e.message));
+});

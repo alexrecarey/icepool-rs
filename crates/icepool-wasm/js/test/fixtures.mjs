@@ -431,9 +431,23 @@ const IDIOMATIC = {
   // `Deck.__op__` takes any iterable: it counts an expression's items (dice).
   mx_binary: ({ a, o, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[o];
-    // A die converts the expression first: `Die([expr])`, Python's TypeError.
-    const dieLeft = isDie(a) && isExpr(b);
-    return (isExpr(a) || a instanceof ip.Deck || dieLeft) && m !== undefined && ok(a[m](b));
+    if (m === undefined) return undefined;
+    // A die converts the expression first: `Die([expr])`, Python's TypeError. An Again expression makes a bigger
+    // one.
+    const ownOperator = isExpr(a) || a instanceof ip.Deck || ((isDie(a) || a instanceof ip.AgainExpression) && isExpr(b));
+    if (ownOperator) return ok(a[m](b));
+    // A left operand without an operator for multisets: Python calls the expression's reflected one.
+    const tupleExpr = (x) => x instanceof ip.MultisetTupleExpression;
+    const plain = a === null || isList(a) || (Array.isArray(a) && !isExpr(a)) || tupleExpr(a) ||
+      ["number", "bigint", "string", "boolean"].includes(typeof a) ||
+      a instanceof ip.Float || a instanceof ip.Fraction || a instanceof ip.Complex;
+    if (isExpr(b) && plain) return ok(b[`r${m}`](a));
+    // A multiset tuple expression has no operators, and a sequence or another tuple expression none for it.
+    const plainRight = isList(b) || (Array.isArray(b) && !isExpr(b)) || tupleExpr(b);
+    if ((tupleExpr(a) && plainRight) || (plain && tupleExpr(b))) {
+      throw new ip.IcepoolError("WrongType", "TypeError", `unsupported operand type(s) for ${o}`);
+    }
+    return undefined;
   },
   mx_counts: ({ expr, o, comparison, n }) => {
     if (!isExpr(expr)) return undefined;
