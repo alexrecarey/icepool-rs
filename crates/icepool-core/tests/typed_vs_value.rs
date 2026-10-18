@@ -130,6 +130,19 @@ fn division_and_shifts_agree_where_rust_and_python_mean_the_same() {
 }
 
 #[test]
+fn floor_div_and_pow_agree_with_pythons_operators() {
+    // `Die::floor_div` is Python's `//` on any signs (a divisor die without 0); `Die::pow` is `**` for
+    // non-negative exponents (a negative one is a float in Python).
+    for_cases(12, |rng, case| {
+        let (a, b, exponent) = (rng.die(-9, 9), rng.die(1, 4), rng.die(0, 4));
+        let b = if rng.range(0, 1) == 0 { -b } else { b };
+        let case = format!("case {case}: {a:?} op {b:?}, ** {exponent:?}");
+        assert_same(&a.floor_div(&b), &value_binary(&a, &b, BinOp::FloorDiv), &case);
+        assert_same(&a.pow(&exponent), &value_binary(&a, &exponent, BinOp::Pow), &case);
+    });
+}
+
+#[test]
 fn comparisons_agree() {
     for_cases(3, |rng, case| {
         let (a, b) = (rng.die(-3, 3), rng.die(-3, 3));
