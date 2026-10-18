@@ -438,4 +438,35 @@ mod tests {
         assert_eq!(always.inners().len(), 1);
         assert_eq!(sum(Ok(always)), Die::single(18));
     }
+
+    #[test]
+    fn mixture_weights_scale_the_result_as_python() {
+        use crate::evaluator::basic::SizeEvaluator;
+        use crate::evaluator::poker::LargestCountEvaluator;
+        use crate::Int;
+        // `d(6).reroll_to_pool(0, max_rerolls=1, mode='low').size()`: one empty pool of weight 6, and
+        // `Die({Die([0]): 6})` keeps the weight.
+        let empty = d(6).reroll_to_pool(0, |&x| x == 1, Some(1), Depth::Finite(1), RerollMode::Low);
+        let size = empty.unwrap().evaluate(&SizeEvaluator).unwrap();
+        assert_eq!(size, Die::from_weights([(Int::ZERO, 6u32)]));
+        // `d(3).reroll_to_pool(3, [1, 2, 3], max_rerolls=2, depth=2, mode='drop').size()`
+        let dropped = d(3).reroll_to_pool(3, |_| true, Some(2), Depth::Finite(2), RerollMode::Drop);
+        let size = dropped.unwrap().evaluate(&SizeEvaluator).unwrap();
+        assert_eq!(size, Die::from_weights([(Int::ZERO, 243u32)]));
+        // `d(3).reroll_to_pool(3, [1, 2, 3], max_rerolls=1, mode='low').largest_count()`
+        let low = d(3).reroll_to_pool(3, |_| true, Some(1), Depth::Finite(1), RerollMode::Low);
+        let largest = low.unwrap().evaluate(&LargestCountEvaluator).unwrap();
+        assert_eq!(
+            largest,
+            Die::from_weights([
+                (Int::from(1), 15u32),
+                (Int::from(2), 54),
+                (Int::from(3), 12)
+            ])
+        );
+        // `d(6).explode_to_pool(2, depth=1).lowest(1).sum()`
+        let worst = d(6).explode_to_pool(2, |&x| x == 6, 1).unwrap().lowest(1);
+        let expected = [455u32, 357, 259, 161, 63, 1];
+        assert_eq!(sum(Ok(worst)), Die::from_weights((1..=6).zip(expected)));
+    }
 }
