@@ -729,6 +729,15 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
       if (args.some((a) => a === undefined)) return undefined;
       return Uint8Array.from(args, (a) => (pyBool(f(...(a as unknown[]))) ? 1 : 0));
     }
+    // A str: `outcome in which` is a substring test, which only takes a str.
+    if (typeof which === "string") {
+      return Uint8Array.from(this.outcomes(), (o: unknown) => {
+        if (typeof o !== "string") {
+          throw new IcepoolError("WrongType", "TypeError", `'in <string>' requires string as left operand, not ${pyTypeName(o)}`);
+        }
+        return which.includes(o) ? 1 : 0;
+      });
+    }
     // A collection the outcome must be `in`: an array, or a Map (Python's dict: its keys).
     const collection = which instanceof Map ? [...which.keys()] : which;
     if (Array.isArray(collection) && collection.every(isPlainValue)) {

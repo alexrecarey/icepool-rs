@@ -4,6 +4,7 @@
 
 import type { ExpressionBuilder, WasmDie, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
+import type { MultisetTupleExpression } from "./deck.js";
 import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, z as zDie, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
@@ -23,6 +24,21 @@ import { HOST, callback, isTrap, wasm, withCallbacks } from "./wasm.js";
  * ```
  */
 export type MultisetArg = MultisetExpression | readonly Outcome[];
+
+/** What an operator over multisets takes: a {@link MultisetArg}, or a multiset tuple expression (a `MultiDeal`, ...),
+ * whose counts are then tuples (one count per hand).
+ *
+ * @example
+ * ```ts
+ * import { Deck, MultisetExpression, evaluator, type MultisetOperand } from "icepool-wasm";
+ *
+ * // Two hands of one card from the cards 1 and 2; the counts of each card, one per hand.
+ * const hands: MultisetOperand = new Deck([1, 2]).deal([1, 1]);
+ * const counts = evaluator({ nextState: (s: number[][] | null, o: number, x: number, c: number[]) => [...(s ?? []), c] });
+ * counts.evaluate(MultisetExpression.union(hands)).items(); //=> [[[[0, 1], [1, 0]], 1n], [[[1, 0], [0, 1]], 1n]]
+ * ```
+ */
+export type MultisetOperand = MultisetArg | MultisetTupleExpression;
 
 /** How `sortPair` (and `sortPairKeepWhile`, `sortPairDropWhile`) treats the extra elements when the left operand has
  * more elements than the right:
@@ -993,6 +1009,55 @@ export class MultisetExpression extends Replayable {
     return lexi(this, true, comparison, other, extra);
   }
 
+  // Python defines these four as `def union(*args)`, without `self`: called on the class, the first argument is
+  // any multiset (also a multiset tuple expression, whose counts are then tuples).
+
+  /** `MultisetExpression.additive_union(*args)` called on the class: {@link MultisetExpression.additiveUnion} of
+   * all the arguments.
+   *
+   * @example
+   * ```ts
+   * MultisetExpression.additiveUnion([1, 2], [2, 3]).expand().items(); //=> [[[1, 2, 2, 3], 1n]]
+   * ```
+   */
+  static additiveUnion(...args: MultisetOperand[]): Expression {
+    return mxClassMethod("additive_union", "MultisetAdditiveUnion", args);
+  }
+  /** `MultisetExpression.difference(*args, keep_negative_counts=False)` called on the class: the first argument
+   * minus all the others ({@link MultisetExpression.difference}).
+   *
+   * @example
+   * ```ts
+   * MultisetExpression.difference([1, 2, 2], [2]).expand().items(); //=> [[[1, 2], 1n]]
+   * MultisetExpression.difference([1], [1, 1], { keepNegativeCounts: true }).sum().items(); //=> [[-1, 1n]]
+   * ```
+   */
+  static difference(...rest: (MultisetOperand | { keepNegativeCounts?: boolean })[]): Expression {
+    const [args, { keepNegativeCounts = false }] = opts<{ keepNegativeCounts: boolean }>(rest);
+    const name = pyBool(keepNegativeCounts) ? "MultisetDifferenceKeepNegative" : "MultisetDifferenceDropNegative";
+    return mxClassMethod("difference", name, args, keepNegativeCounts);
+  }
+  /** `MultisetExpression.intersection(*args)` called on the class ({@link MultisetExpression.intersection}).
+   *
+   * @example
+   * ```ts
+   * MultisetExpression.intersection([1, 2, 2], [2, 2, 3]).expand().items(); //=> [[[2, 2], 1n]]
+   * ```
+   */
+  static intersection(...args: MultisetOperand[]): Expression {
+    return mxClassMethod("intersection", "MultisetIntersection", args);
+  }
+  /** `MultisetExpression.union(*args)` called on the class ({@link MultisetExpression.union}).
+   *
+   * @example
+   * ```ts
+   * MultisetExpression.union([1, 2], [2, 2, 3]).expand().items(); //=> [[[1, 2, 2, 3], 1n]]
+   * ```
+   */
+  static union(...args: MultisetOperand[]): Expression {
+    return mxClassMethod("union", "MultisetUnion", args);
+  }
+
   /** `MultisetExpression.map_counts(...args, { function })`: maps the counts to new counts: `function` takes
    * `(outcome, ...counts)`, one count per argument, and returns the combined count.
    *
@@ -1009,6 +1074,16 @@ export class MultisetExpression extends Replayable {
     const [args, { function: f }] = opts<{ function: (outcome: never, ...counts: never[]) => Int }>(rest);
     return native(null, () => mapCounts(args, f), () => call("mx_map_counts", { args: List.from(args.map(list)), function: f }));
   }
+}
+
+/** `MultisetExpression.<name>(*args)` called on the class, whatever the first argument is. */
+function mxClassMethod(name: string, operatorName: string, args: unknown[], keepNegativeCounts: unknown = false): Expression {
+  const make = () => {
+    const converted = args.length === 0 ? undefined : implicitAll(args);
+    return converted === undefined ? undefined : binaryOperator(operatorName, converted);
+  };
+  const bridge = () => call("mx_method", { name, args: List.from(args.map(list)), keep_negative_counts: keepNegativeCounts });
+  return native(null, make, bridge);
 }
 
 /** `MultisetExpression.<name>(self, *others)` called on the class (`keep_negative_counts` for `difference`). */
@@ -1516,6 +1591,22 @@ let tupleExpressionClass: abstract new (...args: never[]) => object = class {};
 /** Registers deck.ts's `MultisetTupleExpression`. @internal */
 export function registerTupleExpressionClass(cls: abstract new (...args: never[]) => object): void {
   tupleExpressionClass = cls;
+}
+
+/** `len()` of a native multiset tuple expression; `undefined` for one only the bridge holds. */
+function tupleLen(x: TupleExpressionLike): number | undefined {
+  const node = x.node;
+  switch (node?.kind) {
+    case "multiDeal":
+      return wasm(() => node.md.length);
+    case "tupleParameter":
+      return node.len;
+    case "tupleSlice": {
+      const n = tupleLen(node.child);
+      return n === undefined ? undefined : wasm((w) => w.sliceLength(n, ...node.bounds));
+    }
+  }
+  return undefined;
 }
 
 /** Whether `x` is a native multiset tuple expression. */
@@ -2118,10 +2209,9 @@ function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown)
   }
   // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
   // `MultisetTupleIndex`es (`range(len(target))`), whose hashes (of `(type, index)`) no outcome's matches, so nothing
-  // is in it. A slice's `len()` is the bridge's.
+  // is in it.
   if (target instanceof tupleExpressionClass) {
-    const kind = (target as TupleExpressionLike).node?.kind;
-    if (kind !== "multiDeal" && kind !== "tupleParameter") return undefined;
+    if (tupleLen(target as TupleExpressionLike) === undefined) return undefined;
     return operator([x], ["MultisetFilterOutcomes", {}, invert], (b) => b.filterSet(invert, []), { str: filterStr(invert) });
   }
   if (typeof target === "function") {

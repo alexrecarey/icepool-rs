@@ -431,17 +431,21 @@ const IDIOMATIC = {
   mx_versus: ({ expr, all, comparison, other }) =>
     isExpr(expr) && typeof all === "boolean" && ok(all ? expr.versusAll(comparison, other) : expr.versusAny(comparison, other)),
   mx_method: ({ name, args, keep_negative_counts }) => {
-    if (!isList(args) || args.length === 0 || !isExpr(args[0])) return undefined;
+    if (!isList(args) || args.length === 0) return undefined;
     const [self, ...others] = args;
+    // On an expression its own method; on anything else (a multiset tuple expression) the class's.
+    const on = isExpr(self) ? (m, ...xs) => self[m](...xs) : (m, ...xs) => ip.MultisetExpression[m](self, ...xs);
     switch (name) {
-      case "difference": return ok(self.difference(...others, { keepNegativeCounts: keep_negative_counts }));
-      case "additive_union": case "intersection": case "union": return ok(self[camel(name)](...others));
+      case "difference": return ok(on("difference", ...others, { keepNegativeCounts: keep_negative_counts }));
+      case "additive_union": case "intersection": case "union": return ok(on(camel(name), ...others));
     }
     return undefined;
   },
   mx_map_counts: ({ args, function: f }) => isList(args) && ok(ip.MultisetExpression.mapCounts(...args, { function: f })),
   mx_mixture: ({ inners }) => ok(ip.multisetMixture(inners)),
-  mx_tuple_index: ({ expr, index }) => expr instanceof ip.MultisetTupleExpression && ok(expr.hand(index)),
+  // On a multiset expression `x[index]` is `keep`.
+  mx_tuple_index: ({ expr, index }) =>
+    (expr instanceof ip.MultisetTupleExpression && ok(expr.hand(index))) || (isExpr(expr) && ok(expr.keep(index))),
   mx_tuple_slice: ({ expr, start, stop, step }) =>
     expr instanceof ip.MultisetTupleExpression && ok(expr.slice(start, stop, step)),
 
@@ -458,9 +462,7 @@ const IDIOMATIC = {
 
   // Decks and deals.
   // Any sequence or mapping: a list, a str, a die or a deck.
-  deck: ({ outcomes, times }) =>
-    (isList(outcomes) || typeof outcomes === "string" || isDie(outcomes) || outcomes instanceof ip.Deck) &&
-    ok(new ip.Deck(outcomes, times)),
+  deck: ({ outcomes, times }) => !(outcomes instanceof ip.MultisetExpression) && ok(new ip.Deck(outcomes, times)),
   deal: ({ deck, hand_size }) => deck instanceof ip.Deck && !Array.isArray(hand_size) && ok(deck.deal(hand_size)),
   multi_deal: ({ deck, hand_sizes }) => deck instanceof ip.Deck && !isIntValue(hand_sizes) && ok(deck.deal(hand_sizes)),
   deal_groups: ({ deck, hand_groups }) => deck instanceof ip.Deck && isList(hand_groups) && ok(deck.dealGroups(...hand_groups)),
@@ -472,7 +474,7 @@ const IDIOMATIC = {
     return b instanceof ip.Deck && m !== undefined && m !== "xor" && !(a instanceof ip.MultisetExpression) && ok(b[`r${m}`](a));
   },
   deck_mul: ({ deck, operator, n }) => {
-    const m = { "*": "mul", "//": "floordiv", "%": "mod" }[operator];
+    const m = { "*": "mul", "r*": "rmul", "//": "floordiv", "%": "mod" }[operator];
     return deck instanceof ip.Deck && m !== undefined && ok(deck[m](n));
   },
   deck_pad_to_denominator: ({ deck, denominator, outcome }) => deck instanceof ip.Deck && ok(deck.padToDenominator(denominator, outcome)),

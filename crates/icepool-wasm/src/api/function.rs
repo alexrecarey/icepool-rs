@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use dashu_int::{IBig, UBig};
 use icepool_core::expand::{tupleize_dice, vectorize_dice};
 use icepool_core::format::format_probability_inverse as core_format_probability_inverse;
-use icepool_core::value::builtins::{fraction, limit_denominator};
+use icepool_core::value::builtins::{fraction, getitem, limit_denominator, Index};
 use icepool_core::value::BinOp;
 use icepool_core::{function, Error, Quantity, Value};
 use wasm_bindgen::prelude::*;
@@ -102,6 +102,18 @@ pub fn min_max(items: Vec<JsValue>, max: bool) -> JsResult<JsValue> {
 #[wasm_bindgen]
 pub fn consecutive(first: Vec<JsValue>, second: Vec<JsValue>) -> JsResult<JsValue> {
     value_to_js(&function::consecutive(values(&first)?, values(&second)?).or_throw()?).or_throw()
+}
+
+/// `len([None] * len[start:stop:step])`: the `len()` of a slice of a multiset tuple expression of `len` multisets
+/// (`MultisetTupleSlice.__len__`); the bounds as Python takes them (ints, None, or anything else to raise).
+#[wasm_bindgen(js_name = sliceLength)]
+pub fn slice_length(len: usize, start: JsValue, stop: JsValue, step: JsValue) -> JsResult<usize> {
+    let bound = |x: &JsValue| value_from_js(x).or_throw();
+    let index = Index::Slice(bound(&start)?, bound(&stop)?, bound(&step)?);
+    match getitem(&Value::tuple(vec![Value::None; len]), &index).or_throw()? {
+        Value::Tuple(t) => Ok(t.len()),
+        _ => unreachable!("a slice of a tuple is a tuple"),
+    }
 }
 
 /// Python's `sorted(values)` (wallenius.py sorts the weights pulled).

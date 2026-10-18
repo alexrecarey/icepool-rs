@@ -81,6 +81,7 @@ export {
   pool,
   zPool,
   type MultisetArg,
+  type MultisetOperand,
   type PoolDice,
   type SortPairExtra,
 } from "./multiset.js";

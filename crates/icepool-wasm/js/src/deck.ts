@@ -329,6 +329,14 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   mul(n: Int): Deck { return this.quantityOp("mul", "*", n); }
+  /** `n * deck` (`__rmul__`, the same as `__mul__`).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).rmul(3).items(); //=> [[1, 3n], [2, 3n]]
+   * ```
+   */
+  rmul(n: Int): Deck { return this.quantityOp("mul", "r*", n); }
   /** `deck // n`: every quantity divided by `n`, rounding down.
    *
    * @example
@@ -1015,8 +1023,8 @@ export class MultisetTupleExpression extends Replayable {
   hand(index: Int): MultisetExpression {
     const bridge = () => call("mx_tuple_index", { expr: this, index });
     // An int index makes a `MultisetTupleIndex` (bounds are only checked when evaluated); anything else falls off
-    // the end of `__getitem__`, returning None: the bridge's.
-    if (!isIntArg(index)) return bridge() as MultisetExpression;
+    // the end of `__getitem__`, which returns None.
+    if (!isIntArg(index)) return null as unknown as MultisetExpression;
     return native(this, () => tupleIndex(this, saturated(intOf(index))), bridge);
   }
   /** `x[start:stop:step]`: some of the hands, as a multiset tuple expression (`null` as Python's omitted bound).
