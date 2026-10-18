@@ -397,11 +397,8 @@ calls those callbacks, so they cannot trap inside it. Callbacks the core must ca
 exports class by class: C6 did `Die` (construction, operators, statistics, formatting, selections, `map` of a JS
 function) and Python's operators on plain values; the rest still calls the runner's nodes through an interim
 bridge (`js/src/rpc.ts` over `src/facade.rs`: a typed die crosses as a handle made for the call). Every fixture
-passes through the API throughout, and the fixture test reports which nodes still go through the bridge. C6c moved
-the rest of `Die` (but its keep family and to-pool methods, C6i, which Python builds on pools), the free functions
-and `Again`: as in the Python facade, an Again expression is an object of the API's language (a plain TypeScript
-object), which the core walks and evaluates, calling back into the TypeScript for its operators and for `new Die`
-(`src/api/again.rs`). C6d (pools and multiset expressions: the TypeScript holds the expression
+passes through the API throughout, and the fixture test reports which nodes still go through the bridge. C6c (the
+rest of `Die`, `Again`, the free functions), C6d (pools and multiset expressions: the TypeScript holds the expression
 objects and one export turns them into the core's tree at evaluation, as icepool-py's `evaluate_tree` does), C6e (JS
 evaluators and `multisetFunction`), C6f (decks and deals) move the rest; C6g removes the bridge from the package.
 
