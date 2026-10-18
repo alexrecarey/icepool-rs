@@ -415,8 +415,19 @@ turns out wrong. Newest decisions at the top of each section.
     spells it (so a typed state's `IntoValue` must be Python's state, e.g. LargestCount's `Option<Int>` = None/int;
     AllCounts' `Vec<Int>` = `()` where Python has None, which `state or ()` treats alike). Evaluators that only raise
     on a tuple count implement `next_state_tuples` as the TypeError.
-  - The core trait still has `next_state_values` (other evaluators use it); `PyEvaluator` implements it by
-    `next_state_tuples`. C2c removes it from the core trait.
+  - **C2c: tuple counts left the core trait.** `MultisetEvaluator` has no `next_state_values` / `reads_sizes` any
+    more; its `initial_state_counts` / `next_state_counts` / `final_outcome_counts` defaults say `Unported` for a
+    tuple count or size. Overriders: `PyEvaluator`, host evaluators (icepool-py, wasm), `CatalogueEvaluator`,
+    `MultisetFunction`. `TupleCounts` (value/evaluators.rs) now has `initial_state_tuples` (default: a tuple size
+    reaches `initial_state` as `None`, unread; keep and lexi override it with Python's TypeErrors) and
+    `next_state_tuples` returns `Option<PyState<State>>` (`python(v)` for a Python state; argsort keeps its typed
+    state). No built-in `final_outcome` reads sizes, so `PyEvaluator::final_outcome_counts` passes tuple sizes as
+    `None`. **A new built-in that reads sizes must override `initial_state_tuples`.**
+  - Lexi / argsort (C2c): `LexiComparisonEvaluator` is `MultisetEvaluator<O>` for any `O`, `Final = Int`;
+    `ArgsortEvaluator<W = Order, P = Int>` (`Final = Vec<P>`, P the pad and index type: `Value` for Python) and
+    `ArgsortGroupedEvaluator<W = Order>` (`Final = Vec<Vec<Int>>`). `W: RequestedOrder` is the `order=` argument:
+    `Order` typed, `Value` with Python's `!=` (so `order=True` is Ascending). Every built-in in the runner,
+    icepool-py and icepool-wasm is now `PyEvaluator(..)`. fixtures/c2c/lexi-argsort-edge-cases.jsonl.
   - **C2b** made basic/keep/comparison generic the same way. `SumEvaluator` needs `O: Summand` (`OutcomeArith` +
     `is_none`, false for the integers, `Value::None` for Value: Python's `state is None` is asked at every step, so
     a sum that is `None`, e.g. `sum(map={1: None})`, starts over; without it the typed `Some(None)` diverged).
@@ -425,8 +436,7 @@ turns out wrong. Newest decisions at the top of each section.
     `outcome::sorted`; descending = reverse, sort, reverse, as Python). `KeepEvaluator` is not a CountFold (its
     `initial_state` reads the size and `initial_state_counts` raises Python's TypeError for a tuple size), so
     **`PyEvaluator` now forwards `initial_state_counts`** to the inner evaluator. Every built-in in the runner,
-    icepool-py and icepool-wasm is now `PyEvaluator(..)`; only lexi/argsort still implement
-    `MultisetEvaluator<Value>` directly (C2c).
+    icepool-py and icepool-wasm is now `PyEvaluator(..)` (lexi/argsort too since C2c).
   - **Never `uv run` with the oracle checkout as the working directory**: uv writes an untracked `uv.lock` there
     and the gate's "oracle pinned and clean" step goes RED. Ask the oracle from this repo (`uv run python -m
     harness.core.tool oracle '<program>'`, or `uv run python -c 'import icepool ...'` from the repo root).
@@ -593,7 +603,7 @@ turns out wrong. Newest decisions at the top of each section.
   `call_per_outcome` (Deck.map's calls; `Deck(...)` of the results stays upstream's), `mean_time_to_sum(die,
   cache_list, target)` (appends to the die's own `_mean_time_to_sum_cache`), `iter_cartesian_product(items...)`
   and `cartesian_product_data(outcome_type, items...)` (a dict; `outcome_type` called back unless it is `tuple`).
-- **Built-in evaluators over tuple counts (S5d).** `MultisetEvaluator` has two new hooks: `next_state_values`
+- **Built-in evaluators over tuple counts (S5d; since C2c these hooks are `TupleCounts` in value/evaluators.rs, see "Generic evaluators").** `MultisetEvaluator` has two new hooks: `next_state_values`
   (called by the default `next_state_counts` when some count is a `Count::Tuple`, every count as its Python value;
   default `Unsupported`) and `reads_sizes` (default `true`; `false` makes a tuple size reach `initial_state` /
   `final_outcome` as `None`, for evaluators that never read sizes). Python has no special case, so each built-in
