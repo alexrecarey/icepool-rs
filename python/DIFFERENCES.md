@@ -30,9 +30,8 @@ Both backends have these, so both differ from the released v2.2.2 there. `icepoo
 There is no silent fallback: with `rust`, if `icepool_rs` cannot be imported, `import icepool` fails, and what the
 core cannot take raises `NotImplementedError` (below). `icepool.backend.RUST` is the extension module, or `None`.
 
-The design (docs/design/library-architecture.md, section 8) has a wheel that ships the facade and defaults to
-`rust`. That is not built yet (task C5c): today the wheel `maturin build` makes holds only the extension, so the
-facade is used from a checkout (see python/README.md) and the default is `python` everywhere.
+The default, with `ICEPOOL_BACKEND` unset, is `rust` in the wheel (scripts/build-wheel.sh, which ships the facade
+with the extension) and `python` in a checkout (see python/README.md).
 
 ## Caches live for one call
 

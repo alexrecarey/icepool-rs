@@ -26,7 +26,8 @@ turns out wrong. Newest decisions at the top of each section.
   the row shape (first cell a backticked upstream path): `scripts/upstream_changes.py OLD NEW` parses it to list
   what upstream changed between two refs and what to revisit (stdlib only; never fetches; the oracle checkout has
   tags only up to v0.25.4, commit `33e7e650` is v2.2.2). python/README.md and python/DIFFERENCES.md (what differs
-  on the Rust backend; when C5c sets `python-source`, keep these two out of the wheel). `.github/workflows/ci.yml`:
+  on the Rust backend; they stay out of the wheel: build-wheel.sh copies python/icepool only, and README.md as the
+  wheel's long description). `.github/workflows/ci.yml`:
   rust (build, test with every fixture, clippy, rustdoc -D warnings), js (`build.sh --test`), production
   (check-production.sh), oracle (oracle checked out from alexrecarey/icepool at oracle.lock's commit; fixtures 5%
   re-check, fixed-seed fuzz and khepri, upstream suite). It has not run on GitHub yet: the first run may need
@@ -369,8 +370,22 @@ turns out wrong. Newest decisions at the top of each section.
     as `interim`, not failed (the wheel is always strict); C6l ends that by
     dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
     and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
-    The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with
-    `python-source` and `ICEPOOL_BACKEND` defaulting to rust is not done yet.
+  - **The wheel (C5c): `scripts/build-wheel.sh OUT_DIR`**, not `maturin build -m crates/icepool-py/Cargo.toml`
+    (still the extension alone, on purpose: it is what the harness's `maturin develop` installs, so
+    upstream_suite.sh and run-facade.sh behave as before). maturin 1.15 packs only Python sources inside the
+    project directory (pyproject.toml's): `python-source = "../../python"` (the design's) builds the extension
+    alone *silently*, symlinks out of the project are not followed, and `include` refuses `..`. So the script
+    stages a temp project: crates/icepool-py/wheel/pyproject.toml (`@MANIFEST@` -> the crate's Cargo.toml,
+    `python-source = "python"`, `python-packages = ["icepool"]`), wheel/icepool_rs/__init__.py (maturin's generated
+    one, written out: a mixed layout needs it), python/icepool, and wheel/icepool/_wheel.py
+    (`DEFAULT_BACKEND = 'rust'`, the build-time constant; backend.py falls back to `python` without it, so a
+    checkout is unchanged). From the temp dir cargo would rebuild icepool-core and icepool-py every run (~30 s):
+    rustup misses rust-toolchain.toml (this machine's default is nightly) and icepool-core's build.rs watches
+    `$PWD`; the script passes `RUSTUP_TOOLCHAIN` and `PWD=$ROOT`, so the wheel reuses the gate's build (~1 s warm).
+    check-production step 2 also requires icepool/__init__.py, icepool/_wheel.py, icepool_rs/__init__.py in the
+    wheel, and installs it into a fresh `uv venv` (harness Python, `--offline`: no dependencies) and runs
+    `python -I` from the temp dir with ICEPOOL_BACKEND unset: `icepool.d(6) + 1` must come from site-packages on
+    the Rust backend. The wheel's name is still `icepool_rs` (the distribution; `import icepool`).
 
 - **Bindings through deliberate APIs (C3b, design sections 4 and 5).** icepool-core has **no `#[doc(hidden)]`
   modules left**: every module but `evaluator`, `expression`, `host`, `random`, `value` is a private `mod`. What

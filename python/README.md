@@ -8,10 +8,10 @@ and [API reference](https://highdiceroller.github.io/icepool/apidoc/latest/icepo
 
 ## How it works
 
-- `icepool/backend.py` reads `ICEPOOL_BACKEND` once, at import: `python` (the default) runs upstream's code
-  unchanged, `rust` imports the extension `icepool_rs` (crates/icepool-py) as `icepool.backend.RUST`. Any other
-  value is an `ImportError`, and so is a `rust` backend whose extension cannot be imported: there is no silent
-  fallback.
+- `icepool/backend.py` reads `ICEPOOL_BACKEND` once, at import: `python` runs upstream's code unchanged, `rust`
+  imports the extension `icepool_rs` (crates/icepool-py) as `icepool.backend.RUST`. Any other value is an
+  `ImportError`, and so is a `rust` backend whose extension cannot be imported: there is no silent fallback. Unset,
+  it is `rust` in the wheel and `python` in a checkout: the wheel's build adds the constant `icepool/_wheel.py`.
 - Each switched module keeps upstream's code and adds `if icepool.backend.RUST:` branches, each marked
   `icepool-rs:`. The Python side keeps upstream's argument handling (`itemize`, `Again`, `DieWithTruth`, selections
   made with Python's `in` and predicates, `@multiset_function` tracing) and calls `icepool_rs` for the computation.
@@ -27,10 +27,23 @@ and [API reference](https://highdiceroller.github.io/icepool/apidoc/latest/icepo
 file each switched module calls; [FACADE-AUDIT.md](../FACADE-AUDIT.md) says what of each module still runs in
 Python under `rust`, and why.
 
+## The wheel
+
+`scripts/build-wheel.sh OUT_DIR` builds the wheel that ships: this package and the `icepool_rs` extension, on the
+Rust backend by default. maturin packs only Python sources inside its project directory, so the script stages a
+project from crates/icepool-py/wheel/ (pyproject.toml, `icepool_rs/__init__.py`, `icepool/_wheel.py`) and a copy of
+this package; scripts/check-production.sh builds it, checks it holds no test code, and installs it into a fresh
+venv for a smoke test.
+
+```sh
+scripts/build-wheel.sh dist && pip install dist/icepool_rs-*.whl
+python -c 'import icepool; print(icepool.d6.pool(4).highest(3).sum().mean())'   # on the Rust backend
+```
+
 ## Using it from a checkout
 
-The wheel does not ship this package yet (task C5c), so install the extension into a virtualenv and put this
-directory on the path:
+`crates/icepool-py/pyproject.toml` builds the extension alone (what the harness uses), so install it into a
+virtualenv and put this directory on the path:
 
 ```sh
 uv run maturin develop --release -m crates/icepool-py/Cargo.toml   # builds icepool_rs into .venv

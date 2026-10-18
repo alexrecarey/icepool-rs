@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Production builds contain no test code (design/library-architecture.md section 8). Builds what ships, the Python
-# wheel (maturin build --release) and the npm package (npm pack of crates/icepool-wasm/js), lists their contents
-# and symbols, and fails if any test, fixture, runner, harness or JSON-program code is in them:
+# wheel (scripts/build-wheel.sh: the icepool facade and the icepool_rs extension) and the npm package (npm pack of
+# crates/icepool-wasm/js), lists their contents and symbols, and fails if any test, fixture, runner, harness or
+# JSON-program code is in them, or if the wheel is not a usable package:
 #
 #   1. dependency graph: icepool-py and icepool-wasm (as built alone, which is how maturin and wasm-pack build them)
 #      depend on neither icepool-harness, serde_json nor icepool-khepri (khepri's engine);
-#   2. wheel contents: no test, fixture, harness, catalogue, run-facade or program files;
+#   2. wheel contents: no test, fixture, harness, catalogue, run-facade or program files; both packages, `icepool`
+#      and `icepool_rs`, present; installed into a fresh venv, `import icepool` (from there, never the checkout)
+#      runs on the Rust backend with ICEPOOL_BACKEND unset;
 #   3. the extension module holds no harness, runner (panic locations embed source paths, so any linked runner code
 #      shows: `icepool-harness`, and `src/program/`, its old home in icepool-core) or serde_json strings, and no
 #      runner, harness or serde_json symbols;
@@ -91,13 +94,36 @@ check_tree() {
 check_tree icepool-py 0
 check_tree icepool-wasm "$INTERIM" --target wasm32-unknown-unknown
 
-echo "=== 2. Python wheel (maturin build --release)"
-if uv run --quiet maturin build --release -m crates/icepool-py/Cargo.toml --out "$WORK/wheel" > "$WORK/maturin.log" 2>&1; then
+echo "=== 2. Python wheel (scripts/build-wheel.sh)"
+if scripts/build-wheel.sh "$WORK/wheel" > "$WORK/maturin.log" 2>&1; then
   WHEEL="$(ls "$WORK"/wheel/*.whl)"
   unzip -Z1 "$WHEEL" > "$WORK/wheel.txt"
   echo "  $(basename "$WHEEL"): $(wc -c < "$WHEEL") bytes, $(wc -l < "$WORK/wheel.txt") files:"
   sed 's/^/    /' "$WORK/wheel.txt"
   check_paths "the wheel" < "$WORK/wheel.txt"
+  for f in icepool/__init__.py icepool/_wheel.py icepool_rs/__init__.py; do
+    grep -qx "$f" "$WORK/wheel.txt" || fail "the wheel has no $f"
+  done
+
+  # The smoke test: the wheel alone, in a fresh venv on the harness's Python (the wheel is built for it), run from
+  # $WORK with -I (no cwd, PYTHONPATH or user site on sys.path) and ICEPOOL_BACKEND unset. Installing needs no
+  # network: the wheel has no dependencies.
+  PY="$(uv run --quiet python -c 'import sys; print(sys.executable)')"
+  if uv venv --quiet --python "$PY" "$WORK/venv" > "$WORK/venv.log" 2>&1 \
+    && VIRTUAL_ENV="$WORK/venv" uv pip install --quiet --offline "$WHEEL" >> "$WORK/venv.log" 2>&1; then
+    if (cd "$WORK" && env -u ICEPOOL_BACKEND "$WORK/venv/bin/python" -I -c '
+import sys, icepool
+assert icepool.__file__.startswith(sys.prefix), icepool.__file__
+assert icepool.backend.BACKEND == "rust" and icepool.backend.RUST is not None, icepool.backend.BACKEND
+die = icepool.d(6) + 1
+assert die.outcomes() == (2, 3, 4, 5, 6, 7) and die.quantities() == (1,) * 6, die
+assert type(die._rs).__module__ == "icepool_rs", die
+print("  smoke test: `icepool.d(6) + 1` from the installed wheel, on the Rust backend by default")
+' 2>&1); then :; else fail "the installed wheel's smoke test failed"; fi
+  else
+    cat "$WORK/venv.log"
+    fail "could not install the wheel into a fresh venv"
+  fi
 
   echo "=== 3. extension module"
   unzip -q "$WHEEL" -d "$WORK/wheel-x"

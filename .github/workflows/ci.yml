@@ -113,8 +113,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # check-production.sh needs cargo, uv (it runs `uv run maturin build`), maturin, wasm-pack, node, npm, unzip,
-      # tar and nm; the runner image has the last three.
+      # check-production.sh needs cargo, uv (build-wheel.sh runs `uv run maturin build`, the smoke test `uv venv`),
+      # maturin, wasm-pack, node, npm, unzip, tar and nm; the runner image has the last three.
       - uses: astral-sh/setup-uv@v6
 
       - name: maturin

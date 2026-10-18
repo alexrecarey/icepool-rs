@@ -1,0 +1,24 @@
+# The wheel that ships: the `icepool` facade (python/icepool) with the `icepool_rs` extension, on the Rust backend
+# by default. Not built from here: scripts/build-wheel.sh copies this directory and python/icepool into a staging
+# project and builds that, because maturin only packs Python sources inside the project (this file's directory)
+# and follows no symlinks out of it. crates/icepool-py/pyproject.toml, beside Cargo.toml, stays the extension
+# alone: it is what the harness's `maturin develop` installs.
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "icepool_rs"
+version = "0.1.0"
+description = "icepool, the dice probability library, on a Rust core"
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.maturin]
+# Written by scripts/build-wheel.sh: the absolute path of crates/icepool-py/Cargo.toml.
+manifest-path = "@MANIFEST@"
+module-name = "icepool_rs"
+python-source = "python"
+# The extension's package (python/icepool_rs) is packed as maturin's mixed layout always does; the facade beside it.
+python-packages = ["icepool"]
+exclude = ["**/__pycache__/**"]

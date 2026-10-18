@@ -68,8 +68,16 @@ d(20).explode(depth=2).denominator()  # 8000
 icepool.Deck([1, 2, 3, 4], times=2).deal(3).sum().mean()  # Fraction(15, 2)
 ```
 
-The wheel does not ship the facade yet (task C5c): `maturin build` makes a wheel of the extension alone. To use
-the Rust backend from a checkout, install the extension into a virtualenv and put `python/` on the path:
+The wheel ships the facade with the extension, and runs on the Rust backend unless `ICEPOOL_BACKEND` says
+otherwise:
+
+```sh
+scripts/build-wheel.sh dist                         # dist/icepool_rs-*.whl: the icepool package and icepool_rs
+pip install dist/icepool_rs-*.whl && python -c 'import icepool; print(icepool.d6 + 1)'
+```
+
+From a checkout (the default there is `python`, upstream's code), install the extension alone into a virtualenv and
+put `python/` on the path:
 
 ```sh
 uv run maturin develop --release -m crates/icepool-py/Cargo.toml   # icepool_rs into .venv

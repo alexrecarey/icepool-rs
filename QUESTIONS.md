@@ -240,8 +240,13 @@ docs/design/library-architecture.md, in the sections C8 reads (and a few around 
    package is not published; python/DIFFERENCES.md exists (written by hand from DIVERGENCES.md, NOTES.md and
    FACADE-AUDIT.md, not generated); the `RUSTDOCFLAGS=-D warnings cargo doc` check now runs in
    `.github/workflows/ci.yml` (it passes today).
-4. **Section 8, "What ships"**: the wheel is the extension alone; the facade in the wheel and `ICEPOOL_BACKEND`
-   defaulting to `rust` there are task C5c. Check 1 says "without the `runner` feature": now "without `khepri`, and
+4. **Section 8, "What ships"**: `python-source = "../../python"` does not work: maturin (1.15) packs only Python
+   sources inside the project directory (the one holding pyproject.toml), silently dropping the rest, and follows
+   no symlinks; `include` refuses `..`. Since C5c the wheel is built by `scripts/build-wheel.sh`, which stages a
+   project (crates/icepool-py/wheel/ + a copy of python/icepool) with `manifest-path` back to the crate; the
+   build-time constant is `icepool/_wheel.py`, added to the wheel only. crates/icepool-py/pyproject.toml is
+   unchanged: `maturin build -m crates/icepool-py/Cargo.toml` is still the extension alone, which is what
+   `maturin develop` (the harness) installs. Check 1 says "without the `runner` feature": now "without `khepri`, and
    no icepool-harness" (with the npm package's interim exception until C6l). Check 3 describes `npm pack --dry-run
    --json`; the script runs `js/build.sh --dev`, `npm pack` and lists the tarball. Check 4's exports list also
    forbids `calculate`.
