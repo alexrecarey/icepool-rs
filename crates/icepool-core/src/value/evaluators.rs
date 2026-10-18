@@ -574,11 +574,7 @@ impl TupleCounts for SumEvaluator {
         outcome: &Value,
         counts: &[Value],
     ) -> Result<Option<PyState<Self::State>>> {
-        python(add_to_sum(
-            state.value(),
-            outcome.clone(),
-            &counts[0],
-        )?)
+        python(add_to_sum(state.value(), outcome.clone(), &counts[0])?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -595,11 +591,7 @@ impl<F: Fn(&Value) -> Result<Value>> TupleCounts for MappedSumEvaluator<F, Value
         outcome: &Value,
         counts: &[Value],
     ) -> Result<Option<PyState<Self::State>>> {
-        python(add_to_sum(
-            state.value(),
-            (self.map)(outcome)?,
-            &counts[0],
-        )?)
+        python(add_to_sum(state.value(), (self.map)(outcome)?, &counts[0])?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -893,9 +885,7 @@ impl TupleCounts for ComparisonEvaluator {
         counts: &[Value],
     ) -> Result<Option<PyState<Self::State>>> {
         let this = any_all_values(self.0, &counts[0], &counts[1])?;
-        python(
-            step(comparison_state(&state.value()), this).into_value(),
-        )
+        python(step(comparison_state(&state.value()), this).into_value())
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -908,6 +898,7 @@ impl TupleCounts for ComparisonEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::evaluator::argsort::Tie;
     use crate::evaluator::{evaluate, MultisetEvaluator};
     use crate::function::try_d;
     use crate::pool::MultisetSource;
@@ -1097,5 +1088,139 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Two or three pools, kept as the slices say, for the multi-input evaluators.
+    fn pools(
+        sides: i64,
+        keeps: &[&[i64]],
+    ) -> (Vec<MultisetSource<i64>>, Vec<MultisetSource<Value>>) {
+        (
+            keeps.iter().map(|k| kept(sides, k)).collect(),
+            keeps.iter().map(|k| kept(sides, k)).collect(),
+        )
+    }
+
+    #[test]
+    fn typed_argsort_evaluators_agree_with_python() {
+        let inputs: [&[&[i64]]; 4] = [
+            &[&[1, 1], &[1]],
+            &[&[1, 1], &[1, 1], &[1]],
+            &[&[1, -1, 2], &[0, 1]],
+            &[&[], &[1]],
+        ];
+        for keeps in inputs {
+            for tie in [Tie::Drop, Tie::Left, Tie::Right] {
+                for (limit, pad) in [
+                    (None, None),
+                    (Some(2), None),
+                    (Some(4), Some(-1)),
+                    (Some(0), Some(7)),
+                ] {
+                    typed_matches_python_with(
+                        &ArgsortEvaluator {
+                            tie,
+                            order: Order::Descending,
+                            limit,
+                            limit_pad: pad.map(Int::from),
+                        },
+                        ArgsortEvaluator {
+                            tie,
+                            order: Value::from(Order::Descending.value()),
+                            limit,
+                            limit_pad: pad.map(Value::from),
+                        },
+                        || pools(3, keeps),
+                    );
+                }
+            }
+            for limit in [None, Some(1), Some(0)] {
+                typed_matches_python_with(
+                    &ArgsortGroupedEvaluator {
+                        order: Order::Descending,
+                        limit,
+                    },
+                    ArgsortGroupedEvaluator {
+                        order: Value::from(Order::Descending.value()),
+                        limit,
+                    },
+                    || pools(3, keeps),
+                );
+            }
+        }
+        // `order=Order.Ascending` is evaluated in ascending order, typed and as Python.
+        let ascending: Vec<(Vec<Int>, Quantity)> = typed_matches_python_with(
+            &ArgsortEvaluator {
+                tie: Tie::Left,
+                order: Order::Ascending,
+                limit: None,
+                limit_pad: None,
+            },
+            ArgsortEvaluator {
+                tie: Tie::Left,
+                order: Value::from(Order::Ascending.value()),
+                limit: None,
+                limit_pad: None::<Value>,
+            },
+            || pools(2, &[&[1], &[1]]),
+        );
+        // d2 vs d2 (`icepool.d2.pool(1).argsort(icepool.d2.pool(1), order=Order.Ascending, tie='left')`): the
+        // right one alone is lowest only for (2, 1); a tie ranks the left one first.
+        let mut ascending: Vec<_> = ascending
+            .into_iter()
+            .map(|(f, q)| (f, q.to_string()))
+            .collect();
+        ascending.sort();
+        let expected = [(vec![0, 1], "3"), (vec![1, 0], "1")].map(|(f, q)| {
+            (
+                f.into_iter().map(Int::from).collect::<Vec<_>>(),
+                q.to_string(),
+            )
+        });
+        assert_eq!(ascending, expected);
+    }
+
+    #[test]
+    fn typed_lexi_evaluator_agrees_with_python() {
+        for sort_order in [Order::Ascending, Order::Descending] {
+            for keeps in [
+                &[&[1, 1][..], &[1, 1]][..],
+                &[&[1, 1, 1], &[1, 1]],
+                &[&[1], &[1, 1, 1]],
+                &[&[1, -1, 1], &[0, 2]],
+            ] {
+                let lexi = || LexiComparisonEvaluator {
+                    sort_order,
+                    lexi_tuple: (1, 2, 3, 4, 5),
+                };
+                typed_matches_python_with(&lexi(), lexi(), || pools(3, keeps));
+            }
+        }
+    }
+
+    #[test]
+    fn a_typed_evaluator_refuses_tuple_counts() {
+        use crate::deck::Deck;
+        use crate::multi_deal::MultiDeal;
+        // Two hands of one card from {1, 2, 3}: every count is a tuple.
+        let deal = |hands| {
+            let items = (1..=3).map(|o| (o, Quantity::ONE)).collect();
+            let deck: Deck<i64> = Deck::from_dict(items).unwrap();
+            MultiDeal::new(deck, hands).unwrap()
+        };
+        let hands = [
+            (IBig::from(1), IBig::from(1)),
+            (IBig::from(1), IBig::from(1)),
+        ];
+        let source = MultisetSource::MultiDeal(deal(&hands).source());
+        let error = evaluate(&SumEvaluator, std::slice::from_ref(&source)).err();
+        assert!(matches!(error, Some(Error::Unported(_))), "{error:?}");
+        // Python's `sum` of a tuple count is Python's arithmetic: `outcome * count` repeats the tuple.
+        let deal = |hands| {
+            let items = (1..=3).map(|o| (Value::from(o), Quantity::ONE)).collect();
+            MultiDeal::new(Deck::from_dict(items).unwrap(), hands).unwrap()
+        };
+        let source = MultisetSource::MultiDeal(deal(&hands).source());
+        assert!(evaluate(&PyEvaluator(SumEvaluator), &[source]).is_ok());
     }
 }
