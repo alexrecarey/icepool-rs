@@ -36,7 +36,35 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6c-C6g (tasks.json); the docs are C6b.
+- **The TypeScript API (C6, design section 6).** Rest in C6d-C6g and C6i (tasks.json); the docs are C6b.
+  - **C6c (Die, Again, the free functions).** Done natively: `new Die(...)` in full (creation_args' `itemize` in
+    die.ts `makeDie` / `itemize` / `dictItems`: Maps keyed as Python dicts, tuples holding dice, any times, again
+    options with times or a Map), Again, explode, ifElse, map with a Map repl / kwargs / again options, map(repeat),
+    mapAndTime, meanTimeToAbsorb, timeToSum, meanTimeToSum, stochasticRound, sequence, sample, toOneHot, fromRv and
+    the free functions, Vector/Symbols methods. Left on the bridge, task C6i (they need C6d's pools): the keep
+    family of Die and the free highest/lowest/middle, the to-pool methods, and arguments only the bridge models
+    (multiset expressions or decks given to map & co., pools inside `new Die`).
+  - **Again** (again.ts) is a plain TS object (`func`: the Python `operator` name, `args`, `truthValue`,
+    `isAdditive`), as Python's is a Python object; `binary` / `unary` / `matmul` in operators.ts dispatch to it as
+    Python does (dice return NotImplemented for it; `str % Again` raises). The core evaluates it
+    (src/api/again.rs, as icepool-py/src/again.rs): it reads the tree through `HOST.againParts` and calls back
+    `againApply` (the TS operators) and `againDie` (`new Die`), each answering `[true, value]` or `[false,
+    exception]` (traps rethrown); the core counts Python's frames, so a deep expression is a RecursionError on
+    evaluation (building one is fine, as in Python). Count mode: `againStepOutcomes`, then
+    `WasmDie.evaluateAgainsUsingCount`. **The bridge cannot take a TS Again** (it is not Encodable): whatever still
+    goes through the bridge with one throws `TypeError: cannot pass [object Object]`, so code that may meet an Again
+    must dispatch natively first (Deck's constructor checks itself; MultisetExpression `mul`/`mod` reflect to it).
+  - **A die handed back to the core by a JS callback** (map(repeat)'s transition) crosses as `die.w.copy()`, which
+    the core takes with wasm-bindgen's `TryFromJsValue` (that empties the JS wrapper, hence the copy). JS objects
+    with methods the core calls are imported types (`Transition` in src/api/host.rs, `step(state, i)`), not js-sys.
+  - **Python dict semantics** for Map keys: `dictKeys` (first equal key per key) and `dictLookup` (src/api/
+    function.rs) over the core's `Value` hash/eq; dice keys compare with `equals`, Again keys by `hash_key`.
+  - C6h (5) is partly done here: `map` passes again options to the die (not to `f`), mapAndTime and
+    meanTimeToAbsorb pass extra options to `f` as keyword arguments. mapToPool still drops them.
+  - Fixture adapter routes added (test/fixtures.mjs): weights, truth / again_truth / equals_self of an Again,
+    vector, symbols, vector_method, symbols_method, consecutive, sorted_union, to_one_hot, the `spread: false` forms
+    of pointwise / extreme_outcome, mx_counts `rmul` with an Again. `test/again-functions.test.mjs` checks each
+    moved method makes no bridge call (`native(...)`).
   - **Layout.** `crates/icepool-wasm/js/src/*.ts` (compiled by tsc into `js/dist`, gitignored; the `.d.ts` are
     generated): `wasm.ts` (bind, the trap-recovering `wasm(f)` every call goes through, `run`/`calculate`),
     `errors.ts`, `values.ts` (Float, Fraction, Complex, Vector, Symbols, Reroll..., `isPlainValue`), `die.ts`,
@@ -55,9 +83,10 @@ turns out wrong. Newest decisions at the top of each section.
     runner's nodes by name, exactly as the S6 facade did; a typed die crosses as a handle made for the call
     (`dieHandle`, released after it; `{"$take": h}` for a callback's result, which the core takes over) and a die
     handle coming back becomes a typed die (`WasmDie.fromHandle`). A native method falls back to the bridge for any
-    argument it does not model (an Again operand, a Map `which`, a tuple holding dice, odd times...), so the result
-    is always the runner's where it is not the native path's. The fixture suite prints `bridge: <node> <count>`:
-    what is left to move. At C6: Pool/expressions/evaluators/decks/Again and the Die methods listed in C6c.
+    argument it does not model (a pool or deck argument, a callable of the bridge's...), so the result is always the
+    runner's where it is not the native path's. The fixture suite prints `bridge: <node> <count>`: what is left to
+    move. After C6c: pools, expressions, evaluators, decks (C6d-C6f) and the keep family / to-pool methods of Die
+    (C6i); generic nodes with no API counterpart (die_method's view indexing, catalogue callables JS lacks) stay.
   - **Values.** `value_from_js` asks `__icepool_wasm_host.describe(x)` for every object (arrays too: a `List` is
     Python's list, unhashable, a plain array a tuple). Integral JS numbers are ints (as the S6 facade had it), a
     `Float` is a float. Results: safe ints as numbers, else BigInt; integral floats as `Float`.
@@ -84,9 +113,8 @@ turns out wrong. Newest decisions at the top of each section.
   - `crates/icepool-harness` (`publish = false`, test-only) is the JSON program runner (`src/`, was
     icepool-core's `src/program/` until C5b; its `mod.rs` is now `lib.rs`), the `icepool-run` binary (same name, so
     `$CARGO_TARGET_DIR/release/icepool-run` is unchanged for harness/core/tool.py) and the protected fixtures test
-    (`tests/fixtures.rs`). `random.rs` (the seeded Mersenne Twister, only the runner samples with a seed) moved with
-    it: C6c's JS `sample` needs it in a production build, so give it a public home back in icepool-core then
-    (never make icepool-wasm's production build use the harness's copy). Feature `khepri` (default): the `khepri` node. **Never `cargo fmt` this crate**: it would reformat the
+    (`tests/fixtures.rs`). `random.rs` (the seeded Mersenne Twister) is back in icepool-core as the public `icepool_core::random` (C6c: the
+    JS `sample` uses it; the Python facade draws from Python's own generator and calls `sample_at`). Feature `khepri` (default): the `khepri` node. **Never `cargo fmt` this crate**: it would reformat the
     protected tests/fixtures.rs (C4 attempt 1 failed that way); `rustfmt --edition 2021 crates/icepool-harness/src/lib.rs`
     formats the runner alone (it follows `mod`s, so revert any unrelated file it touches elsewhere).
   - The runner is a client of icepool-core: `icepool_core::{root, value, host, evaluator, expression}` plus the same
