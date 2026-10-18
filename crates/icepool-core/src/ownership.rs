@@ -78,6 +78,15 @@ pub struct Owners<'a> {
     current: usize,
 }
 
+/// The graph holds raw pointers and host objects: only its size prints.
+impl std::fmt::Debug for Owners<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Owners")
+            .field("nodes", &self.nodes.len())
+            .finish_non_exhaustive()
+    }
+}
+
 struct Node<'a> {
     /// `Arc::strong_count` when the node was first reached (the root: 1, its owner).
     strong: usize,

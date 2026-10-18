@@ -34,6 +34,13 @@ pub trait CountFunction<O> {
     fn call(&self, outcome: &O, counts: &[Count]) -> Result<Count>;
 }
 
+/// A function prints as its kind alone: what it computes is code.
+impl<O> std::fmt::Debug for dyn CountFunction<O> + Send + Sync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CountFunction")
+    }
+}
+
 /// The comparison of `MultisetKeepCounts` (the constructor raises `ValueError` for any other string).
 ///
 /// ```

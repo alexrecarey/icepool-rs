@@ -53,7 +53,7 @@ pub use keep::MultisetKeepIndex;
 /// assert_eq!((state, count), (Statelet::None, Count::Int(Int::from(2))));
 /// assert_eq!(op.format_str(&["a".into(), "b".into()], None).unwrap(), "(a & b)");
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Operator<O> {
     /// `MultisetIntersection`, `MultisetDifferenceDropNegative`, ... (operator/binary.py): the counts of all
     /// children `reduce`d by one merge function.

@@ -250,6 +250,7 @@ pub fn evaluate_agains_using_depth<F, L: Clone, E: From<Error>>(
 /// let step: StepOutcome<i64> = StepOutcome::Again { flat: 3, count: 1 };
 /// assert!(matches!(step, StepOutcome::Again { flat: 3, .. }));
 /// ```
+#[derive(Debug)]
 pub enum StepOutcome<L> {
     /// Any outcome that is not an `Again` expression (a `Reroll` or a die too, as in Python):
     /// `tupleize(zero, 1, -1)`.

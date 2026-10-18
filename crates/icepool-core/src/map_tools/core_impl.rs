@@ -42,6 +42,15 @@ pub struct TransitionCache<S: MapState, F> {
     self_loop_cache: FxHashMap<S, bool>,
 }
 
+/// The transition is a closure: only the states cached so far print.
+impl<S: MapState, F> std::fmt::Debug for TransitionCache<S, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransitionCache")
+            .field("cached_states", &self.cache.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<S, F, E> TransitionCache<S, F>
 where
     S: MapState,

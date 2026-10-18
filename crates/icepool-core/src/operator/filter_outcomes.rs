@@ -28,6 +28,13 @@ pub trait OutcomePredicate<O> {
     fn test(&self, outcome: &O) -> Result<bool>;
 }
 
+/// A predicate prints as its kind alone: what it tests is code.
+impl<O> std::fmt::Debug for dyn OutcomePredicate<O> + Send + Sync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OutcomePredicate")
+    }
+}
+
 /// `MultisetFilterOutcomes`'s target: a callable, or a collection of outcomes (Python makes it a `frozenset`
 /// and tests `outcome in target_set`).
 ///
@@ -45,7 +52,7 @@ pub trait OutcomePredicate<O> {
 /// let (_, count) = op.next_state(&Statelet::None, Order::Ascending, &4, &three).unwrap();
 /// assert_eq!(count, Count::Int(Int::from(3)));
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum OutcomeFilter<O> {
     /// A callable: the outcome is kept iff it returns true.
     Function(Arc<dyn OutcomePredicate<O> + Send + Sync>),

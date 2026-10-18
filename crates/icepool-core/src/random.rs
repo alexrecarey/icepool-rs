@@ -21,6 +21,15 @@ pub struct Random {
     index: usize,
 }
 
+/// The 624 words of state would drown the output: only the position in them prints.
+impl std::fmt::Debug for Random {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Random")
+            .field("index", &self.index)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Random {
     /// `random.Random(a)` / `random.seed(a)` for an int `a`: the absolute value's 32-bit words, least significant
     /// first (one zero word for 0), go to `init_by_array`.

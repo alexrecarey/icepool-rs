@@ -27,3 +27,10 @@ pub trait HostOperator<O> {
         child_counts: &[Count],
     ) -> Result<(Value, Count)>;
 }
+
+/// A host's operator prints as its kind alone: what it computes is the host's code.
+impl<O> std::fmt::Debug for dyn HostOperator<O> + Send + Sync {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HostOperator")
+    }
+}
