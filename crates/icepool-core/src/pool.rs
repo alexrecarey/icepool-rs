@@ -267,6 +267,17 @@ impl<O: OutcomeOrder> Pool<O> {
     /// For an `int` index Python goes on to evaluate the result into a `Die` (the keep evaluator): that is the
     /// caller's job. If any of the current `keep_tuple` has negative counts, Python falls back to the less-capable
     /// `MultisetExpression` version and the result is not a pool: not ported yet.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::KeepIndex;
+    /// use icepool_core::{d, Int};
+    /// // Python's `d(6).pool(3)[..., 1]`: only the highest die counts.
+    /// let index = KeepIndex::Seq(vec![None, Some(Int::ONE)]);
+    /// assert_eq!(d(6).pool(3).keep(&index).unwrap().keep_tuple(), [0, 0, 1].map(Int::from));
+    /// // Applied relative to the previous keep tuple: `[:2][-1]` is the second-lowest roll.
+    /// let second_lowest = d(6).pool(3).lowest(2).keep(&KeepIndex::Seq(vec![None, Some(Int::ONE)])).unwrap();
+    /// assert_eq!(second_lowest.keep_tuple(), [0, 1, 0].map(Int::from));
+    /// ```
     pub fn keep(&self, index: &KeepIndex) -> Result<Self> {
         Ok(self.set_keep_tuple(keep_tuple::keep(&self.keep_tuple, index)?))
     }
@@ -501,6 +512,13 @@ impl<O: OutcomeOrder + Traverse> Traverse for MultisetSource<O> {
 impl<O: OutcomeOrder> MultisetSource<O> {
     /// The possible outcomes, ascending. A compound keep sorts its inner sources' outcomes together, which can
     /// raise.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::MultisetSource;
+    /// use icepool_core::{d, Pool};
+    /// let pool = Pool::new(vec![(d(2), 1), (d(4) + 2, 1)]).unwrap();
+    /// assert_eq!(MultisetSource::Pool(pool.source()).outcomes().unwrap(), [1, 2, 3, 4, 5, 6]);
+    /// ```
     pub fn outcomes(&self) -> Result<&[O]> {
         Ok(match self {
             MultisetSource::Pool(s) => s.outcomes(),
@@ -514,6 +532,16 @@ impl<O: OutcomeOrder> MultisetSource<O> {
 
     /// The total number of elements output by this source, if only non-negative counts are output (else `None`).
     /// A tuple source's size is the tuple of its hands' sizes.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, MultisetSource};
+    /// use icepool_core::{d, Int};
+    /// let source = MultisetSource::Pool(d(6).pool(4).highest(3).source());
+    /// assert_eq!(source.size().unwrap(), Some(Count::Int(Int::from(3))));
+    /// // Negative counts leave the size unknown.
+    /// let negated = MultisetSource::Pool(d(6).pool(2).multiply_counts(&Int::from(-1)).source());
+    /// assert_eq!(negated.size().unwrap(), None);
+    /// ```
     pub fn size(&self) -> Result<Option<Count>> {
         Ok(match self {
             MultisetSource::Pool(s) => s.size().map(Count::Int),
@@ -526,6 +554,15 @@ impl<O: OutcomeOrder> MultisetSource<O> {
     }
 
     /// Whether this source contains any probability (a host source's answer may raise).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::MultisetSource;
+    /// use icepool_core::{d, Die, Pool};
+    /// assert!(MultisetSource::Pool(d(6).pool(2).source()).is_resolvable().unwrap());
+    /// // A die with no outcomes has no probability: Python's `Pool([Die([]), d6])`.
+    /// let pool = Pool::new(vec![(Die::<i64>::from_iter([]), 1), (d(6), 1)]).unwrap();
+    /// assert!(!MultisetSource::Pool(pool.source()).is_resolvable().unwrap());
+    /// ```
     pub fn is_resolvable(&self) -> Result<bool> {
         Ok(match self {
             MultisetSource::Pool(s) => s.is_resolvable(),
@@ -538,6 +575,13 @@ impl<O: OutcomeOrder> MultisetSource<O> {
     }
 
     /// The preferred pop order of this source and a reason why the order is preferred.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{MultisetSource, Order, OrderReason};
+    /// use icepool_core::d;
+    /// let source = MultisetSource::Pool(d(6).pool(3).source());
+    /// assert_eq!(source.order_preference().unwrap(), (Order::Any, OrderReason::NoPreference));
+    /// ```
     pub fn order_preference(&self) -> Result<(Order, OrderReason)> {
         Ok(match self {
             MultisetSource::Pool(s) => s.order_preference(),
@@ -552,6 +596,18 @@ impl<O: OutcomeOrder> MultisetSource<O> {
     /// Yields `(this source with the outcome popped, count of that outcome, weight)` for each possibility. If
     /// `outcome` is not the one this source pops in `order`, the only possibility is `(self, 0, 1)` (a tuple of
     /// zeros for a tuple source).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, MultisetSource, Order};
+    /// use icepool_core::{d, Int, Quantity};
+    /// // Popping the 6s off 2d6 (`Order.Descending`): none (1 way), one (2 ways: either die) or both (1 way).
+    /// let source = MultisetSource::Pool(d(6).pool(2).source());
+    /// let popped = source.pop(Order::Descending, &6).unwrap();
+    /// let counts: Vec<(Count, Quantity)> = popped.into_iter().map(|(_, count, weight)| (count, weight)).collect();
+    /// let c = |n| Count::Int(Int::from(n));
+    /// let q = Quantity::from;
+    /// assert_eq!(counts, [(c(0), q(1u8)), (c(1), q(2u8)), (c(2), q(1u8))]);
+    /// ```
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<SourcePopped<O>>> {
         Ok(match self {
             MultisetSource::Pool(s) => int_popped(s.pop(order, outcome)?, MultisetSource::Pool),
@@ -621,26 +677,65 @@ impl<O: Hash> Hash for PoolSource<O> {
 
 impl<O: OutcomeOrder> PoolSource<O> {
     /// The `(die, count)` pairs still to pop.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{d, Die};
+    /// // Popping the 6s off 2d6 where exactly one die rolled a 6 leaves one d5 still to pop.
+    /// let popped = d(6).pool(2).source().pop(Order::Descending, &6).unwrap();
+    /// let (rest, _, _) = &popped[1];
+    /// assert_eq!(rest.dice(), [(Die::from(1..=5), 1)]);
+    /// ```
     pub fn dice(&self) -> &[(Die<O>, usize)] {
         &self.dice
     }
 
     /// The outcomes still to pop, in ascending order.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::d;
+    /// let source = d(4).pool(2).source();
+    /// assert_eq!(source.outcomes(), [1, 2, 3, 4]);
+    /// let (rest, _, _) = &source.pop(Order::Ascending, &1).unwrap()[0];
+    /// assert_eq!(rest.outcomes(), [2, 3, 4]);
+    /// ```
     pub fn outcomes(&self) -> &[O] {
         &self.outcomes[self.lo..self.hi]
     }
 
     /// The keep tuple of the dice still to pop.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{d, Int};
+    /// // The highest two of three d6. Where one die rolled the 6, the highest position is used up.
+    /// let source = d(6).pool(3).highest(2).source();
+    /// assert_eq!(source.keep_tuple(), [0, 1, 1].map(Int::from));
+    /// let (rest, _, _) = &source.pop(Order::Descending, &6).unwrap()[1];
+    /// assert_eq!(rest.keep_tuple(), [0, 1].map(Int::from));
+    /// ```
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
     /// The number of ways the remaining dice can roll.
+    ///
+    /// ```
+    /// use icepool_core::d;
+    /// assert_eq!(d(6).pool(3).source().denominator().unwrap().to_string(), "216");
+    /// ```
     pub fn denominator(&self) -> Result<Quantity> {
         denominator(&self.dice)
     }
 
     /// `KeepSource.size`: the total count, unknown (`None`) with negative counts.
+    ///
+    /// ```
+    /// use icepool_core::{d, Int};
+    /// assert_eq!(d(6).pool(3).highest(2).source().size(), Some(Int::from(2)));
+    /// assert_eq!(d(6).pool(3).multiply_counts(&Int::from(-1)).source().size(), None);
+    /// ```
     pub fn size(&self) -> Option<Int> {
         if self.keep_tuple.iter().any(Int::is_negative) {
             return None;
@@ -649,12 +744,31 @@ impl<O: OutcomeOrder> PoolSource<O> {
     }
 
     /// Whether the pool can be evaluated: every die has some outcome.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, Pool};
+    /// assert!(d(6).pool(2).source().is_resolvable());
+    /// let pool = Pool::new(vec![(Die::<i64>::from_iter([]), 1), (d(6), 1)]).unwrap();
+    /// assert!(!pool.source().is_resolvable());
+    /// ```
     pub fn is_resolvable(&self) -> bool {
         self.dice.iter().all(|(die, _)| !die.is_empty())
     }
 
     /// `PoolSource.order_preference`. Note the `KeepSkip` directions: a keep tuple that skips more dice at the low
     /// end prefers popping descending, the opposite of `order.pool_pop_order` (copied as is).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Order, OrderReason};
+    /// use icepool_core::{d, Pool};
+    /// // Python's `Pool([d6, d4])`: the d4 runs out above 4, so popping from the top truncates it.
+    /// let mixed = Pool::new(vec![(d(6), 1), (d(4), 1)]).unwrap();
+    /// assert_eq!(mixed.source().order_preference(), (Order::Descending, OrderReason::PoolComposition));
+    /// // Keeping the highest skips the low dice: also descending (the opposite of `order.pool_pop_order`).
+    /// let highest = d(6).pool(3).highest(1).source();
+    /// assert_eq!(highest.order_preference(), (Order::Descending, OrderReason::KeepSkip));
+    /// assert_eq!(d(6).pool(3).source().order_preference(), (Order::Any, OrderReason::NoPreference));
+    /// ```
     pub fn order_preference(&self) -> (Order, OrderReason) {
         // `unique_dice()` is a set; `can_truncate` does not depend on its iteration order.
         let (can_truncate_min, can_truncate_max) = can_truncate(self.dice.iter().map(|(d, _)| d));
@@ -683,6 +797,21 @@ impl<O: OutcomeOrder> PoolSource<O> {
     /// end of the keep tuple, whose popped counts add up to the count. Possibilities where no count remains in the
     /// keep tuple are not yielded one by one: their dice are dumped in exchange for the denominator, and they come
     /// last as one empty pool.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{d, Int, Quantity};
+    /// let source = d(6).pool(2).source();
+    /// let popped = source.pop(Order::Descending, &6).unwrap();
+    /// let counts: Vec<(Int, Quantity)> =
+    ///     popped.iter().map(|(_, count, weight)| (count.clone(), weight.clone())).collect();
+    /// let q = Quantity::from;
+    /// assert_eq!(counts, [(Int::from(0), q(1u8)), (Int::from(1), q(2u8)), (Int::from(2), q(1u8))]);
+    /// // Both dice rolled 6: no dice are left.
+    /// assert!(popped[2].0.dice().is_empty());
+    /// // 6 is not the lowest outcome: popping it ascending changes nothing.
+    /// assert_eq!(source.pop(Order::Ascending, &6).unwrap()[0].0, source);
+    /// ```
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
         let unchanged = || Ok(vec![(self.clone(), Int::ZERO, Quantity::ONE)]);
         if self.lo == self.hi {

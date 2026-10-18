@@ -25,6 +25,12 @@ pub struct Slice {
 
 impl Slice {
     /// `slice(start, stop)`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Slice;
+    /// // Python's `slice(1, None)`, i.e. `[1:]`.
+    /// assert_eq!(Slice::new(Some(1), None), Slice { start: Some(1), stop: None });
+    /// ```
     pub fn new(start: Option<i64>, stop: Option<i64>) -> Self {
         Slice { start, stop }
     }
@@ -32,6 +38,14 @@ impl Slice {
     /// `canonical_slice`: produces `(start, stop)` with `0 <= start <= stop <= length` (when `length >= 0`), which
     /// is also how a Python list resolves a slice with a positive step. `length` may be negative (`Die.highest`
     /// with negative rolls asks): then the bounds come out as Python computes them.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Slice;
+    /// // `[1:-1]` of 4 elements is `[1:3]`; `[3:1]` is empty at 3; `[:10]` stops at the end.
+    /// assert_eq!(Slice::new(Some(1), Some(-1)).canonical(4), (1, 3));
+    /// assert_eq!(Slice::new(Some(3), Some(1)).canonical(4), (3, 3));
+    /// assert_eq!(Slice::new(None, Some(10)).canonical(4), (0, 4));
+    /// ```
     pub fn canonical(self, length: i64) -> (i64, i64) {
         let start = match self.start {
             None => 0,

@@ -17,6 +17,13 @@ use crate::outcome::{infallible, ErrInto, Outcome, OutcomeOrder};
 use crate::{Die, Quantity, Value};
 
 /// The comparisons `quantity`, `quantities`, `probability`, `probabilities` and `nearest` accept.
+///
+/// ```
+/// use icepool_core::{d, Comparison, Quantity};
+/// // Python's `d6.quantity('<=', 3)` and `d6.quantity('!=', 3)`.
+/// assert_eq!(d(6).quantity(Comparison::Le, &3), Quantity::from(3u8));
+/// assert_eq!(d(6).quantity(Comparison::Ne, &3), Quantity::from(5u8));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Comparison {
     /// `'=='`
@@ -35,6 +42,13 @@ pub enum Comparison {
 
 impl Comparison {
     /// The comparison a Python argument names (`match comparison: case '==': ...`); `ValueError` otherwise.
+    ///
+    /// ```
+    /// use icepool_core::{Comparison, Error, Value};
+    /// assert_eq!(Comparison::parse(&Value::str(">=")).unwrap(), Comparison::Ge);
+    /// // Python raises `ValueError`.
+    /// assert!(matches!(Comparison::parse(&Value::str("=<")), Err(Error::InvalidArgument(_))));
+    /// ```
     pub fn parse(c: &Value) -> Result<Self> {
         Ok(match c {
             Value::Str(s) => match &**s {
@@ -83,6 +97,17 @@ impl<O: OutcomeOrder> Die<O> {
     /// `'<='` gives the CDF. ([`Die::quantities`] is the plain iterator of the typed API.)
     ///
     /// `'>='` accumulates `values()[:-1]` downwards from the denominator, so an empty die has one: `(0,)`.
+    ///
+    /// ```
+    /// use icepool_core::{Comparison, Die, Quantity};
+    /// let die = Die::from_iter([1, 2, 2, 3]);
+    /// let quantities = |c| die.quantities_by(c).iter().map(Quantity::to_string).collect::<Vec<_>>();
+    /// // Python's `die.quantities('<=')` is `(1, 3, 4)`, `'>'` gives `(3, 1, 0)`.
+    /// assert_eq!(quantities(Comparison::Le), ["1", "3", "4"]);
+    /// assert_eq!(quantities(Comparison::Gt), ["3", "1", "0"]);
+    /// // `Die([]).quantities('>=')` is `(0,)`.
+    /// assert_eq!(Die::<i64>::from_iter([]).quantities_by(Comparison::Ge), [Quantity::ZERO]);
+    /// ```
     pub fn quantities_by(&self, comparison: Comparison) -> Vec<Quantity> {
         let values = || self.items().iter().map(|(_, q)| q);
         let den = self.denominator();
@@ -134,6 +159,14 @@ impl<O: OutcomeOrder> Die<O> {
     /// The nearest outcome in this population fitting the comparison (`'<='`, `'<'`, `'>='`, `'>'`), or `None` if
     /// there is no such outcome. For `'<='` and `'>='`, an outcome that is in the population is returned as given.
     /// `ValueError` for `'=='` and `'!='`.
+    ///
+    /// ```
+    /// use icepool_core::{d, Comparison};
+    /// // Python's `d6.nearest('<', 4)` is 3, `d6.nearest('>', 6)` is `None`.
+    /// assert_eq!(d(6).try_nearest(Comparison::Lt, &4).unwrap(), Some(3));
+    /// assert_eq!(d(6).try_nearest(Comparison::Gt, &6).unwrap(), None);
+    /// assert!(d(6).try_nearest(Comparison::Eq, &3).is_err()); // ValueError: Invalid comparison ==
+    /// ```
     pub fn try_nearest(&self, comparison: Comparison, outcome: &O) -> Result<Option<O>> {
         let nearest = match comparison {
             Comparison::Le => Nearest::Le,
@@ -152,6 +185,12 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The total quantity fitting a comparison to a single outcome.
+    ///
+    /// ```
+    /// use icepool_core::{d, Comparison, Quantity};
+    /// // Python's `d6.quantity('>', 4)` is 2. An `Outcome`'s comparisons cannot fail.
+    /// assert_eq!(d(6).try_quantity(Comparison::Gt, &4), Ok(Quantity::from(2u8)));
+    /// ```
     pub fn try_quantity(
         &self,
         comparison: Comparison,
@@ -179,6 +218,13 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The quantity of the outcomes `which` selected (`quantity_where`, the selection made by the caller).
+    ///
+    /// ```
+    /// use icepool_core::{Die, Quantity};
+    /// // Python's `Die([1, 2, 2, 3]).quantity_where(lambda x: x > 1)` is 3.
+    /// let die = Die::from_iter([1, 2, 2, 3]);
+    /// assert_eq!(die.quantity_where(&[false, true, true]), Quantity::from(3u8));
+    /// ```
     pub fn quantity_where(&self, selected: &[bool]) -> Quantity {
         self.items()
             .iter()
@@ -189,6 +235,13 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The highest quantity of any single outcome (`max(self.quantities())`: `ValueError` for an empty die).
+    ///
+    /// ```
+    /// use icepool_core::{Die, Quantity};
+    /// assert_eq!(Die::from_iter([1, 2, 2, 3]).modal_quantity().unwrap(), Quantity::from(2u8));
+    /// // Python: `ValueError: max() iterable argument is empty`.
+    /// assert!(Die::<i64>::from_iter([]).modal_quantity().is_err());
+    /// ```
     pub fn modal_quantity(&self) -> Result<Quantity> {
         self.items()
             .iter()
@@ -199,6 +252,13 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// The most common outcome(s), lowest to highest. An empty die has none (and never asks `modal_quantity`).
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// // Python's `Die([1, 1, 2, 3, 3]).mode()` is `(1, 3)`.
+    /// assert_eq!(Die::from_iter([1, 1, 2, 3, 3]).mode(), [1, 3]);
+    /// assert!(Die::<i64>::from_iter([]).mode().is_empty());
+    /// ```
     pub fn mode(&self) -> Vec<O> {
         let Ok(modal) = self.modal_quantity() else {
             return vec![];
@@ -213,6 +273,14 @@ impl<O: OutcomeOrder> Die<O> {
     /// `self.outcomes()[bisect.bisect_right(self.quantities('<='), r)]`: the outcome `Population.sample` picks for
     /// `r = random.randrange(self.denominator())` (the draw stays with the caller, whose generator it is).
     /// `IndexError` for an `r` beyond the denominator.
+    ///
+    /// ```
+    /// use icepool_core::{d, Quantity};
+    /// // Draws 0..=5 of a d6 pick 1..=6.
+    /// assert_eq!(d(6).sample_at(&Quantity::ZERO).unwrap(), 1);
+    /// assert_eq!(d(6).sample_at(&Quantity::from(5u8)).unwrap(), 6);
+    /// assert!(d(6).sample_at(&Quantity::from(6u8)).is_err()); // IndexError
+    /// ```
     pub fn sample_at(&self, r: &Quantity) -> Result<O> {
         let index = self.quantities_le().partition_point(|q| q <= r);
         match self.items().get(index) {
@@ -223,6 +291,14 @@ impl<O: OutcomeOrder> Die<O> {
 
     /// `group_by(key_map)` given each outcome's key: for each distinct key (by `==`, in order of first
     /// appearance), the die of the outcomes with that key (`Die(dict)`, so zero quantities drop out).
+    ///
+    /// ```
+    /// use icepool_core::{d, Die};
+    /// // Python's `d6.group_by(lambda x: x % 2)` is `{1: Die([1, 3, 5]), 0: Die([2, 4, 6])}`.
+    /// let keys = d(6).outcomes().map(|x| x % 2).collect();
+    /// let groups = d(6).group_by(keys).unwrap();
+    /// assert_eq!(groups, [(1, Die::from_iter([1, 3, 5])), (0, Die::from_iter([2, 4, 6]))]);
+    /// ```
     pub fn group_by<K: Clone + Eq + Hash>(&self, keys: Vec<K>) -> Result<Vec<(K, Die<O>)>> {
         let mut index: FxHashMap<K, usize> = FxHashMap::default();
         let mut groups: Vec<(K, Vec<(O, Quantity)>)> = Vec::new();
@@ -252,6 +328,13 @@ enum Nearest {
 /// The typed API: an [`Outcome`]'s comparisons cannot fail, so neither can these.
 impl<O: Outcome> Die<O> {
     /// The total quantity fitting a comparison to a single outcome.
+    ///
+    /// ```
+    /// use icepool_core::{d, Comparison, Quantity};
+    /// // Python's `d6.quantity('<', 1)` is 0, `d6.quantity('>=', 3)` is 4.
+    /// assert_eq!(d(6).quantity(Comparison::Lt, &1), Quantity::ZERO);
+    /// assert_eq!(d(6).quantity(Comparison::Ge, &3), Quantity::from(4u8));
+    /// ```
     pub fn quantity(&self, comparison: Comparison, outcome: &O) -> Quantity {
         infallible(self.try_quantity(comparison, outcome))
     }

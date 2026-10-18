@@ -66,6 +66,14 @@ fn denominator<O: OutcomeOrder>(deck: &Deck<O>, hand_groups: &[HandGroup]) -> Qu
 }
 
 /// `MultiDeal`: hands dealt from `deck`, described by an ordered tuple of hand groups.
+///
+/// ```
+/// use icepool_core::{Deck, MultiDeal};
+/// // Python's `MultiDeal(Deck([1, 2, 3, 4, 5]), ((2, 1), (1, 2)))`: one hand of two cards, then two of one.
+/// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+/// assert_eq!((deal.len(), deal.total_cards_dealt()), (3, 4));
+/// assert_eq!(deal.denominator().to_string(), "80");
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MultiDeal<O> {
     deck: Deck<O>,
@@ -92,6 +100,15 @@ impl<O: OutcomeOrder> MultiDeal<O> {
     ///
     /// Python only checks the total; a negative size passes it, after which icepool's `comb` reads its cached
     /// rows with negative indices (the answer depends on the process's history): the port refuses it.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// // Two hands of one card each from `[1, 2, 3]`: 3 * 2 ordered ways.
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=3), &[(1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.denominator().to_string(), "6");
+    /// // More cards than the deck holds.
+    /// assert!(MultiDeal::new(Deck::from_iter(1..=3), &[(2.into(), 2.into())]).is_err());
+    /// ```
     pub fn new(deck: Deck<O>, hand_groups: &[(IBig, IBig)]) -> Result<Self> {
         let total: IBig = hand_groups.iter().map(|(h, g)| h * g).sum();
         if total > IBig::from(deck.size()) {
@@ -121,46 +138,105 @@ impl<O: OutcomeOrder> MultiDeal<O> {
     /// A multi-deal's hand groups (`hand_groups()`) over its deck again: for a host that holds the deck apart (the
     /// Python facade holds the deck's Python object, so that only one Python object holds the cards: see
     /// `ownership`).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=3), &[(1.into(), 2.into())]).unwrap();
+    /// let rebuilt = MultiDeal::from_parts(deal.deck().clone(), deal.hand_groups().into());
+    /// assert_eq!(rebuilt, deal);
+    /// ```
     pub fn from_parts(deck: Deck<O>, hand_groups: Arc<[HandGroup]>) -> Self {
         MultiDeal { deck, hand_groups }
     }
 
     /// The `Deck` the cards are dealt from.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deck = Deck::from_iter([1, 1, 2]);
+    /// let deal = MultiDeal::new(deck.clone(), &[(1.into(), 2.into())]).unwrap();
+    /// assert_eq!(*deal.deck(), deck);
+    /// ```
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
     /// The `(hand size, number of hands)` groups, in order.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.hand_groups(), [(2, 1), (1, 2)]);
+    /// ```
     pub fn hand_groups(&self) -> &[HandGroup] {
         &self.hand_groups
     }
 
     /// The number of cards dealt to each hand as a tuple.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// // Python's `MultiDeal(Deck([1, 2, 3, 4, 5]), ((2, 1), (1, 2))).hand_sizes()` is `(2, 1, 1)`.
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.hand_sizes(), [2, 1, 1]);
+    /// ```
     pub fn hand_sizes(&self) -> Vec<usize> {
         hand_sizes(&self.hand_groups)
     }
 
     /// The total number of cards dealt.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.total_cards_dealt(), 4);
+    /// ```
     pub fn total_cards_dealt(&self) -> usize {
         total_cards_dealt(&self.hand_groups)
     }
 
     /// `len(multi_deal)`: the number of hands.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.len(), 3);
+    /// ```
     pub fn len(&self) -> usize {
         hand_count(&self.hand_groups)
     }
 
     /// Whether the deck has no cards.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// assert!(MultiDeal::new(Deck::from_iter(1..=3), &[]).unwrap().is_empty());
+    /// assert!(!MultiDeal::new(Deck::from_iter(1..=3), &[(0.into(), 1.into())]).unwrap().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// The total number of ways the hands can be dealt.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// // `comb(5, 4) * comb(4, 1) * comb(4, 1)`, as icepool computes it.
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.denominator().to_string(), "80");
+    /// ```
     pub fn denominator(&self) -> Quantity {
         denominator(&self.deck, &self.hand_groups)
     }
 
     /// `_make_source`.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter([1, 1, 2]), &[(1.into(), 2.into())]).unwrap();
+    /// let source = deal.source();
+    /// assert_eq!((source.outcomes(), source.hand_groups()), (&[1, 2][..], &[(1, 2)][..]));
+    /// ```
     pub fn source(&self) -> MultiDealSource<O> {
         let outcomes: Arc<[O]> = self.deck.outcomes().cloned().collect();
         MultiDealSource {
@@ -226,21 +302,51 @@ impl<O: Hash> Hash for MultiDealSource<O> {
 
 impl<O: OutcomeOrder> MultiDealSource<O> {
     /// The deck still to deal from.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter([1, 1, 2, 3]), &[(1.into(), 2.into())]).unwrap();
+    /// // Popping the 1s leaves the rest of the deck.
+    /// let (rest, _, _) = &deal.source().pop(Order::Ascending, &1).unwrap()[0];
+    /// assert_eq!(*rest.deck(), Deck::from_iter([2, 3]));
+    /// ```
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
     /// The `(hand size, number of hands)` groups still to deal.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.source().hand_groups(), [(2, 1), (1, 2)]);
+    /// ```
     pub fn hand_groups(&self) -> &[HandGroup] {
         &self.hand_groups
     }
 
     /// The outcomes of the remaining deck.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let source = MultiDeal::new(Deck::from_iter([1, 2, 2, 3]), &[(1.into(), 2.into())]).unwrap().source();
+    /// assert_eq!(source.outcomes(), [1, 2, 3]);
+    /// let (rest, _, _) = &source.pop(Order::Descending, &3).unwrap()[0];
+    /// assert_eq!(rest.outcomes(), [1, 2]);
+    /// ```
     pub fn outcomes(&self) -> &[O] {
         &self.outcomes[self.lo..self.hi]
     }
 
     /// `size()`: the hand sizes (a tuple source's size is a tuple).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
+    /// assert_eq!(&*deal.source().size(), [2, 1, 1].map(Int::from));
+    /// ```
     pub fn size(&self) -> Arc<[Int]> {
         self.hand_size_counts()
     }
@@ -253,16 +359,38 @@ impl<O: OutcomeOrder> MultiDealSource<O> {
     }
 
     /// Whether the deal can be evaluated: there are enough cards in the deck for every hand.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// assert!(MultiDeal::new(Deck::from_iter([1, 2]), &[(1.into(), 1.into())]).unwrap().source().is_resolvable());
+    /// // No cards to deal from.
+    /// let empty = MultiDeal::new(Deck::<i64>::from_iter([]), &[(0.into(), 1.into())]).unwrap();
+    /// assert!(!empty.source().is_resolvable());
+    /// ```
     pub fn is_resolvable(&self) -> bool {
         !self.outcomes().is_empty()
     }
 
     /// The total number of ways the remaining hands can be dealt.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, MultiDeal};
+    /// // Two hands of one card each from `[1, 2, 3]`.
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=3), &[(1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.source().denominator().to_string(), "6");
+    /// ```
     pub fn denominator(&self) -> Quantity {
         denominator(&self.deck, &self.hand_groups)
     }
 
     /// A multi-deal has no preferred order.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Order, OrderReason};
+    /// use icepool_core::{Deck, MultiDeal};
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=3), &[(1.into(), 2.into())]).unwrap();
+    /// assert_eq!(deal.source().order_preference(), (Order::Any, OrderReason::NoPreference));
+    /// ```
     pub fn order_preference(&self) -> (Order, OrderReason) {
         (Order::Any, OrderReason::NoPreference)
     }
@@ -272,6 +400,19 @@ impl<O: OutcomeOrder> MultiDealSource<O> {
     ///
     /// Possibilities where every hand is full are not yielded one by one: they come last as one source whose hands
     /// are all empty, with the hand sizes as counts.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{Deck, Int, MultiDeal, Quantity};
+    /// // Two hands of one card each from `[1, 2, 3]`, popping the 1: neither hand gets it, or one of them does
+    /// // (counts sorted descending within the group). As in Python, the second comes twice, each with weight 1.
+    /// let deal = MultiDeal::new(Deck::from_iter(1..=3), &[(1.into(), 2.into())]).unwrap();
+    /// let popped = deal.source().pop(Order::Ascending, &1).unwrap();
+    /// let counts: Vec<(Vec<Int>, Quantity)> = popped.into_iter().map(|(_, c, w)| (c.to_vec(), w)).collect();
+    /// let none = (vec![Int::ZERO, Int::ZERO], Quantity::ONE);
+    /// let one = (vec![Int::ONE, Int::ZERO], Quantity::ONE);
+    /// assert_eq!(counts, [none, one.clone(), one]);
+    /// ```
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<TuplePopped<Self>>> {
         let n_hands = hand_count(&self.hand_groups);
         let unchanged = || {

@@ -109,6 +109,17 @@ impl<O: OutcomeOrder> Die<O> {
     ///
     /// Outcomes with zero total weight are omitted; dice among the outcomes are mixed in, scaled by
     /// `weighted_lcm` so that the overall denominator is minimised while preserving the relative weighting.
+    ///
+    /// ```
+    /// use icepool_core::value::DieArg;
+    /// use icepool_core::{d, Die, Quantity};
+    /// // Python's `Die([1, 2, d(2)], times=[1, 1, 2])`: the d2 is scaled to keep the weighting, `{1: 2, 2: 2}`.
+    /// let args = vec![DieArg::Outcome(1), DieArg::Outcome(2), DieArg::Die(d(2))];
+    /// let times = vec![Quantity::ONE, Quantity::ONE, Quantity::from(2u8)];
+    /// assert_eq!(Die::new(args, times).unwrap(), Die::from_weights([(1, 2u32), (2, 2)]));
+    /// // Python: `ValueError: The number of times (1) must equal the number of keys (2).`
+    /// assert!(Die::new(vec![DieArg::Outcome(1), DieArg::Outcome(2)], vec![Quantity::ONE]).is_err());
+    /// ```
     pub fn new(outcomes: Vec<DieArg<O>>, times: Vec<Quantity>) -> Result<Self> {
         if outcomes.len() != times.len() {
             return invalid_argument(format!(
@@ -127,6 +138,15 @@ impl<O: OutcomeOrder> Die<O> {
     }
 
     /// `Die._new_raw`: wraps already-processed data.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::{Die, Quantity};
+    /// // `Die._new_raw`: unlike `Die(dict)`, zero quantities stay.
+    /// let counts = Counts::new(vec![(1, Quantity::ONE), (2, Quantity::ZERO)]).unwrap();
+    /// let die = Die::from_counts(counts);
+    /// assert_eq!(die.outcomes().copied().collect::<Vec<_>>(), [1, 2]);
+    /// ```
     pub fn from_counts(data: Counts<O>) -> Self {
         Die {
             data: Arc::new(DieData {

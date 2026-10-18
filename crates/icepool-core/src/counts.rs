@@ -27,6 +27,17 @@ impl<O: OutcomeOrder> Counts<O> {
     /// `Counts(items)`: sorts the items (as Python sorts `(key, value)` tuples: by key, then value for keys that
     /// are `==`), then merges equal keys (as a dict does), keeping the first. Raises `TypeError` if the keys are not mutually comparable;
     /// a single key is compared with itself so that even a one-outcome die checks its outcome is orderable.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::{Quantity, Value};
+    /// let q = Quantity::from;
+    /// // Sorted, equal keys merged, zero quantities kept.
+    /// let counts = Counts::new(vec![(2, q(0u8)), (1, q(1u8)), (2, q(3u8))]).unwrap();
+    /// assert_eq!(counts.items(), [(1, q(1u8)), (2, q(3u8))]);
+    /// // Python's `TypeError`: a str and an int do not compare.
+    /// assert!(Counts::new(vec![(Value::str("a"), q(1u8)), (Value::from(1), q(1u8))]).is_err());
+    /// ```
     pub fn new(items: Vec<(O, Quantity)>) -> std::result::Result<Self, O::Incomparable> {
         if let [(k, _)] = items.as_slice() {
             k.try_lt(k)?;
@@ -51,6 +62,13 @@ impl<O: OutcomeOrder> Counts<O> {
     }
 
     /// Items already sorted and merged (e.g. by construction, as in `d(n)`). Checked in debug builds.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::Quantity;
+    /// let items = vec![(1, Quantity::ONE), (2, Quantity::ONE)];
+    /// assert_eq!(Counts::from_sorted(items.clone()), Counts::new(items).unwrap());
+    /// ```
     pub fn from_sorted(items: Vec<(O, Quantity)>) -> Self {
         debug_assert!(items
             .windows(2)
@@ -59,21 +77,49 @@ impl<O: OutcomeOrder> Counts<O> {
     }
 
     /// The `(outcome, quantity)` items, in ascending order of the outcomes.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::Quantity;
+    /// let counts = Counts::new(vec![("b", Quantity::ONE), ("a", Quantity::ONE)]).unwrap();
+    /// assert_eq!(counts.items(), [("a", Quantity::ONE), ("b", Quantity::ONE)]);
+    /// ```
     pub fn items(&self) -> &[(O, Quantity)] {
         &self.items
     }
 
     /// The number of outcomes (zero quantities included).
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::Quantity;
+    /// // Zero quantities count.
+    /// assert_eq!(Counts::new(vec![(1, Quantity::ONE), (2, Quantity::ZERO)]).unwrap().len(), 2);
+    /// ```
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Whether there are no outcomes at all.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::Quantity;
+    /// assert!(Counts::<i64>::new(vec![]).unwrap().is_empty());
+    /// assert!(!Counts::new(vec![(1, Quantity::ZERO)]).unwrap().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// `True` iff `self` contains at least one zero value.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::Quantity;
+    /// assert!(Counts::new(vec![(1, Quantity::ONE), (2, Quantity::ZERO)]).unwrap().has_zero_values());
+    /// assert!(!Counts::new(vec![(1, Quantity::ONE)]).unwrap().has_zero_values());
+    /// ```
     pub fn has_zero_values(&self) -> bool {
         self.items.iter().any(|(_, q)| q.is_zero())
     }
@@ -110,6 +156,16 @@ impl<O: OutcomeOrder> Default for OrderedMerge<O> {
 
 impl<O: OutcomeOrder> OrderedMerge<O> {
     /// `data[outcome] += quantity`.
+    ///
+    /// ```
+    /// use icepool_core::value::OrderedMerge;
+    /// use icepool_core::Quantity;
+    /// let mut merge = OrderedMerge::default();
+    /// merge.add(3, Quantity::ONE);
+    /// merge.add(1, Quantity::ONE);
+    /// merge.add(3, Quantity::ONE);
+    /// assert_eq!(merge.into_items(), [(3, Quantity::from(2u8)), (1, Quantity::ONE)]);
+    /// ```
     pub fn add(&mut self, outcome: O, quantity: Quantity) {
         match self.index.get(&outcome) {
             Some(&i) => self.items[i].1 += quantity,
@@ -121,6 +177,16 @@ impl<O: OutcomeOrder> OrderedMerge<O> {
     }
 
     /// The merged items, in the order their outcomes were first added.
+    ///
+    /// ```
+    /// use icepool_core::value::OrderedMerge;
+    /// use icepool_core::Quantity;
+    /// let mut merge = OrderedMerge::default();
+    /// merge.add("b", Quantity::ONE);
+    /// merge.add("a", Quantity::ONE);
+    /// // In order of first addition, not sorted.
+    /// assert_eq!(merge.into_items(), [("b", Quantity::ONE), ("a", Quantity::ONE)]);
+    /// ```
     pub fn into_items(self) -> Vec<(O, Quantity)> {
         self.items
     }

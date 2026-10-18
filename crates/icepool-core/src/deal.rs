@@ -25,6 +25,15 @@ use crate::pool::{MultisetSource, Popped, MAX_POOL_SIZE};
 use crate::{Int, Quantity};
 
 /// `Deal` (a `KeepGenerator`): a hand of `len(keep_tuple)` cards dealt from `deck`.
+///
+/// ```
+/// use icepool_core::evaluator::basic::SumEvaluator;
+/// use icepool_core::{Deck, Die};
+/// // Python's `Deck([1, 2, 3, 4]).deal(3)[-2:].sum()`: the two highest of three cards.
+/// let best_two = Deck::from_iter(1..=4).deal(3).highest(2);
+/// let sums = best_two.evaluate(&SumEvaluator).unwrap();
+/// assert_eq!(sums, Die::from_weights([(5, 1u32), (6, 1), (7, 2)]));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Deal<O> {
     deck: Deck<O>,
@@ -77,41 +86,93 @@ impl<O: OutcomeOrder> Deal<O> {
 
     /// A deal's keep tuple (`keep_tuple()`) over its deck again: for a host that holds the deck apart (the Python
     /// facade holds the deck's Python object, so that only one Python object holds the cards: see `ownership`).
+    ///
+    /// ```
+    /// use icepool_core::{Deal, Deck};
+    /// let deal = Deck::from_iter(1..=4).deal(3).highest(1);
+    /// let rebuilt = Deal::from_parts(deal.deck().clone(), deal.keep_tuple().into());
+    /// assert_eq!(rebuilt, deal);
+    /// ```
     pub fn from_parts(deck: Deck<O>, keep_tuple: Arc<[Int]>) -> Self {
         Deal { deck, keep_tuple }
     }
 
     /// The `Deck` the cards are dealt from.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// let deck = Deck::from_iter([1, 1, 2]);
+    /// assert_eq!(*deck.deal(2).deck(), deck);
+    /// ```
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
     /// The tuple indicating which cards of the hand will be counted (in sorted order).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// // Python's `Deck([1, 2, 3, 4]).deal(3).keep_tuple()` is `(1, 1, 1)`.
+    /// assert_eq!(Deck::from_iter(1..=4).deal(3).keep_tuple(), [1, 1, 1].map(Int::from));
+    /// ```
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
     /// The number of cards dealt.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Keeping fewer cards does not change how many are dealt.
+    /// assert_eq!(Deck::from_iter(1..=4).deal(3).highest(1).hand_size(), 3);
+    /// ```
     pub fn hand_size(&self) -> usize {
         self.keep_tuple.len()
     }
 
     /// The total count produced by this generator.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// // Python's `Deck([1, 2, 3, 4]).deal(3)[1:].keep_size()` is 2.
+    /// assert_eq!(Deck::from_iter(1..=4).deal(3).highest(2).keep_size(), Int::from(2));
+    /// ```
     pub fn keep_size(&self) -> Int {
         sum_counts(&self.keep_tuple)
     }
 
     /// Whether any element of the keep tuple is negative.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// // Python's `-Deck([1, 2, 3, 4]).deal(3)`.
+    /// let deal = Deck::from_iter(1..=4).deal(3);
+    /// assert!(!deal.has_negative_keeps());
+    /// assert!(deal.multiply_counts(&Int::from(-1)).has_negative_keeps());
+    /// ```
     pub fn has_negative_keeps(&self) -> bool {
         self.keep_tuple.iter().any(Int::is_negative)
     }
 
     /// `comb(deck.size(), hand_size)`.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // comb(4, 3) = 4 hands.
+    /// assert_eq!(Deck::from_iter(1..=4).deal(3).denominator().to_string(), "4");
+    /// ```
     pub fn denominator(&self) -> Quantity {
         comb(&self.deck.size(), self.hand_size())
     }
 
     /// `_set_keep_tuple`: a copy with a modified keep tuple.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let deal = Deck::from_iter(1..=4).deal(3);
+    /// let middle = deal.with_keep_tuple([0, 1, 0].map(Int::from).to_vec());
+    /// assert_eq!(middle.keep_size(), Int::from(1));
+    /// ```
     pub fn with_keep_tuple(&self, keep_tuple: Vec<Int>) -> Self {
         Deal {
             deck: self.deck.clone(),
@@ -120,16 +181,39 @@ impl<O: OutcomeOrder> Deal<O> {
     }
 
     /// `KeepGenerator.keep` (see `Pool::keep`).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{KeepIndex, Slice};
+    /// use icepool_core::{Deck, Int};
+    /// // Python's `Deck([1, 2, 3, 4]).deal(3)[-1:]`: the highest card.
+    /// let index = KeepIndex::Slice { slice: Slice::new(Some(-1), None), step: false };
+    /// let highest = Deck::from_iter(1..=4).deal(3).keep(&index).unwrap();
+    /// assert_eq!(highest.keep_tuple(), [0, 0, 1].map(Int::from));
+    /// ```
     pub fn keep(&self, index: &KeepIndex) -> Result<Self> {
         Ok(self.with_keep_tuple(keep_tuple::keep(&self.keep_tuple, index)?))
     }
 
     /// `KeepGenerator.multiply_counts`.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// // Python's `Deck([1, 2, 3, 4]).deal(3) * 2`.
+    /// let doubled = Deck::from_iter(1..=4).deal(3).multiply_counts(&Int::from(2));
+    /// assert_eq!(doubled.keep_tuple(), [2, 2, 2].map(Int::from));
+    /// ```
     pub fn multiply_counts(&self, constant: &Int) -> Self {
         self.with_keep_tuple(keep_tuple::multiply_counts(&self.keep_tuple, constant))
     }
 
     /// `_make_source`.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let source = Deck::from_iter([1, 1, 2, 3]).deal(2).source();
+    /// assert_eq!(source.outcomes(), [1, 2, 3]);
+    /// assert_eq!(source.size(), Some(Int::from(2)));
+    /// ```
     pub fn source(&self) -> DealSource<O> {
         let outcomes: Arc<[O]> = self.deck.outcomes().cloned().collect();
         DealSource {
@@ -250,21 +334,53 @@ impl<O: Hash> Hash for DealSource<O> {
 
 impl<O: OutcomeOrder> DealSource<O> {
     /// The deck still to deal from.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::Deck;
+    /// // Popping the 1s leaves the rest of the deck.
+    /// let source = Deck::from_iter([1, 1, 2, 3]).deal(2).source();
+    /// let (rest, _, _) = &source.pop(Order::Ascending, &1).unwrap()[0];
+    /// assert_eq!(*rest.deck(), Deck::from_iter([2, 3]));
+    /// ```
     pub fn deck(&self) -> &Deck<O> {
         &self.deck
     }
 
     /// The keep tuple of the cards still to deal.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let source = Deck::from_iter(1..=4).deal(3).lowest(1).source();
+    /// assert_eq!(source.keep_tuple(), [1, 0, 0].map(Int::from));
+    /// ```
     pub fn keep_tuple(&self) -> &[Int] {
         &self.keep_tuple
     }
 
     /// The outcomes of the remaining deck.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::Deck;
+    /// let source = Deck::from_iter([1, 2, 2, 3]).deal(2).source();
+    /// assert_eq!(source.outcomes(), [1, 2, 3]);
+    /// let (rest, _, _) = &source.pop(Order::Descending, &3).unwrap()[0];
+    /// assert_eq!(rest.outcomes(), [1, 2]);
+    /// ```
     pub fn outcomes(&self) -> &[O] {
         &self.outcomes[self.lo..self.hi]
     }
 
     /// `KeepSource.size`: the total count, unknown (`None`) with negative counts.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Int};
+    /// let deal = Deck::from_iter(1..=4).deal(3);
+    /// assert_eq!(deal.highest(2).source().size(), Some(Int::from(2)));
+    /// // Negative counts leave the size unknown.
+    /// assert_eq!(deal.multiply_counts(&Int::from(-1)).source().size(), None);
+    /// ```
     pub fn size(&self) -> Option<Int> {
         if self.keep_tuple.iter().any(Int::is_negative) {
             return None;
@@ -273,16 +389,39 @@ impl<O: OutcomeOrder> DealSource<O> {
     }
 
     /// Whether the deal can be evaluated: there are enough cards in the deck to deal the hand.
+    ///
+    /// ```
+    /// use icepool_core::{Deal, Deck};
+    /// assert!(Deck::from_iter([1, 2]).deal(1).source().is_resolvable());
+    /// // Zero cards from an empty deck.
+    /// let empty = Deal::new(Deck::<i64>::from_iter([]), &0.into()).unwrap();
+    /// assert!(!empty.source().is_resolvable());
+    /// ```
     pub fn is_resolvable(&self) -> bool {
         !self.deck.is_empty()
     }
 
     /// `comb(deck.size(), len(keep_tuple))`.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // comb(5, 2) = 10.
+    /// assert_eq!(Deck::from_iter(1..=5).deal(2).source().denominator().to_string(), "10");
+    /// ```
     pub fn denominator(&self) -> Quantity {
         comb(&self.deck.size(), self.keep_tuple.len())
     }
 
     /// A deal prefers to pop from the end whose positions it skips (like a pool's `KeepSkip`).
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Order, OrderReason};
+    /// use icepool_core::Deck;
+    /// let deal = Deck::from_iter(1..=5).deal(3);
+    /// // Keeping the highest card skips the low ones: popping from the top is quicker.
+    /// assert_eq!(deal.highest(1).source().order_preference(), (Order::Descending, OrderReason::KeepSkip));
+    /// assert_eq!(deal.source().order_preference(), (Order::Any, OrderReason::NoPreference));
+    /// ```
     pub fn order_preference(&self) -> (Order, OrderReason) {
         let (lo_skip, hi_skip) = lo_hi_skip(&self.keep_tuple);
         if lo_skip > hi_skip {
@@ -299,6 +438,17 @@ impl<O: OutcomeOrder> DealSource<O> {
     ///
     /// Possibilities where no count remains in the keep tuple are not yielded one by one: the rest of the hand is
     /// dumped in exchange for the denominator, and they come last as one deal with an empty keep tuple.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::{Deck, Int, Quantity};
+    /// // Two cards from `[1, 1, 2, 3]`: the hand gets no 1 (1 way), one 1 (2 ways) or both (1 way).
+    /// let source = Deck::from_iter([1, 1, 2, 3]).deal(2).source();
+    /// let popped = source.pop(Order::Ascending, &1).unwrap();
+    /// let counts: Vec<(Int, Quantity)> = popped.into_iter().map(|(_, count, weight)| (count, weight)).collect();
+    /// let q = Quantity::from;
+    /// assert_eq!(counts, [(Int::from(0), q(1u8)), (Int::from(1), q(2u8)), (Int::from(2), q(1u8))]);
+    /// ```
     pub fn pop(&self, order: Order, outcome: &O) -> Result<Vec<Popped<Self>>> {
         let unchanged = || Ok(vec![(self.clone(), Int::ZERO, Quantity::ONE)]);
         if self.deck.is_empty() {

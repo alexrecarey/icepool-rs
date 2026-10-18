@@ -20,6 +20,14 @@ use crate::Quantity;
 
 /// A deck of cards. Immutable and cheap to clone (the cards are shared). Equality and hashing are structural, as
 /// `hash_key` `(Deck, tuple(items))`.
+///
+/// ```
+/// use icepool_core::Deck;
+/// // Python's `Deck([1, 2, 2, 3])`: duplicates add up, nothing is rescaled.
+/// let deck = Deck::from_iter([1, 2, 2, 3]);
+/// assert_eq!(deck.repr().unwrap(), "Deck({1: 1, 2: 2, 3: 1})");
+/// assert_eq!(deck.size().to_string(), "4");
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Deck<O> {
     cards: Die<O>,
@@ -37,11 +45,27 @@ impl<O: OutcomeOrder> Deck<O> {
     /// Outcomes with zero quantity are omitted. A die (or deck) among the outcomes is flattened into the result,
     /// each of its outcomes duplicated by its quantity times the argument's. (`Deck([deck])` returning `deck`
     /// itself is the caller's: it knows which arguments are decks.)
+    ///
+    /// ```
+    /// use icepool_core::value::DieArg;
+    /// use icepool_core::{d, Deck, Quantity};
+    /// // Python's `Deck([1, d(2)], times=[1, 2])`: the die's cards are duplicated by the times, and add to the 1.
+    /// let args = [DieArg::Outcome(1), DieArg::Die(d(2))];
+    /// let deck = Deck::new(&args, &[Quantity::ONE, Quantity::from(2u8)]).unwrap();
+    /// assert_eq!(deck, Deck::from_weights([(1, 3u32), (2, 2)]));
+    /// ```
     pub fn new(outcomes: &[DieArg<O>], times: &[Quantity]) -> Result<Self> {
         Ok(Self::from_counts(expand_args_for_deck(outcomes, times)?))
     }
 
     /// `Deck._new_raw`: wraps already-processed data.
+    ///
+    /// ```
+    /// use icepool_core::value::Counts;
+    /// use icepool_core::{Deck, Quantity};
+    /// let counts = Counts::new(vec![(2, Quantity::ONE), (1, Quantity::from(3u8))]).unwrap();
+    /// assert_eq!(Deck::from_counts(counts), Deck::from_iter([1, 1, 1, 2]));
+    /// ```
     pub fn from_counts(data: Counts<O>) -> Self {
         Deck {
             cards: Die::from_counts(data),
@@ -106,16 +130,34 @@ impl<O: OutcomeOrder> Deck<O> {
     }
 
     /// The distinct cards in ascending order.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// let deck = Deck::from_iter([3, 1, 3, 2]);
+    /// assert_eq!(deck.outcomes().copied().collect::<Vec<_>>(), [1, 2, 3]);
+    /// ```
     pub fn outcomes(&self) -> impl ExactSizeIterator<Item = &O> {
         self.cards.outcomes()
     }
 
     /// The number of distinct outcomes (`len(deck)`).
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Three distinct cards among four.
+    /// assert_eq!(Deck::from_iter([1, 2, 2, 3]).len(), 3);
+    /// ```
     pub fn len(&self) -> usize {
         self.cards.len()
     }
 
     /// Whether the deck has no cards at all.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// assert!(Deck::<i64>::from_iter([]).is_empty());
+    /// assert!(!Deck::from_iter([1]).is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.cards.is_empty()
     }
@@ -132,12 +174,27 @@ impl<O: OutcomeOrder> Deck<O> {
     }
 
     /// `Deck._pop_min`: a deck with the min outcome removed, and its quantity (`IndexError` for an empty deck).
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// // Python's `Deck([1, 2, 2, 3])._pop_min()` is `(Deck({2: 2, 3: 1}), 1)`.
+    /// let (rest, quantity) = Deck::from_iter([1, 2, 2, 3]).pop_min().unwrap();
+    /// assert_eq!((rest, quantity), (Deck::from_iter([2, 2, 3]), Quantity::ONE));
+    /// assert!(Deck::<i64>::from_iter([]).pop_min().is_err());
+    /// ```
     pub fn pop_min(&self) -> Result<(Self, Quantity)> {
         let (cards, q) = self.cards.pop_min()?;
         Ok((Deck { cards }, q))
     }
 
     /// `Deck._pop_max`: a deck with the max outcome removed, and its quantity.
+    ///
+    /// ```
+    /// use icepool_core::{Deck, Quantity};
+    /// // Python's `Deck([1, 2, 2, 3])._pop_max()` is `(Deck({1: 1, 2: 2}), 1)`.
+    /// let (rest, quantity) = Deck::from_iter([1, 2, 2, 3]).pop_max().unwrap();
+    /// assert_eq!((rest, quantity), (Deck::from_iter([1, 2, 2]), Quantity::ONE));
+    /// ```
     pub fn pop_max(&self) -> Result<(Self, Quantity)> {
         let (cards, q) = self.cards.pop_max()?;
         Ok((Deck { cards }, q))
@@ -160,11 +217,30 @@ impl<O: OutcomeOrder> Deck<O> {
     /// `Deck(+data)` expands each key as `Deck(...)` expands an outcome; keys made of plain outcomes are outcomes
     /// as they are. (The Python facade, whose `other` may hold dice or `Reroll`, gets [`Deck::counter_items`] and
     /// calls `Deck(...)` itself.)
+    ///
+    /// ```
+    /// use icepool_core::value::{Counter, CounterOp};
+    /// use icepool_core::Deck;
+    /// // Python's `Deck([1, 2, 2, 3]) - [2, 3, 4]` is `Deck([1, 2])`; `&` keeps the cards both have.
+    /// let deck = Deck::from_iter([1, 2, 2, 3]);
+    /// let other = Counter::from_elements([2, 3, 4]);
+    /// assert_eq!(deck.counter_op(CounterOp::Sub, &other).unwrap(), Deck::from_iter([1, 2]));
+    /// assert_eq!(deck.counter_op(CounterOp::And, &other).unwrap(), Deck::from_iter([2, 3]));
+    /// ```
     pub fn counter_op(&self, op: CounterOp, other: &Counter<O>) -> Result<Self> {
         Self::from_dict(self.counter_items(op, other)).err_into()
     }
 
     /// The items of `+data` in [`Deck::counter_op`].
+    ///
+    /// ```
+    /// use icepool_core::value::{Counter, CounterOp};
+    /// use icepool_core::{Deck, Quantity};
+    /// // `+data` of `Deck([1, 2]) ^ Counter([2, 2, 3])`: how much the counts of each card differ.
+    /// let deck = Deck::from_iter([1, 2]);
+    /// let items = deck.counter_items(CounterOp::Xor, &Counter::from_elements([2, 2, 3]));
+    /// assert_eq!(items, [(1, Quantity::ONE), (2, Quantity::ONE), (3, Quantity::ONE)]);
+    /// ```
     pub fn counter_items(&self, op: CounterOp, other: &Counter<O>) -> Vec<(O, Quantity)> {
         let combine = |data: &mut Counter<O>, f: &dyn Fn(IBig, &IBig) -> IBig| {
             for (outcome, count) in other.items() {
@@ -219,6 +295,12 @@ impl<O: OutcomeOrder> Deck<O> {
 impl<O: crate::outcome::OutcomeArith> Deck<O> {
     /// `Population.zero` of a deck: every outcome times 0 (`_unary_operator`, merging equal results), then
     /// `Deck(data)`; `ValueError` unless they resolve to a single outcome.
+    ///
+    /// ```
+    /// use icepool_core::Deck;
+    /// // Python's `Deck([1, 1, 2]).zero()` is `Deck({0: 3})`.
+    /// assert_eq!(Deck::from_iter([1, 1, 2]).zero().unwrap(), Deck::from_iter([0, 0, 0]));
+    /// ```
     pub fn zero(&self) -> Result<Self> {
         let zeros = self.cards.unary_operator(O::try_zero)?;
         let result = Self::from_dict(zeros.items().to_vec()).err_into()?;
@@ -346,6 +428,14 @@ impl<O: OutcomeOrder> Default for Counter<O> {
 
 impl<O: OutcomeOrder> Counter<O> {
     /// `Counter(iterable)`: each element counted once.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// // Python's `Counter([2, 1, 2])` is `Counter({2: 2, 1: 1})`: in order of first appearance.
+    /// let counter = Counter::from_elements([2, 1, 2]);
+    /// assert_eq!(counter.items(), [(2, IBig::from(2)), (1, IBig::ONE)]);
+    /// ```
     pub fn from_elements(elements: impl IntoIterator<Item = O>) -> Self {
         let mut counter = Counter::default();
         for e in elements {
@@ -356,6 +446,14 @@ impl<O: OutcomeOrder> Counter<O> {
     }
 
     /// `Counter(mapping)`: `dict.update` with the mapping's items (a later equal key overwrites the count).
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// // A later equal key overwrites the count but keeps its place.
+    /// let counter = Counter::from_mapping([(1, IBig::from(5)), (2, IBig::ONE), (1, IBig::from(-1))]);
+    /// assert_eq!(counter.items(), [(1, IBig::from(-1)), (2, IBig::ONE)]);
+    /// ```
     pub fn from_mapping(items: impl IntoIterator<Item = (O, IBig)>) -> Self {
         let mut counter = Counter::default();
         for (o, c) in items {
@@ -365,16 +463,39 @@ impl<O: OutcomeOrder> Counter<O> {
     }
 
     /// `Counter(population)`: its outcomes and quantities.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// use icepool_core::Deck;
+    /// let counter = Counter::from_population(Deck::from_iter([1, 1, 2]).items());
+    /// assert_eq!(counter.items(), [(1, IBig::from(2)), (2, IBig::ONE)]);
+    /// ```
     pub fn from_population(items: &[(O, Quantity)]) -> Self {
         Self::from_mapping(items.iter().map(|(o, q)| (o.clone(), q.clone().into())))
     }
 
     /// Every `(outcome, count)` in insertion order.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// assert_eq!(Counter::from_elements(["b", "a"]).items(), [("b", IBig::ONE), ("a", IBig::ONE)]);
+    /// ```
     pub fn items(&self) -> &[(O, IBig)] {
         &self.items
     }
 
     /// `counter[key]`: 0 if missing.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// let counter = Counter::from_elements([1, 1]);
+    /// assert_eq!((counter.get(&1), counter.get(&2)), (IBig::from(2), IBig::ZERO));
+    /// // Asking for a missing key does not insert it.
+    /// assert_eq!(counter.items().len(), 1);
+    /// ```
     pub fn get(&self, key: &O) -> IBig {
         self.index
             .get(key)
@@ -382,6 +503,15 @@ impl<O: OutcomeOrder> Counter<O> {
     }
 
     /// `counter[key] = count`.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// let mut counter = Counter::from_elements([1, 2]);
+    /// counter.set(1, IBig::from(7));
+    /// counter.set(3, IBig::ZERO);
+    /// assert_eq!(counter.items(), [(1, IBig::from(7)), (2, IBig::ONE), (3, IBig::ZERO)]);
+    /// ```
     pub fn set(&mut self, key: O, count: IBig) {
         match self.index.get(&key) {
             Some(&i) => self.items[i].1 = count,
@@ -393,6 +523,14 @@ impl<O: OutcomeOrder> Counter<O> {
     }
 
     /// `+counter`: the items with a positive count, in order.
+    ///
+    /// ```
+    /// use dashu_int::IBig;
+    /// use icepool_core::value::Counter;
+    /// use icepool_core::Quantity;
+    /// let counter = Counter::from_mapping([(1, IBig::from(-1)), (2, IBig::ZERO), (3, IBig::from(2))]);
+    /// assert_eq!(counter.positive(), [(3, Quantity::from(2u8))]);
+    /// ```
     pub fn positive(self) -> Vec<(O, Quantity)> {
         self.items
             .into_iter()
