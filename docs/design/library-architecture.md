@@ -303,21 +303,24 @@ crates/
                     dependency of a production crate.
 ```
 
-- **The runner is a client of the public API.** It uses `icepool_core::{root, value, host, evaluator,
-  expression}` like the bindings do, and nothing else: icepool-core has no `#[doc(hidden)]` module, every internal
-  module is a private `mod`, so the compiler enforces this. What the runner (or a binding) needs from the internals
-  is a documented `pub use` in one of those modules, never a widened `pub mod` (C3b, C3d). Moving it out is what
-  proved the public API complete. (Until C5b, `program/` sat in core behind an interim `runner` feature, while the
-  protected fixtures test still called `icepool_core::program::run`; that test is now
-  `crates/icepool-harness/tests/fixtures.rs` and the feature is gone.)
+- **The runner is a client of the public API.** It uses `icepool_core::{..., value, host}` like the bindings do.
+  Moving it out is what proves the public API complete.
+- **Interim, until the protected `crates/icepool-core/tests/fixtures.rs` moves** (it calls
+  `icepool_core::program::run`; QUESTIONS.md asks the loop owner to move it to
+  `crates/icepool-harness/tests/fixtures.rs` calling `icepool_harness::run`): `program/` stays in core behind a
+  non-default feature **`runner`** (serde_json an optional dependency of it). icepool-harness depends on
+  `icepool-core = { features = ["runner"] }`, so `cargo build/test --workspace` (the gate) unifies the feature on
+  and the fixtures test compiles; maturin and wasm-pack build their crate alone, without it. The `icepool-run`
+  binary moves to icepool-harness at once (same name, so `$CARGO_TARGET_DIR/release/icepool-run`, which
+  harness/core/tool.py runs, is unchanged). C5 verifies the unification claim before relying on it.
 - **Host callbacks in one module, `icepool_core::host`:** `HostObject` + `HostRef` + `HostError` (value/host.rs),
   `HostSource` (host_source.rs `HostSourceObject`), `HostOperator` (operator/mod.rs), `HostEvaluator` and
   `HostFunction` (program/host.rs). Their arguments and results are core types only: what crosses a host boundary is
   `host::HostValue = Value | Die<Value> | Pool<Value> | Deck<Value> | Again<Value> | Mapped<Value>`; the runner's
   `PValue`/`PErr` wrap it, they are not part of it.
-- **Feature flags:** `icepool-wasm/khepri` (`calculate`), `icepool-wasm/runner` (the `run()` export that
-  `run-wasm.sh` drives in the long gate; an optional dependency on icepool-harness once C6l removes the JS bridge).
-  None default. icepool-core has no features. No feature for
+- **Feature flags:** `icepool-core/runner` (interim, removed when the runner moves), `icepool-wasm/khepri`
+  (`calculate`), `icepool-wasm/runner` (the `run()` export that `run-wasm.sh` drives in the long gate:
+  `icepool-core/runner` now, an optional dependency on icepool-harness after C5b). None default. No feature for
   `Value`: it is part of the core (both bindings
   and the runner need it) but no generic code names it (section 1).
 - **Test-only code** sits in `#[cfg(test)]`, `[dev-dependencies]`, `tests/`, or the harness crate. The Python
