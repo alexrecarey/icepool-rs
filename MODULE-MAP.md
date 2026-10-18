@@ -22,9 +22,6 @@ first column. `scripts/upstream_changes.py` parses these rows (any table row who
 - **Status**:
   - *ported*: the core does the work, the Python facade calls it under `ICEPOOL_BACKEND=rust`, and the TypeScript
     API calls typed exports for it;
-  - *ported, TS partly bridged (task)*: as *ported*, but some TypeScript methods or argument kinds still go through
-    the interim JSON-op bridge (`js/src/rpc.ts` over `src/facade.rs`), which the named task removes;
-  - *ported, TS bridged (task)*: the TypeScript API reaches it only through that bridge;
   - *facade*: upstream's Python composes calls that are on the core (declarations, base classes, enums, classes
     whose behaviour lives elsewhere); nothing of its own to port;
   - *package*: a subpackage's `__init__.py`, imports only;
@@ -50,11 +47,11 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `evaluator/lexi.py` | `evaluator/lexi.rs` | verbatim | `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `evaluator/multiset_evaluator.py` | `evaluator/mod.rs` | verbatim | `evaluate.rs` | `evaluator.ts` | `api/evaluator.rs` | ported | 70168f56 |
 | `evaluator/multiset_evaluator_base.py` | `evaluator/mod.rs` | switched (with the facade's own `evaluator/evaluator_rust.py`) | `evaluate.rs` | `evaluator.ts` | `api/evaluator.rs`, `api/evaluate.rs` | ported | 70168f56 |
-| `evaluator/multiset_function.py` | `evaluator/multiset_function.rs` | verbatim (tracing stays Python by design) | `evaluate.rs` | `evaluator.ts` | `api/multiset_function.rs` | ported, TS partly bridged (C6l: keyword calls) | 70168f56 |
+| `evaluator/multiset_function.py` | `evaluator/multiset_function.rs` | verbatim (tracing stays Python by design) | `evaluate.rs` | `evaluator.ts` | `api/multiset_function.rs` | ported | 70168f56 |
 | `evaluator/poker.py` | `evaluator/poker.rs`, `evaluator/fold.rs`, `value/evaluators.rs` | verbatim | `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `expand.py` | `expand.rs` | switched | `map.rs`, `population.rs` | `functions.ts` | `api/function.rs` | ported | 70168f56 |
 | `expression/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
-| `expression/multiset_expression.py` | `expression.rs`, `operator/mod.rs` | verbatim | `expression.rs` | `multiset.ts` | `api/multiset.rs`, `api/evaluate.rs` | ported, TS partly bridged (C6j, C6k, C6l) | 70168f56 |
+| `expression/multiset_expression.py` | `expression.rs`, `operator/mod.rs` | verbatim | `expression.rs` | `multiset.ts` | `api/multiset.rs`, `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_expression_base.py` | `expression.rs`, `host/source.rs` | verbatim | `expression.rs`, `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_mixture.py` | — (one core evaluation per inner) | verbatim | `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_parameter.py` | `expression.rs` | verbatim | `evaluate.rs` | `evaluator.ts`, `multiset.ts` | `api/multiset_function.rs`, `api/evaluate.rs` | ported | 70168f56 |
@@ -73,7 +70,7 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `map_tools/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
 | `map_tools/common.py` | `map_tools/core_impl.rs` | verbatim | `map.rs`, `map_tools.rs` | `functions.ts`, `values.ts` | `api/map_tools.rs` | ported | 70168f56 |
 | `map_tools/core_impl.py` | `map_tools/core_impl.rs` | switched | `map.rs`, `map_tools.rs` | `functions.ts` | `api/function.rs`, `api/map_tools.rs` | ported | 70168f56 |
-| `map_tools/function.py` | `map_tools/mod.rs`, `to_pool.rs` | switched | `map_tools.rs`, `map.rs`, `to_pool.rs` | `functions.ts` | `api/map_tools.rs`, `api/function.rs` | ported, TS partly bridged (C6i: `mapToPool`, `map` over expressions or decks) | 70168f56 |
+| `map_tools/function.py` | `map_tools/mod.rs`, `to_pool.rs` | switched | `map_tools.rs`, `map.rs`, `to_pool.rs` | `functions.ts` | `api/map_tools.rs`, `api/function.rs` | ported | 70168f56 |
 | `map_tools/markov_chain.py` | `map_tools/markov_chain.rs` | switched | `map_tools.rs` | `functions.ts`, `die.ts` | `api/map_tools.rs` | ported | 70168f56 |
 | `math.py` | `math.rs` | verbatim (unused under `rust`) | — | — | — | internal | 70168f56 |
 | `operator/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
@@ -89,11 +86,11 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `population/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
 | `population/again.py` | `again.rs` | switched | `again.rs` | `again.ts` | `api/again.rs` | ported | 70168f56 |
 | `population/base.py` | `population.rs`, `value/builtins.rs` | switched | `stats.rs`, `population.rs`, `format.rs`, `lib.rs` | `die.ts`, `deck.ts` | `api/die.rs`, `api/deck.rs` | ported | 70168f56 |
-| `population/deck.py` | `deck.rs` | switched | `deck.rs`, `population.rs` | `deck.ts` | `api/deck.rs` | ported, TS partly bridged (C6l: odd operands, pools among the cards) | 70168f56 |
-| `population/die.py` | `die.rs`, `die_ops.rs`, `to_pool.rs`, `value/matmul.rs` | switched | `lib.rs`, `ops.rs`, `to_pool.rs`, `population.rs`, `format.rs` | `die.ts`, `operators.ts` | `api/die.rs` | ported, TS partly bridged (C6i: `keep`, `highest`, `lowest`, `middle`, `explodeToPool`, `rerollToPool`) | 70168f56 |
+| `population/deck.py` | `deck.rs` | switched | `deck.rs`, `population.rs` | `deck.ts` | `api/deck.rs` | ported | 70168f56 |
+| `population/die.py` | `die.rs`, `die_ops.rs`, `to_pool.rs`, `value/matmul.rs` | switched | `lib.rs`, `ops.rs`, `to_pool.rs`, `population.rs`, `format.rs` | `die.ts`, `operators.ts` | `api/die.rs` | ported | 70168f56 |
 | `population/die_with_truth.py` | — | verbatim | — | `die.ts` | `api/die.rs` | facade | 70168f56 |
 | `population/format.py` | `format.rs`, `value/pystr.rs` | switched (CSV still written by Python's `csv`) | `format.rs` | `die.ts`, `deck.ts` | `api/die.rs`, `api/deck.rs` | ported | 70168f56 |
-| `population/keep.py` | `keep.rs`, `keep_tuple.rs` | switched | `lib.rs` | `die.ts`, `functions.ts` | `api/multiset.rs` (the slices only) | ported, TS bridged (C6i) | 70168f56 |
+| `population/keep.py` | `keep.rs`, `keep_tuple.rs` | switched | `lib.rs` | `die.ts`, `functions.ts` | `api/multiset.rs` (the slices only) | ported | 70168f56 |
 | `typing.py` | `outcome.rs` | verbatim | — | `values.ts` | — | facade (protocols and enums; `infer_star` stays in each binding) | 70168f56 |
 | `wallenius.py` | — (composes deck and die calls) | verbatim | — | `deck.ts` | `api/function.rs` | facade | 70168f56 |
 
@@ -112,8 +109,9 @@ Python facade files with no upstream counterpart: `python/icepool/backend.py` (t
 to and from `Value`, exceptions), `ops.rs` (Python's operator functions mapped to the core's).
 
 TypeScript files with no upstream counterpart: `wasm.ts`, `node.ts`, `web.ts` (loading the module), `host.ts`,
-`errors.ts`, `operators.ts` (Python's operator dispatch), `internal.ts` and `rpc.ts` (test-only and interim);
-WASM: `src/facade.rs` (the interim bridge), `src/runner.rs` (test-only `run`), `src/khepri.rs` (`calculate`).
+`errors.ts`, `operators.ts` (Python's operator dispatch), `internal.ts` and `rpc.ts` (test-only: the fixture tests'
+bridge to the program runner, left out of the npm package); WASM: `src/facade.rs` (that bridge, feature `runner`),
+`src/runner.rs` (test-only `run`), `src/khepri.rs` (`calculate`).
 
 The test-only program runner, `crates/icepool-harness/src/`, mirrors the same upstream modules as JSON program
 nodes (see `harness/grammar/status.json` for every node and its status).

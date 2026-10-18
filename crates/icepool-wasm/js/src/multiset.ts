@@ -5,7 +5,7 @@
 import type { ExpressionBuilder, WasmDie, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import type { MultisetTupleExpression } from "./deck.js";
-import { Die, DieWithTruth, d as dDie, dictItems, itemize, opts, pyBool, pyIter, unpack, z as zDie, type Callback, type Comparison, type DieOutcomes, type Operand } from "./die.js";
+import { Die, DieWithTruth, d as dDie, dictItems, itemize, missingKeyword, opts, pyBool, pyIter, unpack, z as zDie, type Callback, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, callback, isTrap, wasm, withCallbacks } from "./wasm.js";
@@ -1085,7 +1085,9 @@ export class MultisetExpression implements Disposable {
    */
   argsort(...rest: (MultisetArg | { order?: OrderValue; limit?: Int | null; limitPad?: Int | null; tie: "drop" | "left" | "right" })[]): Die {
     type Options = { order: OrderValue; limit: Int | null; limitPad: Int | null; tie: string };
-    const [others, { order = Order.Descending, limit = null, limitPad = null, tie }] = opts<Options>(rest);
+    // `tie` is a required keyword-only argument: Python's binding refuses its absence first.
+    const [others, { order = Order.Descending, limit = null, limitPad = null, tie = missingKeyword("MultisetExpression.argsort", "tie") }] =
+      opts<Options>(rest);
     return evaluationOf("argsort", [tie, order, limit, limitPad].map(evaluatorParameter), this, ...others);
   }
   /** `MultisetExpression.argsort_grouped(*args, order=Order.Descending, limit=None)` (experimental): evaluation: as

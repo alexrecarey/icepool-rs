@@ -93,8 +93,58 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6l (removing the bridge: the rest of C6g); the docs are
-  C6b.
+- **The TypeScript API (C6, design section 6).** Done: no public module calls the program runner (C6l); the docs
+  are C6b.
+  - **C6l (the bridge out of the npm package).** The public modules (die.ts, deck.ts, multiset.ts, evaluator.ts,
+    operators.ts, to-pool.ts) never import rpc.ts (test/api.test.mjs checks the imports and package.json `files`;
+    scripts/check-production.sh fails the package on rpc.js / internal.js, icepool-harness, serde_json or the
+    `call` / `from_wire` / `wire_result` exports: no INTERIM mode any more).
+    - **Decision: what the runner does not model either raises its `NotImplementedError`** (`IcepoolError`
+      kind `Unported`, the runner's message), rather than computing Python's answer the port nowhere has: non-int
+      hand sizes, deals or keep counts, a `Counter` of dice or of a MultiDeal, pools among a deck's cards,
+      `str()` where Python's is an address, membership in a multiset expression, a Map as a pool or
+      `keep_outcomes` target... Everything the runner computes, the API computes the same way (ported from the
+      runner's node), and where the oracle showed the runner wrong it was fixed in both (below).
+    - Classes: `MultisetExpression`, `MultisetTupleExpression`, `Deck`, `MultisetFunction` are plain classes (no
+      `Handle`); `free()` lets go of the node / core object (`node` getter throws `TypeError` once freed).
+      `CoreFunction` left the exports. `Replayable`, `native(...)`, `BridgeNeeded`, `registerKind`, `ENCODE`,
+      `DieWithTruth.failed`, evaluator.ts's `evaluateWith` / `bridgeFunction` are gone; every helper in
+      multiset.ts that returned `undefined` ("let the bridge do it") is total now.
+    - New typed exports: `standardPoolLength` (d_pool's list, Python's `MemoryError` as the runner's
+      `check_len`), `valueRepr` / `valueStr` (a `MultisetKeep`'s `str()`: its slice bounds' repr, an invalid
+      index's str). Mixtures may hold multiset tuple expressions (node `inners: [Input, bigint][]`), as the
+      runner's. Overloads: `MultisetExpression.mul / mod / moduloCounts(Again)`, `Deck.mul / rmul / floordiv /
+      mod(Die | Again)`.
+    - **Test side.** rpc.ts is test-only (reached through internal.ts): it converts the bridge's handles to API
+      objects (dice, pools, deals, decks, MultiDeals natively; what only the runner models is a
+      `BridgeObject`) and API objects to handles (`dieHandle`, `generatorHandle`, `deckHandle`,
+      `multiDealHandle`; a multiset function gets a bridge copy). An API expression with no runner counterpart
+      (an operator over pools, a mixture...) crosses as `setStandIn`'s replacement: test/fixtures.mjs records the
+      node that made each object (`RECIPES`) and replays it with every node on the bridge (`evaluate(x, true)`).
+      Inside a multiset function body traced by JS that cannot work (the program reads `mf_var`): `NeedsBridge`
+      makes the nearest node without free variables (the `mf_call`) run on the bridge whole. The adapter routes
+      any argument holding a `BridgeObject` generically (`holdsBridgeObject`, was `holdsCoreFunction`).
+      Results that only the runner's encoder writes (expressions, functions) go through `internal.wireResult`.
+    - Rust: src/facade.rs and its re-exports are `cfg(any(test, feature = "runner"))`; its `evaluate` (JS
+      evaluators on the bridge) and `from_rv` exports are gone (nothing called them); `recover` moved to lib.rs
+      (core recursion reset; the runner's reset only with `runner`). icepool-harness and serde_json are
+      optional (`runner = ["dep:icepool-harness", "dep:serde_json"]`, `khepri` adds `dep:serde_json` and
+      `icepool-harness?/khepri`), dev-dependencies for the unit tests.
+    - **Operators with pools, expressions, decks, MultiDeals (runner ops/operators.rs `multiset_binary`, format.rs
+      `eq`; JS operators.ts `binary`)**, both now Python's order, checked by fixtures/c6l/operators (every pair of
+      d3 / pool / expression / deck / MultiDeal / int / float / tuple / list / str / None / Again through every
+      operator node, generated with the oracle deciding: results that are expressions are wrapped
+      in `mx_evaluate expand`, Again results and deck<->MultiDeal counting left out): a deck's `+ - & | ^` count
+      the other operand and an expression's `//` is `count_subset`, so both answer before an Again expression;
+      a deck's and a tuple expression's `==` is `MaybeHashKeyed.equals` (a plain bool, before Again); a deck's
+      `* // %` hand a die or Again expression over to its operator (`deck * d6` is a Die), an expression or deck
+      operand is TypeError; `str % (pool | deck | MultiDeal)` is the string (they have `__getitem__`); `-pool`,
+      `+pool` are the expression's. Runner fixes found this way: `deck + d6` was a Die (Python: Deck),
+      `deck + Again` an Again expression (TypeError), `x in multi_deal` Unimplemented (never true),
+      `multi_deal // pool` evaluated (AttributeError), `deck < pool` / `md < pool` Unimplemented (the
+      expression's reflected comparison). Edge cases: fixtures/c6l/edge-cases.
+    - Not fixtured because the runner raises Unimplemented there too (both sides `Unported`): `die_pool` rolls
+      `"ab"` (Python TypeError), `pool.middle(1.0)` (TypeError), `deck +/-/&/|/^ multi_deal`.
   - **C6k (reflected multiset operators).** `MultisetExpression.radd / rsub / rand / ror / rxor` (multiset.ts
     `reflectedBinary`, ported from the runner's `binary_op` `(None, Some(b))` arm): `x.radd(other)` is Python's
     `other + x` when `other` has no multiset operator of its own (a sequence, a mapping, a multiset tuple
@@ -359,14 +409,9 @@ turns out wrong. Newest decisions at the top of each section.
     one preparation per combination) and runs a built-in evaluator by the Python facade's names; results mix
     as `Die(final_data)`. `top_level_depth_check` (icepool_core::evaluator, moved from the runner) gives Python's
     RecursionError near 1000 outcomes.
-  - **Fallback by replay.** Every native function returns `undefined` for what it does not model (deals, tuple
-    expressions, multiset-function parameters, JS evaluators, odd arguments), and the method calls its bridge node
-    instead. A native expression the bridge needs (as an argument, or `toWire`) is made there by replaying the
-    bridge call its method stands for (`replayWith`, run once by the overridden `h` getter), so the bridge's
-    `pool` / `die_pool` / `mx_*` counts in the fixture summary are now mostly replays caused by other areas'
-    nodes (decks/deals C6f, argsort/lexi/wild/sum(map) C6h; JS evaluators were C6e). To see what causes
-    them: run each fixture with test/fixtures.mjs `check`, diff internal.js `bridgeCalls` around it, and group the
-    differences by the program's other ops.
+  - **Fallback by replay** (C6d-C6k, removed by C6l): native functions returned `undefined` for what they did not
+    model and the method called its bridge node; a native expression the bridge needed was made there by replaying
+    the bridge call it stood for. The fixture adapter's `RECIPES` / `setStandIn` (C6l) is what is left of it.
   - **Callbacks** (`mapCounts`' function, `keepOutcomes(f)`): the core holds the JS function and calls
     `__icepool_wasm_host.countFunction` / `outcomePredicate`; an exception is kept in `pending` and the core
     returns `Error::Callback`, which `withCallbacks` turns back into the exception itself (traps rethrown at once).
@@ -413,8 +458,9 @@ turns out wrong. Newest decisions at the top of each section.
     `errors.ts`, `values.ts` (Float, Fraction, Complex, Vector, Symbols, Reroll..., `isPlainValue`), `die.ts`,
     `operators.ts` (Python's operator dispatch between dice / Again / plain values), `functions.ts` (free
     functions, `ops`), `multiset.ts`, `deck.ts`, `again.ts`, `evaluator.ts`, `host.ts` (what Rust calls back for
-    values), `rpc.ts` (the interim bridge), `index.ts` (the public exports), `internal.ts` (test-only exports, left
-    out of the npm package: `call`, `fromWire`, `RawJSON`, `Handle`, `liveObjects`, `bridgeCalls`, `run`),
+    values), `rpc.ts` (test-only since C6l: the fixture tests' bridge), `index.ts` (the public exports),
+    `internal.ts` (test-only exports, left out of the npm package with rpc.ts: `call`, `fromWire`, `RawJSON`,
+    `BridgeObject`, `setStandIn`, `wireResult`, `liveObjects`, `bridgeCalls`, `run`),
     `node.ts`/`web.ts` (entry points). Rust: `crates/icepool-wasm/src/api/` (`convert.rs` JsValue <-> Value with
     no JSON, `error.rs`, `host.rs` the JS imports, `die.rs` WasmDie + DieBuilder, `value.rs`).
   - **Who does what.** As in the Python facade (upstream Python + `icepool_rs`), the TypeScript does Python's
@@ -422,14 +468,10 @@ turns out wrong. Newest decisions at the top of each section.
     outcome itself (Python's `_select_outcomes`) and hands the core a mask; `map(f, ...)` enumerates the joint
     outcomes in JS and builds the die with `DieBuilder`. A JS callback the core never sees cannot trap, so the trap
     test uses an evaluator's `nextState` (the core still calls those).
-  - **The bridge (interim, `js/src/rpc.ts` over `src/facade.rs`).** Whatever is not native yet still calls the
-    runner's nodes by name, exactly as the S6 facade did; a typed die crosses as a handle made for the call
-    (`dieHandle`, released after it; `{"$take": h}` for a callback's result, which the core takes over) and a die
-    handle coming back becomes a typed die (`WasmDie.fromHandle`). A native method falls back to the bridge for any
-    argument it does not model (a pool or deck argument, a callable of the bridge's...), so the result is always the
-    runner's where it is not the native path's. The fixture suite prints `bridge: <node> <count>`: what is left to
-    move. After C6c: pools, expressions, evaluators, decks (C6d-C6f) and the keep family / to-pool methods of Die
-    (C6i); generic nodes with no API counterpart (die_method's view indexing, catalogue callables JS lacks) stay.
+  - **The bridge** (`js/src/rpc.ts` over `src/facade.rs`): the S6 facade's node calls by name, which the API used
+    for what was not native until C6l; now test-only (see C6l above). The fixture suite prints `bridge: <node>
+    <count>`: the nodes the public API has no counterpart for (khepri, complex numbers, catalogue callables JS
+    lacks, the private `*_pop` nodes...) and the replays of API objects given to them.
   - **Values.** `value_from_js` asks `__icepool_wasm_host.describe(x)` for every object (arrays too: a `List` is
     Python's list, unhashable, a plain array a tuple). Integral JS numbers are ints (as the S6 facade had it), a
     `Float` is a float. Results: safe ints as numbers, else BigInt; integral floats as `Float`.
@@ -485,15 +527,13 @@ turns out wrong. Newest decisions at the top of each section.
     + dev-dependencies on icepool-harness and icepool-khepri). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
     same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
     (khepri's) `khepri`. wasm.ts's `run`/`calculate` throw a clear Error in builds without the feature.
-    **Interim until C6l:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
-    icepool-harness (`default-features = false`: no khepri engine in the npm package; icepool-wasm's `khepri` turns
-    `icepool-harness/khepri` on) and on serde_json. C6l makes that dependency optional, behind `runner`.
+    Since C6l the JSON-op bridge (src/facade.rs) is behind `runner` too: icepool-harness and serde_json are
+    optional dependencies (`default-features = false`; `khepri` turns `icepool-harness?/khepri` on), so the npm
+    package links neither.
   - `scripts/check-production.sh` (the gate runs it once it exists; ~7 s warm, ~1 min cold): cargo tree of
     icepool-py / icepool-wasm (built alone), `maturin build --release` wheel file list + the .so's strings and
-    symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports. While facade.rs uses
-    `icepool_harness`, the npm package's runner code (icepool-harness, serde_json, the JSON-op exports) is reported
-    as `interim`, not failed (the wheel is always strict); C6l ends that by
-    dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
+    symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports, every check strict for
+    both (the INTERIM mode for the npm package ended with C6l). It overwrites js/pkg-node
     and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
   - **The wheel (C5c): `scripts/build-wheel.sh OUT_DIR`**, not `maturin build -m crates/icepool-py/Cargo.toml`
     (still the extension alone, on purpose: it is what the harness's `maturin develop` installs, so

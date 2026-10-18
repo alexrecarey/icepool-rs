@@ -22,7 +22,8 @@ test("every fixture through the JS API", () => {
   console.log(`${n} fixtures, ${failures.length} failing`);
   console.log(`idiomatic methods: ${top(usage.idiomatic)}`);
   console.log(`generic call(): ${top(usage.generic)}`);
-  // What the API still does through the JSON-op bridge (rpc.ts), generic calls included.
+  // What the fixture programs need the bridge to the program runner for (rpc.ts): the nodes the public API has no
+  // counterpart for, and the replays of what the API made that such a node is given.
   console.log(`bridge: ${top(bridgeCalls)}`);
   assert.ok(n > 0, "no fixtures found");
   assert.deepEqual(failures.slice(0, 40), [], `${failures.length} fixtures failed`);
