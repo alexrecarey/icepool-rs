@@ -1,10 +1,12 @@
 //! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see NOTES.md for the commands).
 //!
-//! The typed exports (`WasmDie`, ...) are in `api`; the interim JSON-op bridge the API still uses for the rest is in
-//! `facade` (until task C6l). Two more entry points, each behind a feature that no production build (the npm
-//! package) turns on:
-//! - `run(programJson)` (feature `runner`, test-only, `runner.rs`): one program of the harness's JSON program
-//!   language in, its JSON result out. `run-wasm.sh` drives it so every fixture and fuzz run can go through WASM.
+//! The typed exports (`WasmDie`, ...) under the TypeScript API are in `api`. More entry points, each behind a
+//! feature that no production build (the npm package) turns on:
+//! - feature `runner` (test-only), on the harness's program runner (icepool-harness): `run(programJson)`
+//!   (`runner.rs`), one program of the harness's JSON program language in, its JSON result out, which
+//!   `run-wasm.sh` drives so every fixture and fuzz run can go through WASM; and the JSON-op bridge (`facade.rs`:
+//!   `call`, `from_wire`, `wire_result`, ...), through which the JS fixture tests reach the nodes the TypeScript
+//!   API has no counterpart for.
 //! - `calculate(engineInput)` (feature `khepri`, `khepri.rs`): khepri's engine, the drop-in for `f2f.calculate`.
 //!
 //! Their unit tests run in every test build (`cfg(test)`), where the dev-dependencies on icepool-khepri and
@@ -19,6 +21,7 @@
 //! not a trap.
 
 mod api;
+#[cfg(any(test, feature = "runner"))]
 mod facade;
 #[cfg(any(test, feature = "khepri"))]
 mod khepri;
@@ -28,9 +31,8 @@ mod runner;
 pub use api::{
     live_dice, value_binary, value_round, value_truth, value_unary, BinaryOp, DieBuilder, UnaryOp, WasmDie,
 };
-pub use facade::{die_handle, 
-    call, evaluate, from_wire, live_handles, multiset_function, recover, release, wire_result,
-};
+#[cfg(any(test, feature = "runner"))]
+pub use facade::{call, die_handle, from_wire, live_handles, multiset_function, release, wire_result};
 #[cfg(any(test, feature = "khepri"))]
 pub use khepri::calculate;
 #[cfg(any(test, feature = "runner"))]
@@ -54,9 +56,17 @@ fn start() {
     }));
 }
 
-/// The last panic's message, if any, forgotten once taken.
-fn take_panic() -> Option<String> {
-    PANIC.with(Cell::take)
+/// After a trap (a Rust panic: WASM has no unwinding), once JS has left every call into the instance: resets the
+/// core's per-call state, which the trap skipped the destructors of, and returns the panic's message (empty if
+/// none was recorded).
+#[wasm_bindgen]
+pub fn recover() -> String {
+    icepool_core::value::recursion::reset();
+    // The program runner's own state (the arguments of the multiset function bodies it traces); its handle table is
+    // never borrowed across code that can panic, so it survives as it is.
+    #[cfg(feature = "runner")]
+    icepool_harness::reset_after_trap();
+    PANIC.with(Cell::take).unwrap_or_default()
 }
 
 // The JS globals we need, declared directly so wasm-bindgen is the only binding dependency.

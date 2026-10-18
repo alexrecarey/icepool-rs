@@ -7,17 +7,13 @@
 // the results (`MultisetEvaluatorBase.evaluate`'s `Die(final_data)`). The core (src/api/evaluator.rs,
 // multiset_function.rs) prepares the expressions and runs the driver, calling back the JS evaluator's methods
 // (`HostEvaluator`) and asking for traces (`HOST.traceFunction`) where Python would make them.
-//
-// INTERIM (task C6l): inputs only the bridge models (arguments of other types, expressions the bridge made) still
-// go through the bridge (rpc.ts); so does a function whose body needs the bridge (`BridgeNeeded`).
 
 import type { ExpressionBuilder } from "../pkg-node/icepool_wasm.js";
-import { Die, list, opts, pyBool, type DieOutcomes, type MapResult } from "./die.js";
+import { Die, opts, pyBool, type DieOutcomes, type MapResult } from "./die.js";
 import { MultisetTupleExpression, tupleParameter, type MultiDeal } from "./deck.js";
 import { IcepoolError, UnsupportedOrder } from "./errors.js";
 import { tupleize } from "./functions.js";
 import {
-  BridgeNeeded,
   MultisetExpression,
   RawResult,
   hasParameter,
@@ -26,19 +22,7 @@ import {
   withInputs,
   type MultisetArg,
 } from "./multiset.js";
-import {
-  HANDLE,
-  Handle,
-  call,
-  callWith,
-  countBridgeCall,
-  enc,
-  kwargsText,
-  registerEvaluator,
-  registerKind,
-  type EvaluatorMethods,
-} from "./rpc.js";
-import { List, Reroll, Restart, pyTypeName, stateValue, type Int, type OrderValue, type Outcome } from "./values.js";
+import { Reroll, Restart, pyTypeName, stateValue, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, callback, wasm } from "./wasm.js";
 
 /** A state the core can hash: values, arrays of them, or plain objects (keyed by their JSON).
@@ -140,7 +124,6 @@ export abstract class MultisetEvaluator {
     const [inputs, kwargs] = opts<Record<string, unknown>>(rest);
     // `implicit_convert_to_expression(arg)` of each input.
     const exprs = implicitAll(inputs);
-    if (exprs === undefined) return evaluateWith(this as unknown as EvaluatorMethods, inputs, kwargs);
     const host = new HostEvaluator(this as unknown as EvaluatorMethods, kwargs);
     // Inside a multiset function's body: the raw result recording the evaluation.
     if (exprs.some(hasParameter)) return new RawResult({ kind: "host", evaluator: host }, exprs) as unknown as Die;
@@ -201,17 +184,12 @@ export interface MultisetEvaluator {
   extraOutcomes?(outcomes: Outcome[]): Iterable<Outcome>;
 }
 
-/** `evaluate()` through the bridge (rpc.ts), for inputs the native tree does not model. */
-function evaluateWith(ev: EvaluatorMethods, inputs: readonly unknown[], kwargs: Record<string, unknown>): Die {
-  // The core releases the id (rpc.ts HOST.release) once it no longer needs the evaluator: when this call
-  // returns, or, inside a multiset function's body, when the function holding the recorded evaluation is dropped.
-  countBridgeCall("evaluate");
-  const id = registerEvaluator(ev);
-  return callWith((temps) => {
-    const args = `[${inputs.map((x) => enc(list(x), temps)).join(",")}]`;
-    const kw = kwargsText(kwargs, temps);
-    return wasm((w) => w.evaluate(id, args, kw));
-  }) as Die;
+/** The methods of a JS evaluator, as the core calls them (`MultisetEvaluator`). */
+interface EvaluatorMethods {
+  nextState(state: unknown, order: number, outcome: unknown, ...counts: unknown[]): unknown;
+  initialState?(order: number, outcomes: unknown[], ...rest: unknown[]): unknown;
+  finalOutcome?(finalState: unknown, order: number, outcomes: unknown[], ...rest: unknown[]): unknown;
+  extraOutcomes?(outcomes: unknown[]): Iterable<unknown>;
 }
 
 /** Python's `x in icepool.REROLL_TYPES`. */
@@ -351,18 +329,8 @@ export function evaluator(methods: EvaluatorDefinition): MultisetEvaluator {
 
 // --- Other core objects -------------------------------------------------------------------------------------------
 
-/** A callable the core made (the harness's catalogue functions, in the tests); user code does not make these.
- *
- * @example
- * ```ts
- * // A multiset function is a different kind of core object.
- * multisetFunction((a: MultisetExpression) => a.size()) instanceof CoreFunction; //=> false
- * ```
- */
-export class CoreFunction extends Handle {}
-
-/** A JS function's signature as Python would read it (see {@link multisetFunction}). */
-interface Signature {
+/** A JS function's signature as Python would read it (see {@link multisetFunction}). @internal */
+export interface Signature {
   readonly f: (...args: unknown[]) => unknown;
   /** Its required positional parameters. */
   readonly params: number;
@@ -383,32 +351,38 @@ interface Signature {
  * diff.call(d(6).pool(3), d(6).pool(2)).mean().toString(); //=> "319/144"
  * ```
  */
-export class MultisetFunction extends Handle {
-  /** The JS function; `undefined` for a function the bridge made (or once freed). @internal */
-  declare signature?: Signature;
-  /** Whether the bridge has been given this function (it needs its own copy, made once). */
-  private declare bridged?: boolean;
+export class MultisetFunction implements Disposable {
+  /** The JS function and its signature; `null` once freed. */
+  private signature: Signature | null;
 
-  /** A function of this signature, traced natively (the bridge's copy is made if it is needed). @internal */
-  static native(signature: Signature): MultisetFunction {
-    const f = new MultisetFunction(HANDLE, -1);
-    f.signature = signature;
-    return f;
+  /** A function of this signature. @internal */
+  constructor(signature: Signature) {
+    this.signature = signature;
   }
 
-  /** The bridge's handle: its own copy of the function, made the first time the bridge needs it. @internal */
-  protected override get h(): number {
-    if (this.handle < 0 && this.signature !== undefined && !this.bridged) {
-      this.bridged = true;
-      this.adopt(bridgeFunction(this.signature), MultisetFunction);
-    }
-    return super.h;
+  /** The JS function and its signature, which must not have been freed. @internal */
+  get traced(): Signature {
+    if (this.signature === null) throw new TypeError("icepool: this multiset function was freed");
+    return this.signature;
   }
 
-  /** Frees the function's WASM memory now rather than when it is garbage-collected. @internal */
-  override free(): void {
-    this.signature = undefined;
-    super.free();
+  /** Lets go of the JS function now (the core holds it only while it evaluates). Calling the multiset function
+   * afterwards throws a `TypeError`; freeing it again does nothing.
+   *
+   * @example
+   * ```ts
+   * const size = multisetFunction((a: MultisetExpression) => a.size());
+   * size.free();
+   * size.call([1, 2]); //=> throws TypeError
+   * ```
+   */
+  free(): void {
+    this.signature = null;
+  }
+
+  /** `free()`, for `using f = multisetFunction(...);`. */
+  [Symbol.dispose](): void {
+    this.free();
   }
 
   /** Evaluates the function on these inputs: Python's `f(*inputs, star=star, **kwargs)`. The inputs are multisets
@@ -428,22 +402,11 @@ export class MultisetFunction extends Handle {
    */
   call(...rest: unknown[]): Die {
     const [args, kwargs] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-    const exprs = this.signature === undefined ? undefined : implicitAll(args);
-    if (exprs !== undefined) {
-      // Inside another function's body: the raw result recording the call.
-      if (exprs.some(hasParameter)) return new RawResult({ kind: "function", f: this, kwargs }, exprs) as unknown as Die;
-      try {
-        return mixEvaluations(withInputs(exprs, (b) => b.evaluateFunction(this, exprs.length, kwargs) as Evaluations));
-      } catch (e) {
-        // The body needs the bridge (it holds a deal): the whole call goes through it.
-        if (!(e instanceof BridgeNeeded)) throw e;
-      }
-    }
-    const { star, ...others } = kwargs;
-    // `star` left out (undefined) is inferred; any other value is passed, as Python's `star=...` (even null).
-    const items: [string, unknown][] = Object.entries(others);
-    if (star !== undefined) items.unshift(["star", star]);
-    return call("mf_call_kw", { f: this, args: List.from(args), kwargs: List.from(items) }) as Die;
+    void this.traced; // throws once freed
+    const exprs = implicitAll(args);
+    // Inside another function's body: the raw result recording the call.
+    if (exprs.some(hasParameter)) return new RawResult({ kind: "function", f: this, kwargs }, exprs) as unknown as Die;
+    return mixEvaluations(withInputs(exprs, (b) => b.evaluateFunction(this, exprs.length, kwargs) as Evaluations));
   }
   /** The same as `call` (Python's `evaluator.evaluate(...)`).
    *
@@ -509,21 +472,12 @@ export function multisetFunction(
   { params = f.length, rest = false, kwonly = [] }: { params?: number; rest?: boolean; kwonly?: readonly string[] } = {},
 ): MultisetFunction {
   if (typeof f !== "function") throw new TypeError("icepool: multisetFunction takes a function");
-  return MultisetFunction.native({
+  return new MultisetFunction({
     f: f as (...args: unknown[]) => unknown,
     params: Number(params),
     rest: Boolean(rest),
     kwonly: Array.from(kwonly, String),
   });
-}
-
-/** The bridge's copy of a multiset function (the program runner traces it with its own parameters). */
-function bridgeFunction({ f, params, rest, kwonly }: Signature): MultisetFunction {
-  countBridgeCall("multiset_function");
-  return callWith((temps) => {
-    const text = `{"f":${enc(f, temps)},"params":${params},"var":${rest ? "true" : "false"},"kwonly":${JSON.stringify(kwonly)}}`;
-    return wasm((w) => w.multiset_function(text));
-  }) as MultisetFunction;
 }
 
 // --- Tracing ------------------------------------------------------------------------------------------------------
@@ -564,7 +518,7 @@ const isSingle = (x: unknown): boolean =>
  * function with one parameter per input, and gives what it returned as an `ExpressionBuilder` of raw results for
  * the core (src/api/multiset_function.rs), with whether it is a joint result (several). */
 function trace(fn: MultisetFunction, inputLens: readonly (number | null)[], kwargs: Record<string, unknown>): [ExpressionBuilder, boolean] {
-  const signature = fn.signature as Signature;
+  const signature = fn.traced;
   const { star: starArg, ...kw } = kwargs;
   // `infer_star`: more required positional parameters than inputs.
   const star = starArg !== undefined ? pyBool(starArg) : signature.params > inputLens.length;
@@ -618,10 +572,3 @@ Object.assign(HOST, {
   /** `icepool.tupleize(*final_outcomes)` of a joint multiset function. */
   tupleize: (items: unknown[]) => callback(() => tupleize(...(items as Outcome[]))),
 });
-
-/** A multiset function's result in the program language (the fixture tests'), made by the bridge. */
-class BridgeRawResult extends Handle {}
-
-registerKind("fn", (h) => new CoreFunction(HANDLE, h));
-registerKind("mfunc", (h) => new MultisetFunction(HANDLE, h));
-registerKind("raw", (h) => new BridgeRawResult(HANDLE, h));

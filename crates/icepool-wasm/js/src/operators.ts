@@ -1,13 +1,13 @@
 // Python's operators on any operands (`a + b` is `binary("add", a, b)`): the dispatch Python does between dice,
 // Again expressions and plain values. A die on either side is a die operation (die.ts), an Again expression on
 // either side a bigger expression (again.ts); two plain values are the core's `Value` operators; `Reroll` is an
-// enum member, which only has `==`. Pools, decks and multiset expressions without a die still go through the
-// bridge (task C6l).
+// enum member, which only has `==`; pools, multiset expressions and decks have their own operators (multiset.ts,
+// deck.ts), which Python calls before the other operand's reflected ones.
 
 import { AgainExpression } from "./again.js";
 import { Die } from "./die.js";
 import { IcepoolError } from "./errors.js";
-import { Handle, call } from "./rpc.js";
+import { MultisetExpression, isDeck, isMultisetExpression } from "./multiset.js";
 import { Reroll, Restart, Symbols, isPlainValue, pyTypeName, type Int } from "./values.js";
 import { raw, wasm } from "./wasm.js";
 
@@ -46,9 +46,40 @@ function unsupported(op: BinaryName, a: unknown, b: unknown): IcepoolError {
 
 const isRerollType = (x: unknown) => x === Reroll || x === Restart;
 
+/** Python's `isinstance(x, int)` (a bool too). */
+const isInt = (x: unknown): boolean => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
+
 /** The reflected method of `op` on a die or an Again expression (`rsub` for `sub`, `gt` for `lt`). */
 function reflected(op: BinaryName): string {
   return op in REFLECTED ? REFLECTED[op as keyof typeof REFLECTED] : `r${op}`;
+}
+
+/** The methods for Python's `a.__op__(b)` of a multiset expression (`__le__` is `issubset`, `__ge__`
+ * `issuperset`). */
+const EXPRESSION_OPERATORS: Partial<Record<BinaryName, string>> = {
+  add: "add", sub: "sub", and: "and", or: "or", xor: "xor", mul: "mul", floordiv: "floordiv", mod: "mod",
+  lt: "lt", le: "issubset", gt: "gt", ge: "issuperset", eq: "eq", ne: "ne",
+};
+/** The methods for Python's `b.__rop__(a)` of a multiset expression: comparisons swap sides, `__rmul__` is
+ * `__mul__` (counts commute), there is no `__rmod__`. */
+const EXPRESSION_REFLECTED: Partial<Record<BinaryName, string>> = {
+  add: "radd", sub: "rsub", and: "rand", or: "ror", xor: "rxor", mul: "mul", floordiv: "rfloordiv",
+  lt: "gt", le: "issuperset", gt: "lt", ge: "issubset", eq: "eq", ne: "ne",
+};
+/** A deck's operators (population/deck.py): no comparisons but `==`, no `__rxor__`, `__rfloordiv__`, `__rmod__`. */
+const DECK_OPERATORS: Partial<Record<BinaryName, string>> = {
+  add: "add", sub: "sub", and: "and", or: "or", xor: "xor", mul: "mul", floordiv: "floordiv", mod: "mod", eq: "eq", ne: "ne",
+};
+const DECK_REFLECTED: Partial<Record<BinaryName, string>> = { add: "radd", sub: "rsub", and: "rand", or: "ror", mul: "rmul", eq: "eq", ne: "ne" };
+
+/** The method of `x` for `x.__op__(y)` (`reflected`: `x.__rop__(y)`), if `x` is a multiset expression or a deck
+ * that has one. A multiset tuple expression has no operators. */
+function ownOperator(x: unknown, op: BinaryName, reflected: boolean): ((y: unknown) => unknown) | undefined {
+  const table = x instanceof MultisetExpression
+    ? (reflected ? EXPRESSION_REFLECTED : EXPRESSION_OPERATORS)
+    : isDeck(x) ? (reflected ? DECK_REFLECTED : DECK_OPERATORS) : {};
+  const name = table[op];
+  return name === undefined ? undefined : (y) => (x as unknown as Record<string, (y: unknown) => unknown>)[name](y);
 }
 
 /** `a <op> b` with Python's semantics. */
@@ -81,7 +112,17 @@ export function binary(op: BinaryName, a: unknown, b: unknown): unknown {
     const code = raw().BinaryOp[BINARY[op]];
     return wasm((w) => w.valueBinary(code, a, b));
   }
-  if (a instanceof Handle || b instanceof Handle) return call(op, { a, b });
+  // A multiset expression's or deck's own operator does Python's whole dispatch (it calls the other operand's
+  // reflected one where Python does). On the right, its reflected operator: an expression's `__rmul__` only takes an
+  // int, as `__mul__` returns NotImplemented for anything else.
+  const own = ownOperator(a, op, false);
+  if (own !== undefined) return own(b);
+  const reflectedOwn = ownOperator(b, op, true);
+  if (reflectedOwn !== undefined && !(op === "mul" && b instanceof MultisetExpression && !isInt(a))) return reflectedOwn(a);
+  if (isMultisetExpression(a) || isMultisetExpression(b) || isDeck(a) || isDeck(b)) {
+    if (op === "eq" || op === "ne") return (a === b) !== (op === "ne");
+    throw unsupported(op, a, b);
+  }
   // `Reroll` is equal only to itself, and has no other operator.
   if ((isRerollType(a) || isPlainValue(a)) && (isRerollType(b) || isPlainValue(b))) {
     if (op === "eq" || op === "ne") return (a === b) !== (op === "ne");
@@ -104,7 +145,8 @@ export function unary(op: UnaryName, a: unknown): unknown {
     const code = raw().UnaryOp[UNARY[op]];
     return wasm((w) => w.valueUnary(code, a));
   }
-  if (a instanceof Handle) return call(op, { a });
+  // `MultisetExpression.__neg__` and `__pos__`; it has no other unary operator, a deck none.
+  if (a instanceof MultisetExpression && (op === "neg" || op === "pos")) return a[op]();
   const type = pyTypeName(a);
   if (op === "trunc" || op === "floor" || op === "ceil") throw typeError(`type ${type} doesn't define __${op}__ method`);
   if (op === "abs") throw typeError(`bad operand type for abs(): '${type}'`);
@@ -118,8 +160,7 @@ export function matmul(n: unknown, die: unknown): unknown {
   if (die instanceof AgainExpression) return die.rmatmul(n as Int);
   if (die instanceof Die) return die.rmatmul(n as Int | Die);
   if (n instanceof Die) return n.matmul(die as Int);
-  if (n instanceof Handle || die instanceof Handle) return call("matmul", { n, die });
-  // No outcome type has `@`.
+  // No outcome type has `@`, nor does a pool, an expression or a deck.
   throw typeError(`unsupported operand type(s) for @: '${pyTypeName(n)}' and '${pyTypeName(die)}'`);
 }
 
@@ -128,7 +169,6 @@ export function round(a: unknown, ndigits: Int | null = null): unknown {
   if (a instanceof Die) return a.round(ndigits);
   if (a instanceof AgainExpression) throw new IcepoolError("WrongType", "TypeError", "type AgainExpression doesn't define __round__ method");
   if (isPlainValue(a) && isPlainValue(ndigits)) return wasm((w) => w.valueRound(a, ndigits));
-  if (a instanceof Handle || (ndigits as unknown) instanceof Handle) return call("round", { a, ndigits });
   if (!isPlainValue(a)) throw typeError(`type ${pyTypeName(a)} doesn't define __round__ method`);
   throw typeError(`'${pyTypeName(ndigits)}' object cannot be interpreted as an integer`);
 }

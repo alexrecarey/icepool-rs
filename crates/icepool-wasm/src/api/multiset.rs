@@ -11,6 +11,7 @@ use icepool_core::evaluator::CompoundKeep;
 use icepool_core::evaluator::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
 use icepool_core::evaluator::MultisetSource;
 use icepool_core::evaluator::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
+use icepool_core::value::check_len;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::recursion::level;
 use icepool_core::{Deal, Die, Error, Int, Pool, Value};
@@ -383,6 +384,16 @@ pub fn middle_slice_of(keep_size: JsValue, keep: JsValue, tie: JsValue) -> JsRes
         _ => Tie::Invalid,
     };
     Ok(slice_bounds(middle_slice(&keep_size, &keep, tie).or_throw()?))
+}
+
+/// `d_pool` of a mapping builds `itertools.chain.from_iterable([k] * v for k, v in die_sizes.items())`: the
+/// length of that list once `count` more copies of a size are added to the `len` it has (a negative count adds
+/// none), or Python's `MemoryError` past what memory holds (as the program runner checks it).
+#[wasm_bindgen(js_name = standardPoolLength)]
+pub fn standard_pool_length(len: usize, count: JsValue) -> JsResult<usize> {
+    let count = int_from_js(&count, "a die count").or_throw()?;
+    let count = if count < dashu_int::IBig::ZERO { 0 } else { u64::try_from(&count).unwrap_or(u64::MAX) };
+    check_len::<Value, _>((len as u64).checked_add(count), "d_pool(die_sizes)").or_throw()
 }
 
 fn slice_bounds(slice: Slice) -> Vec<JsValue> {

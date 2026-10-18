@@ -28,8 +28,11 @@ function raises(f, pythonType, message) {
 test("errors keep their subclass, natively and through the bridge", () => {
   const conflicting = d(6).pool(1).forceOrder(Order.Ascending).forceOrder(Order.Descending);
   assert.ok(thrown(() => conflicting.sum()) instanceof ip.ConflictingOrderError);
-  // The bridge's errors are made like the native ones (rpc.ts used to build a plain IcepoolError).
-  const bridged = thrown(() => internal.call("mx_evaluate", { expr: conflicting, method: "sum" }));
+  // The bridge's errors (in the fixture tests) are made like the native ones (rpc.ts used to build a plain
+  // IcepoolError).
+  const forced = (expr, order) => internal.call("mx_force_order", { expr, order });
+  const bridgedConflicting = forced(forced(d(6).pool(1), Order.Ascending), Order.Descending);
+  const bridged = thrown(() => internal.call("mx_evaluate", { expr: bridgedConflicting, method: "sum" }));
   assert.ok(bridged instanceof ip.ConflictingOrderError);
   assert.ok(bridged instanceof ip.OrderError);
   assert.equal(bridged.name, "ConflictingOrderError");

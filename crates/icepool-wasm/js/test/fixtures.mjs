@@ -60,11 +60,29 @@ const LAZY = new Set(["khepri", "mf_def"]);
 export const usage = { idiomatic: new Map(), generic: new Map() };
 const count = (m, op) => m.set(op, (m.get(op) ?? 0) + 1);
 
-export function evaluate(x) {
-  if (Array.isArray(x)) return ip.List.from(x.map(evaluate));
+/** Evaluates a program; `generic`: every node through the bridge (a replay, see `standIn`). */
+export function evaluate(x, generic = false) {
+  if (Array.isArray(x)) return ip.List.from(x.map((y) => evaluate(y, generic)));
   if (x !== null && typeof x === "object" && "op" in x) {
+    try {
+      const value = evaluateNode(x, generic);
+      if (value !== null && typeof value === "object" && !RECIPES.has(value)) RECIPES.set(value, x);
+      return value;
+    } catch (e) {
+      // The bridge needed what only a multiset function's body traced by JS holds: the first node around it that
+      // the bridge can run whole runs there.
+      if (e instanceof NeedsBridge && !generic && !hasFreeVariables(x)) return evaluate(x, true);
+      throw e;
+    }
+  }
+  // A typed literal, read by the core's own decoder, then held as a JS value.
+  return internal.fromWire(text(x));
+}
+
+function evaluateNode(x, generic) {
+  {
     const op = x.op;
-    if (op === "mf_def") {
+    if (op === "mf_def" && !generic) {
       const f = multisetFunction(x);
       if (f !== undefined) {
         count(usage.idiomatic, op);
@@ -76,14 +94,14 @@ export function evaluate(x) {
     for (const k of Object.keys(x).filter((k) => k !== "op").sort()) {
       if (LAZY.has(op)) args[k] = new internal.RawJSON(text(x[k]));
       else if (op === "fn" && k === "name") args[k] = x[k]; // lazy: the catalogue name as a str
-      else args[k] = evaluate(x[k]);
+      else args[k] = evaluate(x[k], generic);
     }
     // A method only for well-formed calls: the node's exact argument names (else Python's TypeError via call()).
     const wellFormed = canon(Object.keys(args).sort()) === canon(NODE_ARGS[op] ?? null);
-    // A callable only the bridge has (a catalogue function JS has no counterpart for: `builtin_max`, whose
-    // parameters Python cannot count, or one whose arity differs) cannot reach the public API: the node runs
-    // generically.
-    const idiomatic = !LAZY.has(op) && wellFormed && !Object.values(args).some(holdsCoreFunction) && IDIOMATIC[op]?.(args);
+    // What only the bridge holds (an expression or callable it made: a catalogue function JS has no counterpart for,
+    // `builtin_max`, whose parameters Python cannot count, or one whose arity differs) cannot reach the public API:
+    // the node runs generically.
+    const idiomatic = !generic && !LAZY.has(op) && wellFormed && !Object.values(args).some(holdsBridgeObject) && IDIOMATIC[op]?.(args);
     if (idiomatic !== undefined && idiomatic !== false) {
       count(usage.idiomatic, op);
       return idiomatic.value;
@@ -91,9 +109,36 @@ export function evaluate(x) {
     count(usage.generic, op);
     return internal.call(op, args);
   }
-  // A typed literal, read by the core's own decoder, then held as a JS value.
-  return internal.fromWire(text(x));
 }
+
+// --- What the bridge needs of the API's objects -------------------------------------------------------------------
+//
+// The bridge (internal.call) takes a die, pool, deal, deck or MultiDeal of the API as its core object, but an
+// expression of the API's own tree (an operator over pools, a mixture, a multiset function's parameter...) has no
+// counterpart in the runner. The program that made it does: the bridge gets that program's result, run with every
+// node on the bridge. Inside a multiset function's body traced by JS, a program reading the function's arguments
+// cannot run on the bridge alone; `NeedsBridge` then makes the nearest node around the whole function run there.
+
+/** Each object a node made -> that node. */
+const RECIPES = new WeakMap();
+
+class NeedsBridge extends Error {}
+
+/** Whether a program reads the arguments of a multiset function it does not define itself. */
+function hasFreeVariables(x) {
+  if (Array.isArray(x)) return x.some(hasFreeVariables);
+  if (x === null || typeof x !== "object") return false;
+  if (x.op === "mf_var" || x.op === "mf_kwarg") return true;
+  if (x.op === "mf_def") return false;
+  return Object.values(x).some(hasFreeVariables);
+}
+
+internal.setStandIn((x) => {
+  const recipe = RECIPES.get(x);
+  if (recipe === undefined) throw new Error(`fixtures.mjs: no program made this ${x.constructor.name}`);
+  if (hasFreeVariables(recipe)) throw new NeedsBridge("a multiset function's body traced by JS");
+  return evaluate(recipe, true);
+});
 
 // --- Multiset functions from JS functions -------------------------------------------------------------------------
 
@@ -152,7 +197,7 @@ function kwargsObject(kwargs) {
 
 // --- The idiomatic routes: op -> args -> { value } (or undefined when the arguments do not fit the method) --------
 
-const holdsCoreFunction = (x) => x instanceof ip.CoreFunction || (Array.isArray(x) && x.some(holdsCoreFunction));
+const holdsBridgeObject = (x) => x instanceof internal.BridgeObject || (Array.isArray(x) && x.some(holdsBridgeObject));
 const isDie = (x) => x instanceof ip.Die;
 const isOperand = (x) => x instanceof ip.Die || x instanceof ip.AgainExpression;
 const isKeep = (x) => x instanceof ip.KeepGenerator;
@@ -629,7 +674,7 @@ function wire(x) {
   if (x instanceof ip.Die) return { die: dieItems(x) };
   // encode.py's `{"repr": "<type name>: <repr>"}`.
   if (x instanceof ip.Deck || x instanceof ip.Deal || x instanceof ip.MultiDeal) return { repr: `${x.constructor.name}: ${x.repr()}` };
-  if (x instanceof internal.Handle) return parseExact(x.toWire()).value;
+  if (bridgeEncoded(x)) return parseExact(internal.wireResult(x)).value;
   if (SPECIAL_REPRS.has(x)) return { repr: SPECIAL_REPRS.get(x) };
   if (x instanceof ip.Opaque) return { repr: x.repr };
   if (x instanceof ip.Complex) return { repr: `complex: ${x}` };
@@ -642,9 +687,15 @@ const dieItems = (die) => die.items().map(([o, q]) => [wire(o), q]);
 export function resultOf(x) {
   if (x instanceof ip.Die) return { ok: true, die: dieItems(x) };
   if (x instanceof ip.Deck || x instanceof ip.Deal || x instanceof ip.MultiDeal) return { ok: true, value: wire(x) };
-  if (x instanceof internal.Handle) return parseExact(x.toWire());
+  if (bridgeEncoded(x)) return parseExact(internal.wireResult(x));
   return { ok: true, value: wire(x) };
 }
+
+/** What only the bridge's encoder (the runner's encode.py) knows how to write: expressions, multiset functions,
+ * what only the bridge holds. */
+const bridgeEncoded = (x) =>
+  x instanceof internal.BridgeObject || x instanceof ip.MultisetExpression || x instanceof ip.MultisetTupleExpression ||
+  x instanceof ip.MultisetFunction;
 
 // --- Comparison (harness/core/compare.py) -------------------------------------------------------------------------
 

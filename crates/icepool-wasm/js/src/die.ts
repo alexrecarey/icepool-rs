@@ -4,11 +4,10 @@
 
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDepth } from "./again.js";
-import { diePool, isDeck, isMultisetExpression, type MultisetExpression, type Pool } from "./multiset.js";
+import { MultisetExpression, diePool, isDeck, isMultisetExpression, tupleLen, type Pool, type TupleExpressionLike } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { dieHighestLowest, dieKeep, dieKeepSlice, dieMiddle } from "./keep.js";
 import { dieMapToPool, explodeToPool, rerollToPool } from "./to-pool.js";
-import { ENCODE, Handle, call, registerKind } from "./rpc.js";
 import { map, mapAndTimeNamed, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
@@ -186,15 +185,14 @@ export function opts<O extends object>(args: readonly unknown[]): [unknown[], Pa
   return isOptions(last) ? [args.slice(0, -1), last as Partial<O>] : [[...args], {}];
 }
 
-/** An array as a Python list (the bridge's way of saying "a sequence argument"). */
+/** An array as a Python list (where Python is given a list, e.g. `Pool([...])`'s dice). */
 export const list = <T>(xs: T): T => (xs instanceof List ? xs : Array.isArray(xs) ? (List.from(xs) as T) : xs);
 
 const isInt = (x: unknown): x is Int => typeof x === "bigint" || Number.isInteger(x);
 
 /** `implicit_convert_to_die(x)`: a die as it is, `Reroll` the empty die, anything else `Die([x])` (a tuple holding
- * dice is a die of tuples). `undefined` for a deck, whose own operators Python calls (still the bridge's: task
- * C6l). */
-function nativeDie(x: unknown): WasmDie | undefined {
+ * dice is a die of tuples, a deck the die of its cards). */
+function nativeDie(x: unknown): WasmDie {
   if (x instanceof Die) return x.w;
   // A Map is Python's dict, which `Die([x])` cannot hash.
   if (x instanceof Map) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'dict'");
@@ -202,8 +200,6 @@ function nativeDie(x: unknown): WasmDie | undefined {
   if (isPlainValue(x)) return wasm((w) => w.WasmDie.single(x));
   // `Die([expr])` cannot sort its one outcome (an expression's `<` is an evaluation, a die with no truth value):
   // Python's `TypeError`, raised by the constructor.
-  if (isMultisetExpression(x)) return new Die([x as Outcome]).w;
-  if (x instanceof Handle) return undefined;
   return new Die([x as Outcome]).w;
 }
 
@@ -278,6 +274,22 @@ export function unpack(x: unknown): unknown[] {
   throw new IcepoolError("WrongType", "TypeError", `Value after * must be an iterable, not ${pyTypeName(x)}`);
 }
 
+/** Python's `list(x)` of an iterable argument (as the program runner iterates one, ops/dice.rs `py_iter`): an
+ * array, the characters of a str, a Vector's elements, the keys of a mapping (a Map, Symbols, a die or deck: its
+ * outcomes). A number, `None`, `Reroll`, `...`, an Again expression are not iterable (`TypeError`); nor, in the
+ * port, are multiset expressions and functions. @internal */
+export function pyIter(x: unknown): unknown[] {
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string" || x instanceof Vector || x instanceof Symbols) return unpack(x);
+  if (x instanceof Map) return [...x.keys()];
+  if (x instanceof Die || isDeck(x)) return x.outcomes();
+  if (isMultisetExpression(x)) throw new IcepoolError("Unported", "NotImplementedError", "iterating a multiset generator");
+  if (isPlainValue(x) || x === null || x === undefined || x instanceof Special || x instanceof AgainExpression) {
+    throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(x)}' object is not iterable`);
+  }
+  throw new IcepoolError("Unported", "NotImplementedError", `iterating a ${pyTypeName(x)}`);
+}
+
 /** Python's `len(x)` of a sequence or a mapping (`TypeError` for anything else). @internal */
 export function pyLen(x: unknown): number {
   if (typeof x === "string") return [...x].length;
@@ -286,7 +298,8 @@ export function pyLen(x: unknown): number {
   if (x instanceof Map) return x.size;
   if (x instanceof Die || isDeck(x)) return x.outcomes().length;
   if (x instanceof Symbols) return unpack(x).length;
-  if (x instanceof Handle) throw new IcepoolError("Unported", "NotImplementedError", `len() of a ${pyTypeName(x)}`);
+  // A multiset tuple expression has a `len()` (its hands); a multiset expression has none.
+  if (isMultisetExpression(x) && !(x instanceof MultisetExpression)) return tupleLen(x as TupleExpressionLike);
   throw new IcepoolError("WrongType", "TypeError", `object of type '${pyTypeName(x)}' has no len()`);
 }
 
@@ -406,15 +419,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     return die;
   }
 
-  /** @internal */
-  [ENCODE](temps: number[] | null): string {
-    const w = this.w;
-    const h = wasm((m) => m.dieHandle(w, undefined));
-    if (temps === null) return `{"$take":${h}}`;
-    temps.push(h);
-    return `{"$h":${h}}`;
-  }
-
   /** Frees the die's WASM memory now rather than when it is garbage-collected. Using it afterwards throws a
    * `TypeError`; freeing it again does nothing. Dice made from it (`die.add(1)`) are not affected.
    *
@@ -444,7 +448,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     // Dice return `NotImplemented` for an Again expression, so its own (reflected) operator makes an expression.
     if (other instanceof AgainExpression) return againOperator(other, name, this, reflected);
     const o = nativeDie(other);
-    if (o === undefined) return call(name, reflected ? { a: other, b: this } : { a: this, b: other }) as Die;
     const op = raw().BinaryOp[BINARY[name]];
     const w = this.w;
     return Die.wrap(wasm(() => (reflected ? o.binary(op, w) : w.binary(op, o))));
@@ -754,7 +757,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     // `==` reflects to itself: the expression's `__eq__` with the die as its operand.
     if (other instanceof AgainExpression) return ne ? other.ne(this) : other.eq(this);
     const o = nativeDie(other);
-    if (o === undefined) return call(ne ? "ne" : "eq", { a: this, b: other }) as DieWithTruth;
     const w = this.w;
     // The truth value compares with the operand as it was given (a die is never equal to a plain outcome).
     const same = other instanceof Die ? wasm(() => w.equals(other.w, false)) : false;
@@ -850,7 +852,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   matmul(other: Operand): Die | AgainExpression {
     if (other instanceof AgainExpression) return other.rmatmul(this);
     const o = nativeDie(other);
-    if (o === undefined) return call("matmul", { n: this, die: other }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => w.matmul(o)));
   }
@@ -866,7 +867,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   rmatmul(n: Int | Die | AgainExpression): Die | AgainExpression {
     if (n instanceof AgainExpression) return n.matmul(this);
     const o = nativeDie(n);
-    if (o === undefined) return call("matmul", { n, die: this }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => o.matmul(w)));
   }
@@ -922,9 +922,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
     else if (collection instanceof Map) members = [...collection.keys()];
     else if (collection instanceof Die) members = collection.outcomes();
     else if (isDeck(collection)) members = collection.outcomes();
-    else if (collection instanceof Handle) {
-      throw new IcepoolError("Unported", "NotImplementedError", "membership in a pool or a multiset function");
-    } else {
+    // A multiset tuple expression iterates its hands, and `outcome == hand` is never true: the hand's `__eq__`
+    // cannot convert a plain outcome (identity, false), and its truth for a sequence outcome is `equals`, false.
+    else if (isMultisetExpression(collection) && !(collection instanceof MultisetExpression)) members = [];
+    else {
       throw new IcepoolError("WrongType", "TypeError", `argument of type '${pyTypeName(collection)}' is not iterable`);
     }
     // `Reroll` is an enum member, equal only to itself: never to an outcome. The rest must be values (a die in a
@@ -1557,7 +1558,6 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    */
   cmp(other: Operand): Die {
     const o = nativeDie(other);
-    if (o === undefined) return call("die_cmp", { die: this, other }) as Die;
     const w = this.w;
     return Die.wrap(wasm(() => w.cmp(o)));
   }
@@ -2381,8 +2381,6 @@ function comparisonArgs(args: readonly unknown[]): [string | undefined, unknown]
 export class DieWithTruth extends Die<boolean> {
   /** @internal */
   private truthValue = false;
-  /** The handle of a result whose data raised (kept so the error comes back when the data is used). @internal */
-  private errorHandle = -1;
   /** The error of a result whose data raised, for one made here (`failedWith`). @internal */
   private error: IcepoolError | null = null;
 
@@ -2391,7 +2389,6 @@ export class DieWithTruth extends Die<boolean> {
     const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
     die.core = w;
     die.truthValue = truth;
-    die.errorHandle = -1;
     die.error = null;
     return die;
   }
@@ -2401,41 +2398,14 @@ export class DieWithTruth extends Die<boolean> {
     const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
     die.core = null;
     die.truthValue = truth;
-    die.errorHandle = -1;
     die.error = error;
-    return die;
-  }
-
-  /** A result whose data raised: the data's error comes back from every use but `truth()` and `equals`. @internal */
-  static failed(handle: number, truth: boolean): DieWithTruth {
-    const die = Object.create(DieWithTruth.prototype) as DieWithTruth;
-    die.core = null;
-    die.truthValue = truth;
-    die.errorHandle = handle;
-    die.error = null;
-    failedRegistry.register(die, handle);
     return die;
   }
 
   /** @internal */
   override get w(): WasmDie {
     if (this.error !== null) throw this.error;
-    if (this.core === null && this.errorHandle >= 0) {
-      const h = this.errorHandle;
-      // Throws the data's error.
-      return wasm((m) => m.WasmDie.fromHandle(h));
-    }
     return super.w;
-  }
-
-  /** @internal */
-  override [ENCODE](temps: number[] | null): string {
-    if (this.core === null && this.errorHandle >= 0) return `{"$h":${this.errorHandle}}`;
-    const w = this.w;
-    const h = wasm((m) => m.dieHandle(w, this.truthValue));
-    if (temps === null) return `{"$take":${h}}`;
-    temps.push(h);
-    return `{"$h":${h}}`;
   }
 
   /** `Die.equals(other, *, simplify=False)`: as {@link Die.equals}; the truth value does not matter, only the
@@ -2474,28 +2444,6 @@ export class DieWithTruth extends Die<boolean> {
     return "DieWithTruth";
   }
 }
-
-/** Frees the kept handle of a collected `DieWithTruth` whose data raised. */
-const failedRegistry = new FinalizationRegistry<number>((h) => wasm((w) => w.release(h)));
-
-// The bridge's dice become typed dice.
-registerKind("die", (h) => {
-  try {
-    return Die.wrap(wasm((w) => w.WasmDie.fromHandle(h)));
-  } finally {
-    wasm((w) => w.release(h));
-  }
-});
-registerKind("die_truth", (h, truth) => {
-  let core: WasmDie;
-  try {
-    core = wasm((w) => w.WasmDie.fromHandle(h));
-  } catch {
-    return DieWithTruth.failed(h, truth);
-  }
-  wasm((w) => w.release(h));
-  return DieWithTruth.wrapTruth(core, truth);
-});
 
 // --- Making dice --------------------------------------------------------------------------------------------------
 

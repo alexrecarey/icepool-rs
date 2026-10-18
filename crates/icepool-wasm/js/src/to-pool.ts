@@ -4,26 +4,23 @@
 // together). The arithmetic of the pool compositions is the core's (src/api/to_pool.rs); here are Python's calling
 // conventions and the pools each composition stands for, as in the runner (crates/icepool-harness/src/to_pool.rs).
 
-import { Die, list, opts, pyBool, unpack, type PoolRepl, type Which } from "./die.js";
+import { Die, opts, pyBool, unpack, type PoolRepl, type Which } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { cartesianItems, jointItems, mappingGet, notARepl, unexpectedKeyword, MAPPING_LAMBDA } from "./functions.js";
-import { MultisetExpression, Pool, mixtureOf, native } from "./multiset.js";
+import { MultisetExpression, Pool, mixtureOf } from "./multiset.js";
 import { binary } from "./operators.js";
-import { List, Reroll, Restart, Vector, isPlainValue, pyTypeName, type Int } from "./values.js";
-import { call } from "./rpc.js";
+import { Reroll, Restart, Vector, isPlainValue, pyTypeName, type Int } from "./values.js";
 import { wasm } from "./wasm.js";
 
 const unported = (what: string) => new IcepoolError("Unported", "NotImplementedError", what);
 
 /** `icepool.map_to_pool(repl, *args, star=star, **kwargs)`: `repl` (a function, a Map, or `Die.map_to_pool`'s
- * identity lambda) called with every joint outcome of the arguments. `bridge` is the bridge call the result stands
- * for. @internal */
+ * identity lambda) called with every joint outcome of the arguments. @internal */
 export function mapToPoolOf(
   repl: PoolRepl | typeof IDENTITY,
   args: readonly unknown[],
   star: unknown,
   kwargs: Record<string, unknown>,
-  bridge: () => unknown,
 ): MultisetExpression {
   const hasKwargs = Object.keys(kwargs).length > 0;
   // common.py `transition_and_star`: a mapping becomes `lambda o: mapping.get(o, o)`, never starred.
@@ -47,20 +44,18 @@ export function mapToPoolOf(
   } else {
     throw notARepl();
   }
-  return native(null, () => {
-    const weighted: [MultisetExpression, bigint][] = [];
-    for (const [outcomes, quantity] of jointItems(args.map(cartesianItems))) {
-      if (starred && outcomes.length === 0) {
-        // `transition_function(*outcomes[0], ...)` with no args at all.
-        throw new IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
-      }
-      const pool = transition(starred ? [...unpack(outcomes[0]), ...outcomes.slice(1)] : outcomes);
-      const inner = asPool(pool);
-      if (inner !== undefined) weighted.push([inner, quantity]);
+  const weighted: [MultisetExpression, bigint][] = [];
+  for (const [outcomes, quantity] of jointItems(args.map(cartesianItems))) {
+    if (starred && outcomes.length === 0) {
+      // `transition_function(*outcomes[0], ...)` with no args at all.
+      throw new IcepoolError("IndexOutOfRange", "IndexError", "tuple index out of range");
     }
-    // I couldn't get the covariance / contravariance to work.
-    return mixtureOf(weighted);
-  }, bridge);
+    const pool = transition(starred ? [...unpack(outcomes[0]), ...outcomes.slice(1)] : outcomes);
+    const inner = asPool(pool);
+    if (inner !== undefined) weighted.push([inner, quantity]);
+  }
+  // I couldn't get the covariance / contravariance to work.
+  return mixtureOf(weighted);
 }
 
 /** One result of `repl`: `undefined` for `Reroll` / `Restart` (`pool in icepool.REROLL_TYPES`), else the expression,
@@ -93,41 +88,13 @@ const typeError = (message: string) => new IcepoolError("WrongType", "TypeError"
  * `repl` is `lambda x: x` (the outcomes are the pools' contents). @internal */
 export function dieMapToPool(die: Die, repl: PoolRepl | null, rest: readonly unknown[]): MultisetExpression {
   const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-  const bridge = () => {
-    const [bound, boundStar] = bindForBridge(repl, args.length + 1, star, kwargs, "Die.map_to_pool.<locals>.<lambda>");
-    return call("die_map_to_pool", { die, f: bound, args: List.from(args), star: boundStar });
-  };
-  return mapToPoolOf(repl ?? IDENTITY, [die, ...args], star, kwargs, bridge);
+  return mapToPoolOf(repl ?? IDENTITY, [die, ...args], star, kwargs);
 }
 
 /** `icepool.map_to_pool(repl, *args, star=, **kwargs)` of the API's arguments. @internal */
 export function mapToPool(repl: PoolRepl, rest: readonly unknown[]): MultisetExpression {
   const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-  const bridge = () => {
-    const [bound, boundStar] = bindForBridge(repl, args.length, star, kwargs);
-    return call("map_to_pool", { f: bound, args: List.from(args), star: boundStar });
-  };
-  return mapToPoolOf(repl, args, star, kwargs, bridge);
-}
-
-/** `repl` with Python's `**kwargs` bound, for the bridge's copy of a result (which calls `repl` with none): a
- * function gets them as a trailing options object, its `star` inferred from the unbound function first. A Map or
- * the identity lambda (`null`) raises Python's `TypeError` when called. Unchanged without keyword arguments. */
-function bindForBridge(
-  repl: PoolRepl | null,
-  nArgs: number,
-  star: unknown,
-  kwargs: Record<string, unknown>,
-  qualname = MAPPING_LAMBDA,
-): [unknown, unknown] {
-  const [name] = Object.keys(kwargs);
-  if (name === undefined) return [repl, star];
-  if (typeof repl === "function") {
-    const fn = repl as (...args: unknown[]) => unknown;
-    const starred = star === null || star === undefined ? fn.length > nArgs : pyBool(star);
-    return [(...xs: unknown[]) => fn(...xs, kwargs), starred];
-  }
-  return [() => { throw unexpectedKeyword(qualname, name); }, false];
+  return mapToPoolOf(repl, args, star, kwargs);
 }
 
 // --- explode_to_pool, reroll_to_pool ------------------------------------------------------------------------------
@@ -179,16 +146,13 @@ export function explodeToPool(die: Die, rolls: Int, outcomes: Which, star: boole
     throw typeError(`'${pyTypeName(depth)}' object cannot be interpreted as an integer`);
   }
   const n = countArg(rolls, "explode_to_pool rolls");
-  const bridge = () => call("explode_to_pool", { die, rolls, outcomes: list(outcomes), star, depth });
-  return native(null, () => {
-    const countDie = Die.wrap(wasm((w) => w.explodeCounts(die.w, explode.w, notExplode.w, n, typeof depth === "boolean" ? Number(depth) : depth)));
-    // `count_die.map_to_pool(lambda x, nx: [explode] * x + [not_explode] * nx)`.
-    const weighted = countDie.items().map(([counts, quantity]): [MultisetExpression, bigint] => {
-      const [x, nx] = [...(counts as Vector)];
-      return [poolOf([[explode, x], [notExplode, nx]]), quantity];
-    });
-    return mixtureOf(weighted);
-  }, bridge);
+  const countDie = Die.wrap(wasm((w) => w.explodeCounts(die.w, explode.w, notExplode.w, n, typeof depth === "boolean" ? Number(depth) : depth)));
+  // `count_die.map_to_pool(lambda x, nx: [explode] * x + [not_explode] * nx)`.
+  const weighted = countDie.items().map(([counts, quantity]): [MultisetExpression, bigint] => {
+    const [x, nx] = [...(counts as Vector)];
+    return [poolOf([[explode, x], [notExplode, nx]]), quantity];
+  });
+  return mixtureOf(weighted);
 }
 
 /** The options of `Die.reroll_to_pool`. */
@@ -213,24 +177,13 @@ export function rerollToPool(die: Die, rolls: Int, outcomes: Which | undefined, 
   // `match mode: case 'random': ...`: a value that is not a str matches none of the cases, and the error shows its
   // `str`.
   const mode = typeof o.mode === "string" ? o.mode : pyStr(o.mode);
-  const bridge = () => call("reroll_to_pool", {
-    die,
-    rolls,
-    outcomes: list(outcomes ?? null),
-    max_rerolls: o.maxRerolls,
-    star: o.star,
-    depth: inf(o.depth) ? "inf" : o.depth,
-    mode: o.mode,
+  const composition = Die.wrap(wasm((w) => w.rerollComposition(die.w, rerollableDie.w, n, maxRerolls, depth)));
+  // `pool_composition.map_to_pool(make_pool, star=True)`.
+  const weighted = composition.items().map(([parts, quantity]): [MultisetExpression, bigint] => {
+    const [rerollable, rerolled, rerolledToRerollable] = parts as Int[];
+    return [makePool(rerollableDie, notRerollableDie, n, mode, rerollable, rerolled, rerolledToRerollable), quantity];
   });
-  return native(null, () => {
-    const composition = Die.wrap(wasm((w) => w.rerollComposition(die.w, rerollableDie.w, n, maxRerolls, depth)));
-    // `pool_composition.map_to_pool(make_pool, star=True)`.
-    const weighted = composition.items().map(([parts, quantity]): [MultisetExpression, bigint] => {
-      const [rerollable, rerolled, rerolledToRerollable] = parts as Int[];
-      return [makePool(rerollableDie, notRerollableDie, n, mode, rerollable, rerolled, rerolledToRerollable), quantity];
-    });
-    return mixtureOf(weighted);
-  }, bridge);
+  return mixtureOf(weighted);
 }
 
 /** `reroll_to_pool`'s `make_pool(rerollable, rerolled, rerolled_to_rerollable)`. */

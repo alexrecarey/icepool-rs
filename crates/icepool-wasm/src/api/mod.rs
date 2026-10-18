@@ -3,9 +3,8 @@
 //! throw core errors as `IcepoolError`s (`error`). The TypeScript classes do Python's argument juggling (what
 //! icepool's own Python does before it reaches the work) and call these for the work.
 //!
-//! Interim (task C6, see NOTES.md): the TypeScript API is moving onto these exports class by class; what has not
-//! moved yet still goes through the JSON-op bridge in `crate::facade`, which converts a `WasmDie` to a handle and
-//! back (`facade::die_handle`, `WasmDie::from_handle`).
+//! The test-only JSON-op bridge (`crate::facade`, feature `runner`) converts these objects to its handles and back
+//! (`facade::die_handle`, `WasmDie::from_handle`, ...).
 
 mod again;
 mod convert;
@@ -22,9 +21,13 @@ mod multiset_function;
 mod to_pool;
 mod value;
 
-pub use deck::{WasmDeck, WasmMultiDeal};
 pub use die::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};
-pub(crate) use multiset::Generator;
-pub use multiset::WasmGenerator;
 pub use value::{value_binary, value_round, value_truth, value_unary};
+// For the bridge (`crate::facade`).
+#[cfg(any(test, feature = "runner"))]
 pub(crate) use error::{kind as error_kind, python_type, to_js as to_js_error};
+#[cfg(any(test, feature = "runner"))]
+pub(crate) use {
+    deck::{WasmDeck, WasmMultiDeal},
+    multiset::{Generator, WasmGenerator},
+};

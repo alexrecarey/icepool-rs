@@ -1,18 +1,20 @@
 // Test-only: the low level the JS tests reach (test/fixtures.mjs translates fixture programs into calls of the
-// public API, and uses these for what has no public counterpart). Not part of the package's exports map.
+// public API, and uses these for what has no public counterpart: the bridge to the program runner, rpc.ts, and the
+// evaluator objects of the built-in classes below). Neither this file nor rpc.ts is in the npm package.
 
-export { Handle, RawJSON, bridgeCalls, call, fromWire, liveHandles } from "./rpc.js";
+export { BridgeObject, RawJSON, bridgeCalls, call, fromWire, liveHandles, setStandIn, wireResult } from "./rpc.js";
 export { run } from "./wasm.js";
 
 import type { Die } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { builtinEvaluation, selectFunction } from "./multiset.js";
+import { liveHandles } from "./rpc.js";
 import { isPlainValue } from "./values.js";
 import { wasm } from "./wasm.js";
 
 /** How many core objects JS holds: handles of the bridge and typed dice (for leak checks). */
 export function liveObjects(): number {
-  return wasm((w) => w.live_handles() + w.liveDice());
+  return liveHandles() + wasm((w) => w.liveDice());
 }
 
 // --- The evaluator objects of the built-in classes ----------------------------------------------------------------
@@ -32,7 +34,7 @@ const isInt = (x: unknown): boolean => typeof x === "bigint" || Number.isInteger
 /** The core's built-in for a class: its name, how many inputs it takes (`null`: any number but none), and its
  * parameters from the constructor's (`params`, `ctor`) and `evaluate`'s keyword arguments. `undefined` for what
  * `builtin_spec` leaves to the evaluator's own methods (e.g. two inputs to `SumEvaluator`, an unknown keyword):
- * Python's errors there come from those methods, which the bridge runs. */
+ * Python's errors there come from those methods, which the bridge runs (in the fixture tests). */
 type Spec = { name: string; inputs: number | null; params: unknown[] };
 
 /** The classes whose constructor takes no arguments and whose `evaluate` takes none, and their core names. */
@@ -142,8 +144,8 @@ function builtinSpec(cls: string, params: readonly unknown[], ctorPairs: Kwargs,
 
 /** `getattr(icepool.evaluator, cls)(*params, **dict(ctor)).evaluate(*args, **dict(kwargs))` on the core's built-in
  * (fixture node `builtin_evaluate`; `keep_evaluate` is `KeepEvaluator` with `index`, `straight_and_outcome_evaluate`
- * `LargestStraightAndOutcomeEvaluator(priority)`). `undefined` where the core has no such built-in, or an argument
- * is not native: the caller runs it through the bridge. */
+ * `LargestStraightAndOutcomeEvaluator(priority)`). `undefined` where the core has no such built-in: the caller
+ * runs it through the bridge. */
 export function evaluateBuiltin(cls: string, params: readonly unknown[], ctor: Kwargs, kwargs: Kwargs, args: readonly unknown[]): Die | undefined {
   const spec = builtinSpec(cls, params, ctor, kwargs);
   if (spec === undefined || (spec.inputs === null ? args.length === 0 : args.length !== spec.inputs)) return undefined;

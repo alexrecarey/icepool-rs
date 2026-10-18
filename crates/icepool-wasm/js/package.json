@@ -16,6 +16,7 @@
     "dist/*.js",
     "dist/*.d.ts",
     "!dist/internal.*",
+    "!dist/rpc.*",
     "pkg-node/icepool_wasm*",
     "pkg-node/package.json",
     "pkg-web/icepool_wasm*",

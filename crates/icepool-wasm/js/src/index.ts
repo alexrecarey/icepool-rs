@@ -105,7 +105,6 @@ export {
 } from "./deck.js";
 export { Again, AgainExpression } from "./again.js";
 export {
-  CoreFunction,
   MultisetEvaluator,
   MultisetFunction,
   evaluator,

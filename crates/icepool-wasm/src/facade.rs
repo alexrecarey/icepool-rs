@@ -1,6 +1,7 @@
-//! INTERIM (until task C6l): the JSON-op bridge under the TypeScript API (js/src/rpc.ts), for what is not on typed
-//! exports (`crate::api`) yet: program values held in a handle table, nodes called with JSON arguments, and JS
-//! callables / evaluators called back through a global the JS side installs.
+//! Test-only (feature `runner`): the JSON-op bridge under the fixture tests' adapter (js/src/rpc.ts, through
+//! internal.ts), for the nodes of the harness's program language the TypeScript API has no counterpart for:
+//! program values held in a handle table, nodes called with JSON arguments, and JS callables called back through a
+//! global the JS side installs. The npm package is built without it.
 //!
 //! JS sees every value that has a JS counterpart as JSON ("JS-JSON", below) and everything else (dice, pools,
 //! decks, expressions, ...) as a handle: an index into this module's table, which the JS object owns and releases
@@ -36,32 +37,26 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::api::{Generator, WasmDeck, WasmDie, WasmGenerator, WasmMultiDeal};
-use icepool_core::evaluator::Final;
-use icepool_core::evaluator::Order;
 use icepool_core::host::{HostError, HostObject, HostRef};
 use icepool_core::value::recursion::{level, Level};
 use icepool_core::value::{float_repr, Symbols, Vector};
 use icepool_core::Value;
 use icepool_core::{Error, Result as CoreResult};
-use icepool_harness::host::{HostEvaluator, HostFunction};
+use icepool_harness::host::HostFunction;
 use icepool_harness::{PErr, PValue};
 use serde_json::{json, Map, Value as Json};
 use wasm_bindgen::prelude::*;
 
-// The callbacks into JS. js/src/rpc.ts installs `globalThis.__icepool_wasm_host` before the first call; nothing
-// here calls it unless a JS function or evaluator was passed in.
+// The callbacks into JS. js/src/rpc.ts fills `globalThis.__icepool_wasm_host` before the first call; nothing
+// here calls it unless a JS function was passed in.
 #[wasm_bindgen]
 extern "C" {
     /// `f(*args, **kwargs)` for the JS function registered as `id`: JS-JSON in, a result envelope out.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = call)]
     fn host_call(id: u32, args: &str, kwargs: &str) -> String;
-    /// Forgets the JS function or evaluator registered as `id`: the core dropped its last reference.
+    /// Forgets the JS function registered as `id`: the core dropped its last reference.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = release)]
     fn host_release(id: u32);
-    /// A method of the JS evaluator registered as `id`; `kwargs` are `evaluate()`'s keyword arguments, which
-    /// Python passes on to `initial_state` and `final_outcome`.
-    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = evaluator)]
-    fn host_evaluator(id: u32, method: &str, args: &str, kwargs: &str) -> String;
 }
 
 // --- The handle table ---------------------------------------------------------------------------------------------
@@ -105,8 +100,8 @@ fn take(id: u32) -> Result<PValue, PErr> {
     Ok(value)
 }
 
-/// Interim bridge to the typed API (task C6): a handle for a die of the typed API, to pass it to a node. `truth` is
-/// the truth value of a `DieWithTruth` (the result of `==` / `!=`), `undefined` for a plain die.
+/// A handle for a die of the typed API, to pass it to a node. `truth` is the truth value of a `DieWithTruth` (the
+/// result of `==` / `!=`), `undefined` for a plain die.
 #[wasm_bindgen(js_name = dieHandle)]
 pub fn die_handle(die: &WasmDie, truth: Option<bool>) -> u32 {
     let die = die.die.clone();
@@ -222,15 +217,6 @@ pub fn release(id: u32) {
     drop(value);
 }
 
-/// After a trap (a Rust panic: WASM has no unwinding), once JS has left every call into the instance: resets the
-/// core's per-call state, which the trap skipped the destructors of, and returns the panic's message (empty if
-/// none was recorded). The handle table is never borrowed across code that can panic, so it survives as it is.
-#[wasm_bindgen]
-pub fn recover() -> String {
-    icepool_harness::reset_after_trap();
-    crate::take_panic().unwrap_or_default()
-}
-
 /// How many handles are live (for the JS tests' leak check).
 #[wasm_bindgen]
 pub fn live_handles() -> usize {
@@ -257,22 +243,6 @@ pub fn call(op: &str, args: &str) -> String {
             values.push((k.as_str(), from_js(v)?));
         }
         icepool_harness::call(op, values)
-    })();
-    envelope(result.and_then(|v| to_js(&v)))
-}
-
-/// `evaluator.evaluate(*args, **kwargs)` for the JS evaluator registered as `id` (args: a JSON array of JS-JSON;
-/// kwargs: a JSON object, handed back to JS as it is).
-#[wasm_bindgen]
-pub fn evaluate(id: u32, args: &str, kwargs: &str) -> String {
-    // Made first: its drop releases `id` on the JS side, whatever happens next.
-    let evaluator: Arc<dyn HostEvaluator> = Arc::new(JsEvaluator {
-        id,
-        kwargs: kwargs.to_string(),
-    });
-    let result = (|| {
-        let args = from_js(&json!({ "$list": parse(args)? }))?;
-        icepool_harness::host::evaluate(&evaluator, args)
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -310,39 +280,6 @@ pub fn multiset_function(args: &str) -> String {
         Ok(icepool_harness::host::multiset_function(
             f, params, var, kwonly,
         ))
-    })();
-    envelope(result.and_then(|v| to_js(&v)))
-}
-
-/// `icepool.from_rv(rv, outcomes, denominator, **kwargs)` for a JS random variable: `{"cdf": {"$fn": id, "n":
-/// length}, "pdf": bool, "outcomes": x, "denominator": x, "kwargs": {name: x}}`, where `cdf` is the rv's bound
-/// `cdf` method and `pdf` says whether it has one (Python's `hasattr(rv, 'pdf')`: a continuous distribution).
-#[wasm_bindgen]
-pub fn from_rv(args: &str) -> String {
-    let result = (|| {
-        let args = parse(args)?;
-        let id = args["cdf"]["$fn"]
-            .as_u64()
-            .ok_or_else(|| bad("function id"))? as u32;
-        let cdf = Arc::new(JsFunction {
-            id,
-            length: args["cdf"]["n"].as_u64().unwrap_or(0) as usize,
-        });
-        let pdf = args["pdf"].as_bool().ok_or_else(|| bad("pdf"))?;
-        let Json::Object(kw) = &args["kwargs"] else {
-            return Err(bad("kwargs"));
-        };
-        let kwargs = kw
-            .iter()
-            .map(|(k, v)| Ok((k.clone(), from_js(v)?)))
-            .collect::<Result<Vec<_>, PErr>>()?;
-        icepool_harness::host::from_rv(
-            cdf,
-            pdf,
-            from_js(&args["outcomes"])?,
-            from_js(&args["denominator"])?,
-            kwargs,
-        )
     })();
     envelope(result.and_then(|v| to_js(&v)))
 }
@@ -658,14 +595,6 @@ fn js_args(args: &[PValue]) -> Result<String, PErr> {
     Ok(Json::Array(args.iter().map(to_js).collect::<Result<_, _>>()?).to_string())
 }
 
-/// The core's errors from inside a callback as `CoreResult` (the evaluator traits use it).
-fn core_error(e: PErr) -> Error {
-    match e {
-        PErr::Raise(e) => e,
-        PErr::Unimplemented(what) => Error::Unported(what),
-    }
-}
-
 /// A JS function: `{"$fn": id, "n": f.length}`.
 #[derive(Debug)]
 struct JsFunction {
@@ -698,99 +627,6 @@ impl HostFunction for JsFunction {
             &js_args(&args)?,
             &Json::Object(kw).to_string(),
         ))
-    }
-}
-
-/// A JS `MultisetEvaluator` (registered as `id` on the JS side). States are values: JS turns its states into
-/// JS-JSON, objects into `$json` keys, so the driver can hash and merge them.
-#[derive(Debug)]
-struct JsEvaluator {
-    id: u32,
-    kwargs: String,
-}
-
-/// The JS side keeps the evaluator registered as long as the core may call it: a `@multiset_function` body
-/// records the evaluation, which runs when the function is called.
-impl Drop for JsEvaluator {
-    fn drop(&mut self) {
-        host_release(self.id);
-    }
-}
-
-impl JsEvaluator {
-    fn method(&self, name: &str, args: Vec<PValue>) -> CoreResult<PValue> {
-        let args = js_args(&args).map_err(core_error)?;
-        callback_result(&host_evaluator(self.id, name, &args, &self.kwargs)).map_err(core_error)
-    }
-}
-
-fn values(xs: &[Value]) -> PValue {
-    PValue::Value(Value::tuple(xs.to_vec()))
-}
-
-fn order_value(order: Order) -> PValue {
-    PValue::Value(Value::from(order.value()))
-}
-
-impl HostEvaluator for JsEvaluator {
-    fn initial_state(
-        &self,
-        order: Order,
-        outcomes: &[Value],
-        sizes: &[Value],
-    ) -> CoreResult<Value> {
-        let mut args = vec![order_value(order), values(outcomes)];
-        args.extend(sizes.iter().cloned().map(PValue::Value));
-        value_of(self.method("initialState", args)?)
-    }
-
-    fn next_state(
-        &self,
-        state: &Value,
-        order: Order,
-        outcome: &Value,
-        counts: &[Value],
-    ) -> CoreResult<Option<Value>> {
-        let mut args = vec![
-            PValue::Value(state.clone()),
-            order_value(order),
-            PValue::Value(outcome.clone()),
-        ];
-        args.extend(counts.iter().cloned().map(PValue::Value));
-        match self.method("nextState", args)? {
-            PValue::Reroll => Ok(None),
-            p => value_of(p).map(Some),
-        }
-    }
-
-    fn extra_outcomes(&self, outcomes: &[Value]) -> CoreResult<Vec<Value>> {
-        match self.method("extraOutcomes", vec![values(outcomes)])? {
-            PValue::Value(Value::Tuple(xs)) => Ok(xs.to_vec()),
-            PValue::List(xs) => xs.into_iter().map(value_of).collect(),
-            _ => Err(Error::WrongType(
-                "extraOutcomes must return an array of outcomes".into(),
-            )),
-        }
-    }
-
-    fn final_outcome(
-        &self,
-        final_state: &Value,
-        order: Order,
-        outcomes: &[Value],
-        sizes: &[Value],
-    ) -> CoreResult<Final<PValue>> {
-        let mut args = vec![
-            PValue::Value(final_state.clone()),
-            order_value(order),
-            values(outcomes),
-        ];
-        args.extend(sizes.iter().cloned().map(PValue::Value));
-        Ok(match self.method("finalOutcome", args)? {
-            PValue::Reroll => Final::Reroll,
-            PValue::Value(Value::None) => Final::None,
-            p => Final::Outcome(p),
-        })
     }
 }
 

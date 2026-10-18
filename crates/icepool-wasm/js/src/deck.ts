@@ -4,33 +4,28 @@
 // generator of the core (src/api/multiset.rs) and a `MultiDeal` a multiset tuple expression: both are nodes of
 // multiset.ts's expression tree, so every evaluation takes them natively.
 //
-// INTERIM (task C6l): arguments the native methods do not model (pools or expressions among a deck's cards, odd
-// operands of the operators, ...) still go through the bridge (rpc.ts), which takes a native deck as a handle made
-// from it (`Replayable`).
+// Arguments the program runner (crates/icepool-harness/src/deck.rs) does not model either (pools among a deck's
+// cards, dice counted by an operator, non-int hand sizes, ...) raise its `NotImplementedError` (`unported`).
 
-import type { WasmDeck, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
+import type { WasmDeck, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import { IcepoolError } from "./errors.js";
-import { Die, dictItems, isOne, itemize, list, pyBool, unpack, type Callback, type MapResult, type Which } from "./die.js";
+import { Die, dictItems, isOne, itemize, pyBool, pyIter, unpack, type Callback, type MapResult, type Which } from "./die.js";
 import { mappingGet, ops, tupleize } from "./functions.js";
 import {
-  BridgeNeeded,
   KeepGenerator,
   MultisetExpression,
   Pool,
-  Replayable,
   generator,
   generatorOf,
   hasParameter,
   keepTupleBounded,
   mixtureOf,
-  native,
   registerDeckClasses,
   tupleIndex,
   tupleLen,
   type TupleNode,
 } from "./multiset.js";
-import { HANDLE, Handle, call, registerKind } from "./rpc.js";
 import { List, Reroll, Restart, isPlainValue, pyTypeName, type Int, type Outcome, type PyFloat } from "./values.js";
 import { wasm } from "./wasm.js";
 
@@ -51,6 +46,15 @@ export type DeckOutcomes = readonly (Outcome | Die | Deck)[] | Map<Outcome, Int>
 
 const typeError = (message: string) => new IcepoolError("WrongType", "TypeError", message);
 const valueError = (message: string) => new IcepoolError("InvalidArgument", "ValueError", message);
+/** What the port does not model (the program runner's `Unimplemented`). */
+const unported = (what: string) => new IcepoolError("Unported", "NotImplementedError", what);
+
+/** A hand size or group size of a `MultiDeal`: an exact int. (A bool would work in Python but show up as `True` in
+ * the hand sizes and the repr, which the core does not keep.) */
+function handInt(h: unknown): Int {
+  if (isExactInt(h)) return h;
+  throw unported("a MultiDeal hand size that is not an int");
+}
 
 /** Python's `isinstance(x, int)` (so also a bool). */
 const isIntArg = (x: unknown): x is Int | boolean =>
@@ -79,7 +83,7 @@ const pyInt = (x: Int): Int => (Number.isSafeInteger(Number(x)) ? Number(x) : x)
  * new Deck([1, Again]); //=> throws ValueError
  * ```
  */
-export class Deck extends Replayable implements Iterable<Outcome> {
+export class Deck implements Iterable<Outcome>, Disposable {
   /** The core's deck; `null` once freed. */
   private declare core: WasmDeck | null;
   /** Python's `len(self._sequence_cache) - 1`: the most cards `sequence` has dealt so far. */
@@ -88,7 +92,6 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   /** `Deck(outcomes=(), times=1)`: `times` multiplies each element of `outcomes`, one number for all of them or an
    * array as long as `outcomes`. */
   constructor(outcomes: DeckOutcomes = [], times: Int | readonly Int[] = 1) {
-    super(HANDLE, -1);
     // `contains_again(outcomes)`: a sequence's elements, a mapping's keys.
     const keys = outcomes instanceof Map ? [...outcomes.keys()] : Array.isArray(outcomes) ? outcomes : [];
     if (keys.some((x) => x instanceof AgainExpression)) throw valueError("Again cannot be used with Decks.");
@@ -102,7 +105,6 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   /** Wraps a core deck. @internal */
   static wrap(core: WasmDeck): Deck {
     const deck = Object.create(Deck.prototype) as Deck;
-    deck.handle = -1;
     deck.core = core;
     deck.dealt = 0;
     return deck;
@@ -112,17 +114,6 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   get w(): WasmDeck {
     if (this.core === null) throw new TypeError("icepool: this deck was freed");
     return this.core;
-  }
-
-  /** @internal */
-  protected override holdsNative(): boolean {
-    return this.core !== null;
-  }
-
-  /** @internal */
-  protected override bridgeHandle(): number {
-    const w = this.w;
-    return wasm((m) => m.deckHandle(w));
   }
 
   /** The cards as a die (the `Population` methods a deck shares with a die). */
@@ -141,10 +132,14 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * cards.size(); //=> throws TypeError
    * ```
    */
-  override free(): void {
+  free(): void {
     this.core?.free();
     this.core = null;
-    super.free();
+  }
+
+  /** `free()`, for `using cards = new Deck(...);`. */
+  [Symbol.dispose](): void {
+    this.free();
   }
 
   /** `Deck.deal(hand_sizes)`: deals cards from this deck: a {@link Deal} of `handSize` cards, or a
@@ -168,23 +163,17 @@ export class Deck extends Replayable implements Iterable<Outcome> {
     // group `(hand_size, 1)` per hand.
     if (isIntArg(handSize)) {
       const w = this.w;
-      return native(
-        null,
-        () => generator(wasm(() => w.deal(intOf(handSize)))) as Deal,
-        () => call("deal", { deck: this, hand_size: handSize }),
-      );
+      return generator(wasm(() => w.deal(intOf(handSize)))) as Deal;
     }
     // A str is an iterable of its characters; anything else not iterable raises.
     const sizes: unknown = typeof handSize === "string" ? [...handSize] : handSize;
     if (Array.isArray(sizes)) {
-      const bridge = () => call("multi_deal", { deck: this, hand_sizes: list(handSize) });
       // `sum(hand_size * group_size ...)` starts from 0: `0 + 'a'` is a TypeError.
       if (sizes.some((h) => typeof h === "string")) throw typeError("unsupported operand type(s) for +: 'int' and 'str'");
-      if (!sizes.every(isExactInt)) return bridge() as MultiDeal;
-      return native(null, () => this.multiDeal(sizes.flatMap((h) => [h, 1])), bridge);
+      return this.multiDeal(sizes.flatMap((h) => [handInt(h), 1]));
     }
     if (isPlainValue(handSize)) throw typeError(`'${pyTypeName(handSize)}' object is not iterable`);
-    return call("deal", { deck: this, hand_size: handSize }) as Deal;
+    throw unported("these MultiDeal hand sizes");
   }
   /** `Deck.deal_groups(*hand_groups)` (EXPERIMENTAL in icepool): deals cards into groups of hands, where the hands
    * in each group could be produced in any order. Each argument is `[handSize, groupSize]`: the number of cards in
@@ -199,15 +188,11 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   dealGroups(...groups: [Int, Int][]): MultiDeal {
-    const bridge = () => call("deal_groups", { deck: this, hand_groups: List.from(groups.map(list)) });
-    const make = () => {
-      if (!groups.every((g) => Array.isArray(g))) return undefined;
-      // `for hand_size, group_size in self._hand_groups`: anything but a pair does not unpack.
-      const odd = groups.find((g) => g.length !== 2);
-      if (odd !== undefined) throw valueError(`expected 2 values to unpack, got ${odd.length}`);
-      return groups.every((g) => g.every(isExactInt)) ? this.multiDeal(groups.flat()) : undefined;
-    };
-    return native(null, make, bridge);
+    // `for hand_size, group_size in self._hand_groups`: anything but a pair does not unpack.
+    const pairs = groups.map((g) => pyIter(g));
+    const odd = pairs.find((g) => g.length !== 2);
+    if (odd !== undefined) throw valueError(`expected 2 values to unpack, got ${odd.length}`);
+    return this.multiDeal(pairs.flat().map(handInt));
   }
   /** `MultiDeal(self, hand_groups)` of `[hand_size, group_size, ...]`. */
   private multiDeal(groups: Int[]): MultiDeal {
@@ -508,7 +493,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   sequence(deals: Int): Die {
-    if (!isIntArg(deals)) return call("deck_sequence", { deck: this, deals }) as Die;
+    if (!isIntArg(deals)) throw unported("non-int deals");
     const n = Number(intOf(deals));
     if (n < 0) throw valueError("The number of cards dealt cannot be negative.");
     // `for i in range(len(self._sequence_cache), deals + 1)` is the only binding of `result`.
@@ -520,7 +505,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
       );
     }
     // Beyond this the sequences could not be stored anyway.
-    if (n > 16) return call("deck_sequence", { deck: this, deals }) as Die;
+    if (n > 16) throw unported("a very long deck sequence");
     const w = this.w;
     const result = Die.wrap(wasm(() => w.sequence(n)));
     this.dealt = n;
@@ -642,7 +627,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   stat(name: string): Outcome {
     const population = this.population() as unknown as Record<string, unknown>;
     const method = DECK_STATS[name];
-    if (method === undefined) return call("deck_stat", { deck: this, stat: name }) as Outcome;
+    if (method === undefined) throw unported(`die statistic ${name}`);
     return (population[method] as () => unknown).call(population) as Outcome;
   }
   /** `Deck.mean()`: the mean of the outcomes, weighted by quantity (a Fraction for integer outcomes).
@@ -711,7 +696,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * new Deck(["A", "A", "K"]).toString().split("\n")[0]; //=> "Deck with denominator 3"
    * ```
    */
-  override toString(): string {
+  toString(): string {
     const w = this.w;
     return wasm(() => w.format(""));
   }
@@ -727,19 +712,19 @@ export class Deck extends Replayable implements Iterable<Outcome> {
     }
     // `Counter(None)` is empty.
     if (other === null || other === undefined) return Deck.wrap(wasm(() => w.counterElements(op, [])));
-    if ((Array.isArray(other) || typeof other === "string") && [...other].every(isPlainValue)) {
-      if ([...other].some((x) => x instanceof List)) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
-      return Deck.wrap(wasm(() => w.counterElements(op, [...other])));
+    if (Array.isArray(other) || typeof other === "string") {
+      const elements = [...other];
+      if (elements.some((x) => x instanceof List)) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
+      // `Counter` of dice would count them as cards (which `Deck(+data)` then flattens): not modelled.
+      if (!elements.every(isPlainValue)) throw unported("counting dice or other objects");
+      return Deck.wrap(wasm(() => w.counterElements(op, elements)));
     }
     if (other instanceof Map && [...other.values()].every(isExactInt) && [...other.keys()].every(isPlainValue)) {
       return Deck.wrap(wasm(() => w.counterMapping(op, [...other.keys()], [...other.values()])));
     }
-    const expressionResult = other instanceof MultisetExpression ? counterOfExpression(this, op, other) : undefined;
-    if (expressionResult !== undefined) return expressionResult;
-    if (["number", "bigint", "boolean"].includes(typeof other)) throw typeError(`'${pyTypeName(other)}' object is not iterable`);
-    const operator = { add: "+", sub: "-", rsub: "-", and: "&", or: "|", xor: "^" }[op];
-    if (op === "rsub") return call("deck_op", { operator, a: list(other), b: this }) as Deck;
-    return call("deck_op", { operator, a: this, b: list(other) }) as Deck;
+    if (other instanceof MultisetExpression) return counterOfExpression(this, op, other);
+    if (isPlainValue(other)) throw typeError(`'${pyTypeName(other)}' object is not iterable`);
+    throw unported("Counter() of this object");
   }
 
   /** `deck * n`, `deck // n`, `deck % n`: for an int `n` the quantity methods, else `NotImplemented` on both sides
@@ -747,7 +732,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   private quantityOp(op: "mul" | "floordiv" | "mod", symbol: string, n: unknown): Deck {
     if (!isIntArg(n)) {
       if (isPlainValue(n) || Array.isArray(n)) throw typeError("unsupported operand type(s) for Deck");
-      return call("deck_mul", { deck: this, operator: symbol, n }) as Deck;
+      throw unported(`this deck operand of ${symbol}`);
     }
     const w = this.w;
     return Deck.wrap(wasm(() => w.quantities(op, intOf(n))));
@@ -784,11 +769,11 @@ function reduceWithInitial(_others: unknown[]): never {
  * `expr[1]`, ...: `keep(i)`, evaluated into a die) until an index raises `IndexError`, so its keys are dice. No die
  * is among the deck's cards, so each operator treats one as a card the deck lacks: `+`, `|` and `^` keep its
  * count, `-` and `&` leave it at zero or below, which `+data` drops. `Deck(+data)` then flattens the dice that are
- * left into their outcomes, after the deck's own cards. `undefined` where the bridge must say (an expression
- * Python would iterate forever, or one inside a multiset function). */
-function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): Deck | undefined {
+ * left into their outcomes, after the deck's own cards. An expression Python would iterate forever is not modelled.
+ */
+function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): Deck {
   // Inside a multiset function `expr[i]` is a raw result, never an `IndexError`: Python never stops.
-  if (expr.node === undefined || hasParameter(expr)) return undefined;
+  if (hasParameter(expr)) throw unported("iterating an expression whose items are not dice");
   // A keep generator (or a mixture of them) checks its keep tuple first: an index past it is an `IndexError` even
   // if the dice are empty. Anything else gets the index only in the evaluation.
   const bounded = keepTupleBounded(expr);
@@ -803,7 +788,8 @@ function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): 
     }
     // Evaluated with the index, an expression without outcomes at all is the empty die at every index, never an
     // `IndexError`: Python never stops.
-    if (!(die instanceof Die) || (!bounded && die.size === 0)) return undefined;
+    if (!(die instanceof Die)) throw unported("iterating an expression whose items are not dice");
+    if (!bounded && die.size === 0) throw unported("iterating an expression without outcomes (Python never stops)");
     dice.push(die);
   }
   const keepsDice = op === "add" || op === "rsub" || op === "or" || op === "xor";
@@ -816,20 +802,13 @@ function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): 
 /** `Deck(outcomes, times)` after the Again check (`Deck.__new__`): `itemize`, then a single deck with time 1 is
  * that deck itself, and anything else goes through `expand_args_for_deck`. */
 function makeDeck(outcomes: DeckOutcomes, times: unknown): WasmDeck | Deck {
-  // Pools and multiset expressions among the outcomes: the bridge's.
-  const holdsBridgeOnly = (x: unknown): boolean =>
-    (x instanceof Handle && !(x instanceof Deck)) || (Array.isArray(x) && x.some(holdsBridgeOnly));
-  const keys = outcomes instanceof Map ? [...outcomes.keys()] : Array.isArray(outcomes) ? outcomes : [];
-  if (keys.some(holdsBridgeOnly)) {
-    const made =
-      outcomes instanceof Map
-        ? call("deck", { outcomes: List.from(outcomes.keys()), times: List.from(outcomes.values()) })
-        : call("deck", { outcomes: list(outcomes), times: list(times) });
-    return (made as Deck).w;
-  }
   // A deck is a mapping of its outcomes to their quantities.
   const items = itemize((outcomes instanceof Deck ? new Map(outcomes.items()) : outcomes) as Map<unknown, Int>, times);
   if (items.outcomes.length === 1 && items.outcomes[0] instanceof Deck && isOne(items.times[0])) return items.outcomes[0];
+  // Pools and multiset expressions as cards (or in a tuple card) are not modelled.
+  const holdsExpression = (x: unknown): boolean =>
+    x instanceof MultisetExpression || x instanceof MultisetTupleExpression || (Array.isArray(x) && x.some(holdsExpression));
+  if (items.outcomes.some(holdsExpression)) throw unported("a pool or a multiset expression as an outcome");
   // `expand_args_for_deck`: each argument expanded (`expand_arg`), then merged by the core (`merge_duplicates`).
   return wasm((w) => {
     const builder = new w.DeckBuilder();
@@ -888,8 +867,7 @@ export class Deal extends KeepGenerator {
    * ```
    */
   info(): [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]] {
-    const g = generatorOf(this);
-    if (g === undefined) return call("deal_info", { deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
+    const g = this.g;
     return wasm(() => {
       const deck = Deck.wrap(g.deck());
       const items = deck.items().map(([o, q]): [Outcome, Int] => [o, pyInt(q)]);
@@ -904,8 +882,7 @@ export class Deal extends KeepGenerator {
    * ```
    */
   deck(): Deck {
-    const g = generatorOf(this);
-    if (g === undefined) return new Deck(new Map(this.info()[0]));
+    const g = this.g;
     return Deck.wrap(wasm(() => g.deck()));
   }
   /** `Deal.hand_size()`: the number of cards dealt.
@@ -966,9 +943,12 @@ export class Deal extends KeepGenerator {
   repr(): string { return this.strs()[0]; }
   /** `[repr, str]`. */
   private strs(): string[] {
-    const g = generatorOf(this);
-    if (g === undefined) return call("deal_str", { deal: this }) as [string, string];
+    const g = this.g;
     return wasm(() => g.dealStrs());
+  }
+  /** The core's deal (a deal is always a keep generator of the core). */
+  private get g(): WasmGenerator {
+    return generatorOf(this) as WasmGenerator;
   }
 }
 
@@ -981,35 +961,40 @@ export class Deal extends KeepGenerator {
  * hands.hand(1).sum().mean().toString(); //=> "4"
  * ```
  */
-export class MultisetTupleExpression extends Replayable implements Iterable<MultisetExpression> {
-  /** The native form of this expression; `undefined` for one only the bridge holds. @internal */
-  declare node?: TupleNode;
+export class MultisetTupleExpression implements Iterable<MultisetExpression>, Disposable {
+  /** The tree node; `null` once freed. */
+  private tupleNode!: TupleNode | null;
 
-  /** A native tuple expression of this class. @internal */
+  /** A tuple expression of this class. @internal */
   static native<T extends MultisetTupleExpression>(this: abstract new (...args: never[]) => T, node: TupleNode): T {
     const x = Object.create(this.prototype as object) as T;
-    x.handle = -1;
-    x.node = node;
+    x.tupleNode = node;
     return x;
   }
 
-  /** @internal */
-  protected override holdsNative(): boolean {
-    return this.node !== undefined;
+  /** The tree node, which must not have been freed. @internal */
+  get node(): TupleNode {
+    if (this.tupleNode === null) throw new TypeError("icepool: this expression was freed");
+    return this.tupleNode;
   }
 
-  /** A `MultiDeal` crosses to the bridge as it is; a tuple parameter cannot (evaluator.ts then makes the whole call
-   * through the bridge). @internal */
-  protected override bridgeHandle(): number | undefined {
-    const node = this.node;
-    if (node?.kind === "tupleParameter") throw new BridgeNeeded("icepool: a multiset function parameter cannot go through the bridge");
-    return node?.kind === "multiDeal" ? wasm((w) => w.multiDealHandle(node.md)) : undefined;
+  /** Lets go of the expression now (its deck's WASM memory is freed once nothing else holds it). Using it
+   * afterwards throws a `TypeError`; freeing it again does nothing.
+   *
+   * @example
+   * ```ts
+   * const hands = new Deck([1, 2, 3], 4).deal([1, 2]);
+   * hands.free();
+   * hands.length; //=> throws TypeError
+   * ```
+   */
+  free(): void {
+    this.tupleNode = null;
   }
 
-  /** Frees the expression's WASM memory now rather than when it is garbage-collected. @internal */
-  override free(): void {
-    this.node = undefined;
-    super.free();
+  /** `free()`, for `using hands = deck.deal([2, 2]);`. */
+  [Symbol.dispose](): void {
+    this.free();
   }
 
   /** `len(x)`: the number of hands.
@@ -1020,9 +1005,7 @@ export class MultisetTupleExpression extends Replayable implements Iterable<Mult
    * ```
    */
   get length(): number {
-    const n = tupleLen(this);
-    if (n === undefined) throw new TypeError("icepool: the length of a tuple expression the bridge made");
-    return n;
+    return tupleLen(this);
   }
   /** Iterates over the hands (Python's `iter(x)`), so `const [a, b] = hands` unpacks two of them.
    *
@@ -1044,11 +1027,10 @@ export class MultisetTupleExpression extends Replayable implements Iterable<Mult
    * ```
    */
   hand(index: Int): MultisetExpression {
-    const bridge = () => call("mx_tuple_index", { expr: this, index });
     // An int index makes a `MultisetTupleIndex` (bounds are only checked when evaluated); anything else falls off
     // the end of `__getitem__`, which returns None.
     if (!isIntArg(index)) return null as unknown as MultisetExpression;
-    return native(this, () => tupleIndex(this, saturated(intOf(index))), bridge);
+    return tupleIndex(this, saturated(intOf(index)));
   }
   /** `x[start:stop:step]`: some of the hands, as a multiset tuple expression (`null` as Python's omitted bound).
    *
@@ -1059,11 +1041,10 @@ export class MultisetTupleExpression extends Replayable implements Iterable<Mult
    * ```
    */
   slice(start: Int | null = null, stop: Int | null = null, step: Int | null = null): MultisetTupleExpression {
-    const bridge = () => call("mx_tuple_slice", { expr: this, start, stop, step });
     // The bounds are only looked at when it is evaluated or its `len()` taken.
     const bounds = [start ?? null, stop ?? null, step ?? null] as const;
-    if (!bounds.every(isPlainValue)) return bridge() as MultisetTupleExpression;
-    return native(this, () => MultisetTupleExpression.native({ kind: "tupleSlice", child: this, bounds }), bridge);
+    if (!bounds.every(isPlainValue)) throw unported("a slice bound that is not a value");
+    return MultisetTupleExpression.native({ kind: "tupleSlice", child: this, bounds });
   }
 }
 
@@ -1096,9 +1077,9 @@ export function tupleParameter(argIndex: number, len: number, name: string): Mul
  * ```
  */
 export class MultiDeal extends MultisetTupleExpression {
-  /** The core's multi-deal. */
-  private get md(): WasmMultiDeal | undefined {
-    return this.node?.kind === "multiDeal" ? this.node.md : undefined;
+  /** The core's multi-deal. @internal */
+  get md(): WasmMultiDeal {
+    return (this.node as { md: WasmMultiDeal }).md;
   }
   /** `(deck items, hand_sizes, total_cards_dealt, len, denominator, outcomes)`: everything the other accessors
    * read, in one call.
@@ -1110,9 +1091,6 @@ export class MultiDeal extends MultisetTupleExpression {
    */
   info(): [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]] {
     const md = this.md;
-    if (md === undefined) {
-      return call("multi_deal_info", { multi_deal: this }) as [[Outcome, Int][], Int[], Int, Int, Int, Outcome[]];
-    }
     return wasm(() => {
       const deck = Deck.wrap(md.deck());
       const items = deck.items().map(([o, q]): [Outcome, Int] => [o, pyInt(q)]);
@@ -1128,7 +1106,6 @@ export class MultiDeal extends MultisetTupleExpression {
    */
   deck(): Deck {
     const md = this.md;
-    if (md === undefined) return new Deck(new Map(this.info()[0]));
     return Deck.wrap(wasm(() => md.deck()));
   }
   /** `MultiDeal.hand_sizes()`: the number of cards dealt to each hand.
@@ -1183,30 +1160,11 @@ export class MultiDeal extends MultisetTupleExpression {
   /** `[repr, str]`. */
   private strs(): string[] {
     const md = this.md;
-    if (md === undefined) return call("deal_str", { deal: this }) as [string, string];
     return wasm(() => md.strs());
   }
 }
 
-// The bridge's decks and multi-deals become native ones.
-registerKind("deck", (h) => {
-  try {
-    return Deck.wrap(wasm((w) => w.WasmDeck.fromHandle(h)));
-  } finally {
-    wasm((w) => w.release(h));
-  }
-});
-registerKind("multi_deal", (h) => {
-  try {
-    return MultiDeal.native({ kind: "multiDeal", md: wasm((w) => w.WasmMultiDeal.fromHandle(h)) });
-  } finally {
-    wasm((w) => w.release(h));
-  }
-});
 registerDeckClasses({ Deal, Deck, MultisetTupleExpression });
-
-// A tuple parameter or slice of the bridge's own tracing: only the bridge holds it.
-registerKind("tuple_expr", (h) => new MultisetTupleExpression(HANDLE, h));
 
 /** What `new Wallenius(...)` takes: `[outcome, weight]` pairs, or a Map of outcome -> weight or
  * `[weight, quantity]`.

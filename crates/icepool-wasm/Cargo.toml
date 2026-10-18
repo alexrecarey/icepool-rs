@@ -11,12 +11,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 icepool-core = { path = "../icepool-core" }
-# Interim, until task C6l: the TypeScript API's bridge (src/facade.rs under js/src/rpc.ts) calls the program
-# runner's nodes by name for what is not on typed exports yet, so the npm package still links the runner
-# (scripts/check-production.sh reports this as INTERIM). Without its default `khepri`: the npm package has no
-# khepri engine. C6l moves the bridge behind the test-only `runner` feature, and this becomes optional.
-icepool-harness = { path = "../icepool-harness", default-features = false }
-serde_json = { version = "1", features = ["arbitrary_precision"] }
+# The program runner, test-only (feature `runner`): `run` and the JSON-op bridge the JS fixture tests use
+# (src/facade.rs under js/src/rpc.ts). Without its default `khepri` unless feature `khepri` asks for it.
+icepool-harness = { path = "../icepool-harness", default-features = false, optional = true }
+# JSON for the runner's programs and khepri's engine input (features `runner`, `khepri`).
+serde_json = { version = "1", features = ["arbitrary_precision"], optional = true }
 # The core's big integers and fractions, converted to and from JS BigInts (src/api/convert.rs).
 dashu-int = "0.6"
 dashu-ratio = "0.6"
@@ -26,16 +25,18 @@ wasm-bindgen = "0.2"
 icepool-khepri = { path = "../icepool-khepri", optional = true }
 
 [dev-dependencies]
-# The unit tests of `run` and `calculate` run in every test build, whatever the features (src/lib.rs).
+# The unit tests of `run`, the bridge and `calculate` run in every test build, whatever the features (src/lib.rs).
 icepool-khepri = { path = "../icepool-khepri" }
 icepool-harness = { path = "../icepool-harness" }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 
 [features]
 # None default: the npm package (js/build.sh) is built without either.
-# The `run` export, test-only: run-wasm.sh drives the fixtures and the fuzzer through it.
-runner = []
+# The program runner, test-only: the `run` export (run-wasm.sh drives the fixtures and the fuzzer through it) and the
+# JSON-op bridge (`call`, `from_wire`, `wire_result`, ...: the JS fixture tests, js/build.sh --test).
+runner = ["dep:icepool-harness", "dep:serde_json"]
 # The `calculate` export: khepri's engine, for khepri's own build (build.sh).
-khepri = ["dep:icepool-khepri", "icepool-harness/khepri"]
+khepri = ["dep:icepool-khepri", "dep:serde_json", "icepool-harness?/khepri"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

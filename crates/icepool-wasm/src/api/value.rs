@@ -39,6 +39,18 @@ pub fn value_truth(a: JsValue) -> JsResult<bool> {
     value_from_js(&a).or_throw()?.truthy().or_throw()
 }
 
+/// Python's `repr(a)` for a plain value.
+#[wasm_bindgen(js_name = valueRepr)]
+pub fn value_repr(a: JsValue) -> JsResult<String> {
+    py_repr(&value_from_js(&a).or_throw()?).or_throw()
+}
+
+/// Python's `str(a)` for a plain value.
+#[wasm_bindgen(js_name = valueStr)]
+pub fn value_str(a: JsValue) -> JsResult<String> {
+    py_str(&value_from_js(&a).or_throw()?).or_throw()
+}
+
 // --- Vector and Symbols (collection/vector.py, collection/symbols.py) ----------------------------------------------
 
 /// The protocols both collections share: `x[key]`, `x[start:stop:step]` (`arg` the three bounds), `len(x)`,
