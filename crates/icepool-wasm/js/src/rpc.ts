@@ -2,7 +2,7 @@
 // API that have not moved onto the typed exports yet (decks and deals, the keep family of Die...).
 // Each such method is one node of the harness's program language (harness/grammar/), run by the core's program
 // layer, so it computes exactly what the oracle-checked node computes. This file goes away when the last of them
-// moves (task C6g).
+// moves (task C6l).
 //
 // Values cross as JSON ("JS-JSON", described in src/facade.rs); pools, decks and expressions stay in WASM memory as
 // handles, released when their JS object is garbage-collected, or at once by `free()` / `Symbol.dispose`. A die of

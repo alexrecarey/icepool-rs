@@ -11,10 +11,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 icepool-core = { path = "../icepool-core" }
-# Interim, until task C6g: the TypeScript API's bridge (src/facade.rs under js/src/rpc.ts) calls the program
+# Interim, until task C6l: the TypeScript API's bridge (src/facade.rs under js/src/rpc.ts) calls the program
 # runner's nodes by name for what is not on typed exports yet, so the npm package still links the runner
 # (scripts/check-production.sh reports this as INTERIM). Without its default `khepri`: the npm package has no
-# khepri engine. C6g moves the bridge behind the test-only `runner` feature, and this becomes optional.
+# khepri engine. C6l moves the bridge behind the test-only `runner` feature, and this becomes optional.
 icepool-harness = { path = "../icepool-harness", default-features = false }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 # The core's big integers and fractions, converted to and from JS BigInts (src/api/convert.rs).

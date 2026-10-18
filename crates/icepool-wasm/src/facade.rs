@@ -1,4 +1,4 @@
-//! INTERIM (until task C6g): the JSON-op bridge under the TypeScript API (js/src/rpc.ts), for what is not on typed
+//! INTERIM (until task C6l): the JSON-op bridge under the TypeScript API (js/src/rpc.ts), for what is not on typed
 //! exports (`crate::api`) yet: program values held in a handle table, nodes called with JSON arguments, and JS
 //! callables / evaluators called back through a global the JS side installs.
 //!

@@ -8,7 +8,7 @@
 // multiset_function.rs) prepares the expressions and runs the driver, calling back the JS evaluator's methods
 // (`HostEvaluator`) and asking for traces (`HOST.traceFunction`) where Python would make them.
 //
-// INTERIM (task C6g): inputs only the bridge models (arguments of other types, expressions the bridge made) still
+// INTERIM (task C6l): inputs only the bridge models (arguments of other types, expressions the bridge made) still
 // go through the bridge (rpc.ts); so does a function whose body needs the bridge (`BridgeNeeded`).
 
 import type { ExpressionBuilder } from "../pkg-node/icepool_wasm.js";

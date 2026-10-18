@@ -471,3 +471,21 @@ def test_nested_vector_comparison_is_not_exponential():
         t = Vector([t])
     assert bool(t == t)  # currently ~2**40 steps
 ```
+
+### `x in symbols` is True for anything with a `len()` (C6g)
+
+`Symbols` is a `Mapping[str, int]` without its own `__contains__`, so `in` is `Mapping.__contains__`: `self[key]`,
+False only on `KeyError`. But `Symbols.__getitem__` never raises `KeyError`: a one-character key missing from the
+symbols counts 0, any other key gives a (sub-)Symbols. So `'z' in Symbols('ab')` is True, as is `(1, 2) in
+Symbols('ab')`, and `1 in Symbols('ab')` raises `TypeError` (`len(1)`). It shows wherever a Symbols is the
+collection of a selection (`die.reroll(Symbols('ab'), ...)`, `die.is_in(...)`, `to_one_hot(...)`, where
+`symbols.index` is then `symbols['index']`, a Symbols, and calling it raises `TypeError`). The port copies it
+(harness map.rs `contains`, js die.ts `memberships`).
+
+Drafted upstream test:
+
+```python
+def test_symbols_contains_only_present_symbols():
+    assert 'a' in Symbols('ab')
+    assert 'z' not in Symbols('ab')  # fails: __getitem__ returns 0 instead of raising KeyError
+```

@@ -62,7 +62,7 @@ export type SortPairExtra = "early" | "late" | "low" | "high" | "equal" | "keep"
 
 // --- Native objects the bridge may need ---------------------------------------------------------------------------
 
-/** A native object of the typed API that the bridge may still be handed (INTERIM, task C6g: a node not moved yet
+/** A native object of the typed API that the bridge may still be handed (INTERIM, task C6l: a node not moved yet
  * takes it as an argument): the bridge's handle is made the first time it needs one, directly from the native
  * object if there is a way (`bridgeHandle`), else by replaying the bridge call the object stands for. */
 export class Replayable extends Handle {
@@ -1434,7 +1434,7 @@ registerKind("expr", (h) => new Expression(HANDLE, h));
 // Multiset tuple expressions (a `MultiDeal`, a tuple parameter, a slice of either: deck.ts) are trees of
 // `TupleNode`s; a hand of one (`MultisetTupleIndex`) is a multiset expression whose node is a "tupleIndex".
 //
-// INTERIM (task C6g): whatever the tree does not model (operators over whole tuple expressions, arguments of other
+// INTERIM (task C6l): whatever the tree does not model (operators over whole tuple expressions, arguments of other
 // types) still goes through the bridge. Each function below returns `undefined` for what it does not model, and the
 // method then calls the bridge's node instead; a native object the bridge needs as an argument is made there once
 // (`Replayable`).
@@ -1488,7 +1488,7 @@ const isNative = (x: Input): boolean => x.node !== undefined;
 
 /** Thrown where the bridge would need a parameter of a multiset function traced natively: the bridge cannot take
  * one, so the function's call is made through the bridge instead (evaluator.ts `MultisetFunction.call`). INTERIM
- * (task C6g): only what the bridge alone has needs it (a callable of the bridge's, the fixtures' evaluator objects of
+ * (task C6l): only what the bridge alone has needs it (a callable of the bridge's, the fixtures' evaluator objects of
  * built-in classes). @internal */
 export class BridgeNeeded extends Error {}
 

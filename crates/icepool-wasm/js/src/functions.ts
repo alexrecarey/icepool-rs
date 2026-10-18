@@ -1,7 +1,8 @@
 // icepool's free functions (function.py, expand.py, map_tools/, from_rv), and Python's operators on any operands.
 // As the Python facade does (python/icepool/function.py), the TypeScript does each one's argument juggling and calls
-// typed exports (crates/icepool-wasm/src/api/function.rs) for the work. INTERIM (task C6): `repeat`, `mapAndTime`,
-// `meanTimeToAbsorb`, `mapToPool`, `fromRv` and `highest` / `lowest` / `middle` still go through the bridge (rpc.ts).
+// typed exports (crates/icepool-wasm/src/api/function.rs) for the work. INTERIM (task C6i): multiset expression or
+// deck arguments of `map` and friends, `mapToPool` and the keep family (`highest` / `lowest` / `middle` of pools)
+// still go through the bridge (rpc.ts).
 
 import { AgainExpression } from "./again.js";
 import { Die, dictItems, opts, pyBool, unpack, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";

@@ -13,10 +13,10 @@
 #   5. the .wasm modules hold none of those strings either, and export neither `run` (test-only) nor `calculate`
 #      (khepri's), nor the JSON-op exports `call`, `evaluate`, `from_wire`, `wire_result`.
 #
-# INTERIM, until task C6g: the TypeScript API's bridge (crates/icepool-wasm/src/facade.rs, under js/src/rpc.ts) still
+# INTERIM, until task C6l: the TypeScript API's bridge (crates/icepool-wasm/src/facade.rs, under js/src/rpc.ts) still
 # calls the program runner's nodes by name for what is not on typed exports yet, so the npm package links the runner
 # (icepool-harness, without its `khepri` feature) and serde_json and exports the JSON-op calls. While facade.rs uses
-# `icepool_harness`, those (and only those) are reported, not failed, for the npm package alone; once C6g removes the
+# `icepool_harness`, those (and only those) are reported, not failed, for the npm package alone; once C6l removes the
 # bridge, every check above applies to the npm package too, with no edit here.
 #
 # The npm package is checked as `js/build.sh --dev` builds it: the same wasm-bindgen output as `--pack`, without
@@ -48,7 +48,7 @@ RUNNER_STRINGS=(src/program/ serde_json)
 INTERIM=0
 if grep -q 'icepool_harness' crates/icepool-wasm/src/facade.rs 2> /dev/null; then
   INTERIM=1
-  echo "INTERIM (until C6g): the JS bridge calls the program runner; runner code in the npm package is reported, not failed"
+  echo "INTERIM (until C6l): the JS bridge calls the program runner; runner code in the npm package is reported, not failed"
 fi
 
 # check_paths WHAT < listing: fails on test-only paths.
@@ -146,7 +146,7 @@ fi
 echo
 if [ "$FAILED" = 0 ]; then
   if [ "$INTERIM" = 1 ]; then
-    echo "check-production: OK, no test code in the wheel; the npm package as INTERIM allows (until C6g)"
+    echo "check-production: OK, no test code in the wheel; the npm package as INTERIM allows (until C6l)"
   else
     echo "check-production: OK, no test code in the wheel or the npm package"
   fi

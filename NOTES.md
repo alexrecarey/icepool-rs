@@ -36,7 +36,45 @@ turns out wrong. Newest decisions at the top of each section.
     auto-imported into examples: import them (`import { type X } from "icepool-wasm"`), which turns the
     auto-import off for that example.
 
-- **The TypeScript API (C6, design section 6).** Rest in C6g, C6i, C6j, C6k (tasks.json); the docs are C6b.
+- **The TypeScript API (C6, design section 6).** Rest in C6h, C6i, C6j, C6k, then C6l (removing the bridge: the
+  rest of C6g); the docs are C6b.
+  - **C6g (the fallbacks no other task owned).** C6g's goal (no bridge in the npm package) needs C6h (7), C6i, C6j
+    and C6k first, so C6g did the part none of them owns and C6l (deps on all of them) does the rest. Moved:
+    - **Selections** (die.ts `selection` / `memberships`, used by reroll, filter, split, explode, isIn, count,
+      quantityWhere, Deck.split): never fall back. `memberships(collection)` is Python's `in` for any collection
+      (ported from harness map.rs `contains`): arrays (plain values through the core's `memberships`; `Reroll`
+      never matches; dice in the list are Unported, as in the runner), Vector, str, Map keys, dice and decks
+      (mappings), Symbols (the never-KeyError quirk: anything with a `len()` is `in` it, DIVERGENCES.md), anything
+      else `TypeError` once there is an outcome to test. `unpack(x)` (was `unpacked`, returning undefined) is total:
+      tuples, strs, Vectors, Symbols' keys, else Python's `TypeError`; map / mapAndTime / Deck.map / groupBy use it
+      in their loops, so errors come in Python's order.
+    - reroll / filter: the selection first, then `rerollDepth` (Python's `depth < 0` TypeError / ValueError; floats
+      and depths past u32 Unported, as the runner). groupBy takes a Map (`mappingGet`) and keys the core cannot hold
+      (dice by `equals`, Again by `==`, Reroll by identity: `firstEqualKeys`, shared with `dictItems`, which now
+      also refuses a Map key as `unhashable type: 'dict'`); groupByIndex is `WasmDie.getitems(index)` + grouping.
+      toOneHot of any sequence (`pyLen`, `memberships`, `pyIndex`: mappings have no `index`, a Symbols' is
+      `symbols['index']`, not callable). `pyTypeName(Map)` is `dict` now.
+    - `pyBool` / `truth`: a plain die raises Python's `Die.__bool__` TypeError, a deck is a mapping (non-empty),
+      a multiset expression is Unported (the runner's). `==` / `!=` whose data raises keeps the JS error
+      (`DieWithTruth.failedWith`; its `ENCODE` for the bridge throws it). `nativeDie` converts anything but a
+      pool / deck / expression with `new Die([x])` (tuples holding dice).
+    - operators.ts: `str % die` (no `%`: the string; with one Unported), `Symbols // die` (symbolsMethod
+      `count_subset_mapping` over the die's items), `Reroll` has only `==` (identity), Python's TypeErrors for the
+      unary / `@` / `round` corners; Handle operands still bridge (C6j, C6l).
+    - map / map(repeat) / mapAndTime / meanTimeToAbsorb: a repl that is neither a function nor a Map is Python's
+      `repl must be a callable or a mapping.`; Deck.map with one is Unported (the runner's).
+    - The runner learnt the corners the oracle showed while writing fixtures/c6g/edge-cases: Vector and Symbols as
+      collections (map.rs `contains`), to_one_hot over a dict / deck / Vector / Symbols (population.rs), `Reroll`
+      operands of the binary operators (TypeError, ops.rs).
+    - **Adapter:** a node given a callable only the bridge has (`ip.CoreFunction`: the catalogue's `builtin_max`
+      and `count_max`, which JS lacks) runs generically (`holdsCoreFunction` in test/fixtures.mjs): the public API
+      never sees one. `truth` and `deck_split` route through the API for every argument.
+    - **Finding bridge call sites:** patch `call` in dist/rpc.js (after a build) to tag each call with the first
+      stack frame outside rpc.js, run every fixture through test/fixtures.mjs `check`, and count by tag; diffing
+      the tally around each fixture gives example programs per site. At C6g the sites reached are all C6i (keep
+      family, to-pool, map over expressions/decks, free highest/lowest/middle), C6j (multiset.ts replays,
+      builtin_evaluate's tuple slices) or evaluator.ts `mf_call_kw`.
+    - API tests: test/die-fallbacks.test.mjs (each checks it made no bridge call).
   - **C6f (Deck, Deal, MultiDeal, Wallenius).** All native: src/api/deck.rs (`WasmDeck`, `DeckBuilder`,
     `WasmMultiDeal`), deals as `Generator::Deal` (multiset.rs), and in evaluate.rs MultiDeal sources, tuple
     index/slice nodes (`Node::TupleItem`) and tuple parameters (`Node::Parameter { tuple_len }`). deck.ts does
@@ -231,7 +269,7 @@ turns out wrong. Newest decisions at the top of each section.
   - **Upstream tests in JS:** `js/test/upstream-*.test.mjs` translate upstream's `tests/*_test.py` one test per
     Python test (helpers in `test/upstream.mjs`); `{ todo: "API: ..." }` marks a known API discrepancy.
 
-- **Crates and production builds (C5, C5b, design sections 5 and 8).** Follow-up: C6c-C6g (JS API off the
+- **Crates and production builds (C5, C5b, design sections 5 and 8).** Follow-up: C6c-C6l (JS API off the
   runner), C2f (khepri crate), C3d (the runner off core's hidden modules).
   - `crates/icepool-harness` (`publish = false`, test-only) is the JSON program runner (`src/`, was
     icepool-core's `src/program/` until C5b; its `mod.rs` is now `lib.rs`), the `icepool-run` binary (same name, so
@@ -264,14 +302,14 @@ turns out wrong. Newest decisions at the top of each section.
     core with both features). Who builds what: run-wasm.sh `--features runner,khepri`; `js/build.sh --test` the
     same (the API tests call both); `js/build.sh`/`--pack` (the npm package) none; crates/icepool-wasm/build.sh
     (khepri's) `khepri`. wasm.ts's `run`/`calculate` throw a clear Error in builds without the feature.
-    **Interim until C6g:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
+    **Interim until C6l:** the JS bridge (src/facade.rs) calls the runner's nodes, so icepool-wasm still depends on
     icepool-harness (`default-features = false`: no khepri engine in the npm package; icepool-wasm's `khepri` turns
-    `icepool-harness/khepri` on) and on serde_json. C6g makes that dependency optional, behind `runner`.
+    `icepool-harness/khepri` on) and on serde_json. C6l makes that dependency optional, behind `runner`.
   - `scripts/check-production.sh` (the gate runs it once it exists; ~7 s warm, ~1 min cold): cargo tree of
     icepool-py / icepool-wasm (built alone), `maturin build --release` wheel file list + the .so's strings and
     symbols, `js/build.sh --dev` + `npm pack` file list + the .wasm's strings and exports. While facade.rs uses
     `icepool_harness`, the npm package's runner code (icepool-harness, serde_json, the JSON-op exports) is reported
-    as `interim`, not failed (the wheel is always strict); C6g ends that by
+    as `interim`, not failed (the wheel is always strict); C6l ends that by
     dropping the runner from icepool-wasm (the script then fails if anything is left). It overwrites js/pkg-node
     and js/pkg-web with the production build (`js/build.sh --test` rebuilds them with the test features).
     The wheel today is the extension alone (`icepool_rs`), not the facade: design section 8's wheel with

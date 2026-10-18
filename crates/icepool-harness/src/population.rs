@@ -2,9 +2,9 @@
 //! harness/grammar/population.py): `append` / `remove` / `to_one_hot` of a die or deck, the deck forms of `zero` /
 //! `split`, and `Die.mean_time_to_sum`.
 
+use super::catalogue::Func;
 use super::deck::{deck_from_data, the_deck};
 use super::map::{contains, select, the_die};
-use super::catalogue::Func;
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type};
 use super::{PErr, PValue};
 use icepool_core::population::Data;

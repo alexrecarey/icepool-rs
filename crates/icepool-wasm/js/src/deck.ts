@@ -4,9 +4,9 @@
 // generator of the core (src/api/multiset.rs) and a `MultiDeal` a multiset tuple expression: both are nodes of
 // multiset.ts's expression tree, so every evaluation takes them natively.
 //
-// INTERIM (task C6g): arguments the native methods do not model (pools or expressions among a deck's cards, a
-// callable of the bridge's for `map`, ...) still go through the bridge (rpc.ts), which takes a native deck as a
-// handle made from it (`Replayable`).
+// INTERIM (task C6l): arguments the native methods do not model (pools or expressions among a deck's cards, odd
+// operands of the operators, ...) still go through the bridge (rpc.ts), which takes a native deck as a handle made
+// from it (`Replayable`).
 
 import type { WasmDeck, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";

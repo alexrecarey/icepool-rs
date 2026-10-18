@@ -1,7 +1,7 @@
 //! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see NOTES.md for the commands).
 //!
 //! The typed exports (`WasmDie`, ...) are in `api`; the interim JSON-op bridge the API still uses for the rest is in
-//! `facade` (until task C6g). Two more entry points, each behind a feature that no production build (the npm
+//! `facade` (until task C6l). Two more entry points, each behind a feature that no production build (the npm
 //! package) turns on:
 //! - `run(programJson)` (feature `runner`, test-only, `runner.rs`): one program of the harness's JSON program
 //!   language in, its JSON result out. `run-wasm.sh` drives it so every fixture and fuzz run can go through WASM.
