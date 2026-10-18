@@ -5,11 +5,12 @@
 import type { ExpressionBuilder, WasmDie, WasmGenerator, WasmMultiDeal } from "../pkg-node/icepool_wasm.js";
 import { AgainExpression } from "./again.js";
 import type { MultisetTupleExpression } from "./deck.js";
-import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, z as zDie, type Comparison, type DieOutcomes, type Operand } from "./die.js";
+import { Die, d as dDie, dictItems, itemize, list, opts, pyBool, unpack, z as zDie, type Callback, type Comparison, type DieOutcomes, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
 import { Complex, Ellipsis, Float, Fraction, List, Order, Symbols, Vector, isPlainValue, pyFloatRepr, pyTypeName, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, callback, isTrap, wasm, withCallbacks } from "./wasm.js";
+import { mappingGet } from "./functions.js";
 
 /** Where a multiset expression is expected, an array of outcomes is a pool of them (Python's implicit conversion
  * of a sequence to a `Pool`).
@@ -40,6 +41,25 @@ export type MultisetArg = MultisetExpression | readonly Outcome[];
  */
 export type MultisetOperand = MultisetArg | MultisetTupleExpression;
 
+/** The keyword arguments of {@link MultisetExpression.largestCount}: wild outcomes, each a function returning
+ * whether an outcome is wild or a collection of the wild outcomes.
+ *
+ * @example
+ * ```ts
+ * import { d, type LargestCountOptions } from "icepool-wasm";
+ * const sixesWild: LargestCountOptions = { wild: [6] };
+ * d(6).pool(2).largestCount(sixesWild).probability(2).toString(); //=> "4/9"
+ * ```
+ */
+export interface LargestCountOptions {
+  /** Outcomes whose counts are combined with the counts of any other outcome. */
+  wild?: Callback<unknown> | Iterable<unknown> | null;
+  /** Wilds that can only be combined with outcomes they are lower than. */
+  wildLow?: Callback<unknown> | Iterable<unknown> | null;
+  /** Wilds that can only be combined with outcomes they are higher than. */
+  wildHigh?: Callback<unknown> | Iterable<unknown> | null;
+}
+
 /** How `sortPair` (and `sortPairKeepWhile`, `sortPairDropWhile`) treats the extra elements when the left operand has
  * more elements than the right:
  *
@@ -59,6 +79,20 @@ export type MultisetOperand = MultisetArg | MultisetTupleExpression;
  * ```
  */
 export type SortPairExtra = "early" | "late" | "low" | "high" | "equal" | "keep" | "drop";
+
+/** How `sortPairKeepWhile` and `sortPairDropWhile` treat the extra elements: as {@link SortPairExtra}, where
+ * Python spells `"keep"` and `"drop"` `"continue"` and `"break"` (both spellings work, as in Python). The default
+ * is `"break"`, as in Python (it shows in the error for a right operand whose size cannot be inferred).
+ *
+ * @example
+ * ```ts
+ * import { Order, pool, type SortPairWhileExtra } from "icepool-wasm";
+ *
+ * const extra: SortPairWhileExtra = "continue";
+ * pool([6, 4, 3]).sortPairKeepWhile(">", [5, 2], Order.Descending, extra).expand().items(); //=> [[[3, 4, 6], 1n]]
+ * ```
+ */
+export type SortPairWhileExtra = SortPairExtra | "continue" | "break";
 
 // --- Native objects the bridge may need ---------------------------------------------------------------------------
 
@@ -602,7 +636,7 @@ export class MultisetExpression extends Replayable {
   /** `MultisetExpression.sort_pair_keep_while(comparison, other, order=Order.Descending, extra='break')`
    * (experimental): sorts both multisets and pairs their elements in that order, then keeps elements of this
    * multiset while their pairs fit the comparison, dropping the rest from the first pair that does not. `extra`
-   * ({@link SortPairExtra}) says what happens to the unpaired elements; the default `"drop"` is Python's `'break'`.
+   * ({@link SortPairWhileExtra}) says what happens to the unpaired elements.
    * Not designed for negative counts.
    *
    * @example
@@ -611,13 +645,13 @@ export class MultisetExpression extends Replayable {
    * pool([6, 4, 3]).sortPairKeepWhile(">", [5, 2], Order.Descending, "keep").expand().items(); //=> [[[3, 4, 6], 1n]]
    * ```
    */
-  sortPairKeepWhile(comparison: Comparison, other: MultisetArg, order: OrderValue = Order.Descending, extra: SortPairExtra = "drop"): MultisetExpression {
+  sortPairKeepWhile(comparison: Comparison, other: MultisetArg, order: OrderValue = Order.Descending, extra: SortPairWhileExtra = "break"): MultisetExpression {
     return sortPair(this, "sort_pair_keep_while", comparison, other, order, extra);
   }
   /** `MultisetExpression.sort_pair_drop_while(comparison, other, order=Order.Descending, extra='break')`
    * (experimental): sorts both multisets and pairs their elements in that order, then drops elements of this
    * multiset while their pairs fit the comparison, keeping the rest from the first pair that does not. `extra`
-   * ({@link SortPairExtra}) says what happens to the unpaired elements; the default `"drop"` is Python's `'break'`.
+   * ({@link SortPairWhileExtra}) says what happens to the unpaired elements.
    * Not designed for negative counts.
    *
    * @example
@@ -625,7 +659,7 @@ export class MultisetExpression extends Replayable {
    * pool([6, 4, 3]).sortPairDropWhile(">", [5, 2]).expand().items(); //=> [[[3], 1n]]
    * ```
    */
-  sortPairDropWhile(comparison: Comparison, other: MultisetArg, order: OrderValue = Order.Descending, extra: SortPairExtra = "drop"): MultisetExpression {
+  sortPairDropWhile(comparison: Comparison, other: MultisetArg, order: OrderValue = Order.Descending, extra: SortPairWhileExtra = "break"): MultisetExpression {
     return sortPair(this, "sort_pair_drop_while", comparison, other, order, extra);
   }
   /** `MultisetExpression.versus_all(comparison, other)` (experimental): keeps the elements of this multiset that fit
@@ -669,16 +703,24 @@ export class MultisetExpression extends Replayable {
   }
 
   // Evaluation.
-  /** `MultisetExpression.sum()`: evaluation: the sum of all elements.
+  /** `MultisetExpression.sum(map=None)`: evaluation: the sum of all elements.
+   *
+   * @param map - If given, the outcomes are mapped by it before the elements are summed: a function, or a Map
+   *   (Python's dict: outcomes it does not have stay as they are).
    *
    * @example
    * ```ts
    * d(6).pool(3).sum().equals(d(6).add(d(6)).add(d(6))); //=> true
    * d(6).pool(3).highest(2).sum().mean().toString(); //=> "203/24"
+   * // Count 5s and 6s as successes, 6s as two.
+   * d(6).pool(2).sum((x: number) => (x === 6 ? 2 : x === 5 ? 1 : 0)).probability(0).toString(); //=> "4/9"
+   * pool([1, 2, 6]).sum(new Map([[6, 0]])).items(); //=> [[3, 1n]]
    * ```
    */
-  sum(): Die {
-    return evaluation("sum", [], [this]) ?? mxEvaluate(this, "sum");
+  sum(map: Callback<Outcome> | Map<unknown, unknown> | null = null): Die {
+    if (map === null) return evaluation("sum", [], [this]) ?? mxEvaluate(this, "sum");
+    const f = sumMap(map);
+    return evaluation("sum_map", [f], [this]) ?? (call("pool_sum_map", { pool: this, map }) as Die);
   }
   /** `MultisetExpression.size()`: evaluation: the number of elements. Mostly useful after another operation:
    * `pool.unique().size()` counts the different outcomes, `pool.and([4, 5, 6]).size()` counts up to one each of 4,
@@ -736,16 +778,29 @@ export class MultisetExpression extends Replayable {
   highestOutcomeAndCount(): Die {
     return evaluation("highest_outcome_and_count", [], [this]) ?? mxEvaluate(this, "highest_outcome_and_count");
   }
-  /** `MultisetExpression.largest_count()`: evaluation: the size of the largest matching set (x of a kind). Python's
-   * `wild` options are not available here.
+  /** `MultisetExpression.largest_count(*, wild=None, wild_low=None, wild_high=None)`: evaluation: the size of the
+   * largest matching set (x of a kind).
+   *
+   * @param options - Wild outcomes, each a function returning whether an outcome is wild, or a collection of the
+   *   wild outcomes: `wild`, whose counts are combined with the counts of any other outcome; `wildLow`, wilds that
+   *   only combine with outcomes they are lower than; `wildHigh`, with outcomes they are higher than.
    *
    * @example
    * ```ts
    * d(6).pool(3).largestCount().items(); //=> [[1, 120n], [2, 90n], [3, 6n]]
+   * // 1s are wild.
+   * pool([1, 3, 3, 5]).largestCount({ wild: [1] }).items(); //=> [[3, 1n]]
+   * // A wild 6 only joins lower outcomes.
+   * pool([1, 6]).largestCount({ wildHigh: (x: number) => x === 6 }).items(); //=> [[2, 1n]]
    * ```
    */
-  largestCount(): Die {
-    return evaluation("largest_count", [], [this]) ?? mxEvaluate(this, "largest_count");
+  largestCount({ wild = null, wildLow = null, wildHigh = null }: LargestCountOptions = {}): Die {
+    if (wild === null && wildLow === null && wildHigh === null) {
+      return evaluation("largest_count", [], [this]) ?? mxEvaluate(this, "largest_count");
+    }
+    const params = [wild, wildLow, wildHigh].map(selectFunction);
+    const bridge = () => call("pool_largest_count_wild", { pool: this, wild, wild_low: wildLow, wild_high: wildHigh }) as Die;
+    return evaluation("largest_count_wild", params, [this]) ?? bridge();
   }
   /** `MultisetExpression.largest_count_and_outcome()`: evaluation: the largest matching set and its outcome, as
    * `[count, outcome]` (the higher outcome on a tie).
@@ -781,6 +836,27 @@ export class MultisetExpression extends Replayable {
    */
   allStraights(): Die {
     return evaluation("all_straights", [], [this]) ?? mxEvaluate(this, "all_straights");
+  }
+  /** `MultisetExpression.all_straights_reduce_counts(reducer=operator.mul)` (experimental): evaluation: all
+   * straights with a reduce operation on the counts, as `[runLength, runScore]` pairs in descending order. This can
+   * be used to evaluate e.g. cribbage-style straight counting.
+   *
+   * @param reducer - How to reduce the counts within each straight: called with the score so far (the first
+   *   count, to begin with) and the next count. The default multiplies them, which counts the number of ways to
+   *   pick elements for each straight.
+   *
+   * @example
+   * ```ts
+   * pool([1, 2, 2, 3, 5]).allStraightsReduceCounts().items(); //=> [[[[3, 2], [1, 1]], 1n]]
+   * pool([1, 2, 2, 3, 5]).allStraightsReduceCounts((a: number, b: number) => a + b).items(); //=> [[[[3, 4], [1, 1]], 1n]]
+   * ```
+   */
+  allStraightsReduceCounts(reducer?: (score: Outcome, count: Int) => Outcome): Die {
+    // Omitted, Python's default `operator.mul`; anything else that is not a function raises once a straight
+    // continues, as calling it does in Python.
+    const f = reducer === undefined || typeof reducer === "function" ? (reducer ?? null) : notCallable(reducer);
+    const bridge = () => call("pool_all_straights_reduce_counts", { pool: this, reducer }) as Die;
+    return evaluation("all_straights_reduce_counts", [f], [this]) ?? bridge();
   }
   /** `MultisetExpression.largest_straight_and_outcome(priority='high')`: evaluation: the size of the largest
    * straight and its highest (with `"low"`, lowest) outcome, as `[size, outcome]`. Size comes first; `priority`
@@ -1125,9 +1201,43 @@ function lexi(self: MultisetExpression, max: boolean, comparison: unknown, other
 function compare(self: MultisetExpression, other: unknown, name: string): Die | undefined {
   return isNative(self) ? evaluationOf(name, [], self, other) : undefined;
 }
-function sortPair(expr: MultisetExpression, method: string, comparison: Comparison, other: MultisetArg, order: OrderValue, extra: SortPairExtra): MultisetExpression {
+function sortPair(expr: MultisetExpression, method: string, comparison: Comparison, other: MultisetArg, order: OrderValue, extra: SortPairWhileExtra): MultisetExpression {
   const bridge = () => call("mx_sort_pair", { expr, method, comparison, other: list(other), order, extra });
   return native(expr, () => sortPairOperator(expr, method, comparison, other, order, extra), bridge);
+}
+
+/** basic.py `SumEvaluator(map)`'s map as a function: a callable as it is, a mapping's `get(outcome, outcome)`
+ * (`{k: v for k, v in map.items()}`: a die's or deck's items too), and Python's `AttributeError` for anything
+ * else. */
+function sumMap(map: unknown): (outcome: unknown) => unknown {
+  if (typeof map === "function") return map as (outcome: unknown) => unknown;
+  const items = map instanceof Die || isDeck(map) ? (map as { items(): [unknown, Int][] }).items() : undefined;
+  const mapping = map instanceof Map ? map : items !== undefined ? new Map(items) : undefined;
+  if (mapping === undefined) {
+    throw new IcepoolError("MissingAttribute", "AttributeError", `'${pyTypeName(map)}' object has no attribute 'items'`);
+  }
+  return (outcome) => mappingGet(mapping, [outcome]).get(outcome);
+}
+
+/** poker.py `make_select_function(which)` for the core: `null` selects nothing; a function is called, Python's
+ * truth of its result taken (all `LargestCountWithWildEvaluator` does with it); any other collection becomes the
+ * elements of `frozenset(which)` (a mapping's keys), which the core hashes. */
+function selectFunction(which: unknown): unknown {
+  if (which === null || which === undefined) return null;
+  if (typeof which === "function") return (outcome: unknown) => pyBool((which as (x: unknown) => unknown)(outcome));
+  if (which instanceof Map) return [...which.keys()];
+  if (which instanceof Die || isDeck(which)) return which.outcomes();
+  if (Array.isArray(which) || typeof which === "string" || which instanceof Vector || which instanceof Symbols) {
+    return unpack(which);
+  }
+  throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(which)}' object is not iterable`);
+}
+
+/** A function that raises Python's `TypeError` for calling `x`, which is not callable. */
+function notCallable(x: unknown): () => never {
+  return () => {
+    throw new IcepoolError("WrongType", "TypeError", `'${pyTypeName(x)}' object is not callable`);
+  };
 }
 
 /** A `KeepGenerator`: a pool or a deal, whose sorted rolls can be kept or dropped (keeping gives one of the same
@@ -1381,17 +1491,39 @@ function bridgeStandardPool(op: string, dieSizes: readonly Int[] | Map<Int, Int>
 }
 
 /** `icepool.MultisetMixture(inners)`: a mixture of multiset expressions: one of them, each equally likely (an
- * expression listed twice has twice the weight).
+ * expression listed twice has twice the weight); or, given a Map (Python's mapping), each with its weight.
  *
  * @example
  * ```ts
  * // Roll 1d6 or 2d6, equally likely.
  * multisetMixture([d(6).pool(1), d(6).pool(2)]).sum().mean().toString(); //=> "21/4"
  * multisetMixture([pool([1]), pool([2, 2])]).sum().items(); //=> [[1, 1n], [4, 1n]]
+ * // 2d6 three times as often as 1d6.
+ * multisetMixture(new Map([[d(6).pool(1), 1], [d(6).pool(2), 3]])).sum().mean().toString(); //=> "49/8"
  * ```
  */
-export function multisetMixture(inners: readonly MultisetExpression[]): Expression {
+export function multisetMixture(inners: readonly MultisetExpression[] | Map<MultisetExpression, Int>): Expression {
+  if (inners instanceof Map) return weightedMixture(inners);
   return native(null, () => mixture(inners), () => call("mx_mixture", { inners: list(inners) }));
+}
+
+/** `MultisetMixture(mapping)`: `{inner: weight for inner, weight in inners.items()}`, a dict, so an inner equal to
+ * an earlier one keeps the earlier key with the later weight. */
+function weightedMixture(inners: Map<MultisetExpression, Int>): Expression {
+  const data: [MultisetExpression, bigint][] = [];
+  for (const [inner, weight] of inners) {
+    if (!(inner instanceof MultisetExpression) || !isNative(inner)) {
+      throw new IcepoolError("Unported", "NotImplementedError", "a weighted mixture of other than native multiset expressions");
+    }
+    if (typeof weight !== "bigint" && !Number.isInteger(weight)) {
+      throw new IcepoolError("Unported", "NotImplementedError", "a mixture weight that is not an int");
+    }
+    if (!hashable(inner)) throw new IcepoolError("Unhashable", "TypeError", "unhashable type: 'list'");
+    const found = data.find(([key]) => sameExpression(key, inner));
+    if (found !== undefined) found[1] = BigInt(weight);
+    else data.push([inner, BigInt(weight)]);
+  }
+  return Expression.native({ kind: "mixture", inners: data });
 }
 
 /** Any other multiset expression (an operator over pools, a CompoundKeepGenerator...): what most
@@ -2085,6 +2217,8 @@ Object.assign(HOST, {
   /** `map_counts`' function: `function(outcome, *counts)`. */
   countFunction: (f: AnyFunction, outcome: unknown, counts: unknown[]) =>
     callback(() => (f as (...args: unknown[]) => unknown)(outcome, ...counts)),
+  /** A function a built-in evaluator takes (`sum(map)`, the wilds of `largest_count`, a straights' reducer). */
+  callFunction: (f: AnyFunction, args: unknown[]) => callback(() => (f as (...args: unknown[]) => unknown)(...args)),
   /** `keep_outcomes`' callable: `bool(func(outcome))`. */
   outcomePredicate: (f: AnyFunction, outcome: unknown) => callback(() => pyBool((f as (x: unknown) => unknown)(outcome))),
 });

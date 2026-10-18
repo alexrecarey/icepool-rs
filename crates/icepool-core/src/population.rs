@@ -140,7 +140,9 @@ impl<O: OutcomeOrder> Die<O> {
             Comparison::Lt => Nearest::Lt,
             Comparison::Ge => Nearest::Ge,
             Comparison::Gt => Nearest::Gt,
-            Comparison::Eq | Comparison::Ne => return invalid_argument("Invalid comparison"),
+            // Python's message names the comparison.
+            Comparison::Eq => return invalid_argument("Invalid comparison =="),
+            Comparison::Ne => return invalid_argument("Invalid comparison !="),
         };
         Ok(match self.nearest_index(nearest, outcome).err_into()? {
             None => None,

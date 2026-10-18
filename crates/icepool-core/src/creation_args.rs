@@ -2,7 +2,7 @@
 
 use crate::counts::{Counts, OrderedMerge};
 use crate::die::Die;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::math::weighted_lcm;
 use crate::outcome::{ErrInto, OutcomeOrder};
 use crate::Quantity;
@@ -57,7 +57,23 @@ pub fn expand_args_for_die<O: OutcomeOrder>(
     args: &[DieArg<O>],
     times: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_weights_lcm(args, times)?).err_into()
+    sorted_counts(merge_weights_lcm(args, times)?)
+}
+
+/// `Counts(items)` as `Die` and `Deck` make it. Python's `Counts` sorts the items inside a `try` and replaces the
+/// `TypeError` of incomparable keys with its own (a key that cannot be hashed fails after the sort, as it is).
+fn sorted_counts<O: OutcomeOrder>(items: Vec<(O, Quantity)>) -> Result<Counts<O>> {
+    Counts::new(items).err_into().map_err(|e| match e {
+        Error::Incomparable { .. } => Error::WrongType(
+            "Items do not appear to be sortable.\n\
+             Tip: Sequences containing dice or decks are not sortable.\n\
+             Use tupleize() or vectorize() to transform\n\
+             a sequence of dice into a die with sequence outcomes\n\
+             according to the Cartesian product."
+                .into(),
+        ),
+        e => e,
+    })
 }
 
 /// Merge for dice.
@@ -96,7 +112,7 @@ pub fn expand_args_for_deck<O: OutcomeOrder>(
     args: &[DieArg<O>],
     duplicates: &[Quantity],
 ) -> Result<Counts<O>> {
-    Counts::new(merge_duplicates(args, duplicates)?).err_into()
+    sorted_counts(merge_duplicates(args, duplicates)?)
 }
 
 /// Merge for decks.

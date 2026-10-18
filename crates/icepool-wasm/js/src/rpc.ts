@@ -9,7 +9,7 @@
 // the typed API crosses as a handle made for the call (`dieHandle`), and a die handle coming back becomes a typed
 // die (`WasmDie.fromHandle`).
 
-import { IcepoolError, UnsupportedOrder, type ErrorKind } from "./errors.js";
+import { makeError, UnsupportedOrder, type ErrorKind } from "./errors.js";
 import { HOST, isTrap, wasm } from "./wasm.js";
 import {
   Break,
@@ -153,7 +153,8 @@ function unwrap(text: string): Json {
     throw e;
   }
   const kind = (r.kind as ErrorKind | undefined) ?? (r.unimplemented === true ? "Unported" : "WrongType");
-  throw new IcepoolError(kind, r.error as string, r.message as string);
+  // makeError, so the subclass (`ConflictingOrderError`, ...) survives the bridge as it does a native call.
+  throw makeError(kind, r.error as string, r.message as string);
 }
 
 function argsText(args: Record<string, unknown>, temps: number[]): string {

@@ -38,7 +38,7 @@ import {
   registerKind,
   type EvaluatorMethods,
 } from "./rpc.js";
-import { List, Reroll, Restart, pyTypeName, stateValue, type OrderValue, type Outcome } from "./values.js";
+import { List, Reroll, Restart, pyTypeName, stateValue, type Int, type OrderValue, type Outcome } from "./values.js";
 import { HOST, callback, wasm } from "./wasm.js";
 
 /** A state the core can hash: values, arrays of them, or plain objects (keyed by their JSON).
@@ -145,6 +145,41 @@ export abstract class MultisetEvaluator {
     // Inside a multiset function's body: the raw result recording the evaluation.
     if (exprs.some(hasParameter)) return new RawResult({ kind: "host", evaluator: host }, exprs) as unknown as Die;
     return mixEvaluations(withInputs(exprs, (b) => b.evaluateHost(host, exprs.length) as Evaluations));
+  }
+
+  /** `MultisetEvaluator.consecutive(outcomes)`: an example implementation of {@link MultisetEvaluator.extraOutcomes}
+   * that produces consecutive int outcomes: all ints from the lowest outcome among the inputs to the highest,
+   * inclusive. Use it with `extraOutcomes(outcomes) { return this.consecutive(outcomes); }`.
+   *
+   * @throws IcepoolError `TypeError` if any input has an outcome that is not an int.
+   *
+   * @example
+   * ```ts
+   * // How many outcomes between the lowest and the highest roll did not come up?
+   * class Gaps extends MultisetEvaluator {
+   *   nextState(n: number | null, order: number, outcome: number, count: number) {
+   *     return (n ?? 0) + (count === 0 ? 1 : 0);
+   *   }
+   *   extraOutcomes(outcomes: number[]) {
+   *     return this.consecutive(outcomes);
+   *   }
+   * }
+   * new Gaps().evaluate([1, 4, 4, 6]).items(); //=> [[3, 1n]]
+   * new Gaps().consecutive([2, 5]); //=> [2, 3, 4, 5]
+   * ```
+   */
+  consecutive(outcomes: readonly Outcome[]): Int[] {
+    if (outcomes.length === 0) return [];
+    // `isinstance(x, int)`: a bool is an int too.
+    const isInt = (x: unknown): x is Int | boolean => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
+    if (!outcomes.every(isInt)) {
+      throw new IcepoolError("WrongType", "TypeError", "consecutive cannot be used with outcomes of type other than 'int'.");
+    }
+    // `range(outcomes[0], outcomes[-1] + 1)`.
+    const [first, last] = [BigInt(outcomes[0] as Int | boolean), BigInt(outcomes[outcomes.length - 1] as Int | boolean)];
+    const result: Int[] = [];
+    for (let i = first; i <= last; i++) result.push(Number.isSafeInteger(Number(i)) ? Number(i) : i);
+    return result;
   }
 }
 

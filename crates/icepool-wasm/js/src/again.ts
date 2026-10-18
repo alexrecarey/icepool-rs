@@ -5,7 +5,7 @@
 // dispatch) and to make dice (with `new Die`). The argument juggling of again.py is below: the checks, the default
 // `again_end`, `compute_not_again_die`, and count mode's step die, whose Markov chain is the core's.
 
-import { Die, pyBool, type DieWithTruth, type MapResult, type Operand } from "./die.js";
+import { Die, pyBool, type MapResult, type Operand } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import { binary, matmul, unary, type BinaryName } from "./operators.js";
 import { Reroll, Restart, pyTypeName as typeName, type Int } from "./values.js";
@@ -332,7 +332,7 @@ export class AgainExpression implements Disposable {
    * truth(Again.eq(3)); //=> false
    * ```
    */
-  eq(other: Operand): AgainExpression | DieWithTruth {
+  eq(other: Operand): AgainExpression {
     const truthValue = other instanceof AgainExpression && hashKeyEquals(this, other);
     return new AgainExpression("eq", [this, other], { truthValue });
   }
@@ -345,7 +345,7 @@ export class AgainExpression implements Disposable {
    * truth(Again.ne(Again)); //=> false
    * ```
    */
-  ne(other: Operand): AgainExpression | DieWithTruth {
+  ne(other: Operand): AgainExpression {
     const truthValue = !(other instanceof AgainExpression && hashKeyEquals(this, other));
     return new AgainExpression("ne", [this, other], { truthValue });
   }

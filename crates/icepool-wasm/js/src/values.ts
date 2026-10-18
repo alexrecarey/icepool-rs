@@ -91,6 +91,19 @@ export class Float {
   }
 }
 
+/** A Python `float` result: a JS number, or a {@link Float} when it is integral (so `Number(x)` is always the
+ * number). Statistics such as {@link Die.sd} and percentages return these.
+ *
+ * @example
+ * ```ts
+ * import { d, type PyFloat } from "icepool-wasm";
+ * const sd: PyFloat = d(6).sd();
+ * String(d(6).skewness()); //=> "0.0"
+ * Number(d(6).skewness()); //=> 0
+ * ```
+ */
+export type PyFloat = number | Float;
+
 /** An exact fraction (Python's `Fraction`), normalised by the core when it goes in: the constructor itself keeps
  * the numerator and denominator as given. Means, probabilities and other exact results come back as fractions.
  *
@@ -772,7 +785,8 @@ export interface Symbols extends ValueOperators<Symbols> {}
  */
 export class Symbols {
   /** The string it was made from, or Python's `str()` when the core made it (`null` if that raises: non-int
-   * counts). Python's `str()` lists the characters in ascending order, negative ones after ` - `. */
+   * counts). Python's `str()` lists the characters in ascending order, negative ones after ` - `; `String(symbols)`
+   * is that however the Symbols was made. */
   readonly str: string | null;
   /** The dict's `[char, count]` items in its order, once the core made it (`null` for one made from a string). */
   readonly items: readonly (readonly [string, Int])[] | null;
@@ -1010,17 +1024,22 @@ export class Symbols {
   values(): Int[] {
     return this.method("values") as Int[];
   }
-  /** The `str` field: Python's `str()` (all symbols in unary form, ascending, negative ones after ` - `) for a
-   * Symbols the core made; for one made with `new Symbols(string)`, the string as given.
+  /** Python's `str()`: all symbols in unary form (i.e. including duplicates) in ascending order; negative ones are
+   * listed following a ` - ` sign. Unlike the `str` field, this is the same however the Symbols was made (the core
+   * parses a string given to `new Symbols`, so a bad one throws here, as Python's constructor does).
    *
    * @example
    * ```ts
-   * String(new Symbols("ba").add("")); //=> "ab"
+   * String(new Symbols("ba")); //=> "ab"
+   * String(new Symbols("a-b")); //=> "a - b"
    * String(Symbols.from(new Map([["a", 1], ["b", -2]]))); //=> "a - bb"
+   * String(new Symbols("a--b")); //=> throws ValueError
    * ```
    */
   toString(): string {
-    return this.str ?? "";
+    // A Symbols the core made already holds Python's str (null only where that raises: ask the core for the error).
+    if (this.items !== null && this.str !== null) return this.str;
+    return this.method("str") as string;
   }
   /** Python's `repr()`, e.g. `Symbols('aab')`.
    *

@@ -1,13 +1,14 @@
 // Type-checks typical uses of the API against its generated declarations (dist/*.d.ts; build.sh --test runs `tsc --noEmit`
 // on it; it is never executed).
-import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction, fromRv, Wallenius, mapToPool, List } from "../dist/index.js";
-import type { Outcome, MultisetExpression } from "../dist/index.js";
+import { d, Die, Pool, Deck, map, Again, Reroll, Break, Fraction, Order, MultisetEvaluator, evaluator, Ellipsis, ops, multisetFunction, fromRv, Wallenius, mapToPool, List, tupleize, vectorize, Vector, AgainExpression } from "../dist/index.js";
+import type { Outcome, MultisetExpression, PyFloat } from "../dist/index.js";
 
 const d6: Die = d(6);
 const sum: Die = d6.add(d6).sub(1).mul(2n);
 const quantities: bigint[] = sum.quantities("<=");
 const items: [Outcome, bigint][] = sum.items();
-const mean: Fraction | number = d6.mean();
+const mean: Fraction | PyFloat = d6.mean();
+const sd: PyFloat = d6.sd();
 const isTrue: boolean = d6.eq(d6).truth();
 const rerolled: Die = d6.reroll([1], { depth: Infinity }).filter((x: number) => x > 2, { depth: 1 });
 const [low, high]: [Die, Die] = d6.split((x: number) => x <= 3);
@@ -21,7 +22,13 @@ const expanded: Die = new Pool([d6, d6]).expand(Order.Descending);
 const hand: Die = new Deck([1, 2, 3], 4).deal(3).sum();
 const hands: Die = new Deck([1, 2, 3], 4).deal([2, 2]).hand(1).largestCount();
 const quantity: bigint = d6.quantity(">=", 5);
-const product: unknown = ops.mul(3, 4);
+const product: Outcome = ops.mul(3, 4);
+const dieProduct: Die = ops.mul(3, d6);
+const againProduct: AgainExpression = ops.mul(d6, Again);
+const againSum: AgainExpression = d6.add(Again);
+const noRolls: [] = d6.sequence(0);
+const plainTuple: Outcome[] = tupleize(1, 2);
+const plainVector: Vector = vectorize(1, 2);
 
 class Count extends MultisetEvaluator {
   nextState(state: number | null, order: 1 | -1 | 0, outcome: number, count: number) {
@@ -52,7 +59,7 @@ const pools: Die = d6.mapToPool((x: number) => List.of(x, x)).sum().add(mapToPoo
 d6.add(1).free();
 
 export {
-  quantities, items, mean, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,
+  quantities, items, mean, sd, dieProduct, againProduct, againSum, noRolls, plainTuple, plainVector, isTrue, rerolled, low, high, mapped, repeated, again, kept, atZero, expanded, hand, hands,
   quantity, product, counted, objectStates, traced, countIn, fromJsRv, dealt, viaMap, sequences, timeToTen, rounded,
   pools,
 };

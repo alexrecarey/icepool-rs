@@ -31,7 +31,7 @@ import {
   type TupleNode,
 } from "./multiset.js";
 import { HANDLE, Handle, call, registerKind } from "./rpc.js";
-import { List, Reroll, Restart, isPlainValue, pyTypeName, type Int, type Outcome } from "./values.js";
+import { List, Reroll, Restart, isPlainValue, pyTypeName, type Int, type Outcome, type PyFloat } from "./values.js";
 import { wasm } from "./wasm.js";
 
 /** What `new Deck(...)` takes: outcomes, dice or decks (with times), or a Map of outcomes to counts.
@@ -659,14 +659,14 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   variance(): Outcome { return this.stat("variance"); }
-  /** `Deck.standard_deviation()`: the standard deviation, as a number.
+  /** `Deck.standard_deviation()`: the standard deviation, a float ({@link PyFloat}).
    *
    * @example
    * ```ts
    * new Deck([1, 2, 3], 4).sd(); //=> 0.816496580927726
    * ```
    */
-  sd(): number { return this.stat("sd") as number; }
+  sd(): PyFloat { return this.stat("sd") as PyFloat; }
   /** The lowest outcome.
    *
    * @example

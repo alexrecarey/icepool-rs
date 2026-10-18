@@ -5,7 +5,7 @@
 // still go through the bridge (rpc.ts).
 
 import { AgainExpression } from "./again.js";
-import { Die, dictItems, opts, pyBool, unpack, type AgainOptions, type Callback, type MapResult, type Operand, type Repl } from "./die.js";
+import { Die, dictItems, missingKeyword, opts, pyBool, unpack, type AgainOptions, type Callback, type DieWithTruth, type MapResult, type Operand, type PoolRepl, type Repl } from "./die.js";
 import { IcepoolError } from "./errors.js";
 import type { MultisetExpression } from "./multiset.js";
 import { Handle, call } from "./rpc.js";
@@ -313,7 +313,7 @@ function mapSimple(
   if (f instanceof Map) {
     if (args.length !== 1) throw new IcepoolError("InvalidArgument", "ValueError", "If a mapping is provided for repl, len(args) must be 1.");
     if (hasKwargs) {
-      throw new IcepoolError("WrongType", "TypeError", `<lambda>() got an unexpected keyword argument '${Object.keys(kwargs)[0]}'`);
+      throw unexpectedKeyword(MAPPING_LAMBDA, Object.keys(kwargs)[0]);
     }
     const values = mappingGet(f, items[0].map(([o]) => o));
     transition = (xs) => values.get(xs[0]);
@@ -350,6 +350,41 @@ export function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]):
 
 /** common.py `transition_and_star`'s error for a `repl` that is neither a function nor a Map. */
 const notARepl = () => new IcepoolError("WrongType", "TypeError", "repl must be a callable or a mapping.");
+
+/** The `__qualname__` of the lambda common.py `transition_and_star` makes of a Map (`mapping.get(o, o)`), which
+ * takes no keyword arguments. */
+const MAPPING_LAMBDA = "transition_and_star.<locals>.<lambda>";
+
+/** Python's `TypeError` for a keyword argument the function `qualname` does not take. */
+function unexpectedKeyword(qualname: string, name: string): IcepoolError {
+  return new IcepoolError("WrongType", "TypeError", `${qualname}() got an unexpected keyword argument '${name}'`);
+}
+
+/** `repl` with Python's `**kwargs` bound, for where the bridge calls it (it takes none): a function gets them as a
+ * trailing options object on every call, as {@link map} gives them, and the `star` it is called with is inferred
+ * from the unbound function's `length` (`nArgs` the arguments it takes before them), as `map` does, since the bound
+ * one has no parameters. A Map (or `null`, Die.map_to_pool's identity lambda, `qualname` then) raises Python's
+ * `TypeError` when it is first called, as Python's lambda does; a Map with the wrong number of arguments stays one,
+ * for the `ValueError` that comes first. Unchanged without keyword arguments. */
+function bindKwargs<F>(
+  f: F,
+  nArgs: number,
+  star: unknown,
+  kwargs: Record<string, unknown>,
+  qualname = MAPPING_LAMBDA,
+): [F | ((...xs: unknown[]) => unknown), unknown] {
+  const [name] = Object.keys(kwargs);
+  if (name === undefined) return [f, star];
+  if (typeof f === "function") {
+    const fn = f as (...args: unknown[]) => unknown;
+    const starred = star === null || star === undefined ? fn.length > nArgs : pyBool(star);
+    return [(...xs: unknown[]) => fn(...xs, kwargs), starred];
+  }
+  if ((f instanceof Map && nArgs === 1) || f === null) {
+    return [() => { throw unexpectedKeyword(qualname, name); }, false];
+  }
+  return [f, star];
+}
 
 /** `itertools.product` of `[outcome, quantity]` lists: each joint outcome with the product of the quantities,
  * the last list varying fastest. */
@@ -415,7 +450,7 @@ function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: R
   if (f instanceof Map) {
     if (extraArgs.length !== 0) throw new IcepoolError("InvalidArgument", "ValueError", "If a mapping is provided for repl, len(args) must be 1.");
     transition = (state) => {
-      if (hasKwargs) throw new IcepoolError("WrongType", "TypeError", `<lambda>() got an unexpected keyword argument '${Object.keys(kwargs)[0]}'`);
+      if (hasKwargs) throw unexpectedKeyword(MAPPING_LAMBDA, Object.keys(kwargs)[0]);
       return mappingGet(f, [state]).get(state);
     };
   } else if (typeof f === "function") {
@@ -463,7 +498,8 @@ function transitionTarget(x: unknown): [string, unknown] {
  *   (unmapped outcomes stay the same). New outcomes may be dice; `Reroll` rerolls that old outcome.
  * @param initial - The initial state: a single state or a die.
  * @param rest - Extra arguments, as for {@link map} (rerolled at every time step), then an options object:
- *   `star` as for `map`, and `repeat`, the maximum number of steps (an int; Python requires it).
+ *   `star` as for `map`; `repeat`, the maximum number of steps (an int), required as in Python (`TypeError`
+ *   without it); any other keys are keyword arguments for `f`, given to it as a trailing options object.
  * @example
  * ```ts
  * // Add d2 until the total reaches 3: the final total and how many d2 it took.
@@ -471,18 +507,26 @@ function transitionTarget(x: unknown): [string, unknown] {
  * process.items(); //=> [[[3, 2], 4n], [[3, 3], 1n], [[4, 2], 2n], [[4, 3], 1n]]
  * ```
  */
-export function mapAndTime(f: Callback<MapResult>, initial: Operand, ...rest: unknown[]): Die {
-  const [args, { star = null, repeat = "inf", ...kwargs }] = opts<{ star: boolean | null; repeat: Int | "inf"; [kwarg: string]: unknown }>(rest);
+export function mapAndTime(f: Repl, initial: Operand, ...rest: unknown[]): Die {
+  return mapAndTimeNamed("map_and_time", f, initial, rest);
+}
+
+/** {@link mapAndTime}, `fname` the function Python's missing-`repeat` error names (`Die.map_and_time` for the
+ * method). @internal */
+export function mapAndTimeNamed(fname: string, f: Repl, initial: Operand, rest: unknown[]): Die {
+  const [args, options] = opts<{ star: boolean | null; repeat: Int | "inf"; [kwarg: string]: unknown }>(rest);
+  const { star = null, repeat = missingKeyword(fname, "repeat"), ...kwargs } = options;
   const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
   if (cache !== undefined) {
     const initialDie = new Die([initial]);
     return Die.wrap(wasm((w) => w.mapAndTime(cache.transition, cache.quantities, initialDie.w, rangeRepeat(repeat))));
   }
+  const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs);
   return call("map_and_time", {
-    f,
+    f: bound,
     initial,
     args: List.from(args),
-    star,
+    star: boundStar,
     repeat: repeat === Infinity ? "inf" : repeat,
   }) as Die;
 }
@@ -492,7 +536,8 @@ export function mapAndTime(f: Callback<MapResult>, initial: Operand, ...rest: un
  *
  * @param f - As for {@link mapAndTime}; `Restart` is not supported.
  * @param initial - The initial state: a single state or a die.
- * @param rest - Extra arguments, as for {@link map} (rerolled at every time step), then optionally `{ star }`.
+ * @param rest - Extra arguments, as for {@link map} (rerolled at every time step), then optionally an options
+ *   object: `star`, and keyword arguments for `f` (a trailing options object), as for {@link mapAndTime}.
  * @example
  * ```ts
  * // Rolling a d6 until it shows a 6 takes 6 rolls on average.
@@ -500,19 +545,24 @@ export function mapAndTime(f: Callback<MapResult>, initial: Operand, ...rest: un
  * meanTimeToAbsorb((x) => (x >= 3 ? x : d(2).add(x)), 0).toString(); //=> "9/4"
  * ```
  */
-export function meanTimeToAbsorb(f: Callback<MapResult>, initial: Operand, ...rest: unknown[]): Fraction {
+export function meanTimeToAbsorb(f: Repl, initial: Operand, ...rest: unknown[]): Fraction {
   const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
   const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
-  if (cache === undefined) return call("mean_time_to_absorb", { f, initial, args: List.from(args), star }) as Fraction;
+  if (cache === undefined) {
+    const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs);
+    return call("mean_time_to_absorb", { f: bound, initial, args: List.from(args), star: boundStar }) as Fraction;
+  }
   const time = absorbingMarkovChain(cache, initial)[1];
   if (time === null) throw new IcepoolError("NotImplementedUpstream", "NotImplementedError", "Restart not implemented for mean_time_to_absorb.");
   return time;
 }
 
-/** `icepool.map_to_pool(f, ...args, { star })` (EXPERIMENTAL in icepool): `f`'s result for each joint outcome of
- * the args (dice expand, anything else as it is) is a pool (what `new Pool(...)` takes, a `List` of dice or
- * outcomes, or a multiset expression; `Reroll` drops the outcome); the result is the mixture of those pools.
- * `f` may also be a `Map` from old outcomes to pools, with exactly one argument. `star` is as for {@link map}.
+/** `icepool.map_to_pool(f, ...args, { star, ...kwargs })` (EXPERIMENTAL in icepool): `f`'s result for each joint
+ * outcome of the args (dice expand, anything else as it is) is a pool ({@link PoolContents}: what `new Pool(...)`
+ * takes, or a multiset expression; `Reroll` drops the outcome); the result is the mixture of those pools. `f` may
+ * also be a `Map` from old outcomes to pools, with exactly one argument. `star` is as for {@link map}; other keys
+ * of the options are keyword arguments for `f`, given to it as a trailing options object (a Map takes none:
+ * Python's `TypeError`).
  *
  * The result is not technically a `Pool`, though it supports most of the same operations.
  *
@@ -522,11 +572,23 @@ export function meanTimeToAbsorb(f: Callback<MapResult>, initial: Operand, ...re
  * // Roll d2 to choose 1d6 or 2d6, keep the highest.
  * const best = mapToPool((n: number) => Array(n).fill(d(6)), d(2)).highest(1).sum();
  * best.probability(6).toString(); //=> "17/72"
+ * // A keyword argument for `f`.
+ * const nOf = (n: number, { sides }: { sides: number }) => Array(n).fill(d(sides));
+ * mapToPool(nOf, d(2), { sides: 4, star: false }).sum().mean().toString(); //=> "15/4"
  * ```
  */
-export function mapToPool(f: Repl, ...rest: unknown[]): MultisetExpression {
-  const [args, { star = null }] = opts<{ star: boolean | null }>(rest);
-  return call("map_to_pool", { f, args: List.from(args), star }) as MultisetExpression;
+export function mapToPool(f: PoolRepl, ...rest: unknown[]): MultisetExpression {
+  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
+  const [bound, boundStar] = bindKwargs(f, args.length, star, kwargs);
+  return call("map_to_pool", { f: bound, args: List.from(args), star: boundStar }) as MultisetExpression;
+}
+
+/** `die.map_to_pool(repl, *extra_args, star=star, **kwargs)`: {@link mapToPool} of the die and the extra
+ * arguments; `null` maps each outcome to itself (Python's `lambda x: x`). @internal */
+export function dieMapToPool(die: Die, f: PoolRepl | null, rest: unknown[]): MultisetExpression {
+  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
+  const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs, "Die.map_to_pool.<locals>.<lambda>");
+  return call("die_map_to_pool", { die, f: bound, args: List.from(args), star: boundStar }) as MultisetExpression;
 }
 
 /** `icepool.map_function(f, { star, ...kwargs })`: turns a function of outcomes into a function of dice, a reusable
@@ -635,6 +697,10 @@ export interface MiddleOptions {
 function keepFunction(op: "highest" | "lowest" | "middle") {
   return (...rest: unknown[]): Die => {
     const [args, o] = opts<KeepOptions & MiddleOptions>(rest);
+    // Python's `arg0` is positional-only and required (one argument is an iterable of them, which may be empty).
+    if (args.length === 0) {
+      throw new IcepoolError("WrongType", "TypeError", `${op}() missing 1 required positional argument: 'arg0'`);
+    }
     const nul = <X>(x: X | undefined): X | null => (x === undefined ? null : x);
     const extra = op === "middle" ? { keep: o.keep ?? 1, tie: o.tie ?? "error" } : { keep: nul(o.keep), drop: nul(o.drop) };
     return call(op, { args: List.from(args), ...extra, default: nul(o.default) }) as Die;
@@ -644,14 +710,15 @@ function keepFunction(op: "highest" | "lowest" | "middle") {
  * some of the highest (see {@link KeepOptions}). The arguments are dice or single outcomes, then an optional
  * options object. The outcomes should support addition and multiplication if `keep` is not 1.
  *
- * @throws IcepoolError `ValueError` if no dice are given and no `default`.
+ * @throws IcepoolError `ValueError` for an empty array and no `default`; `TypeError` for no arguments at all (as
+ * Python's, whose first argument is required).
  * @example
  * ```ts
  * // 4d6 keep highest 3.
  * highest(d(6), d(6), d(6), d(6), { keep: 3 }).mean().toString(); //=> "15869/1296"
  * highest(d(6), 3).outcomes(); //=> [3, 4, 5, 6]
  * highest(d(6), d(6), d(6), { drop: 1 }).equals(lowest(d(6), d(6), d(6), { keep: 2 })); //=> true
- * highest(); //=> throws ValueError
+ * highest(); //=> throws TypeError
  * ```
  */
 export const highest: (...args: (Operand | KeepOptions)[]) => Die = keepFunction("highest");
@@ -690,10 +757,13 @@ export const middle: (...args: (Operand | MiddleOptions)[]) => Die = keepFunctio
  * ```ts
  * tupleize(d(6), 0).outcomes().slice(0, 2); //=> [[1, 0], [2, 0]]
  * tupleize(d(2), d(2)).repr(); //=> "Die({(1, 1): 1, (1, 2): 1, (2, 1): 1, (2, 2): 1})"
+ * tupleize(1, 2); //=> [1, 2]
  * ```
  */
-export function tupleize(...args: Operand[]): Die {
-  return cartesianProduct(args, "tuple") as Die;
+export function tupleize(...args: Outcome[]): Outcome[];
+export function tupleize(...args: Operand[]): Die;
+export function tupleize(...args: Operand[]): Die | Outcome[] {
+  return cartesianProduct(args, "tuple") as Die | Outcome[];
 }
 /** `icepool.vectorize(*args)`: the Cartesian product of the arguments (dice and single outcomes) as a die of
  * `Vector`s, which add, multiply and compare element by element. If no argument is a die, the result is a plain
@@ -704,10 +774,13 @@ export function tupleize(...args: Operand[]): Die {
  * vectorize(d(2), d(2)).probability(new Vector([1, 2])).toString(); //=> "1/4"
  * // Two d6 rolls together with a count of the rolls.
  * vectorize(d(6), 1).add(vectorize(d(6), 1)).probability(new Vector([7, 2])).toString(); //=> "1/6"
+ * vectorize(1, 2).repr(); //=> "Vector((1, 2))"
  * ```
  */
-export function vectorize(...args: Operand[]): Die {
-  return cartesianProduct(args, "vector") as Die;
+export function vectorize(...args: Outcome[]): Vector;
+export function vectorize(...args: Operand[]): Die;
+export function vectorize(...args: Operand[]): Die | Vector {
+  return cartesianProduct(args, "vector") as Die | Vector;
 }
 
 /** expand.py `cartesian_product(*args, outcome_type=...)`: `Reroll` (or `Restart`) if an argument is one; the
@@ -875,6 +948,35 @@ export function truth(x: unknown): boolean {
 
 // --- Python's operators on any operands ---------------------------------------------------------------------------
 
+/** The type of a binary member of {@link ops}: Python's dispatch between Again expressions, dice (giving `D`) and
+ * plain outcomes. */
+export interface BinaryOperator<D extends Die = Die> {
+  /** An Again expression on either side: an Again expression. */
+  (a: AgainExpression, b: Operand): AgainExpression;
+  /** An Again expression on the right. */
+  (a: Operand, b: AgainExpression): AgainExpression;
+  /** A die on either side: a die. */
+  (a: Die, b: Outcome | Die): D;
+  /** A die on the right. */
+  (a: Outcome, b: Die): D;
+  /** Plain outcomes: Python's operator on them. */
+  (a: Outcome, b: Outcome): Outcome;
+  /** Anything else (multiset expressions, decks...). */
+  (a: unknown, b: unknown): unknown;
+}
+
+/** The type of a unary member of {@link ops} (`Rest` the extra arguments: `round`'s `ndigits`). `neg`, `pos`,
+ * `abs` and `invert` also take an Again expression (giving one); the rounding ones raise `TypeError` for it, as
+ * Python's Again has no `__round__`, `__trunc__`, `__floor__` or `__ceil__`. */
+export interface UnaryOperator<Rest extends unknown[] = []> {
+  /** Of a die: a die. */
+  (a: Die, ...rest: Rest): Die;
+  /** Of a plain outcome: Python's operator on it. */
+  (a: Outcome, ...rest: Rest): Outcome;
+  /** Anything else. */
+  (a: unknown, ...rest: Rest): unknown;
+}
+
 const BINARY: BinaryName[] = ["add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "lshift", "rshift", "and", "or", "xor", "lt", "le", "gt", "ge", "eq", "ne"];
 const UNARY: UnaryName[] = ["neg", "pos", "abs", "invert", "trunc", "floor", "ceil"];
 
@@ -892,27 +994,34 @@ const UNARY: UnaryName[] = ["neg", "pos", "abs", "invert", "trunc", "floor", "ce
  *   `math.floor`, `math.ceil`.
  * - `round(a, ndigits)`: `round(a, ndigits)`; `matmul(n, die)`: `n @ die`, the sum of `n` rolls of `die`.
  *
+ * The types follow Python's dispatch: an Again expression on either side gives an Again expression, else a die on
+ * either side a die (`eq` / `ne`: a {@link DieWithTruth}), else plain outcomes a plain outcome. Other operands
+ * (multiset expressions, decks) are `unknown`.
+ *
  * @example
  * ```ts
- * // The members return `unknown`: assert the type you expect.
- * (ops.add(3, d(6)) as Die).equals(d(6).add(3)); //=> true
+ * ops.add(3, d(6)).equals(d(6).add(3)); //=> true
  * ops.floordiv(-7, 2); //=> -4
  * ops.mod(-7, 3); //=> 2
  * ops.round(2.5); //=> 2
  * ops.matmul(3, d(6)).equals(d(6).add(d(6)).add(d(6))); //=> true
- * (ops.neg(d(4)) as Die).outcomes(); //=> [-4, -3, -2, -1]
+ * ops.neg(d(4)).outcomes(); //=> [-4, -3, -2, -1]
+ * ops.eq(d(6), 6).truth(); //=> false
  * ```
  */
 export const ops = {
   ...(Object.fromEntries(BINARY.map((op) => [op, (a: unknown, b: unknown) => binary(op, a, b)])) as Record<
-    BinaryName,
-    (a: unknown, b: unknown) => unknown
-  >),
-  ...(Object.fromEntries(UNARY.map((op) => [op, (a: unknown) => unary(op, a)])) as Record<UnaryName, (a: unknown) => unknown>),
+    Exclude<BinaryName, "eq" | "ne">,
+    BinaryOperator<Die>
+  > &
+    Record<"eq" | "ne", BinaryOperator<DieWithTruth>>),
+  ...(Object.fromEntries(UNARY.map((op) => [op, (a: unknown) => unary(op, a)])) as Record<
+    "neg" | "pos" | "abs" | "invert",
+    ((a: AgainExpression) => AgainExpression) & UnaryOperator
+  > &
+    Record<"trunc" | "floor" | "ceil", UnaryOperator>),
   /** `round(a, ndigits)`. */
-  round(a: unknown, ndigits: Int | null = null): unknown {
-    return round(a, ndigits);
-  },
+  round: ((a: unknown, ndigits: Int | null = null) => round(a, ndigits)) as UnaryOperator<[ndigits?: Int | null]>,
   /** `n @ die`. */
   matmul(n: unknown, die: unknown): Die {
     return matmul(n, die) as Die;

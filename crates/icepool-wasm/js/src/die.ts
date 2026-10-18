@@ -7,7 +7,7 @@ import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDe
 import { diePool, isDeck, isMultisetExpression, type MultisetExpression, type Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
-import { map, mapAndTime, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
+import { dieMapToPool, map, mapAndTimeNamed, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
   Complex,
@@ -24,6 +24,7 @@ import {
   type Ellipsis,
   type Int,
   type Outcome,
+  type PyFloat,
 } from "./values.js";
 import { raw, wasm } from "./wasm.js";
 
@@ -64,6 +65,23 @@ export type Callback<R = unknown> = (...args: never[]) => R;
  */
 export type Which = Callback | readonly Outcome[] | Map<unknown, unknown> | null;
 
+/** The keyword arguments of {@link Die.reroll} and {@link Die.filter}.
+ *
+ * @example
+ * ```ts
+ * import { d, type RerollOptions } from "icepool-wasm";
+ * const once: RerollOptions = { depth: 1 };
+ * d(6).reroll([1], once).probability(1).toString(); //=> "1/36"
+ * ```
+ */
+export interface RerollOptions {
+  /** Whether to unpack each outcome into the function's arguments; inferred from the function's `length` when not
+   * given. */
+  star?: boolean | null;
+  /** Required, as in Python: the maximum number of rerolls, or `Infinity` (Python's `'inf'`) for no limit. */
+  depth: Int | "inf";
+}
+
 /** A comparison, as Python spells it (`keepCounts`, `sortPair`, `versusAll`, ...).
  *
  * @example
@@ -96,6 +114,30 @@ export type MapResult = Operand | typeof Reroll | typeof Restart | Break | reado
  * ```
  */
 export type Repl = Callback<MapResult> | Map<unknown, MapResult>;
+
+/** What a `mapToPool` function may return for an outcome: the contents of a pool (what `new Pool(...)` takes: an
+ * array of dice or outcomes, or a Map from them to counts), a multiset expression, or `Reroll` (drops the outcome).
+ *
+ * @example
+ * ```ts
+ * import { d, Reroll, type PoolContents } from "icepool-wasm";
+ * const roll = (n: number): PoolContents => (n === 1 ? Reroll : d(6).pool(n));
+ * d(3).mapToPool(roll).sum().mean().toString(); //=> "35/4"
+ * ```
+ */
+export type PoolContents = MultisetExpression | readonly Operand[] | Map<unknown, Int> | typeof Reroll;
+
+/** What `mapToPool` takes: a function returning {@link PoolContents}, or a Map from old outcomes to them (with
+ * exactly one argument).
+ *
+ * @example
+ * ```ts
+ * import { d, mapToPool, type PoolRepl } from "icepool-wasm";
+ * const pools: PoolRepl = new Map([[1, [d(6)]], [2, [d(6), d(6)]]]);
+ * mapToPool(pools, d(2)).sum().mean().toString(); //=> "21/4"
+ * ```
+ */
+export type PoolRepl = Callback<PoolContents> | Map<unknown, PoolContents>;
 
 /** The keyword arguments of `Die(...)` for `Again` outcomes (population/again.py): how many times to roll again.
  * At most one of `againCount` and `againDepth` may be given.
@@ -256,6 +298,13 @@ function pyIndex(seq: unknown, x: unknown): number {
   throw new IcepoolError("MissingAttribute", "AttributeError", `'${pyTypeName(seq)}' object has no attribute 'index'`);
 }
 
+/** Python's `TypeError` for a call without a required keyword-only argument (`Die.reroll()` without `depth`). It
+ * is thrown from a destructuring default, so that it comes first, as Python's binding of the arguments does.
+ * @internal */
+export function missingKeyword(fname: string, name: string): never {
+  throw new IcepoolError("WrongType", "TypeError", `${fname}() missing 1 required keyword-only argument: '${name}'`);
+}
+
 /** A reroll depth as the core takes it: a non-negative int, or `null` for no limit (Infinity, Python's 'inf').
  * Python compares anything else with 0: `depth < 0` raises `TypeError` for a non-number, and a negative depth
  * `ValueError`. */
@@ -389,9 +438,9 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   // --- Operators ------------------------------------------------------------------------------------------------
 
   /** `self <op> other`, natively where the other operand converts to a die directly. */
-  private binary(name: BinaryName, other: unknown, reflected = false): Die {
+  private binary(name: BinaryName, other: unknown, reflected = false): Die | AgainExpression {
     // Dice return `NotImplemented` for an Again expression, so its own (reflected) operator makes an expression.
-    if (other instanceof AgainExpression) return againOperator(other, name, this, reflected) as unknown as Die;
+    if (other instanceof AgainExpression) return againOperator(other, name, this, reflected);
     const o = nativeDie(other);
     if (o === undefined) return call(name, reflected ? { a: other, b: this } : { a: this, b: other }) as Die;
     const op = raw().BinaryOp[BINARY[name]];
@@ -415,91 +464,117 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).add(1).outcomes(); //=> [2, 3, 4, 5, 6, 7]
    * ```
    */
-  add(other: Operand): Die { return this.binary("add", other); }
+  add(other: AgainExpression): AgainExpression;
+  add(other: Operand): Die;
+  add(other: Operand): Die | AgainExpression { return this.binary("add", other); }
   /** `self - other`.
    * @example
    * ```ts
    * d(6).sub(1).outcomes(); //=> [0, 1, 2, 3, 4, 5]
    * ```
    */
-  sub(other: Operand): Die { return this.binary("sub", other); }
+  sub(other: AgainExpression): AgainExpression;
+  sub(other: Operand): Die;
+  sub(other: Operand): Die | AgainExpression { return this.binary("sub", other); }
   /** `self * other`.
    * @example
    * ```ts
    * d(6).mul(2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
    * ```
    */
-  mul(other: Operand): Die { return this.binary("mul", other); }
+  mul(other: AgainExpression): AgainExpression;
+  mul(other: Operand): Die;
+  mul(other: Operand): Die | AgainExpression { return this.binary("mul", other); }
   /** `self / other`: true division, so ints become floats.
    * @example
    * ```ts
    * d(4).truediv(2).repr(); //=> "Die({0.5: 1, 1.0: 1, 1.5: 1, 2.0: 1})"
    * ```
    */
-  truediv(other: Operand): Die { return this.binary("truediv", other); }
+  truediv(other: AgainExpression): AgainExpression;
+  truediv(other: Operand): Die;
+  truediv(other: Operand): Die | AgainExpression { return this.binary("truediv", other); }
   /** `self / other`: the same as `truediv`.
    * @example
    * ```ts
    * d(4).div(2).equals(d(4).truediv(2)); //=> true
    * ```
    */
-  div(other: Operand): Die { return this.binary("truediv", other); }
+  div(other: AgainExpression): AgainExpression;
+  div(other: Operand): Die;
+  div(other: Operand): Die | AgainExpression { return this.binary("truediv", other); }
   /** `self // other`: floor division.
    * @example
    * ```ts
    * d(6).floordiv(2).items(); //=> [[0, 1n], [1, 2n], [2, 2n], [3, 1n]]
    * ```
    */
-  floordiv(other: Operand): Die { return this.binary("floordiv", other); }
+  floordiv(other: AgainExpression): AgainExpression;
+  floordiv(other: Operand): Die;
+  floordiv(other: Operand): Die | AgainExpression { return this.binary("floordiv", other); }
   /** `self % other`, with Python's sign convention (the result has the sign of `other`).
    * @example
    * ```ts
    * d(6).mod(3).items(); //=> [[0, 2n], [1, 2n], [2, 2n]]
    * ```
    */
-  mod(other: Operand): Die { return this.binary("mod", other); }
+  mod(other: AgainExpression): AgainExpression;
+  mod(other: Operand): Die;
+  mod(other: Operand): Die | AgainExpression { return this.binary("mod", other); }
   /** `self ** other`.
    * @example
    * ```ts
    * d(3).pow(2).outcomes(); //=> [1, 4, 9]
    * ```
    */
-  pow(other: Operand): Die { return this.binary("pow", other); }
+  pow(other: AgainExpression): AgainExpression;
+  pow(other: Operand): Die;
+  pow(other: Operand): Die | AgainExpression { return this.binary("pow", other); }
   /** `self << other`.
    * @example
    * ```ts
    * d(3).lshift(1).outcomes(); //=> [2, 4, 6]
    * ```
    */
-  lshift(other: Operand): Die { return this.binary("lshift", other); }
+  lshift(other: AgainExpression): AgainExpression;
+  lshift(other: Operand): Die;
+  lshift(other: Operand): Die | AgainExpression { return this.binary("lshift", other); }
   /** `self >> other`.
    * @example
    * ```ts
    * d(6).rshift(1).items(); //=> [[0, 1n], [1, 2n], [2, 2n], [3, 1n]]
    * ```
    */
-  rshift(other: Operand): Die { return this.binary("rshift", other); }
+  rshift(other: AgainExpression): AgainExpression;
+  rshift(other: Operand): Die;
+  rshift(other: Operand): Die | AgainExpression { return this.binary("rshift", other); }
   /** `self & other`: bitwise and (logical for bools).
    * @example
    * ```ts
    * d(6).and(1).items(); //=> [[0, 3n], [1, 3n]]
    * ```
    */
-  and(other: Operand): Die { return this.binary("and", other); }
+  and(other: AgainExpression): AgainExpression;
+  and(other: Operand): Die;
+  and(other: Operand): Die | AgainExpression { return this.binary("and", other); }
   /** `self | other`: bitwise or (logical for bools).
    * @example
    * ```ts
    * d(4).or(1).outcomes(); //=> [1, 3, 5]
    * ```
    */
-  or(other: Operand): Die { return this.binary("or", other); }
+  or(other: AgainExpression): AgainExpression;
+  or(other: Operand): Die;
+  or(other: Operand): Die | AgainExpression { return this.binary("or", other); }
   /** `self ^ other`: bitwise exclusive or (logical for bools).
    * @example
    * ```ts
    * d(4).xor(1).outcomes(); //=> [0, 2, 3, 5]
    * ```
    */
-  xor(other: Operand): Die { return this.binary("xor", other); }
+  xor(other: AgainExpression): AgainExpression;
+  xor(other: Operand): Die;
+  xor(other: Operand): Die | AgainExpression { return this.binary("xor", other); }
 
   // The reflected operators: `3 - die` is `die.rsub(3)`, the other operand converted to a die on the left.
 
@@ -509,84 +584,108 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).radd(1).outcomes(); //=> [2, 3, 4, 5, 6, 7]
    * ```
    */
-  radd(other: Operand): Die { return this.binary("add", other, true); }
+  radd(other: AgainExpression): AgainExpression;
+  radd(other: Operand): Die;
+  radd(other: Operand): Die | AgainExpression { return this.binary("add", other, true); }
   /** `other - self`.
    * @example
    * ```ts
    * d(6).rsub(7).outcomes(); //=> [1, 2, 3, 4, 5, 6]
    * ```
    */
-  rsub(other: Operand): Die { return this.binary("sub", other, true); }
+  rsub(other: AgainExpression): AgainExpression;
+  rsub(other: Operand): Die;
+  rsub(other: Operand): Die | AgainExpression { return this.binary("sub", other, true); }
   /** `other * self`.
    * @example
    * ```ts
    * d(6).rmul(2).outcomes(); //=> [2, 4, 6, 8, 10, 12]
    * ```
    */
-  rmul(other: Operand): Die { return this.binary("mul", other, true); }
+  rmul(other: AgainExpression): AgainExpression;
+  rmul(other: Operand): Die;
+  rmul(other: Operand): Die | AgainExpression { return this.binary("mul", other, true); }
   /** `other / self`: true division.
    * @example
    * ```ts
    * d(4).rtruediv(12).repr(); //=> "Die({3.0: 1, 4.0: 1, 6.0: 1, 12.0: 1})"
    * ```
    */
-  rtruediv(other: Operand): Die { return this.binary("truediv", other, true); }
+  rtruediv(other: AgainExpression): AgainExpression;
+  rtruediv(other: Operand): Die;
+  rtruediv(other: Operand): Die | AgainExpression { return this.binary("truediv", other, true); }
   /** `other // self`: floor division.
    * @example
    * ```ts
    * d(4).rfloordiv(12).outcomes(); //=> [3, 4, 6, 12]
    * ```
    */
-  rfloordiv(other: Operand): Die { return this.binary("floordiv", other, true); }
+  rfloordiv(other: AgainExpression): AgainExpression;
+  rfloordiv(other: Operand): Die;
+  rfloordiv(other: Operand): Die | AgainExpression { return this.binary("floordiv", other, true); }
   /** `other % self`.
    * @example
    * ```ts
    * d(4).rmod(5).items(); //=> [[0, 1n], [1, 2n], [2, 1n]]
    * ```
    */
-  rmod(other: Operand): Die { return this.binary("mod", other, true); }
+  rmod(other: AgainExpression): AgainExpression;
+  rmod(other: Operand): Die;
+  rmod(other: Operand): Die | AgainExpression { return this.binary("mod", other, true); }
   /** `other ** self`.
    * @example
    * ```ts
    * d(3).rpow(2).outcomes(); //=> [2, 4, 8]
    * ```
    */
-  rpow(other: Operand): Die { return this.binary("pow", other, true); }
+  rpow(other: AgainExpression): AgainExpression;
+  rpow(other: Operand): Die;
+  rpow(other: Operand): Die | AgainExpression { return this.binary("pow", other, true); }
   /** `other << self`.
    * @example
    * ```ts
    * d(3).rlshift(1).outcomes(); //=> [2, 4, 8]
    * ```
    */
-  rlshift(other: Operand): Die { return this.binary("lshift", other, true); }
+  rlshift(other: AgainExpression): AgainExpression;
+  rlshift(other: Operand): Die;
+  rlshift(other: Operand): Die | AgainExpression { return this.binary("lshift", other, true); }
   /** `other >> self`.
    * @example
    * ```ts
    * d(3).rrshift(8).outcomes(); //=> [1, 2, 4]
    * ```
    */
-  rrshift(other: Operand): Die { return this.binary("rshift", other, true); }
+  rrshift(other: AgainExpression): AgainExpression;
+  rrshift(other: Operand): Die;
+  rrshift(other: Operand): Die | AgainExpression { return this.binary("rshift", other, true); }
   /** `other & self`.
    * @example
    * ```ts
    * d(3).rand(1).items(); //=> [[0, 1n], [1, 2n]]
    * ```
    */
-  rand(other: Operand): Die { return this.binary("and", other, true); }
+  rand(other: AgainExpression): AgainExpression;
+  rand(other: Operand): Die;
+  rand(other: Operand): Die | AgainExpression { return this.binary("and", other, true); }
   /** `other | self`.
    * @example
    * ```ts
    * d(3).ror(4).outcomes(); //=> [5, 6, 7]
    * ```
    */
-  ror(other: Operand): Die { return this.binary("or", other, true); }
+  ror(other: AgainExpression): AgainExpression;
+  ror(other: Operand): Die;
+  ror(other: Operand): Die | AgainExpression { return this.binary("or", other, true); }
   /** `other ^ self`.
    * @example
    * ```ts
    * d(3).rxor(1).outcomes(); //=> [0, 2, 3]
    * ```
    */
-  rxor(other: Operand): Die { return this.binary("xor", other, true); }
+  rxor(other: AgainExpression): AgainExpression;
+  rxor(other: Operand): Die;
+  rxor(other: Operand): Die | AgainExpression { return this.binary("xor", other, true); }
 
   // Comparisons: dice of bools.
 
@@ -596,28 +695,36 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).lt(3).items(); //=> [[false, 4n], [true, 2n]]
    * ```
    */
-  lt(other: Operand): Die { return this.binary("lt", other); }
+  lt(other: AgainExpression): AgainExpression;
+  lt(other: Operand): Die;
+  lt(other: Operand): Die | AgainExpression { return this.binary("lt", other); }
   /** `self <= other`.
    * @example
    * ```ts
    * d(6).le(3).items(); //=> [[false, 3n], [true, 3n]]
    * ```
    */
-  le(other: Operand): Die { return this.binary("le", other); }
+  le(other: AgainExpression): AgainExpression;
+  le(other: Operand): Die;
+  le(other: Operand): Die | AgainExpression { return this.binary("le", other); }
   /** `self > other`.
    * @example
    * ```ts
    * d(6).gt(4).items(); //=> [[false, 4n], [true, 2n]]
    * ```
    */
-  gt(other: Operand): Die { return this.binary("gt", other); }
+  gt(other: AgainExpression): AgainExpression;
+  gt(other: Operand): Die;
+  gt(other: Operand): Die | AgainExpression { return this.binary("gt", other); }
   /** `self >= other`.
    * @example
    * ```ts
    * d(20).ge(11).probability(true).toString(); //=> "1/2"
    * ```
    */
-  ge(other: Operand): Die { return this.binary("ge", other); }
+  ge(other: AgainExpression): AgainExpression;
+  ge(other: Operand): Die;
+  ge(other: Operand): Die | AgainExpression { return this.binary("ge", other); }
   /** `self == other`: a die of bools with a truth value, `truth()`, which is whether the dice are the same
    * (`equals`; a die is never the same as a plain outcome).
    * @example
@@ -627,7 +734,9 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).eq(6).truth(); //=> false
    * ```
    */
-  eq(other: Operand): DieWithTruth { return this.equality(other, false); }
+  eq(other: AgainExpression): AgainExpression;
+  eq(other: Operand): DieWithTruth;
+  eq(other: Operand): DieWithTruth | AgainExpression { return this.equality(other, false); }
   /** `self != other`: as `eq`, with the opposite truth value.
    * @example
    * ```ts
@@ -635,11 +744,13 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).ne(d(8)).truth(); //=> true
    * ```
    */
-  ne(other: Operand): DieWithTruth { return this.equality(other, true); }
+  ne(other: AgainExpression): AgainExpression;
+  ne(other: Operand): DieWithTruth;
+  ne(other: Operand): DieWithTruth | AgainExpression { return this.equality(other, true); }
 
-  private equality(other: unknown, ne: boolean): DieWithTruth {
+  private equality(other: unknown, ne: boolean): DieWithTruth | AgainExpression {
     // `==` reflects to itself: the expression's `__eq__` with the die as its operand.
-    if (other instanceof AgainExpression) return (ne ? other.ne(this) : other.eq(this)) as DieWithTruth;
+    if (other instanceof AgainExpression) return ne ? other.ne(this) : other.eq(this);
     const o = nativeDie(other);
     if (o === undefined) return call(ne ? "ne" : "eq", { a: this, b: other }) as DieWithTruth;
     const w = this.w;
@@ -732,8 +843,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(4).matmul(d(6)).mean().toString(); //=> "35/4"
    * ```
    */
-  matmul(other: Operand): Die {
-    if (other instanceof AgainExpression) return other.rmatmul(this) as unknown as Die;
+  matmul(other: AgainExpression): AgainExpression;
+  matmul(other: Operand): Die;
+  matmul(other: Operand): Die | AgainExpression {
+    if (other instanceof AgainExpression) return other.rmatmul(this);
     const o = nativeDie(other);
     if (o === undefined) return call("matmul", { n: this, die: other }) as Die;
     const w = this.w;
@@ -746,8 +859,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).rmatmul(3).equals(Die.sum(3, d(6))); //=> true
    * ```
    */
-  rmatmul(n: Int | Die): Die {
-    if (n instanceof AgainExpression) return n.matmul(this) as unknown as Die;
+  rmatmul(n: AgainExpression): AgainExpression;
+  rmatmul(n: Int | Die): Die;
+  rmatmul(n: Int | Die | AgainExpression): Die | AgainExpression {
+    if (n instanceof AgainExpression) return n.matmul(this);
     const o = nativeDie(n);
     if (o === undefined) return call("matmul", { n, die: this }) as Die;
     const w = this.w;
@@ -826,12 +941,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    *
    * @param which - The outcomes to reroll: an array of them, a function returning whether to reroll an outcome,
    *   or null for the lowest outcome.
-   * @param options - Keyword arguments.
-   * @param options.star - Whether to unpack each outcome into the function's arguments; inferred from the
-   *   function's `length` when not given.
-   * @param options.depth - Required, as in Python: the maximum number of rerolls, or Infinity (Python's 'inf')
-   *   for no limit.
-   * @throws IcepoolError `ValueError` for a negative depth.
+   * @param options - Keyword arguments ({@link RerollOptions}): `star`, and `depth`, required as in Python: the
+   *   maximum number of rerolls, or Infinity (Python's 'inf') for no limit.
+   * @throws IcepoolError `ValueError` for a negative depth; `TypeError` without one (Python's "missing 1 required
+   *   keyword-only argument").
    * @example
    * ```ts
    * // Reroll 1s until they stop coming up.
@@ -841,7 +954,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).reroll((x: number) => x <= 2, { depth: 1 }).probability(1).toString(); //=> "1/18"
    * ```
    */
-  reroll(which: Which = null, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
+  reroll(which: Which, options: RerollOptions): Die {
+    const { star = null, depth = missingKeyword("Die.reroll", "depth") } = (options ?? {}) as Partial<RerollOptions>;
     // The outcomes first, then the depth, as Python.
     const mask = which === null ? this.lowest1() : this.selection(which, star);
     const d = rerollDepth(depth);
@@ -852,16 +966,15 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * `reroll`.
    *
    * @param which - The outcomes to keep: an array of them, or a function returning whether to accept an outcome.
-   * @param options - Keyword arguments.
-   * @param options.star - As for {@link Die.reroll}.
-   * @param options.depth - Required: the maximum number of rerolls, or Infinity for no limit.
+   * @param options - Keyword arguments, as for {@link Die.reroll}: `depth` is required.
    * @example
    * ```ts
    * d(6).filter((x: number) => x % 2 === 0, { depth: Infinity }).outcomes(); //=> [2, 4, 6]
    * d(6).filter([5, 6], { depth: 1 }).items(); //=> [[1, 4n], [2, 4n], [3, 4n], [4, 4n], [5, 10n], [6, 10n]]
    * ```
    */
-  filter(which: Which, { star = null, depth }: { star?: boolean | null; depth?: Int } = {}): Die {
+  filter(which: Which, options: RerollOptions): Die {
+    const { star = null, depth = missingKeyword("Die.filter", "depth") } = (options ?? {}) as Partial<RerollOptions>;
     const mask = this.selection(which, star);
     const d = rerollDepth(depth);
     const w = this.w;
@@ -992,8 +1105,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * process.items(); //=> [[[2, 1], 2n], [[2, 2], 1n], [[3, 2], 1n]]
    * ```
    */
-  mapAndTime(f: Callback<MapResult>, ...rest: unknown[]): Die {
-    return mapAndTime(f, this, ...rest);
+  mapAndTime(f: Repl, ...rest: unknown[]): Die {
+    return mapAndTimeNamed("Die.map_and_time", f, this, rest);
   }
   /** `die.mean_time_to_absorb(repl, *extra_args, star=)` (EXPERIMENTAL in icepool): the mean number of steps for
    * the process starting from this die to reach an absorbing state (one that maps to itself with certainty); the
@@ -1003,7 +1116,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * new Die([0]).meanTimeToAbsorb((x: number) => (x >= 2 ? x : d(2).add(x))).toString(); //=> "3/2"
    * ```
    */
-  meanTimeToAbsorb(f: Callback<MapResult>, ...rest: unknown[]): Fraction {
+  meanTimeToAbsorb(f: Repl, ...rest: unknown[]): Fraction {
     return meanTimeToAbsorb(f, this, ...rest);
   }
   /** `die.mean_time_to_sum(target)`: the mean number of rolls until the running total is at least `target`, as
@@ -1253,7 +1366,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
   }
   /** `Die.sequence(rolls)`: the possible sequences produced by rolling this die `rolls` times, as a die of arrays
    * (Python's tuples) in the order rolled. For 0 rolls the result is `[]` itself (Python's empty
-   * `cartesian_product()` is `()`), not a die.
+   * `cartesian_product()` is `()`), not a die: a literal `0` is typed so, but a count only known when the code runs
+   * is typed `Die` and may still be 0.
    *
    * This is extremely expensive computationally. If possible, use `reduce()` instead; if you don't care about
    * order, {@link Die.pool} is better.
@@ -1261,11 +1375,14 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * @example
    * ```ts
    * d(2).sequence(2).outcomes(); //=> [[1, 1], [1, 2], [2, 1], [2, 2]]
+   * d(2).sequence(0); //=> []
    * ```
    */
-  sequence(rolls: Int): Die {
+  sequence(rolls: 0 | 0n): [];
+  sequence(rolls: Int): Die;
+  sequence(rolls: Int): Die | [] {
     // `cartesian_product(*(self for _ in range(rolls)), outcome_type=tuple)`: of no dice, `()`.
-    if (rangeCount(rolls) === 0) return [] as unknown as Die;
+    if (rangeCount(rolls) === 0) return [];
     const w = this.w;
     return Die.wrap(wasm(() => w.sequence(rolls)));
   }
@@ -1300,8 +1417,9 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * mixture of pools directly, similar to the inverse of `pool.expand()`. This is not particularly efficient
    * since it does not make much use of dynamic programming.
    *
-   * @param rest - Extra arguments for `repl`, then optionally `{ star }`: whether to spread tuple outcomes into
-   *   separate arguments (`null`: guessed from the function).
+   * @param rest - Extra arguments for `repl`, then optionally an options object: `star`, whether to spread tuple
+   *   outcomes into separate arguments (`null`: guessed from the function), and keyword arguments for `repl` (given
+   *   to it as a trailing options object, as {@link map} does).
    *
    * @example
    * ```ts
@@ -1309,9 +1427,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(3).mapToPool((n: number) => Array(n).fill(d(6))).sum().mean().toString(); //=> "7"
    * ```
    */
-  mapToPool(f: Repl | null = null, ...rest: unknown[]): MultisetExpression {
-    const [args, { star = null }] = opts<{ star: boolean | null }>(rest);
-    return call("die_map_to_pool", { die: this, f, args: List.from(args), star }) as MultisetExpression;
+  mapToPool(f: PoolRepl | null = null, ...rest: unknown[]): MultisetExpression {
+    return dieMapToPool(this, f, rest);
   }
   /** `Die.explode_to_pool(rolls=1, outcomes=None, *, star=None, depth=9)`: EXPERIMENTAL. Causes outcomes to be
    * rolled again, keeping each explosion as an individual die in a pool.
@@ -1738,7 +1855,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).add(d(6)).mean().toString(); //=> "7"
    * ```
    */
-  mean(): Fraction | number { return this.stat((w) => w.mean()) as Fraction | number; }
+  mean(): Fraction | PyFloat { return this.stat((w) => w.mean()) as Fraction | PyFloat; }
   /** `Die.variance()`: the population variance (not the sample variance); a {@link Fraction} for int (or
    * Fraction) outcomes, a float otherwise.
    *
@@ -1747,7 +1864,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).variance().toString(); //=> "35/12"
    * ```
    */
-  variance(): Fraction | number { return this.stat((w) => w.variance()) as Fraction | number; }
+  variance(): Fraction | PyFloat { return this.stat((w) => w.variance()) as Fraction | PyFloat; }
   /** `Die.standard_deviation()`: the square root of the {@link Die.variance}, a float.
    *
    * @example
@@ -1755,7 +1872,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).standardDeviation()).toFixed(4); //=> "1.7078"
    * ```
    */
-  standardDeviation(): number { return this.stat((w) => w.standardDeviation()) as number; }
+  standardDeviation(): PyFloat { return this.stat((w) => w.standardDeviation()) as PyFloat; }
   /** `Die.sd()`: the standard deviation, as {@link Die.standardDeviation}.
    *
    * @example
@@ -1763,7 +1880,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).add(d(6)).sd()).toFixed(4); //=> "2.4152"
    * ```
    */
-  sd(): number { return this.standardDeviation(); }
+  sd(): PyFloat { return this.standardDeviation(); }
   /** `Die.skewness()`: the third standardized moment, a float.
    *
    * @example
@@ -1773,7 +1890,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).highest(2).skewness()) < 0; //=> true
    * ```
    */
-  skewness(): number { return this.stat((w) => w.skewness()) as number; }
+  skewness(): PyFloat { return this.stat((w) => w.skewness()) as PyFloat; }
   /** `Die.excess_kurtosis()`: the fourth standardized moment minus 3 (that of a normal distribution), a float.
    *
    * @example
@@ -1781,7 +1898,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).excessKurtosis()).toFixed(4); //=> "-1.2686"
    * ```
    */
-  excessKurtosis(): number { return this.stat((w) => w.excessKurtosis()) as number; }
+  excessKurtosis(): PyFloat { return this.stat((w) => w.excessKurtosis()) as PyFloat; }
   /** `Die.mode()`: the most common outcome(s), sorted from lowest to highest.
    *
    * @example
@@ -1900,7 +2017,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).standardizedMoment(2)); //=> 1
    * ```
    */
-  standardizedMoment(k: Int): number { return this.stat((w) => w.standardizedMoment(k)) as number; }
+  standardizedMoment(k: Int): PyFloat { return this.stat((w) => w.standardizedMoment(k)) as PyFloat; }
   /** `Die.entropy(base=2.0)`: the entropy of a random sample from this die.
    *
    * @param base - The logarithm base. The default 2 gives the entropy in bits.
@@ -1911,7 +2028,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(8).entropy(4); //=> 1.5
    * ```
    */
-  entropy(base: number | Float = new Float(2)): number { return this.stat((w) => w.entropy(base)) as number; }
+  entropy(base: PyFloat = new Float(2)): PyFloat { return this.stat((w) => w.entropy(base)) as PyFloat; }
   /** `Die.kolmogorov_smirnov(other)`: the Kolmogorov–Smirnov statistic, the maximum absolute difference between
    * the CDFs of the two dice.
    *
@@ -1920,10 +2037,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).kolmogorovSmirnov(d(4)).toString(); //=> "1/3"
    * ```
    */
-  kolmogorovSmirnov(other: Die): Fraction | number {
+  kolmogorovSmirnov(other: Die): Fraction | PyFloat {
     if (!(other instanceof Die)) return this.plainCdfDistance(other, true);
     const o = other.w;
-    return this.stat((w) => w.kolmogorovSmirnov(o)) as Fraction | number;
+    return this.stat((w) => w.kolmogorovSmirnov(o)) as Fraction | PyFloat;
   }
   /** `Die.cramer_von_mises(other)`: the Cramér–von Mises statistic, the sum of the squared differences between
    * the CDFs of the two dice.
@@ -1933,10 +2050,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).cramerVonMises(d(4)).toString(); //=> "17/72"
    * ```
    */
-  cramerVonMises(other: Die): Fraction | number {
+  cramerVonMises(other: Die): Fraction | PyFloat {
     if (!(other instanceof Die)) return this.plainCdfDistance(other, false);
     const o = other.w;
-    return this.stat((w) => w.cramerVonMises(o)) as Fraction | number;
+    return this.stat((w) => w.cramerVonMises(o)) as Fraction | PyFloat;
   }
   /** A CDF distance to an `other` that is not a population (`d(3).sequence(0)` is `[]`), which has no
    * `probability`: Python only asks it once per outcome of `sorted_union(self, other)`, so with nothing in either,
@@ -1958,7 +2075,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(6).map((x: number) => [x, x]).covariance(0, 1).toString(); //=> "35/12"
    * ```
    */
-  covariance(i: Int, j: Int): Fraction | number { return this.stat((w) => w.covariance(i, j)) as Fraction | number; }
+  covariance(i: Int, j: Int): Fraction | PyFloat { return this.stat((w) => w.covariance(i, j)) as Fraction | PyFloat; }
   /** `Die.correlation(i, j)`: the correlation of elements `i` and `j` of tuple outcomes, a float.
    *
    * @example
@@ -1967,7 +2084,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * Number(d(6).map((x: number) => [x, 7 - x]).correlation(0, 1)); //=> -1
    * ```
    */
-  correlation(i: Int, j: Int): number { return this.stat((w) => w.correlation(i, j)) as number; }
+  correlation(i: Int, j: Int): PyFloat { return this.stat((w) => w.correlation(i, j)) as PyFloat; }
   /** `Die.common_outcome_length()`: the length common to all outcomes, or `null` if outcomes have no lengths or
    * different lengths.
    *
@@ -2046,10 +2163,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    */
   probability(
     ...args: [Outcome] | [Comparison, Outcome] | [Outcome, { percent?: boolean }] | [Comparison, Outcome, { percent?: boolean }]
-  ): Fraction | number {
+  ): Fraction | PyFloat {
     const [a, { percent = false }] = opts<{ percent: boolean }>(args);
     const [c, outcome] = comparisonArgs(a as [Outcome] | [Comparison, Outcome]);
-    return this.stat((w) => w.probability(c, outcome, percent)) as Fraction | number;
+    return this.stat((w) => w.probability(c, outcome, percent)) as Fraction | PyFloat;
   }
   /** `Die.probabilities(comparison=None, *, percent=False)`: the probabilities in outcome order; or, given a
    * comparison, the total probability fitting the comparison for each outcome (e.g. `"<="` gives the CDF).
@@ -2065,8 +2182,8 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * d(4).probabilities(null, { percent: true }).map(Number); //=> [25, 25, 25, 25]
    * ```
    */
-  probabilities(comparison: Comparison | null = null, { percent = false }: { percent?: boolean } = {}): (Fraction | number)[] {
-    return this.stat((w) => w.probabilities(comparison ?? undefined, percent)) as (Fraction | number)[];
+  probabilities(comparison: Comparison | null = null, { percent = false }: { percent?: boolean } = {}): (Fraction | PyFloat)[] {
+    return this.stat((w) => w.probabilities(comparison ?? undefined, percent)) as (Fraction | PyFloat)[];
   }
   /** `Die.quantity_where(which, star=None)`: the total quantity of the outcomes for which `which` returns `true`.
    *
@@ -2098,10 +2215,10 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * tupleize(d(6), d(6)).probabilityWhere((a: number, b: number) => a > b).toString(); //=> "5/12"
    * ```
    */
-  probabilityWhere(which: Callback, { star = null, percent = false }: { star?: boolean | null; percent?: boolean } = {}): Fraction | number {
+  probabilityWhere(which: Callback, { star = null, percent = false }: { star?: boolean | null; percent?: boolean } = {}): Fraction | PyFloat {
     const mask = this.predicateSelection(which, star);
     const w = this.w;
-    return wasm(() => w.probabilityWhere(mask, pyBool(percent))) as Fraction | number;
+    return wasm(() => w.probabilityWhere(mask, pyBool(percent))) as Fraction | PyFloat;
   }
   /** The outcomes for which `which(outcome)` holds: `quantity_where` calls it, so it must be callable. */
   private predicateSelection(which: unknown, star: unknown): Uint8Array {

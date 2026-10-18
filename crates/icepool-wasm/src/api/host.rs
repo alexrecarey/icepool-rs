@@ -69,6 +69,11 @@ extern "C" {
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = countFunction)]
     pub(super) fn count_function(f: &JsValue, outcome: JsValue, counts: Vec<JsValue>) -> Vec<JsValue>;
 
+    /// A JS function a built-in evaluator takes (`sum(map)`, `largest_count`'s wilds, `all_straights_reduce_counts`'
+    /// reducer), called on `args`: `[true, result]`, or `[false]` when it threw.
+    #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = callFunction)]
+    pub(super) fn call_function(f: &JsValue, args: Vec<JsValue>) -> Vec<JsValue>;
+
     /// `keep_outcomes`' JS callable `f`, called on an outcome: `[true, bool(result)]`, or `[false]` when it threw.
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = outcomePredicate)]
     pub(super) fn outcome_predicate(f: &JsValue, outcome: JsValue) -> Vec<JsValue>;

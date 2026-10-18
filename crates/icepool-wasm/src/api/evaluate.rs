@@ -13,19 +13,20 @@
 //!
 //! JS evaluators and multiset functions are evaluated over the same tree (`evaluator.rs`, `multiset_function.rs`).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use icepool_core::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, Tie};
 use icepool_core::evaluator::basic::{
-    EmptyEvaluator, ExpandEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
+    EmptyEvaluator, ExpandEvaluator, MappedSumEvaluator, ProductOfCountsEvaluator, SizeEvaluator, SumEvaluator,
 };
 use icepool_core::evaluator::comparison::{Comparison, ComparisonEvaluator};
 use icepool_core::evaluator::keep::KeepEvaluator;
 use icepool_core::evaluator::lexi::{compute_lexi_tuple_with_extra, LexiComparisonEvaluator};
 use icepool_core::evaluator::poker::{
-    AllCountsEvaluator, AllStraightsEvaluator, CountSubsetEvaluator, HighestOutcomeAndCountEvaluator,
-    LargestCountAndOutcomeEvaluator, LargestCountEvaluator, LargestStraightAndOutcomeEvaluator,
-    LargestStraightEvaluator,
+    AllCountsEvaluator, AllStraightsEvaluator, AllStraightsReduceCountsEvaluator, CountSubsetEvaluator,
+    HighestOutcomeAndCountEvaluator, LargestCountAndOutcomeEvaluator, LargestCountEvaluator,
+    LargestCountWithWildEvaluator, LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator,
 };
 use icepool_core::evaluator::{evaluate_expressions, top_level_depth_check, MultisetEvaluator, MultisetSource, Order};
 use icepool_core::expression::{count_value, value_count, Dungeonlet, Flat};
@@ -37,6 +38,7 @@ use icepool_core::expression::{
 use icepool_core::evaluator::Count;
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::evaluators::PyEvaluator;
+use icepool_core::value::BinOp;
 use icepool_core::value::recursion::level;
 use icepool_core::evaluator::WeightlessSource;
 use icepool_core::{Die, Error, Int, Quantity, Value};
@@ -212,6 +214,32 @@ impl OutcomePredicate<Value> for JsOutcomePredicate {
         let result = envelope(host::outcome_predicate(&self.0, value_to_js(outcome)?))?;
         Ok(result.as_bool().unwrap_or(false))
     }
+}
+
+/// `f(*args)` of a JS function a built-in evaluator holds, its result as a value.
+fn call_js(f: &JsValue, args: &[Value]) -> icepool_core::Result<Value> {
+    let args = args.iter().map(value_to_js).collect::<icepool_core::Result<_>>()?;
+    value_from_js(&envelope(host::call_function(f, args))?)
+}
+
+/// poker.py `make_select_function(which)` of a wild parameter as the TypeScript passes it: `null` selects nothing,
+/// a JS function is called with the outcome (the TypeScript has already taken Python's truth of its result), and an
+/// array is the elements of `frozenset(which)` (hashed now, as Python's `frozenset` does), tested with `in`.
+fn select_function(which: &JsValue) -> JsResult<Box<dyn Fn(&Value) -> icepool_core::Result<Value>>> {
+    if which.is_null() || which.is_undefined() {
+        return Ok(Box::new(|_| Ok(Value::Bool(false))));
+    }
+    if which.is_function() {
+        let f = which.clone();
+        return Ok(Box::new(move |outcome| call_js(&f, std::slice::from_ref(outcome))));
+    }
+    let elements = host::array_from(which).iter().map(value_from_js).collect::<icepool_core::Result<Vec<_>>>().or_throw()?;
+    let mut set = HashSet::new();
+    for element in elements {
+        element.check_hashable().or_throw()?;
+        set.insert(element);
+    }
+    Ok(Box::new(move |outcome| Ok(Value::Bool(set.contains(outcome)))))
 }
 
 /// An int parameter of an operator (a count constant), exactly.
@@ -503,9 +531,21 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
             _ => Err(Error::Unported("a limit that is not an int".into())).or_throw(),
         }
     };
+    // A parameter that is a JS function (the TypeScript passes Python's other callables as functions too).
+    let function = |i: usize| -> JsResult<JsValue> {
+        match params.get(i) {
+            Some(f) if f.is_function() => Ok(f.clone()),
+            _ => Err(Error::Unported(format!("{name} needs a function"))).or_throw(),
+        }
+    };
     let v = visitor;
     match name {
         "sum" => v.visit(PyEvaluator(SumEvaluator)),
+        // `SumEvaluator(map)`: the outcomes mapped by a function (a mapping's `get` is one) before summing.
+        "sum_map" => {
+            let f = function(0)?;
+            v.visit(PyEvaluator(MappedSumEvaluator::new(move |o: &Value| call_js(&f, std::slice::from_ref(o)))))
+        }
         "size" => v.visit(PyEvaluator(SizeEvaluator)),
         "product_of_counts" => v.visit(PyEvaluator(ProductOfCountsEvaluator)),
         "empty" => v.visit(PyEvaluator(EmptyEvaluator { any: flag(0)? })),
@@ -520,6 +560,12 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
         "highest_outcome_and_count" => v.visit(PyEvaluator(HighestOutcomeAndCountEvaluator)),
         "all_counts" => v.visit(PyEvaluator(AllCountsEvaluator { filter: param(0)? })),
         "largest_count" => v.visit(PyEvaluator(LargestCountEvaluator)),
+        // `(wild, wild_low, wild_high)`, at least one of them given.
+        "largest_count_wild" => v.visit(PyEvaluator(LargestCountWithWildEvaluator::new(
+            select_function(params.first().unwrap_or(&JsValue::NULL))?,
+            select_function(params.get(1).unwrap_or(&JsValue::NULL))?,
+            select_function(params.get(2).unwrap_or(&JsValue::NULL))?,
+        ))),
         "largest_count_and_outcome" => v.visit(PyEvaluator(LargestCountAndOutcomeEvaluator)),
         // `empty_divisor=None` is "not set".
         "count_subset" => v.visit(PyEvaluator(CountSubsetEvaluator {
@@ -533,6 +579,19 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
             v.visit(PyEvaluator(LargestStraightAndOutcomeEvaluator { prioritize_highest: flag(0)? }))
         }
         "all_straights" => v.visit(PyEvaluator(AllStraightsEvaluator)),
+        // `(reducer,)`: a JS function of the straight's score so far and the next count, or null for Python's default,
+        // `operator.mul`.
+        "all_straights_reduce_counts" => match params.first() {
+            Some(f) if f.is_function() => {
+                let f = f.clone();
+                v.visit(PyEvaluator(AllStraightsReduceCountsEvaluator::new(move |score: &Value, count: &Int| {
+                    call_js(&f, &[score.clone(), count.into()])
+                })))
+            }
+            _ => v.visit(PyEvaluator(AllStraightsReduceCountsEvaluator::new(|score: &Value, count: &Int| {
+                score.binary(BinOp::Mul, &count.into())
+            }))),
+        },
         "is_proper_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsProperSubset))),
         "is_subset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsSubset))),
         "is_proper_superset" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsProperSuperset))),

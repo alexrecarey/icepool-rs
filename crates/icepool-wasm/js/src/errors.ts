@@ -85,6 +85,17 @@ export class IcepoolError extends Error {
   }
 }
 
+/** icepool's `OrderException`: an error related to outcome orderings, the base of {@link OrderError} and
+ * {@link UnsupportedOrder} (as in Python, where neither derives from the other).
+ *
+ * @example
+ * ```ts
+ * new UnsupportedOrder() instanceof OrderException; //=> true
+ * new UnsupportedOrder() instanceof OrderError; //=> false
+ * ```
+ */
+export class OrderException extends IcepoolError {}
+
 /** icepool's `OrderError`: an unrecoverable error related to outcome orderings; an evaluation cannot run in the
  * order it needs. On its own (`kind` `UninferrableSize`), it is thrown where an operator needs the size of its right
  * operand to choose an order and the size cannot be inferred.
@@ -96,7 +107,7 @@ export class IcepoolError extends Error {
  * e.name; //=> "ConflictingOrderError"
  * ```
  */
-export class OrderError extends IcepoolError {}
+export class OrderError extends OrderException {}
 
 /** icepool's `ConflictingOrderError`: two conflicting mandatory outcome orderings were encountered; the inputs of an
  * evaluation ask for opposite orders.
@@ -111,8 +122,8 @@ export class ConflictingOrderError extends OrderError {}
 
 /** icepool's `UnsupportedOrder`: the given order is not supported under the current context, but retrying with the
  * opposite order may still succeed. Throw it from an evaluator's method when it cannot handle the order it is given:
- * the evaluation retries in the other order (if it has not been tried already). Unlike Python's, which derives from
- * `OrderException` only, it is an `OrderError` here.
+ * the evaluation retries in the other order (if it has not been tried already). As in Python, it is an
+ * {@link OrderException} but not an {@link OrderError}.
  *
  * @example
  * ```ts
@@ -127,7 +138,7 @@ export class ConflictingOrderError extends OrderError {}
  * highestDie.evaluate(d(6).pool(3)).mean().toString(); //=> "119/24"
  * ```
  */
-export class UnsupportedOrder extends OrderError {
+export class UnsupportedOrder extends OrderException {
   /** `UnsupportedOrder(message)`: `kind` and `pythonType` are both `"UnsupportedOrder"`. */
   constructor(message = "") {
     super("UnsupportedOrder", "UnsupportedOrder", message);

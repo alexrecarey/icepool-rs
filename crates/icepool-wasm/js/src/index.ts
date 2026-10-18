@@ -4,7 +4,7 @@
 
 import "./host.js";
 
-export { IcepoolError, OrderError, ConflictingOrderError, UnsupportedOrder, type ErrorKind } from "./errors.js";
+export { IcepoolError, OrderException, OrderError, ConflictingOrderError, UnsupportedOrder, type ErrorKind } from "./errors.js";
 export {
   Break,
   Complex,
@@ -23,6 +23,7 @@ export {
   type Int,
   type OrderValue,
   type Outcome,
+  type PyFloat,
 } from "./values.js";
 export {
   Die,
@@ -37,7 +38,10 @@ export {
   type MapResult,
   type Operand,
   type Repl,
+  type PoolContents,
+  type PoolRepl,
   type Which,
+  type RerollOptions,
 } from "./die.js";
 export {
   accumulate,
@@ -59,6 +63,8 @@ export {
   minOutcome,
   oneHot,
   ops,
+  type BinaryOperator,
+  type UnaryOperator,
   pointwiseMax,
   pointwiseMin,
   reduce,
@@ -84,6 +90,8 @@ export {
   type MultisetOperand,
   type PoolDice,
   type SortPairExtra,
+  type LargestCountOptions,
+  type SortPairWhileExtra,
 } from "./multiset.js";
 export {
   Deal,
