@@ -738,11 +738,23 @@ mod tests {
             Ok(0)
         }
 
-        fn next_state(&self, sum: &i64, _: Order, outcome: &i64, counts: &[Int]) -> Result<Option<i64>> {
+        fn next_state(
+            &self,
+            sum: &i64,
+            _: Order,
+            outcome: &i64,
+            counts: &[Int],
+        ) -> Result<Option<i64>> {
             Ok(Some(sum + outcome * counts[0].to_i64().unwrap()))
         }
 
-        fn final_outcome(&self, sum: &i64, _: Order, _: &[i64], _: &[Option<Int>]) -> Result<Final<i64>> {
+        fn final_outcome(
+            &self,
+            sum: &i64,
+            _: Order,
+            _: &[i64],
+            _: &[Option<Int>],
+        ) -> Result<Final<i64>> {
             Ok(Final::Outcome(*sum))
         }
     }
@@ -791,7 +803,9 @@ mod tests {
         let doubled = d(6).pool(3).highest(2).multiply_counts(&Int::from(2));
         assert_eq!(doubled.keep_tuple(), ints(&[0, 2, 2]));
         // `d(6).pool(2) + d(4).pool(1)` is one pool: keep_tuple (1, 1, 1), and its sum is 2d6 + d4.
-        let merged = Pool::additive_union(&[d(6).pool(2), d(4).pool(1)]).unwrap().unwrap();
+        let merged = Pool::additive_union(&[d(6).pool(2), d(4).pool(1)])
+            .unwrap()
+            .unwrap();
         assert_eq!(merged.keep_tuple(), ints(&[1, 1, 1]));
         assert_eq!(merged.evaluate(&Sum).unwrap(), &d(6).sum_rolls(2) + &d(4));
         // `d(6).pool(2).highest(1) + d(4).pool(1)` is a CompoundKeepGenerator, not a pool.

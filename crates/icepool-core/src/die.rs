@@ -975,8 +975,14 @@ mod tests {
         assert_eq!((d4.position(&3), d4.position(&5)), (Some(2), None));
         // `Die([]).min_outcome()` raises IndexError.
         let empty = Die::<i64>::from_iter([]);
-        assert!(matches!(empty.min_outcome(), Err(Error::IndexOutOfRange(_))));
-        assert!(matches!(empty.max_outcome(), Err(Error::IndexOutOfRange(_))));
+        assert!(matches!(
+            empty.min_outcome(),
+            Err(Error::IndexOutOfRange(_))
+        ));
+        assert!(matches!(
+            empty.max_outcome(),
+            Err(Error::IndexOutOfRange(_))
+        ));
         assert!(empty.is_empty() && empty.denominator().is_zero());
     }
 
