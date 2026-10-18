@@ -302,9 +302,9 @@ const IDIOMATIC = {
   die_mean_time_to_absorb: ({ die, f, args, star }) => isDie(die) && isList(args) && ok(die.meanTimeToAbsorb(f, ...args, { star })),
   reduce: ({ f, dice, initial }) => ok(ip.reduce(f, dice, { initial })),
   accumulate: ({ f, dice, initial }) => ok(ip.accumulate(f, dice, { initial })),
-  highest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.highest(...args, { keep, drop, default: dflt })),
-  lowest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.lowest(...args, { keep, drop, default: dflt })),
-  middle: ({ args, keep, tie, default: dflt }) => isList(args) && ok(ip.middle(...args, { keep, tie, default: dflt })),
+  highest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.highest(args, { keep, drop, default: dflt })),
+  lowest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.lowest(args, { keep, drop, default: dflt })),
+  middle: ({ args, keep, tie, default: dflt }) => isList(args) && ok(ip.middle(args, { keep, tie, default: dflt })),
   tupleize: ({ args }) => isList(args) && ok(ip.tupleize(...args)),
   vectorize: ({ args }) => isList(args) && ok(ip.vectorize(...args)),
   coin: ({ n, d, max_denominator }) => ok(ip.coin(n, d, { maxDenominator: max_denominator })),
@@ -402,6 +402,10 @@ const IDIOMATIC = {
     isList(args) && args.length > 0 && isExpr(args[0]) && ok(args[0].argsort(...args.slice(1), { order, limit, limitPad: limit_pad, tie })),
   argsort_grouped: ({ args, order, limit }) =>
     isList(args) && args.length > 0 && isExpr(args[0]) && ok(args[0].argsortGrouped(...args.slice(1), { order, limit })),
+  pool_sum_map: ({ pool, map }) => isExpr(pool) && ok(pool.sum(map)),
+  pool_largest_count_wild: ({ pool, wild, wild_low, wild_high }) =>
+    isExpr(pool) && ok(pool.largestCount({ wild, wildLow: wild_low, wildHigh: wild_high })),
+  pool_all_straights_reduce_counts: ({ pool, reducer }) => isExpr(pool) && ok(pool.allStraightsReduceCounts(reducer)),
   pool_leximin: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximin(comparison, other, extra)),
   pool_leximax: ({ pool, comparison, other, extra }) => isExpr(pool) && ok(pool.leximax(comparison, other, extra)),
   mx_str: ({ expr }) => (isExpr(expr) || expr instanceof ip.Deck) && ok(String(expr)),

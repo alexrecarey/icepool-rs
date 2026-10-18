@@ -776,9 +776,10 @@ pub fn highest_lowest(
     };
     if args.is_empty() {
         return match default {
-            PValue::Value(Value::None) => raise(Error::InvalidArgument(
-                "highest() / lowest() arg is an empty sequence and no default was provided.".into(),
-            )),
+            PValue::Value(Value::None) => raise(Error::InvalidArgument(format!(
+                "{}() arg is an empty sequence and no default was provided.",
+                if highest { "highest" } else { "lowest" }
+            ))),
             default => new_die(vec![default], &[int(1)]),
         };
     }

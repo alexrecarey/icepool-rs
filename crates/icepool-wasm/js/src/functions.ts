@@ -703,7 +703,9 @@ function keepFunction(op: "highest" | "lowest" | "middle") {
     }
     const nul = <X>(x: X | undefined): X | null => (x === undefined ? null : x);
     const extra = op === "middle" ? { keep: o.keep ?? 1, tie: o.tie ?? "error" } : { keep: nul(o.keep), drop: nul(o.drop) };
-    return call(op, { args: List.from(args), ...extra, default: nul(o.default) }) as Die;
+    // `args = arg0` if it is the only argument (an iterable of them), else `(arg0,) + more_args`.
+    const iterable = args.length === 1 ? args[0] : List.from(args);
+    return call(op, { args: iterable, ...extra, default: nul(o.default) }) as Die;
   };
 }
 /** `icepool.highest(*args, keep=None, drop=None, default=None)`: the highest outcome among the rolls, or the sum of
@@ -721,20 +723,22 @@ function keepFunction(op: "highest" | "lowest" | "middle") {
  * highest(); //=> throws TypeError
  * ```
  */
-export const highest: (...args: (Operand | KeepOptions)[]) => Die = keepFunction("highest");
+export const highest: (...args: (Operand | readonly Operand[] | KeepOptions)[]) => Die = keepFunction("highest");
 /** `icepool.lowest(*args, keep=None, drop=None, default=None)`: the lowest outcome among the rolls, or the sum of
  * some of the lowest (see {@link KeepOptions}). The arguments are dice or single outcomes, then an optional
  * options object. The outcomes should support addition and multiplication if `keep` is not 1.
  *
- * @throws IcepoolError `ValueError` if no dice are given and no `default`.
+ * @throws IcepoolError `ValueError` for an empty array and no `default`; `TypeError` for no arguments at all.
  * @example
  * ```ts
  * // Rolling 2d20 with disadvantage.
  * lowest(d(20), d(20)).mean().toString(); //=> "287/40"
- * lowest({ default: 0 }).outcomes(); //=> [0]
+ * // One argument is an array of them.
+ * lowest([d(20), d(20)]).mean().toString(); //=> "287/40"
+ * lowest([], { default: 0 }).outcomes(); //=> [0]
  * ```
  */
-export const lowest: (...args: (Operand | KeepOptions)[]) => Die = keepFunction("lowest");
+export const lowest: (...args: (Operand | readonly Operand[] | KeepOptions)[]) => Die = keepFunction("lowest");
 /** `icepool.middle(*args, keep=1, tie='error', default=None)`: the middle outcome among the rolls, or the sum of
  * some of the middle (see {@link MiddleOptions}). The arguments are dice or single outcomes, then an optional
  * options object.
@@ -748,7 +752,7 @@ export const lowest: (...args: (Operand | KeepOptions)[]) => Die = keepFunction(
  * middle(d(6), d(6), { tie: "low" }).equals(lowest(d(6), d(6))); //=> true
  * ```
  */
-export const middle: (...args: (Operand | MiddleOptions)[]) => Die = keepFunction("middle");
+export const middle: (...args: (Operand | readonly Operand[] | MiddleOptions)[]) => Die = keepFunction("middle");
 
 /** `icepool.tupleize(*args)`: the Cartesian product of the arguments (dice and single outcomes) as a die of tuples
  * (arrays). If no argument is a die, the result is a plain tuple, as in Python.
@@ -949,7 +953,16 @@ export function truth(x: unknown): boolean {
 // --- Python's operators on any operands ---------------------------------------------------------------------------
 
 /** The type of a binary member of {@link ops}: Python's dispatch between Again expressions, dice (giving `D`) and
- * plain outcomes. */
+ * plain outcomes.
+ *
+ * @example
+ * ```ts
+ * import { d, ops, type BinaryOperator } from "icepool-wasm";
+ * const plus: BinaryOperator = ops.add;
+ * plus(1, 2); //=> 3
+ * plus(1, d(2)).outcomes(); //=> [2, 3]
+ * ```
+ */
 export interface BinaryOperator<D extends Die = Die> {
   /** An Again expression on either side: an Again expression. */
   (a: AgainExpression, b: Operand): AgainExpression;
@@ -967,7 +980,16 @@ export interface BinaryOperator<D extends Die = Die> {
 
 /** The type of a unary member of {@link ops} (`Rest` the extra arguments: `round`'s `ndigits`). `neg`, `pos`,
  * `abs` and `invert` also take an Again expression (giving one); the rounding ones raise `TypeError` for it, as
- * Python's Again has no `__round__`, `__trunc__`, `__floor__` or `__ceil__`. */
+ * Python's Again has no `__round__`, `__trunc__`, `__floor__` or `__ceil__`.
+ *
+ * @example
+ * ```ts
+ * import { d, ops, type UnaryOperator } from "icepool-wasm";
+ * const floor: UnaryOperator = ops.floor;
+ * floor(2.5); //=> 2
+ * floor(d(4).truediv(2)).outcomes(); //=> [0, 1, 2]
+ * ```
+ */
 export interface UnaryOperator<Rest extends unknown[] = []> {
   /** Of a die: a die. */
   (a: Die, ...rest: Rest): Die;

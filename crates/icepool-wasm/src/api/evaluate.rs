@@ -233,9 +233,9 @@ fn select_function(which: &JsValue) -> JsResult<Box<dyn Fn(&Value) -> icepool_co
         let f = which.clone();
         return Ok(Box::new(move |outcome| call_js(&f, std::slice::from_ref(outcome))));
     }
-    let elements = host::array_from(which).iter().map(value_from_js).collect::<icepool_core::Result<Vec<_>>>().or_throw()?;
     let mut set = HashSet::new();
-    for element in elements {
+    for element in host::array_from(which) {
+        let element = value_from_js(&element).or_throw()?;
         element.check_hashable().or_throw()?;
         set.insert(element);
     }

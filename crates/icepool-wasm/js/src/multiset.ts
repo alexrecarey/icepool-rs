@@ -851,7 +851,7 @@ export class MultisetExpression extends Replayable {
    * pool([1, 2, 2, 3, 5]).allStraightsReduceCounts((a: number, b: number) => a + b).items(); //=> [[[[3, 4], [1, 1]], 1n]]
    * ```
    */
-  allStraightsReduceCounts(reducer?: (score: Outcome, count: Int) => Outcome): Die {
+  allStraightsReduceCounts(reducer?: Callback<Outcome> | null): Die {
     // Omitted, Python's default `operator.mul`; anything else that is not a function raises once a straight
     // continues, as calling it does in Python.
     const f = reducer === undefined || typeof reducer === "function" ? (reducer ?? null) : notCallable(reducer);
@@ -1219,12 +1219,18 @@ function sumMap(map: unknown): (outcome: unknown) => unknown {
   return (outcome) => mappingGet(mapping, [outcome]).get(outcome);
 }
 
-/** poker.py `make_select_function(which)` for the core: `null` selects nothing; a function is called, Python's
- * truth of its result taken (all `LargestCountWithWildEvaluator` does with it); any other collection becomes the
- * elements of `frozenset(which)` (a mapping's keys), which the core hashes. */
+/** poker.py `make_select_function(which)` for the core: `null` selects nothing; a function is called, its result
+ * handed over as it is (the core takes its truth where Python does: `is_wild or ...` may never ask), except one
+ * that is not a plain value (a die), whose truth is taken now; any other collection becomes the elements of
+ * `frozenset(which)` (a mapping's keys), which the core hashes. */
 function selectFunction(which: unknown): unknown {
   if (which === null || which === undefined) return null;
-  if (typeof which === "function") return (outcome: unknown) => pyBool((which as (x: unknown) => unknown)(outcome));
+  if (typeof which === "function") {
+    return (outcome: unknown) => {
+      const result = (which as (x: unknown) => unknown)(outcome);
+      return isPlainValue(result) ? result : pyBool(result);
+    };
+  }
   if (which instanceof Map) return [...which.keys()];
   if (which instanceof Die || isDeck(which)) return which.outcomes();
   if (Array.isArray(which) || typeof which === "string" || which instanceof Vector || which instanceof Symbols) {
