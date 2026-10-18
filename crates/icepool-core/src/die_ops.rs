@@ -10,7 +10,7 @@ use std::ops::{BitAnd, BitOr, BitXor, Div, Not, Rem, Shl, Shr};
 
 use crate::counts::Counts;
 use crate::die::Die;
-use crate::format::{format, Formatted};
+use crate::value::format::{format, Formatted};
 use crate::outcome::{Outcome, OutcomeArith};
 use crate::pool::Pool;
 use crate::value::evaluators::IntoValue;

@@ -162,7 +162,7 @@ mod tests {
     struct Obj(u32);
 
     impl HostObject for Obj {
-        fn py_hash(&self) -> i64 {
+        fn hash_value(&self) -> i64 {
             self.0.into()
         }
         fn eq(&self, a: &Value, b: &Value) -> bool {

@@ -10,7 +10,13 @@
 
 pub mod builtins;
 mod complex;
+mod die;
 pub mod evaluators;
+// Value-layer internals the bindings and the runner reach directly, hidden as in `lib.rs`.
+#[doc(hidden)]
+pub mod format;
+#[doc(hidden)]
+pub mod function;
 mod matmul;
 mod number;
 pub mod ops;
@@ -19,7 +25,10 @@ pub mod pystr;
 pub mod recursion;
 mod repr;
 pub mod sort;
+mod statistics;
 mod symbols;
+#[doc(hidden)]
+pub mod to_pool;
 mod vector;
 
 use crate::ownership::{Owners, Traverse};
@@ -275,7 +284,7 @@ impl Hash for Value {
             // the two do not merge as they would in a Python dict (see NOTES.md).
             Value::Host(h) => {
                 state.write_u8(0);
-                state.write_i64(h.py_hash());
+                state.write_i64(h.hash_value());
             }
             Value::Tuple(t) => {
                 state.write_u8(2);

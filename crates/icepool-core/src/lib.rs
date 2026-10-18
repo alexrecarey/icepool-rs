@@ -56,8 +56,6 @@ pub mod creation_args;
 #[doc(hidden)]
 pub mod expand;
 #[doc(hidden)]
-pub mod format;
-#[doc(hidden)]
 pub mod function;
 #[doc(hidden)]
 pub mod interrupt;
@@ -78,8 +76,6 @@ pub mod operator;
 pub mod ownership;
 #[doc(hidden)]
 pub mod population;
-#[doc(hidden)]
-pub mod to_pool;
 #[doc(hidden)]
 pub mod weightless;
 #[doc(hidden)]

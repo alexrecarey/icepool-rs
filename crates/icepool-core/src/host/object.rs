@@ -21,7 +21,7 @@ use crate::error::{Error, Result};
 pub trait HostObject: Send + Sync + fmt::Debug {
     /// The host's hash, computed once when the object entered the core. Equal values must hash alike, as Python
     /// requires; see `Hash for Value` for how this combines with native values.
-    fn py_hash(&self) -> i64;
+    fn hash_value(&self) -> i64;
     /// Python's `a == b`, identity first as dict lookups and tuple comparisons do. An exception counts as unequal
     /// (Rust's `Eq` cannot fail).
     fn eq(&self, a: &Value, b: &Value) -> bool;
@@ -56,15 +56,15 @@ pub trait HostObject: Send + Sync + fmt::Debug {
         Err(Error::Unported("indexing a host object".into()))
     }
     /// Python's `len(self)`.
-    fn py_len(&self) -> Result<usize> {
+    fn try_len(&self) -> Result<usize> {
         Err(Error::Unported("len() of a host object".into()))
     }
     /// Python's `repr(self)`, which may raise (`repr` above is for messages and cannot).
-    fn py_repr(&self) -> Result<String> {
+    fn try_repr(&self) -> Result<String> {
         Ok(self.repr())
     }
     /// Python's `str(self)`.
-    fn py_str(&self) -> Result<String> {
+    fn try_str(&self) -> Result<String> {
         Err(Error::Unported("str() of a host object".into()))
     }
     /// What `Population.common_outcome_length` asks of an outcome: `isinstance(self, Mapping)` first, then
@@ -127,6 +127,7 @@ pub(crate) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::outcome::OutcomeOrder;
     use crate::{Die, DieArg, Quantity};
 
     /// A host "number" that sorts in reverse and adds like an int, and whose `-` raises (a host exception).
@@ -141,7 +142,7 @@ mod tests {
     }
 
     impl HostObject for Rev {
-        fn py_hash(&self) -> i64 {
+        fn hash_value(&self) -> i64 {
             self.0
         }
         fn eq(&self, a: &Value, b: &Value) -> bool {
@@ -201,12 +202,12 @@ mod tests {
         assert_eq!(sum.len(), 6);
         assert_eq!(sum.items()[0].0.to_string(), "Rev(13)");
         // Mixed with a native value, the host decides (and here refuses).
-        assert!(host(1).py_lt(&Value::from(1)).is_err());
+        assert!(host(1).try_lt(&Value::from(1)).is_err());
         assert!(host(1).binary(BinOp::Add, &Value::from(1)).is_err());
         assert_ne!(host(1), Value::from(1));
         // Inside a tuple, the native tuple comparison reaches the host for the differing element.
         let t = |x| Value::tuple(vec![Value::from(0), host(x)]);
-        assert_eq!(t(5).py_lt(&t(4)), Ok(true));
+        assert_eq!(t(5).try_lt(&t(4)), Ok(true));
         // A host exception passes through unchanged.
         let err = d.unary_operator(|o| o.unary(UnOp::Neg)).unwrap_err();
         assert!(matches!(err, Error::Callback(_)));
@@ -216,6 +217,6 @@ mod tests {
     #[test]
     fn host_objects_with_index_are_ints_to_range() {
         // `range(sides)` takes `operator.index(sides)`.
-        assert_eq!(crate::function::one_hot(&host(3)).unwrap().len(), 3);
+        assert_eq!(crate::value::function::one_hot(&host(3)).unwrap().len(), 3);
     }
 }

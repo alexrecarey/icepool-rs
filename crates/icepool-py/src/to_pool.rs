@@ -9,7 +9,8 @@
 //! die` as the facade's `Die.__rmatmul__` computes it).
 
 use icepool_core::expand::iter_cartesian_product;
-use icepool_core::{to_pool, Die as CoreDie, DieArg, Quantity, Value};
+use icepool_core::value::to_pool;
+use icepool_core::{Die as CoreDie, DieArg, Quantity, Value};
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};

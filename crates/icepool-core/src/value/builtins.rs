@@ -7,7 +7,7 @@ use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 use super::{int_to_f64, ratio_to_f64, BinOp, Value};
-use crate::error::{wrong_type, Error, Result};
+use crate::error::{invalid_argument, wrong_type, Error, Result};
 
 /// `sum(items, start)` (CPython 3.13 `builtin_sum_impl`), with its two fast paths, because they round differently
 /// from adding one item at a time.
@@ -87,6 +87,24 @@ pub fn py_sum(items: impl IntoIterator<Item = Result<Value>>, start: Value) -> R
         result = result.binary(BinOp::Add, &item?)?;
     }
     Ok(result)
+}
+
+/// Python's `min(iterable)` (`max` false) or `max(iterable)`: the first of the least (greatest) elements, comparing
+/// each `item < best` (`item > best`); an empty iterable raises ValueError.
+pub fn py_min_max(items: Vec<Value>, max: bool) -> Result<Value> {
+    let mut items = items.into_iter();
+    let Some(mut best) = items.next() else {
+        let f = if max { "max" } else { "min" };
+        return invalid_argument(format!("{f}() iterable argument is empty"));
+    };
+    for item in items {
+        best = if max {
+            Value::py_max(best, item)?
+        } else {
+            Value::py_min(best, item)?
+        };
+    }
+    Ok(best)
 }
 
 /// `PyFloat_AsDouble(x)`, which `math` functions apply to their arguments: `float(x)` for numbers (a `Fraction`
@@ -453,7 +471,7 @@ pub fn py_len(x: &Value) -> Result<usize> {
         Value::Str(s) => Ok(s.chars().count()),
         Value::Vector(v) => Ok(v.data()?.len()),
         Value::Symbols(s) => Ok(s.len()),
-        Value::Host(h) => h.py_len(),
+        Value::Host(h) => h.try_len(),
         _ => wrong_type(format!("object of type '{}' has no len()", x.type_name())),
     }
 }

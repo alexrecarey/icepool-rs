@@ -68,7 +68,7 @@ fn expression_str(e: &MExpr) -> Result<String, PErr> {
                 None => None,
             };
             node.operator
-                .py_str(&children, keep_index.as_deref())
+                .format_str(&children, keep_index.as_deref())
                 .ok_or_else(|| address("MultisetOperator without __str__"))
         }
         // `MultisetParameterBase.__str__`: `self._name`.

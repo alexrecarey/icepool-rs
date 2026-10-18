@@ -114,7 +114,7 @@ pub fn traverse(
 }
 
 impl HostObject for PyHost {
-    fn py_hash(&self) -> i64 {
+    fn hash_value(&self) -> i64 {
         self.hash
     }
 
@@ -188,15 +188,15 @@ impl HostObject for PyHost {
         Python::attach(|py| crate::stats::host_getitem(self.obj.bind(py), key))
     }
 
-    fn py_len(&self) -> icepool_core::Result<usize> {
+    fn try_len(&self) -> icepool_core::Result<usize> {
         Python::attach(|py| crate::stats::host_len(self.obj.bind(py)))
     }
 
-    fn py_repr(&self) -> icepool_core::Result<String> {
+    fn try_repr(&self) -> icepool_core::Result<String> {
         Python::attach(|py| Ok(self.obj.bind(py).repr()?.to_string())).map_err(host_error)
     }
 
-    fn py_str(&self) -> icepool_core::Result<String> {
+    fn try_str(&self) -> icepool_core::Result<String> {
         Python::attach(|py| Ok(self.obj.bind(py).str()?.to_string())).map_err(host_error)
     }
 

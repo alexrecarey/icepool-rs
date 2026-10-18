@@ -14,7 +14,7 @@ use super::ops::{
 use super::statistics;
 use super::{raise, PErr, PValue};
 use icepool_core::creation_args::DieArg;
-use icepool_core::format::Formatted;
+use icepool_core::value::format::Formatted;
 use icepool_core::population::Data;
 use icepool_core::value::Num;
 use icepool_core::value::{Counter, CounterOp};
@@ -559,7 +559,7 @@ pub(super) fn deal_text(deck: &Deck<Value>, hand_size: usize) -> Result<String, 
 /// `str(deck)`: its table.
 pub(super) fn deck_str(deck: &Deck<Value>) -> Result<String, PErr> {
     let Formatted::Text(table) =
-        icepool_core::format::format(deck.population(), "Deck", "", false)?
+        icepool_core::value::format::format(deck.population(), "Deck", "", false)?
     else {
         unreachable!("only csv_table asks for a table")
     };

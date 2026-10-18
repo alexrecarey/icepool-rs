@@ -2,7 +2,7 @@
 //! `map_to_pool`, `explode_to_pool`, `reroll_to_pool`. Each makes a `MultisetMixture` of pools, one per joint
 //! outcome of the arguments, weighted by its quantity (equal pools counted together).
 //!
-//! The arithmetic of the pool compositions is the core's (`icepool_core::to_pool`); here are Python's calling
+//! The arithmetic of the pool compositions is the core's (`icepool_core::value::to_pool`); here are Python's calling
 //! conventions and the pools each composition stands for.
 
 use std::sync::Arc;
@@ -190,7 +190,7 @@ pub fn explode_to_pool(
             ))
         }
     };
-    let count_die = icepool_core::to_pool::explode_counts(
+    let count_die = icepool_core::value::to_pool::explode_counts(
         &d.denominator(),
         &explode.denominator(),
         &not_explode.denominator(),
@@ -244,7 +244,7 @@ pub fn reroll_to_pool(
     } else {
         value_arg(&depth, "reroll_to_pool depth")?
     };
-    let pool_composition = icepool_core::to_pool::reroll_composition(
+    let pool_composition = icepool_core::value::to_pool::reroll_composition(
         &d.denominator(),
         &rerollable_die.denominator(),
         &rolls,

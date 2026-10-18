@@ -1,10 +1,10 @@
-//! population/format.py, `Population.sample` and `Die.equals` / `hash_key` for a die of the core (`format.rs`,
+//! population/format.py, `Population.sample` and `Die.equals` / `hash_key` for a die of the core (`value/format.rs`,
 //! `population.rs`).
 //!
 //! The facade keeps the argument juggling: `type(self).__name__`, the draw from Python's own `random` (the user
 //! seeds it), and writing CSV through Python's `csv` module when `format` is given writer arguments.
 
-use icepool_core::format::{self as core_format, Formatted};
+use icepool_core::value::format::{self as core_format, Formatted};
 use icepool_core::host::LenKind;
 use icepool_core::value::BinOp;
 use pyo3::prelude::*;

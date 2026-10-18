@@ -83,7 +83,7 @@ pub fn reroll_composition<E: From<Error>>(
 ) -> Result<Die<Value>, E> {
     let (n, d) = (quantity_value(rerollable_den), quantity_value(die_den));
     // `icepool.coin(rerollable_die.denominator(), self.denominator())`.
-    let coin = crate::function::coin_data(&n, &d)?
+    let coin = crate::value::function::coin_data(&n, &d)?
         .into_iter()
         .map(|(o, q)| match q {
             Value::Int(q) => Ok((o, Quantity::try_from(q).map_err(|_| negative())?)),

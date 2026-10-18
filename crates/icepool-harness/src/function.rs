@@ -14,7 +14,8 @@ use super::ops::{binary, d, py_iter, to_die, unhashable_list, weights_die, wrong
 use super::statistics::new_or_self;
 use super::{raise, PErr, PValue};
 use icepool_core::function;
-use icepool_core::value::builtins::{fraction, limit_denominator};
+use icepool_core::value::builtins::{fraction, limit_denominator, py_min_max};
+use icepool_core::value::function as value_function;
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::Error;
 use icepool_core::{Die, Quantity, Value};
@@ -129,7 +130,7 @@ pub fn coin(n: PValue, d: PValue, max_denominator: PValue) -> Result<PValue, PEr
         n = Value::Int(f.numerator().clone());
         d = Value::Int(IBig::from(f.denominator().clone()));
     }
-    let (keys, quantities): (Vec<_>, Vec<_>) = function::coin_data(&n, &d)?
+    let (keys, quantities): (Vec<_>, Vec<_>) = value_function::coin_data(&n, &d)?
         .into_iter()
         .map(|(k, q)| (PValue::Value(k), PValue::Value(q)))
         .unzip();
@@ -167,7 +168,7 @@ pub fn die_stochastic_round(die: PValue, max_denominator: PValue) -> Result<PVal
 
 /// `icepool.one_hot(sides)`.
 pub fn one_hot(sides: PValue) -> Result<PValue, PErr> {
-    Ok(PValue::Die(function::one_hot(&value(sides)?)?))
+    Ok(PValue::Die(value_function::one_hot(&value(sides)?)?))
 }
 
 /// `harmonize_denominators(dice, weights)`: the dice (single outcomes become dice) with their quantities scaled
@@ -183,7 +184,7 @@ pub(super) fn harmonize(dice: PValue, weights: PValue) -> Result<Vec<Die<Value>>
         w => values(py_iter(w)?)?,
     };
     let denominators: Vec<Quantity> = dice.iter().map(Die::denominator).collect();
-    let scale_factors = function::weighted_lcm(&denominators, &weights, &weights)?;
+    let scale_factors = value_function::weighted_lcm(&denominators, &weights, &weights)?;
     dice.into_iter()
         .zip(scale_factors)
         .map(|(die, scale)| {
@@ -251,7 +252,7 @@ pub fn extreme_outcome(args: PValue, max: PValue, spread: PValue) -> Result<PVal
         vec![args]
     };
     let outcomes = iter_outcomes(args)?;
-    Ok(PValue::Value(function::py_min_max(outcomes, flag(&max)?)?))
+    Ok(PValue::Value(py_min_max(outcomes, flag(&max)?)?))
 }
 
 /// The elements of `itertools.chain(*args)`.
@@ -267,7 +268,7 @@ fn chain(args: PValue) -> Result<Vec<Value>, PErr> {
 /// is nothing). The arguments are lists here, so both chains see the same elements.
 pub fn consecutive(args: PValue) -> Result<PValue, PErr> {
     let all = chain(args)?;
-    Ok(PValue::Value(function::consecutive(all.clone(), all)?))
+    Ok(PValue::Value(value_function::consecutive(all.clone(), all)?))
 }
 
 /// `icepool.sorted_union(*args)`: merge sets into a sorted sequence.

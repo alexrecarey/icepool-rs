@@ -86,7 +86,7 @@ fn scalar_repr(x: &Value) -> Result<String> {
             int_str(&IBig::from(r.denominator().clone()))?
         ),
         Value::Str(s) => str_repr(s)?,
-        Value::Host(h) => h.py_repr()?,
+        Value::Host(h) => h.try_repr()?,
         Value::Symbols(s) => s.py_repr()?,
         Value::Tuple(_) | Value::Vector(_) => py_repr(x)?,
         // None, bool, float, complex: `Display` is already Python's repr.
@@ -110,7 +110,7 @@ pub fn py_str(x: &Value) -> Result<String> {
                 ))
             }
         }
-        Value::Host(h) => h.py_str(),
+        Value::Host(h) => h.try_str(),
         Value::Symbols(s) => s.py_str(),
         // `str(Vector)` is `Vector(str(self._data))`, and `str(tuple)` shows the elements' reprs.
         _ => py_repr(x),

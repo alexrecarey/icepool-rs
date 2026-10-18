@@ -3,6 +3,8 @@
 //! `multiply_quantities` calls) and calls in here for the work.
 
 use dashu_int::UBig;
+use icepool_core::value::builtins::py_min_max;
+use icepool_core::value::function as value_function;
 use icepool_core::{function, Quantity, Value};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
@@ -28,7 +30,7 @@ pub fn weighted_lcm<'py>(
         .map(|d| Ok(UBig::try_from(int_from_py(d)?).expect("a denominator is not negative")))
         .collect::<PyResult<Vec<Quantity>>>()?;
     let scales =
-        function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?)
+        value_function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?)
             .map_err(to_py_err)?;
     PyList::new(
         py,
@@ -53,7 +55,7 @@ pub fn coin_data<'py>(
     n: &Bound<'py, PyAny>,
     d: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyList>> {
-    let data = function::coin_data(&from_py(n)?, &from_py(d)?).map_err(to_py_err)?;
+    let data = value_function::coin_data(&from_py(n)?, &from_py(d)?).map_err(to_py_err)?;
     PyList::new(
         py,
         data.iter()
@@ -71,7 +73,7 @@ pub fn min_max<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     to_py(
         py,
-        &function::py_min_max(values(&items)?, max).map_err(to_py_err)?,
+        &py_min_max(values(&items)?, max).map_err(to_py_err)?,
     )
 }
 
@@ -84,7 +86,7 @@ pub fn consecutive<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     to_py(
         py,
-        &function::consecutive(values(&first)?, values(&second)?).map_err(to_py_err)?,
+        &value_function::consecutive(values(&first)?, values(&second)?).map_err(to_py_err)?,
     )
 }
 
@@ -111,5 +113,5 @@ pub fn sorted_union<'py>(
 /// `one_hot(sides)`.
 #[pyfunction]
 pub fn one_hot(py: Python<'_>, sides: &Bound<'_, PyAny>) -> PyResult<RsDie> {
-    RsDie::wrap(py, function::one_hot(&from_py(sides)?))
+    RsDie::wrap(py, value_function::one_hot(&from_py(sides)?))
 }

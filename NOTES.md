@@ -542,7 +542,7 @@ turns out wrong. Newest decisions at the top of each section.
   `str` of classes without a `__str__`: `weightless()`, map_counts, sort_pair / max_pair (not `==`) / versus,
   force_order (not Any), MultisetTupleIndex / Slice) is `object.__repr__` with an address. The port raises
   `Unimplemented` for those (`program/expression.rs` `address`); `gen_str_expression` never builds them. Core:
-  `Operator::py_str(children, keep_index)` (operator/mod.rs) plus `BinaryOperator::symbol` /
+  `Operator::format_str(children, keep_index)` (operator/mod.rs) plus `BinaryOperator::symbol` /
   `KeepCountsComparison::symbol`. `MultisetKeep.__str__` shows the index *as given* (`[1, Ellipsis]` vs `(1,)` vs
   `slice(1, None, 1)` vs `1.5` vs a die's table), which the core's `MultisetKeepIndex` does not keep: `OpNode` carries
   it (`keep_index: Option<KeepIndexArg>`); `highest` / `lowest` / `middle` give `slice(a, b, None)`. Pools print from
@@ -1226,7 +1226,7 @@ turns out wrong. Newest decisions at the top of each section.
   `float_ceil` (log10 is `f64::log10`: only `format_probability_inverse`'s `ceil(log10(int_start))` uses it). `random.rs` = CPython's MT19937 `seed(int)`
   + `randrange` (`_randbelow_with_getrandbits`), for icepool-run/WASM; `Die::sample_at(r)` is the bisect.
   `Die::equals(other, simplify)`, `Die<Value>::hash_key_compare(op)` (tuple order of `(Die, tuple(items))`).
-  New `HostObject` hooks: `py_str`, `py_repr` (fallible), `len_kind` (`Mapping` / `Sized` / neither).
+  New `HostObject` hooks: `try_str`, `try_repr` (fallible; `py_str`/`py_repr` until C1b), `len_kind` (`Mapping` / `Sized` / neither).
 - Facade: `Population.format` (csv writer kwargs: the core's table written by `format.write_csv` with Python's
   csv module), `_common_outcome_length`, `sample` (the draw stays `random.randrange` on Python's global, user-seeded
   generator; `icepool_rs.sample_at` bisects), `format_probability_inverse`, `Die.equals` (`icepool_rs.die_equals`)
@@ -2012,5 +2012,12 @@ turns out wrong. Newest decisions at the top of each section.
     the generic one. `try_nearest` also raises ValueError for `==`/`!=`, so it has no typed form yet.
   - To make another generic path typed: give it `O::Incomparable` as its error if comparisons are all that can
     fail (rename to `try_x`, add `x` to the typed impl), else keep the core `Result`.
-  - Left for C1b (after C2/C5b): `py_` names outside `value/` are now only Value-layer callers (impl Die<Value>,
-    Value-only evaluators, formatting, the program runner).
+  - C1b: `grep -rn 'py_' crates/icepool-core/src --include='*.rs' | grep -v '^crates/icepool-core/src/value/'` is
+    empty; keep it so. The Value-layer code that used Python's helpers moved into `value/`: `value/format.rs` and
+    `value/to_pool.rs` (whole files, still `#[doc(hidden)] pub`), `value/die.rs` (`cmp_die`, `mean_time_to_sum`,
+    `sign`), `value/statistics.rs` (`mean` .. `correlation`, `marginal*`), `value/function.rs` (`weighted_lcm`,
+    `coin_data`, `consecutive`, `one_hot`); `py_min_max` is now `value::builtins::py_min_max`. Renamed, as not
+    Python-only: `HostObject::{hash_value, try_len, try_repr, try_str}` (were `py_*`; wasm implements them too) and
+    `Operator::format_str` (was `py_str`). The rest of `impl Die<Value>` in population.rs (probabilities,
+    quantiles, quantity management) has no `py_` calls and stayed. icepool-harness and the bindings are clients
+    and may call `value::pystr::py_repr` etc. freely; the rule is about the core outside `value/`.

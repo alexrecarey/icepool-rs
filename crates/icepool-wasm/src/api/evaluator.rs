@@ -52,7 +52,7 @@ fn no_operators() -> Error {
 }
 
 impl HostObject for StateKey {
-    fn py_hash(&self) -> i64 {
+    fn hash_value(&self) -> i64 {
         // Any fixed hash of the key: equal keys hash alike, and no other value equals a key.
         let mut h = std::hash::DefaultHasher::new();
         self.0.hash(&mut h);

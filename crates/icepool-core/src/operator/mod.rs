@@ -108,7 +108,7 @@ impl<O> Operator<O> {
     /// slice, list or tuple, which the core does not keep). `None` for the operators without a `__str__`
     /// (`MultisetMapCounts`, the pairing and versus operators, `MultisetForceOrder`, host operators): theirs is
     /// `object.__repr__`, a memory address.
-    pub fn py_str(&self, children: &[String], keep_index: Option<&str>) -> Option<String> {
+    pub fn format_str(&self, children: &[String], keep_index: Option<&str>) -> Option<String> {
         let child = || children.first().map(String::as_str).unwrap_or_default();
         Some(match self {
             // `'(' + (' ' + self.symbol() + ' ').join(str(child) for child in self._children) + ')'`

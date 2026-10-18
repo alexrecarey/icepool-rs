@@ -7,9 +7,10 @@ use std::collections::HashMap;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::expand::{tupleize_dice, vectorize_dice};
-use icepool_core::format::format_probability_inverse as core_format_probability_inverse;
-use icepool_core::value::builtins::{fraction, getitem, limit_denominator, Index};
+use icepool_core::value::format::format_probability_inverse as core_format_probability_inverse;
+use icepool_core::value::builtins::{fraction, getitem, limit_denominator, py_min_max, Index};
 use icepool_core::value::BinOp;
+use icepool_core::value::function as value_function;
 use icepool_core::{function, Error, Quantity, Value};
 use wasm_bindgen::prelude::*;
 
@@ -79,7 +80,7 @@ impl DiceArgs {
 #[wasm_bindgen(js_name = coinData)]
 pub fn coin_data(n: JsValue, d: JsValue) -> JsResult<Vec<JsValue>> {
     let (n, d) = (value_from_js(&n).or_throw()?, value_from_js(&d).or_throw()?);
-    function::coin_data(&n, &d)
+    value_function::coin_data(&n, &d)
         .or_throw()?
         .iter()
         .map(|(k, q)| Ok(JsValue::from(vec![value_to_js(k).or_throw()?, value_to_js(q).or_throw()?])))
@@ -89,19 +90,19 @@ pub fn coin_data(n: JsValue, d: JsValue) -> JsResult<Vec<JsValue>> {
 /// `one_hot(sides)`.
 #[wasm_bindgen(js_name = oneHot)]
 pub fn one_hot(sides: JsValue) -> JsResult<WasmDie> {
-    Ok(WasmDie::new(function::one_hot(&value_from_js(&sides).or_throw()?).or_throw()?))
+    Ok(WasmDie::new(value_function::one_hot(&value_from_js(&sides).or_throw()?).or_throw()?))
 }
 
 /// Python's `min(items)` (`max` false) or `max(items)` (`min_outcome` / `max_outcome`).
 #[wasm_bindgen(js_name = minMax)]
 pub fn min_max(items: Vec<JsValue>, max: bool) -> JsResult<JsValue> {
-    value_to_js(&function::py_min_max(values(&items)?, max).or_throw()?).or_throw()
+    value_to_js(&py_min_max(values(&items)?, max).or_throw()?).or_throw()
 }
 
 /// `consecutive(*args)` given what each of its two chains over the arguments yields.
 #[wasm_bindgen]
 pub fn consecutive(first: Vec<JsValue>, second: Vec<JsValue>) -> JsResult<JsValue> {
-    value_to_js(&function::consecutive(values(&first)?, values(&second)?).or_throw()?).or_throw()
+    value_to_js(&value_function::consecutive(values(&first)?, values(&second)?).or_throw()?).or_throw()
 }
 
 /// `len([None] * len[start:stop:step])`: the `len()` of a slice of a multiset tuple expression of `len` multisets
@@ -150,7 +151,7 @@ pub fn weighted_lcm(
         })
         .collect::<JsResult<Vec<Quantity>>>()?;
     let scales =
-        function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?).or_throw()?;
+        value_function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?).or_throw()?;
     scales.iter().map(|v| value_to_js(v).or_throw()).collect()
 }
 
