@@ -445,6 +445,43 @@ turns out wrong. Newest decisions at the top of each section.
   - **khepri** is behind icepool-core's `khepri` feature (not default since C5: icepool-harness turns it on for the
     runner's `khepri` node, icepool-wasm's `khepri` feature for `calculate`). The crate move waits for C5b (C2f).
 
+- **Generic map, map_tools, explode, Again (C2d, design section 2).**
+  - `die_map.rs`: `Mapped<P> { Outcome, Die, Reroll, Break(Option<Target<P>>), Restart }` (what a mapping
+    function returns; `Target<P> { Outcome, Die, Reroll }` is what a `Break` stops at: Python lets `Break` hold a
+    die, and `Break(Reroll)` raises under repeat). `Mapped::into_die_arg(current)` is `map_simple`'s reading of one
+    result (Break unwrapped, `Break()` = `current`, Restart = Reroll). Generic `Die::try_map` (`O: Into<P>`: `Break()`
+    is the outcome itself), `map_die`, closure `reroll`/`filter` with `Depth { Finite(u32), Infinite }`. The mask
+    form the bindings use (they compute Python's selection themselves) is **`reroll_where(&[bool], Depth)`** (was
+    `reroll(&[bool], Option<u32>)`). The harness's `map` still builds `Die::new` from PValues itself (its tuples
+    holding dice are PValue-only), so it does not go through `Mapped`.
+  - `again/mod.rs` keeps the engine, renamed **`AgainExpression<F, L>`** (was `Again<F, L>`; Python's class name);
+    the bindings' dynamic Again is still that over their own ops/objects. `again/typed.rs`: **`Again<O>`** =
+    `AgainExpression<AgainOp, DieArg<O>>` with `AgainOp { Add, Sub, Mul, Neg }` and `std::ops` (`Again::new() + 1`;
+    `2i64 * Again::new()`: an untyped literal on the left is an `i32`). `AgainOutcome<O>` (From<O>, From<Again<O>>),
+    `AgainEnd<O> { Zero, Outcome, Die, Reroll, Restart }`. `Die::with_again_depth`, `map_again`, `explode`
+    (OutcomeArith; khepri's hand-built explode is now this) and `with_again_count` (Outcome + OutcomeArith: count
+    mode's Markov chain over typed `(O, i64, i64, u64)` states through the generic map_tools). The Value count mode
+    (`evaluate_agains_using_count`) is unchanged. The engine still counts Python frames (`value::recursion`), so a
+    typed expression nested ~1000 deep is `RecursionLimit`, not a stack overflow.
+  - `map_tools/state.rs`: `Transition<S> { Default(S), Break(S), Restart }` (derived Ord = `TransitionType`'s int
+    order, then the state, as Python's tuples sort) and **`MapState`** (`Transition`/`Timed`/`WithTime` outcome
+    types, `transition`/`read_transition`/`timed`/`read_timed`/`with_time`, `check_state`, `same_spelling`):
+    blanket for every `Outcome` (`Transition<S>`, `(Transition<S>, u64)`, `(S, u64)`), and `value/map_state.rs` for
+    `Value` (Python's tuples `(int, state[, time])`, the NaN refusal and the spelling check that were in
+    core_impl/markov_chain). `TransitionCache<S, F>` with `F: FnMut(&S, usize) -> Result<Mapped<S>, E>` (was
+    `Next`/`Target`); the bindings name their `dyn` transition `TransitionFn<'a>`. A `Break` to a die relabels the
+    die (`core_impl::relabel`, one-to-one, = Python's tupleize); `map_and_time`'s `marginals[1:]` merges equal
+    `(state, time)` (a DEFAULT and a Break to the same state at the same time). A typed `Restart` in `map_and_time`
+    is `Unported` (Python's `(None, time)` has no typed form). Typed `Die<S: Outcome>`: `map_repeat`,
+    `map_to_absorption` (`repeat='inf'`), `map_and_time -> Die<(S, u64)>`, `mean_time_to_absorb -> Ratio`, all with
+    a transition of the state alone. `Die::simplify` moved to the generic impl. `pub type Ratio = RBig` at the root.
+  - Typed `mean_time_to_sum(i64) -> Ratio` on `O: Outcome + Copy + Into<i128>` (die.rs); `Die<Value>` keeps its
+    cache-taking one in value/die.rs (no name clash: `Value` is not `Copy`).
+  - Tests: unit tests per module against the oracle's answers, tests/typed_vs_value.rs `reroll_and_filter...`,
+    `explode_agrees...`, `repeated_maps_agree...` (typed vs `Value` instantiation). fixtures/c2d.
+    `icepool.map(break_at(1, 0), 0, Die([-1, 1]), repeat='inf')` never ends in either (an unbounded chain): not a
+    fixture.
+
 - **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
   is written against the sealed `OutcomeOrder` (associated `Incomparable` error: `Infallible` for every `Ord` type by
