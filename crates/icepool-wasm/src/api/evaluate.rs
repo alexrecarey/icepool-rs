@@ -222,10 +222,13 @@ fn call_js(f: &JsValue, args: &[Value]) -> icepool_core::Result<Value> {
     value_from_js(&envelope(host::call_function(f, args))?)
 }
 
+/// A selector of `LargestCountWithWildEvaluator`: whether an outcome is wild (a value whose truth the core takes).
+type Select = Box<dyn Fn(&Value) -> icepool_core::Result<Value>>;
+
 /// poker.py `make_select_function(which)` of a wild parameter as the TypeScript passes it: `null` selects nothing,
 /// a JS function is called with the outcome (the TypeScript has already taken Python's truth of its result), and an
 /// array is the elements of `frozenset(which)` (hashed now, as Python's `frozenset` does), tested with `in`.
-fn select_function(which: &JsValue) -> JsResult<Box<dyn Fn(&Value) -> icepool_core::Result<Value>>> {
+fn select_function(which: &JsValue) -> JsResult<Select> {
     if which.is_null() || which.is_undefined() {
         return Ok(Box::new(|_| Ok(Value::Bool(false))));
     }
