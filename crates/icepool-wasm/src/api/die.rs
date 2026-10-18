@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 
 use dashu_int::IBig;
-use icepool_core::value::format::{common_outcome_length, format as format_population, Formatted};
+use icepool_core::format::{common_outcome_length, format as format_population, Formatted};
 use icepool_core::population::Comparison;
 use icepool_core::value::Data;
 use icepool_core::value::builtins::{getitem, Index};

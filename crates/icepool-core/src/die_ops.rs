@@ -8,12 +8,10 @@
 use std::fmt;
 use std::ops::{BitAnd, BitOr, BitXor, Div, Not, Rem, Shl, Shr};
 
-use crate::counts::Counts;
 use crate::die::Die;
-use crate::value::format::{format, Formatted};
+use crate::format::FormatOutcome;
 use crate::outcome::{Outcome, OutcomeArith};
 use crate::pool::Pool;
-use crate::value::evaluators::IntoValue;
 use crate::Quantity;
 
 /// What may stand on the other side of a die's operator or comparison: a die (owned or borrowed) or a plain
@@ -321,8 +319,11 @@ where
     }
 }
 
-/// Python's `str(die)`: a markdown table of outcome, quantity and probability, as icepool prints the same die of
-/// Python values (the outcomes are converted with [`IntoValue`], so the text is Python's exactly).
+/// Python's `str(die)`: a markdown table of outcome, quantity and probability, exactly as icepool prints the same
+/// die of Python values ([`FormatOutcome`] prints each outcome as Python's `str`).
+///
+/// It fails (`fmt::Error`, so `to_string` panics) only where the port cannot print as Python: a non-ASCII str inside
+/// a tuple, whose `repr` needs Unicode's tables, or an integer of more than 4300 digits in a `Ratio`.
 ///
 /// ```
 /// use icepool_core::d;
@@ -330,18 +331,11 @@ where
 /// assert!(text.starts_with("Die with denominator 4\n"));
 /// assert!(text.contains("|       1 |        1 |  25.000000% |"));
 /// ```
-impl<O: Outcome + IntoValue> fmt::Display for Die<O> {
+impl<O: Outcome + FormatOutcome> fmt::Display for Die<O> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Converting keeps the order: the integers, `bool` and their tuples sort alike as Python values.
-        let items = self
-            .items()
-            .iter()
-            .map(|(o, q)| (o.clone().into_value(), q.clone()));
-        let die = Die::from_counts(Counts::from_sorted(items.collect()));
-        match format(&die, "Die", "", false) {
-            Ok(Formatted::Text(text)) => f.write_str(&text),
-            // Python's own str() of ints, bools and tuples of them cannot fail.
-            _ => Err(fmt::Error),
+        match self.format("") {
+            Ok(text) => f.write_str(&text),
+            Err(_) => Err(fmt::Error),
         }
     }
 }

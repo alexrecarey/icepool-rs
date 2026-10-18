@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 const INT_MAX_STR_DIGITS: usize = 4300;
 
 /// `str(int)`, with CPython's limit on the number of digits (the sign does not count).
-fn int_str(i: &IBig) -> Result<String> {
+pub(crate) fn int_str(i: &IBig) -> Result<String> {
     let s = i.to_string();
     if s.trim_start_matches('-').len() > INT_MAX_STR_DIGITS {
         return Err(Error::InvalidArgument(format!(
@@ -25,7 +25,7 @@ fn int_str(i: &IBig) -> Result<String> {
 /// `repr(str)` (CPython `unicode_repr`): single quotes unless the string holds a `'` and no `"`; backslash, the
 /// quote, `\t` `\n` `\r` and other ASCII control characters escaped. Whether a non-ASCII character is printable
 /// needs Unicode's tables, which the core does not carry: those are unsupported.
-fn str_repr(s: &str) -> Result<String> {
+pub(crate) fn str_repr(s: &str) -> Result<String> {
     let quote = if s.contains('\'') && !s.contains('"') {
         '"'
     } else {

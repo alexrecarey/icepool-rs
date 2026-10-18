@@ -5,7 +5,8 @@
 //! seeds it), and writing CSV through Python's `csv` module when `format` is given writer arguments.
 
 use icepool_core::value::PyDie;
-use icepool_core::value::format::{self as core_format, Formatted};
+use icepool_core::format::{self as core_format, Formatted};
+use icepool_core::value::format as value_format;
 use icepool_core::host::LenKind;
 use icepool_core::value::BinOp;
 use pyo3::prelude::*;
@@ -39,7 +40,7 @@ pub fn format_probability_inverse(
     probability: &Bound<'_, PyAny>,
     int_start: &Bound<'_, PyAny>,
 ) -> PyResult<String> {
-    core_format::format_probability_inverse(&from_py(probability)?, &from_py(int_start)?)
+    value_format::format_probability_inverse(&from_py(probability)?, &from_py(int_start)?)
         .map_err(to_py_err)
 }
 

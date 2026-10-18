@@ -8,7 +8,7 @@ use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
 use icepool_core::random::Random;
 use icepool_core::value::PyDie;
-use icepool_core::value::format::{
+use icepool_core::format::{
     common_outcome_length as outcome_length, format as format_population, Formatted,
 };
 use icepool_core::value::BinOp;

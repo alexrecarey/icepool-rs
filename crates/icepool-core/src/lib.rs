@@ -22,6 +22,7 @@ pub use die::{Depth, Die};
 pub use die_map::{Mapped, Target};
 pub use die_ops::IntoDie;
 pub use error::{Error, Result};
+pub use format::FormatOutcome;
 pub use function::{d, z};
 pub use int::Int;
 pub use multi_deal::MultiDeal;
@@ -60,6 +61,8 @@ pub mod counts;
 pub mod creation_args;
 #[doc(hidden)]
 pub mod expand;
+#[doc(hidden)]
+pub mod format;
 #[doc(hidden)]
 pub mod function;
 #[doc(hidden)]

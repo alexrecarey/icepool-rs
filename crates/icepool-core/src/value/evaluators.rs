@@ -875,7 +875,7 @@ fn comparison_state(state: &Value) -> Option<(bool, bool)> {
     }
 }
 
-/// The comparisons of tuple counts are Python's (see [`any_all_values`]); the state stays a pair of bools.
+/// The comparisons of tuple counts are Python's (see `any_all_values`); the state stays a pair of bools.
 impl TupleCounts for ComparisonEvaluator {
     fn next_state_tuples(
         &self,
