@@ -308,6 +308,15 @@ impl Args<'_> {
             vals.swap_remove(i).1
         }))
     }
+
+    /// Runs a node on exactly the expected arguments (see [`Args::exactly`]), in the order of `names`.
+    fn with<const N: usize>(
+        self,
+        names: [&str; N],
+        node: impl FnOnce([PValue; N]) -> Result<PValue, PErr>,
+    ) -> Result<PValue, PErr> {
+        node(self.exactly(names)?)
+    }
 }
 
 #[cfg(test)]
