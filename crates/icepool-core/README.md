@@ -208,6 +208,25 @@ let six_again = d(6).map_again(
 assert_eq!(six_again.unwrap(), d(6).explode(|&x| x == 6, 1, AgainEnd::Zero).unwrap());
 ```
 
+[`Die::explode_to_pool`] keeps each explosion as a die of its own, and [`Die::reroll_to_pool`] shares a limited
+number of rerolls across a pool. Both return a [`PoolMixture`]: a weighted mixture of pools, which keeps and
+evaluates as a pool does.
+
+```
+use icepool_core::evaluator::basic::SumEvaluator;
+use icepool_core::{d, Depth, Die, RerollMode};
+
+// Python: `d(6).explode_to_pool(2, depth=1).highest(1).sum()`.
+let best = d(6).explode_to_pool(2, |&x| x == 6, 1).unwrap().highest(1);
+let expected = [36u32, 108, 180, 252, 324, 396];
+assert_eq!(best.evaluate(&SumEvaluator).unwrap(), Die::from_weights((1..=6).zip(expected)));
+
+// Python: `d(4).reroll_to_pool(3, [1, 2], max_rerolls=1, mode='low').sum()`.
+let rerolled = d(4).reroll_to_pool(3, |&x| x <= 2, Some(1), Depth::Finite(1), RerollMode::Low).unwrap();
+let expected = [1u32, 4, 11, 23, 37, 46, 49, 45, 30, 10];
+assert_eq!(rerolled.evaluate(&SumEvaluator).unwrap(), Die::from_weights((3..=12).zip(expected)));
+```
+
 ## Decks
 
 A [`Deck`] holds cards; a [`Deal`] is a hand of cards dealt from it without replacement, which keeps and evaluates

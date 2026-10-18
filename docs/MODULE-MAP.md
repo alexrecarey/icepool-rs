@@ -53,7 +53,7 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `expression/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
 | `expression/multiset_expression.py` | `expression.rs`, `operator/mod.rs` | verbatim | `expression.rs` | `multiset.ts` | `api/multiset.rs`, `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_expression_base.py` | `expression.rs`, `host/source.rs` | verbatim | `expression.rs`, `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
-| `expression/multiset_mixture.py` | — (one core evaluation per inner) | verbatim | `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
+| `expression/multiset_mixture.py` | `mixture.rs` (typed `PoolMixture` of keep generators; the bindings run one core evaluation per inner) | verbatim | `evaluate.rs` | `multiset.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_parameter.py` | `expression.rs` | verbatim | `evaluate.rs` | `evaluator.ts`, `multiset.ts` | `api/multiset_function.rs`, `api/evaluate.rs` | ported | 70168f56 |
 | `expression/multiset_tuple_expression.py` | `expression.rs` | verbatim | `expression.rs`, `evaluate.rs` | `multiset.ts`, `deck.ts` | `api/evaluate.rs` | ported | 70168f56 |
 | `function.py` | `function.rs`, `math.rs` | switched | `function.rs` | `functions.ts` | `api/function.rs` | ported | 70168f56 |
@@ -70,7 +70,7 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `map_tools/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
 | `map_tools/common.py` | `map_tools/core_impl.rs` | verbatim | `map.rs`, `map_tools.rs` | `functions.ts`, `values.ts` | `api/map_tools.rs` | ported | 70168f56 |
 | `map_tools/core_impl.py` | `map_tools/core_impl.rs` | switched | `map.rs`, `map_tools.rs` | `functions.ts` | `api/function.rs`, `api/map_tools.rs` | ported | 70168f56 |
-| `map_tools/function.py` | `map_tools/mod.rs`, `to_pool.rs` | switched | `map_tools.rs`, `map.rs`, `to_pool.rs` | `functions.ts` | `api/map_tools.rs`, `api/function.rs` | ported | 70168f56 |
+| `map_tools/function.py` | `map_tools/mod.rs`, `value/to_pool.rs` | switched | `map_tools.rs`, `map.rs`, `to_pool.rs` | `functions.ts` | `api/map_tools.rs`, `api/function.rs` | ported | 70168f56 |
 | `map_tools/markov_chain.py` | `map_tools/markov_chain.rs` | switched | `map_tools.rs` | `functions.ts`, `die.ts` | `api/map_tools.rs` | ported | 70168f56 |
 | `math.py` | `math.rs` | verbatim (unused under `rust`) | — | — | — | internal | 70168f56 |
 | `operator/__init__.py` | — | verbatim | — | — | — | package | 70168f56 |
@@ -87,7 +87,7 @@ FACADE-AUDIT.md says, module by module, what of the Python facade still runs in 
 | `population/again.py` | `again.rs` | switched | `again.rs` | `again.ts` | `api/again.rs` | ported | 70168f56 |
 | `population/base.py` | `population.rs`, `value/builtins.rs` | switched | `stats.rs`, `population.rs`, `format.rs`, `lib.rs` | `die.ts`, `deck.ts` | `api/die.rs`, `api/deck.rs` | ported | 70168f56 |
 | `population/deck.py` | `deck.rs` | switched | `deck.rs`, `population.rs` | `deck.ts` | `api/deck.rs` | ported | 70168f56 |
-| `population/die.py` | `die.rs`, `die_ops.rs`, `to_pool.rs`, `value/matmul.rs` | switched | `lib.rs`, `ops.rs`, `to_pool.rs`, `population.rs`, `format.rs` | `die.ts`, `operators.ts` | `api/die.rs` | ported | 70168f56 |
+| `population/die.py` | `die.rs`, `die_ops.rs`, `to_pool.rs` (typed), `value/to_pool.rs`, `value/matmul.rs` | switched | `lib.rs`, `ops.rs`, `to_pool.rs`, `population.rs`, `format.rs` | `die.ts`, `operators.ts` | `api/die.rs` | ported | 70168f56 |
 | `population/die_with_truth.py` | — | verbatim | — | `die.ts` | `api/die.rs` | facade | 70168f56 |
 | `population/format.py` | `format.rs`, `value/pystr.rs` | switched (CSV still written by Python's `csv`) | `format.rs` | `die.ts`, `deck.ts` | `api/die.rs`, `api/deck.rs` | ported | 70168f56 |
 | `population/keep.py` | `keep.rs`, `keep_tuple.rs` | switched | `lib.rs` | `die.ts`, `functions.ts` | `api/multiset.rs` (the slices only) | ported | 70168f56 |

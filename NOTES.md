@@ -637,7 +637,7 @@ turns out wrong. Newest decisions at the top of each section.
     signature `map<P>(&self, f: impl FnMut(&O) -> P) -> Die<P>`.
 
 - **Generic evaluators (C2, design section 2).** Done for the poker evaluators; basic/keep/comparison are C2b,
-  lexi/argsort C2c, map/explode/Again C2d, statistics/formatting/expand C2e (typed to_pool: C2g), the khepri crate C2f.
+  lexi/argsort C2c, map/explode/Again C2d, statistics/formatting/expand C2e, typed to_pool + PoolMixture C2g, the khepri crate C2f.
   - `evaluator/fold.rs`: `CountFold<O>` (`initial` default `State::default()`, `extra`, `fold`, `finish`) is the
     shape of an evaluator that folds `(outcome, counts)` into a typed state. `count_fold_evaluators!(A, B<F>, ...)`
     writes `impl<O: OutcomeOrder, ..> MultisetEvaluator<O> for A where Self: CountFold<O>`. **Not a blanket impl**:
@@ -732,7 +732,7 @@ turns out wrong. Newest decisions at the top of each section.
     `icepool.map(break_at(1, 0), 0, Die([-1, 1]), repeat='inf')` never ends in either (an unbounded chain): not a
     fixture.
 
-- **Generic statistics, formatting and expand (C2e, design section 2).** to_pool is task C2g.
+- **Generic statistics, formatting and expand (C2e, design section 2).** to_pool is C2g (done, below).
   - **Extension traits.** `Die<Value>` has no public inherent methods of its own any more: Python-typed
     probabilities, quantiles and statistics are `value::PyStatistics` (value/statistics.rs), the rest
     (`cmp_die`, `mean_time_to_sum`, `sign`, marginals, `multiply_quantities` .. `remove`, `one_hot_items`,
@@ -764,7 +764,39 @@ turns out wrong. Newest decisions at the top of each section.
     Python products (`tupleize_dice`, `vectorize_dice`, and `cartesian_product_items` with the `check_hashable`
     key check) are `value::expand`. Typed: `Die::tupleize(&other) -> Die<(O, P)>`,
     `Die::cartesian_product(&[Die<O>]) -> Die<Vec<O>>`.
-  - fixtures/c2e/format-statistics-edge-cases.jsonl. Not done: typed to_pool (C2g: needs a core pool mixture).
+  - fixtures/c2e/format-statistics-edge-cases.jsonl. Typed to_pool: C2g (below).
+
+- **Typed explode_to_pool / reroll_to_pool and the core pool mixture (C2g).**
+  - `mixture.rs`: **`KeepGenerator<O> { Pool, CompoundKeep }`** (root export). Its `PartialEq` is Python's
+    `hash_key`: kind + dice/inner sources + keep tuple, never a pool's outcomes. It has `keep`, `multiply_counts`,
+    `keep_size`, `source`, and `additive_union` (= `pool + pool`: `Pool::additive_union` if every position counts
+    the same, else `CompoundKeep(inners, (1,) * keep sizes)`; negative keeps are `Unported`, Python makes a general
+    expression). **`PoolMixture<O>`** (root): `new(iter of (generator, weight))` merges equal inners into the first
+    seen (`data[inner] += weight`); `inners()`; `keep(&KeepIndex)` / `multiply_counts` / typed `highest` /
+    `lowest` map every inner and re-merge (`_unary_operation`; every typed inner is keepable); typed `evaluate`
+    (each inner's `Die::from_weights(finals)`, equal result dice merged, then `Die::new(DieArg::Die.., weights)`:
+    a lone die of weight 1 comes back as it is, any other weight rescales: `reroll_to_pool(0, ...)` is one empty
+    pool of weight 6 and `.size()` is `{0: 6}`, in Python too). `From<Pool>` = `MultisetMixture({pool: 1})`, which
+    evaluates exactly as the pool: what the typed methods return where Python returns `self.pool(rolls)`.
+  - `to_pool.rs` (core, typed; `value/to_pool.rs` stays the `Value` arithmetic the runner and facade use):
+    `Die<O: Outcome>::explode_to_pool(rolls: usize, which: FnMut(&O) -> bool, depth: u32)` and
+    `reroll_to_pool(rolls, which, max_rerolls: Option<usize> (None = 'inf'), depth: Depth (Infinite =
+    max_rerolls), mode: RerollMode { Random, Low, High, Drop })`, both `-> Result<PoolMixture<O>>`. Counts:
+    explode's Vector is `(usize, usize)` (`rolls @` = one `binary` per roll, as `_sum_all` adds them; the
+    convolution is unique, so the quantities are Python's); reroll states and compositions are `i64` tuples
+    (`n @ coin` = `Die<i64>::matmul`, the coin `{0: d - n, 1: n}` through `from_dict`, which drops a zero side).
+    `Depth::Finite(0)` with a finite `max_rerolls` (and `Infinite` with `max_rerolls = 0`) is Python's
+    `ValueError: repeat cannot be negative.` (`InvalidArgument`).
+  - Tests: doctests (mixture.rs, to_pool.rs, README) and `to_pool::tests` carry the oracle's dice;
+    tests/typed_vs_value.rs `explode_to_pool_agrees_with_value_counts` / `reroll_to_pool_agrees_with_value_compositions`
+    build the `Value` mixture from `value::explode_counts` / `reroll_composition` as the bindings do and compare
+    the inners (kind, dice, outcomes, keep tuple, weight, order) and the sums. fixtures/c2g/typed-to-pool-cases.jsonl
+    (31 programs through the existing S3c nodes: the same cases, for the runner). Fuzz `--ops to_pool_evaluate` clean.
+  - **Not moved:** the runner's `MExpr::Mixture` (crates/icepool-harness/src/expression/mixture.rs) and the Python
+    facade stay as they were. Their mixtures hold any multiset expression (operators, tuple expressions, other
+    mixtures, deals) and Python-typed counts (bools; floats that raise late), which the typed `PoolMixture` does not
+    model. The runner's explode/reroll could build a `PoolMixture<Value>` (it is generic over `OutcomeOrder`), but
+    its `evaluate` needs `Outcome` finals, so a `Value`-final evaluate would be needed first, for no gain.
 
 - **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
