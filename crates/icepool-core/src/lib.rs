@@ -26,11 +26,13 @@ pub use error::{Error, Result};
 pub use format::FormatOutcome;
 pub use function::{d, pointwise_max, pointwise_min, try_d, try_z, z};
 pub use int::Int;
+pub use mixture::{KeepGenerator, PoolMixture};
 pub use multi_deal::MultiDeal;
 pub use order::Order;
 pub use outcome::{Outcome, OutcomeArith, OutcomeOrder, ToRatio};
 pub use population::Comparison;
 pub use pool::Pool;
+pub use to_pool::RerollMode;
 pub use value::Value;
 
 // Internals: everything else is reached through the re-exports above and in `evaluator`, `expression`, `host`
@@ -56,6 +58,7 @@ mod lexi;
 mod map_tools;
 mod math;
 mod memory;
+mod mixture;
 mod multi_deal;
 mod operator;
 mod order;
@@ -64,6 +67,7 @@ mod ownership;
 mod pool;
 mod population;
 mod statistics;
+mod to_pool;
 mod weightless;
 
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`
