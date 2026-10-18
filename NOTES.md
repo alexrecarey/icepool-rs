@@ -5,6 +5,13 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **The long gate's WASM steps (L202610180503, still open).** "fixtures through wasm" times out on its first
+  program whenever run-wasm.sh has to rebuild (after any merge touching core or harness), and "fuzz through wasm"
+  (seed 21) meets the complex `**` program that is 23 ULP off under WASM. Both need the protected gate/compare
+  (QUESTIONS.md L202610172222, updated with timings). Doing C2f alone does not fix the timeout: icepool-wasm's own
+  `runner` feature makes the wasm crate recompile (~12 s) and harness+wasm ~25 s here, still over the harness's
+  20 s, so only building the same features in the gate's "wasm build" step does. run-wasm.sh's staleness check now
+  also watches crates/icepool-harness (it missed it since C5b, so harness-only changes ran on a stale build).
 - **Presentation (C8, design section 7 and 9.8).** README.md (the project, the three bindings with checked
   snippets, parity story, layout, commands); MODULE-MAP.md at the root (docs/ is protected; QUESTIONS.md asks to
   move it): one row per upstream `src/icepool/*.py` with core / facade / PyO3 / TS / wasm files and status. Keep

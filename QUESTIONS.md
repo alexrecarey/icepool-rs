@@ -104,6 +104,12 @@ build the package after main's files were written. Making `runner`/`khepri` defa
 (check-production.sh already builds the npm package's feature set just before, so nothing else loses its warm
 cache.) With that, run-wasm.sh's own build is wasm-bindgen only (~1 s), as its header comment says.
 
+**Still red (long-20261018-0454, task L202610180503):** the same `s1b/die-methods-edge-cases.jsonl:1` timeout.
+Measured on wasm32 release with `--features runner,khepri`, core already built: touching only icepool-wasm's
+sources costs 12 s, touching icepool-harness's 25 s, so nothing short of the gate building run-wasm.sh's feature set
+gets a stale rebuild under 20 s (C2f, khepri as its own crate, would stop core recompiling but not these). The
+one-line gate change above is still the fix.
+
 ## L202610172222: complex `**` under WASM can be more than 2 ULP off (seed 21 of "fuzz through wasm")
 
 `complex(-0.00024988505290350285, -0.5) ** complex(-5.0, 2.5)` is `(1605.4982660299447-258.3902050878144j)` in
@@ -121,6 +127,9 @@ transcendentals would, and B9 decided against porting libm again. The long gate'
 3. bringing back exact libm ports for wasm32 only.
 
 The divergence is recorded in DIVERGENCES.md ("Floats under WASM").
+
+**Still red (long-20261018-0454, task L202610180503):** "fuzz through wasm" seed 21 fails on exactly this program.
+compare.py's per-part 2-ULP tolerance (bf3a2f3) covers 1-ULP complex differences but not this 3/23-ULP one.
 
 ## C5b: the design doc's section 5 and 9.5 after the runner moved (docs/ is protected)
 
