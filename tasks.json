@@ -865,5 +865,14 @@
     ],
     "milestone": null,
     "details": "Design: docs/design/library-architecture.md sections 4 and 7 ('a doctest on every public item'). C7 added typed unit tests, property tests (crates/icepool-core/tests/typed_vs_value.rs) and doctests for every Die method and the Pool, Deck and Deal accessors (NOTES.md 'Rust tests of the typed core (C7)'). Still without an example: MultiDeal and its source, Int's methods, Order/OrderReason, Deal::{from_parts, keep, with_keep_tuple, multiply_counts, source}, the evaluator plumbing (PoolSource, DealSource, MultiDealSource, MultisetSource: outcomes/size/is_resolvable/order_preference/pop), the evaluator structs in evaluator/{basic,keep,lexi,argsort,comparison}.rs, and the public items of `value` and `host`. Values in examples come from the oracle (PYTHONPATH=$ICEPOOL_ORACLE/src). Where an item's signature needs a #[doc(hidden)] type (Die::new and Deck::new take DieArg, Pool::keep takes KeepIndex), say so in QUESTIONS.md instead of documenting a hidden type. `RUSTDOCFLAGS=-D warnings cargo doc -p icepool-core --no-deps` stays clean. Parity with the oracle stays absolute for native and Python builds."
+  },
+  {
+    "id": "C2g",
+    "title": "Typed explode_to_pool / reroll_to_pool: a core pool mixture",
+    "deps": [
+      "C2e"
+    ],
+    "milestone": null,
+    "details": "Design: docs/design/library-architecture.md section 2 and 9.2; the to_pool part of C2e (read NOTES.md 'Generic statistics, formatting and expand (C2e)'). Python's explode_to_pool / reroll_to_pool return a MultisetMixture of pools (expression/multiset_mixture.py: its _prepare multiplies each inner's weight into the sources), which today exists only in the runner (crates/icepool-harness/src/expression/mixture.rs) and the Python facade; the core only has value::to_pool's count / composition dice, built from denominators with Python's arithmetic on Value counts. Give typed dice the feature: a core mixture of pools with weights that evaluators run on (Pool<O>'s evaluate, keep/highest/lowest forwarding as MultisetMixture does when every inner is keepable), Die<O: Outcome>::explode_to_pool(rolls, which, depth) and reroll_to_pool(rolls, which, max_rerolls, depth, mode) with typed count dice (no Value), each checked against the Value path and the oracle's results (typed_vs_value tests, doctests with values from the oracle). Move the runner's mixture onto it only if that keeps every fixture passing; Python's argument handling (star, _select_outcomes, 'inf') stays in the Value layer. Parity with the oracle stays absolute for native and Python builds."
   }
 ]

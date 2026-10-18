@@ -383,9 +383,8 @@ turns out wrong. Newest decisions at the top of each section.
     operator and comparison method. `+ - *` and `Neg` go through `OutcomeArith` (checked; they panic with the
     message "attempt to add with overflow" in release builds too); `/ % & | ^ << >> !` are `O`'s own std operators.
     `i64 + Die<i64>` etc. by macro for the signed primitives. Comparisons are methods `lt le gt ge equal not_equal`
-    -> `Die<bool>`; `==` stays structural (`Die.equals`). `sum_rolls(n)` = `n @ die`. `Display` converts outcomes
-    with `IntoValue` and prints `format(die, "Die", "")`, which is Python's `str(die)` exactly (checked against the
-    oracle for bool and int dice); C3c switches it to `FormatOutcome` once C2e adds that.
+    -> `Die<bool>`; `==` stays structural (`Die.equals`). `sum_rolls(n)` = `n @ die`. `Display` (`O: Outcome +
+    FormatOutcome`, since C2e) prints `die.format("")`, which is Python's `str(die)` exactly.
   - Typed `Die<O: Outcome>`: `single`, `from_weights`, `FromIterator`, `From<Range/RangeInclusive>`, `map`,
     `binary`, `try_binary`, `quantities()`, `IntoIterator for &Die`; `Pool<O: Outcome>`: `highest(n)`, `lowest(n)`,
     `evaluate(&evaluator) -> Result<Die<Final>>`; `die.pool(n)`. These build dice with `from_mapping` (an
@@ -393,7 +392,7 @@ turns out wrong. Newest decisions at the top of each section.
     signature `map<P>(&self, f: impl FnMut(&O) -> P) -> Die<P>`.
 
 - **Generic evaluators (C2, design section 2).** Done for the poker evaluators; basic/keep/comparison are C2b,
-  lexi/argsort C2c, map/explode/Again C2d, to_pool/statistics/formatting C2e, the khepri crate C2f.
+  lexi/argsort C2c, map/explode/Again C2d, statistics/formatting/expand C2e (typed to_pool: C2g), the khepri crate C2f.
   - `evaluator/fold.rs`: `CountFold<O>` (`initial` default `State::default()`, `extra`, `fold`, `finish`) is the
     shape of an evaluator that folds `(outcome, counts)` into a typed state. `count_fold_evaluators!(A, B<F>, ...)`
     writes `impl<O: OutcomeOrder, ..> MultisetEvaluator<O> for A where Self: CountFold<O>`. **Not a blanket impl**:
@@ -481,6 +480,40 @@ turns out wrong. Newest decisions at the top of each section.
     `explode_agrees...`, `repeated_maps_agree...` (typed vs `Value` instantiation). fixtures/c2d.
     `icepool.map(break_at(1, 0), 0, Die([-1, 1]), repeat='inf')` never ends in either (an unbounded chain): not a
     fixture.
+
+- **Generic statistics, formatting and expand (C2e, design section 2).** to_pool is task C2g.
+  - **Extension traits.** `Die<Value>` has no public inherent methods of its own any more: Python-typed
+    probabilities, quantiles and statistics are `value::PyStatistics` (value/statistics.rs), the rest
+    (`cmp_die`, `mean_time_to_sum`, `sign`, marginals, `multiply_quantities` .. `remove`, `one_hot_items`,
+    `multiply_to_denominator`, `hash_key_compare`) `value::PyDie` (value/die.rs). Callers `use
+    icepool_core::value::{PyDie, PyStatistics}`; without the import rustc says "method exists but trait bounds
+    were not satisfied" (it found the typed inherent one). The population `dict` type is `value::Data` (was
+    `population::Data`). Private helpers stay inherent (`den`, `fraction`, `map_quantities`). `sample_at` is
+    generic (population.rs). **A new Python-only method on `Die<Value>` goes into one of these traits.** No
+    `PyFormat`/`PyPool` was needed: the format engine is generic and `Pool<Value>` has no Python-only methods.
+  - **Typed statistics** (statistics.rs): `impl<O: Outcome + ToRatio> Die<O>`: `mean`, `variance`,
+    `probability(Comparison, &O)`, `probabilities(Comparison)` -> `Ratio` (panic on an empty die, Python's
+    ZeroDivisionError), `standard_deviation -> f64` (`ratio_to_f64` then `sqrt`, Python's `math.sqrt(Fraction)`
+    bit for bit). `ToRatio` (outcome.rs): the integer types, `bool`, `Ratio`. `Comparison` and `ToRatio` are root
+    exports. A typed and a `PyStatistics` method share a name and resolve per outcome type (checked:
+    tests/typed_vs_value.rs `statistics_agree_with_python_statistics`).
+  - **Formatting** (format.rs, was value/format.rs): every table function is generic over `O: OutcomeOrder +
+    FormatOutcome` (`fmt_outcome` = `str`, `repr_outcome` = repr inside a tuple, `outcome_len` -> `host::LenKind`
+    for `common_outcome_length`, `fmt_part(i)` = `str(x[i])` for `*o`). Implemented for integers, `bool`,
+    `str`/`String`/`&T`, `Ratio` (Fraction), `[T; N]`, `Vec<T>` and tuples up to 6 (Python's tuples: strs split
+    into characters under `*o` too, as Python does), and `Value` (value/format.rs: `py_str`, `py_repr`, the old
+    `len` match, `getitem`). Quantities and the denominator print with `pystr::int_str` (CPython's 4300-digit
+    limit), probabilities from `Ratio::from_parts(q, den)` (= `probabilities()`'s Fractions); the `i` columns
+    call `value::format::format_probability_inverse` on a `Value::Fraction` (Python's mixed float/Fraction
+    arithmetic is there). Bindings import `icepool_core::format::{format, Formatted, common_outcome_length}`;
+    `format_probability_inverse` stays in `value::format`. `Die::format(spec)` is Python's `die.format`.
+    `str_repr` refuses non-ASCII (Unported), so a typed tuple holding a non-ASCII str cannot `Display`
+    (`fmt::Error`).
+  - **expand** (expand.rs): `cartesian_product_items<T, P>` takes `outcome_type: Fn(Vec<T>) -> Result<P>`; the
+    Python products (`tupleize_dice`, `vectorize_dice`, and `cartesian_product_items` with the `check_hashable`
+    key check) are `value::expand`. Typed: `Die::tupleize(&other) -> Die<(O, P)>`,
+    `Die::cartesian_product(&[Die<O>]) -> Die<Vec<O>>`.
+  - fixtures/c2e/format-statistics-edge-cases.jsonl. Not done: typed to_pool (C2g: needs a core pool mixture).
 
 - **Library architecture (D1, 2026-10-17): `docs/design/library-architecture.md`** is the plan C1-C8 follow (in
   `design/`, not `docs/design/`: docs/ is protected; QUESTIONS.md asks for the move). The short of it: generic code
