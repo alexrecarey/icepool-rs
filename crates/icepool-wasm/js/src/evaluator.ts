@@ -24,7 +24,6 @@ import {
   implicitAll,
   parameter,
   withInputs,
-  type Input,
   type MultisetArg,
 } from "./multiset.js";
 import {
@@ -140,7 +139,7 @@ export abstract class MultisetEvaluator {
   evaluate(...rest: EvaluateArg[]): Die {
     const [inputs, kwargs] = opts<Record<string, unknown>>(rest);
     // `implicit_convert_to_expression(arg)` of each input.
-    const exprs = evaluationInputs(inputs);
+    const exprs = implicitAll(inputs);
     if (exprs === undefined) return evaluateWith(this as unknown as EvaluatorMethods, inputs, kwargs);
     const host = new HostEvaluator(this as unknown as EvaluatorMethods, kwargs);
     // Inside a multiset function's body: the raw result recording the evaluation.
@@ -165,15 +164,6 @@ export interface MultisetEvaluator {
    * them, given the inputs' outcomes in ascending order; e.g. every int between the lowest and the highest, to
    * see gaps. Default none. */
   extraOutcomes?(outcomes: Outcome[]): Iterable<Outcome>;
-}
-
-/** The inputs of an evaluation: `implicit_convert_to_expression` of each, a native multiset tuple expression (a
- * `MultiDeal`, a tuple parameter, a slice) as itself; `undefined` if any is not native. */
-function evaluationInputs(xs: readonly unknown[]): Input[] | undefined {
-  const converted = xs.map((x): Input | undefined =>
-    x instanceof MultisetTupleExpression ? (x.node === undefined ? undefined : x) : implicitAll([x])?.[0],
-  );
-  return converted.every((x) => x !== undefined) ? (converted as Input[]) : undefined;
 }
 
 /** `evaluate()` through the bridge (rpc.ts), for inputs the native tree does not model. */
@@ -403,7 +393,7 @@ export class MultisetFunction extends Handle {
    */
   call(...rest: unknown[]): Die {
     const [args, kwargs] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-    const exprs = this.signature === undefined ? undefined : evaluationInputs(args);
+    const exprs = this.signature === undefined ? undefined : implicitAll(args);
     if (exprs !== undefined) {
       // Inside another function's body: the raw result recording the call.
       if (exprs.some(hasParameter)) return new RawResult({ kind: "function", f: this, kwargs }, exprs) as unknown as Die;

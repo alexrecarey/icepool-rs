@@ -1374,7 +1374,7 @@ export type Node =
   | { readonly kind: "weightless"; readonly inner: MultisetExpression }
   | {
       readonly kind: "operator";
-      readonly children: readonly MultisetExpression[];
+      readonly children: readonly Input[];
       readonly push: Push;
       /** The operator's `_expression_key`: its class and parameters (ints as BigInts, functions by identity). */
       readonly key: readonly unknown[];
@@ -1510,6 +1510,17 @@ export function registerDealClass(cls: typeof KeepGenerator): void {
   dealClass = cls;
 }
 
+/** deck.ts's `MultisetTupleExpression`, which registers itself. */
+let tupleExpressionClass: abstract new (...args: never[]) => object = class {};
+
+/** Registers deck.ts's `MultisetTupleExpression`. @internal */
+export function registerTupleExpressionClass(cls: abstract new (...args: never[]) => object): void {
+  tupleExpressionClass = cls;
+}
+
+/** Whether `x` is a native multiset tuple expression. */
+const isTupleExpression = (x: Input): boolean => x instanceof tupleExpressionClass;
+
 /** A keep generator of the core as an expression: a `Pool`, a `Deal`, or a `KeepGenerator` for a compound keep.
  * @internal */
 export function generator(g: WasmGenerator): KeepGenerator {
@@ -1522,19 +1533,19 @@ export function tupleIndex(child: TupleExpressionLike, index: Int): MultisetExpr
 }
 
 /** The core generator of a native keep generator, if `x` is one. @internal */
-export function generatorOf(x: MultisetExpression): WasmGenerator | undefined {
+export function generatorOf(x: Input): WasmGenerator | undefined {
   return x.node?.kind === "generator" ? x.node.g : undefined;
 }
 
 /** A keep generator without negative keeps (closed under keep-like operations). */
-function keepable(x: MultisetExpression): WasmGenerator | undefined {
+function keepable(x: Input): WasmGenerator | undefined {
   const g = generatorOf(x);
   return g !== undefined && !wasm(() => g.hasNegativeKeeps()) ? g : undefined;
 }
 
 /** A `MultisetOperator` node over `children`. */
 function operator(
-  children: MultisetExpression[],
+  children: Input[],
   key: unknown[],
   push: Push,
   { str, hashable = true }: { str?: Str; hashable?: boolean } = {},
@@ -1548,7 +1559,7 @@ type Str = (children: readonly string[]) => string;
 const countStr = (op: string, n: Int): Str => ([c]) => `(${c} ${op} ${n})`;
 
 /** A binary operator (operator/binary.py) by its class's name. */
-function binaryOperator(name: string, children: MultisetExpression[]): Expression {
+function binaryOperator(name: string, children: Input[]): Expression {
   // `'(' + (' ' + self.symbol() + ' ').join(str(child) for child in self._children) + ')'`
   const symbol = BINARY_SYMBOLS[name];
   return operator(children, [name], (b) => b.binary(name, children.length), { str: (cs) => `(${cs.join(` ${symbol} `)})` });
@@ -1564,18 +1575,20 @@ const BINARY_SYMBOLS: Record<string, string> = {
 };
 
 /** `+expr`: `MultisetKeepCounts(expr, comparison='>=', constant=0)`. */
-const positive = (x: MultisetExpression) => keepCountsOperator(x, ">=", 0);
+const positive = (x: Input) => keepCountsOperator(x, ">=", 0);
 
 /** `MultisetKeepCounts(expr, comparison=comparison, constant=n)`. */
-function keepCountsOperator(x: MultisetExpression, comparison: string, n: Int): Expression {
+function keepCountsOperator(x: Input, comparison: string, n: Int): Expression {
   const str: Str = ([c]) => `${c}.keep_counts('${comparison}', ${n})`;
   return operator([x], ["MultisetKeepCounts", comparison, n], (b) => b.keepCounts(comparison, n), { str });
 }
 
-/** `implicit_convert_to_expression(x)`: an expression stays itself; a sequence (an array, a str) becomes
- * `Pool(x)`; anything else raises `ImplicitConversionError` (a `TypeError`). */
-function implicit(x: unknown): MultisetExpression | undefined {
+/** `implicit_convert_to_expression(x)`: an expression (or a multiset tuple expression, whose counts are then
+ * tuples) stays itself; a sequence (an array, a str) becomes `Pool(x)`; anything else raises
+ * `ImplicitConversionError` (a `TypeError`). */
+function implicit(x: unknown): Input | undefined {
   if (x instanceof MultisetExpression) return isNative(x) ? x : undefined;
+  if (x instanceof tupleExpressionClass) return isNative(x as TupleExpressionLike) ? (x as TupleExpressionLike) : undefined;
   if (Array.isArray(x) || typeof x === "string") return poolOf(x, 1);
   if (x instanceof Die) throw valueError(`A Pool cannot be constructed with a ${x.constructor.name} argument.`);
   // An `AgainExpression` is neither a mapping nor a sequence; nor is a number.
@@ -1587,9 +1600,9 @@ function implicit(x: unknown): MultisetExpression | undefined {
 }
 
 /** `implicit` of each; `undefined` if any is not native. @internal */
-export const implicitAll = (xs: readonly unknown[]): MultisetExpression[] | undefined => {
+export const implicitAll = (xs: readonly unknown[]): Input[] | undefined => {
   const converted = xs.map(implicit);
-  return converted.every((x) => x !== undefined) ? (converted as MultisetExpression[]) : undefined;
+  return converted.every((x) => x !== undefined) ? (converted as Input[]) : undefined;
 };
 
 // --- Pools ---
@@ -1690,8 +1703,8 @@ const emptyStandardPool = (): Pool => Pool.native({ kind: "generator", g: buildP
 
 /** `MultisetMixture`'s inners if it is `_static_keepable` (all inners keep generators, or such mixtures): then
  * `keep` and `multiply_counts` apply to each inner instead. */
-function keepableMixture(x: MultisetExpression): readonly (readonly [MultisetExpression, bigint])[] | undefined {
-  const staticKeepable = (e: MultisetExpression): boolean =>
+function keepableMixture(x: Input): readonly (readonly [MultisetExpression, bigint])[] | undefined {
+  const staticKeepable = (e: Input): boolean =>
     e.node?.kind === "generator" || (e.node?.kind === "mixture" && e.node.inners.every(([inner]) => staticKeepable(inner)));
   return x.node?.kind === "mixture" && staticKeepable(x) ? x.node.inners : undefined;
 }
@@ -1842,7 +1855,7 @@ const KEEP_COUNTS_COMPARISONS = ["==", "!=", "<=", "<", ">=", ">"];
 
 /** `self.additive_union(*args)` as the method resolves on `args[0]`: `Pool.additive_union` merges pools whose
  * sorted positions all count the same, other keep generators make a compound keep. */
-function methodAdditiveUnion(args: MultisetExpression[]): MultisetExpression {
+function methodAdditiveUnion(args: Input[]): MultisetExpression {
   const first = generatorOf(args[0]);
   if (first === undefined) return binaryOperator("MultisetAdditiveUnion", args);
   const generators = args.map(generatorOf);
@@ -1855,7 +1868,7 @@ function methodAdditiveUnion(args: MultisetExpression[]): MultisetExpression {
 
 /** `KeepGenerator.additive_union(*args)`: a `CompoundKeepGenerator` if all are keep generators without negative
  * keeps (counting each element once), else `MultisetExpression.additive_union`. */
-function keepGeneratorAdditiveUnion(args: MultisetExpression[]): MultisetExpression {
+function keepGeneratorAdditiveUnion(args: Input[]): MultisetExpression {
   const generators = args.map(keepable);
   if (generators.every((g) => g !== undefined)) {
     return generator(wasm((w) => w.WasmGenerator.compound(generators.map((g) => (g as WasmGenerator).copy()))));
@@ -1883,9 +1896,9 @@ function binary(x: MultisetExpression, op: string, other: unknown): MultisetExpr
 }
 
 /** `str(expression)`; `undefined` where Python's is `object.__repr__`, a memory address. */
-function expressionStr(x: MultisetExpression): string | undefined {
-  const node = x.node as Node;
-  const strs = (xs: readonly MultisetExpression[]) => {
+function expressionStr(x: Input): string | undefined {
+  const node = x.node as Node | TupleNode;
+  const strs = (xs: readonly Input[]) => {
     const all = xs.map(expressionStr);
     return all.every((s) => s !== undefined) ? (all as string[]) : undefined;
   };
@@ -1897,9 +1910,14 @@ function expressionStr(x: MultisetExpression): string | undefined {
     // `MultisetParameterBase.__str__`: `self._name`.
     case "parameter":
       return node.name;
-    // `MultisetTupleIndex` has no `__str__`.
+    // `MultisetTupleIndex` and `MultisetTupleSlice` have no `__str__`.
     case "tupleIndex":
+    case "tupleSlice":
       return undefined;
+    case "tupleParameter":
+      return node.name;
+    case "multiDeal":
+      return wasm(() => node.md.strs()[1]);
     case "operator": {
       const children = strs(node.children);
       return children === undefined || node.str === undefined ? undefined : node.str(children);
@@ -1914,13 +1932,13 @@ function expressionStr(x: MultisetExpression): string | undefined {
 }
 
 /** Whether `hash(expression)` works: its `hash_key` holds nothing unhashable. */
-function hashable(x: MultisetExpression): boolean {
+function hashable(x: Input): boolean {
   const node = x.node;
   return node?.kind !== "operator" || (node.hashable && node.children.every(hashable));
 }
 
 /** Whether a dict holding expression `a` finds it equal to `b`: their `hash_key`s. */
-function sameExpression(a: MultisetExpression, b: MultisetExpression): boolean {
+function sameExpression(a: Input, b: Input): boolean {
   const [x, y] = [a.node, b.node];
   if (a === b) return true;
   if (x === undefined || y === undefined) return false;
@@ -1929,8 +1947,15 @@ function sameExpression(a: MultisetExpression, b: MultisetExpression): boolean {
   if (x.kind === "weightless" && y.kind === "weightless") return sameExpression(x.inner, y.inner);
   // `(type, arg_index, star_index)`.
   if (x.kind === "parameter" && y.kind === "parameter") return x.argIndex === y.argIndex && x.starIndex === y.starIndex;
-  // `(MultisetTupleIndex, index)`: the child is left out.
+  // `(MultisetTupleIndex, index)` and `(MultisetTupleSlice, (start, step, stop))`: the child is left out.
   if (x.kind === "tupleIndex" && y.kind === "tupleIndex") return keyPart(x.index) === keyPart(y.index);
+  if (x.kind === "tupleSlice" && y.kind === "tupleSlice") {
+    const [a, b] = [[...x.bounds], [...y.bounds]];
+    return wasm((w) => w.dictKeys([a, b]))[1] === 0;
+  }
+  // `(MultiDeal, deck, hand_groups)`; a tuple parameter's as any parameter's.
+  if (x.kind === "multiDeal" && y.kind === "multiDeal") return wasm(() => x.md.sameKey(y.md));
+  if (x.kind === "tupleParameter" && y.kind === "tupleParameter") return x.argIndex === y.argIndex;
   // `(MultisetMixture, tuple(inners.items()))`.
   if (x.kind === "mixture" && y.kind === "mixture") {
     return x.inners.length === y.inners.length &&
@@ -2049,7 +2074,7 @@ export function withInputs<T>(inputs: readonly Input[], f: (b: ExpressionBuilder
 
 /** `evaluator.evaluate(*inputs)` of the core's built-in evaluator `name` (with `params`: evaluate.rs `with_builtin`);
  * `undefined` if an input is not native. Inside a multiset function's body, the raw result recording it. */
-function evaluation(name: string, params: unknown[], inputs: MultisetExpression[]): Die | undefined {
+function evaluation(name: string, params: unknown[], inputs: Input[]): Die | undefined {
   if (!inputs.every(isNative)) return undefined;
   if (inputs.some(hasParameter)) return new RawResult({ kind: "builtin", name, params }, inputs) as unknown as Die;
   return Die.wrap(withInputs(inputs, (b) => b.evaluate(name, params, inputs.length)));
@@ -2090,6 +2115,14 @@ function filterOutcomes(x: MultisetExpression, invert: boolean, target: unknown)
     if (!isNative(target)) return undefined;
     const str: Str = ([c, t]) => `${c}.${invert ? "drop" : "keep"}_outcomes(${t})`;
     return operator([x, target], ["MultisetFilterOutcomesBinary", invert], (b) => b.filterBinary(invert), { str });
+  }
+  // A multiset tuple expression is not a `MultisetExpression`: `frozenset(target)` iterates it into its
+  // `MultisetTupleIndex`es (`range(len(target))`), whose hashes (of `(type, index)`) no outcome's matches, so nothing
+  // is in it. A slice's `len()` is the bridge's.
+  if (target instanceof tupleExpressionClass) {
+    const kind = (target as TupleExpressionLike).node?.kind;
+    if (kind !== "multiDeal" && kind !== "tupleParameter") return undefined;
+    return operator([x], ["MultisetFilterOutcomes", {}, invert], (b) => b.filterSet(invert, []), { str: filterStr(invert) });
   }
   if (typeof target === "function") {
     const f = target as AnyFunction;
@@ -2154,7 +2187,8 @@ function maxPair(x: MultisetExpression, keep: boolean, comparison: unknown, othe
   const y = implicit(other);
   if (y === undefined || typeof comparison !== "string") return undefined;
   if (comparison === "==") {
-    // `+self & +other`, or `self - other`.
+    // `+self & +other`, or `self - other`. A multiset tuple expression has no unary `+`.
+    if (keep && isTupleExpression(y)) throw typeError("bad operand type for unary +");
     if (keep) return binaryOperator("MultisetIntersection", [positive(x), positive(y)]);
     return binaryOperator("MultisetDifferenceDropNegative", [x, y]);
   }

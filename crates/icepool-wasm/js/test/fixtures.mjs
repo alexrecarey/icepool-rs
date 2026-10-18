@@ -154,6 +154,8 @@ const isOperand = (x) => x instanceof ip.Die || x instanceof ip.AgainExpression;
 const isKeep = (x) => x instanceof ip.KeepGenerator;
 const isExpr = (x) => x instanceof ip.MultisetExpression;
 const isList = (x) => x instanceof ip.List;
+/** Python's `isinstance(x, int)`. */
+const isIntValue = (x) => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
 const camel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 const ok = (value) => ({ value });
 /** A sequence of `[key, value]` pairs (what `dict(...)` takes without raising). */
@@ -455,14 +457,19 @@ const IDIOMATIC = {
   },
 
   // Decks and deals.
-  deck: ({ outcomes, times }) => isList(outcomes) && ok(new ip.Deck(outcomes, times)),
+  // Any sequence or mapping: a list, a str, a die or a deck.
+  deck: ({ outcomes, times }) =>
+    (isList(outcomes) || typeof outcomes === "string" || isDie(outcomes) || outcomes instanceof ip.Deck) &&
+    ok(new ip.Deck(outcomes, times)),
   deal: ({ deck, hand_size }) => deck instanceof ip.Deck && !Array.isArray(hand_size) && ok(deck.deal(hand_size)),
-  multi_deal: ({ deck, hand_sizes }) => deck instanceof ip.Deck && isList(hand_sizes) && ok(deck.deal(hand_sizes)),
+  multi_deal: ({ deck, hand_sizes }) => deck instanceof ip.Deck && !isIntValue(hand_sizes) && ok(deck.deal(hand_sizes)),
   deal_groups: ({ deck, hand_groups }) => deck instanceof ip.Deck && isList(hand_groups) && ok(deck.dealGroups(...hand_groups)),
   deck_map: ({ deck, repl, star }) => deck instanceof ip.Deck && ok(deck.map(repl, { star })),
   deck_op: ({ operator, a, b }) => {
     const m = { "+": "add", "-": "sub", "&": "and", "|": "or", "^": "xor" }[operator];
-    return a instanceof ip.Deck && m !== undefined && ok(a[m](b));
+    if (a instanceof ip.Deck) return m !== undefined && ok(a[m](b));
+    // A deck only on the right: its reflected operator (there is no `__rxor__`).
+    return b instanceof ip.Deck && m !== undefined && m !== "xor" && !(a instanceof ip.MultisetExpression) && ok(b[`r${m}`](a));
   },
   deck_mul: ({ deck, operator, n }) => {
     const m = { "*": "mul", "//": "floordiv", "%": "mod" }[operator];
@@ -475,6 +482,8 @@ const IDIOMATIC = {
     if (!(deck instanceof ip.Deck)) return undefined;
     switch (name) {
       case "symmetric_difference": return ok(deck.symmetricDifference(arg));
+      case "additive_union": case "difference": case "intersection": case "union":
+        return isList(arg) && ok(deck[camel(name)](...arg));
       case "getitem": return ok(deck.get(arg));
       case "keys": return ok(deck.keys());
       case "values": return ok(deck.values());

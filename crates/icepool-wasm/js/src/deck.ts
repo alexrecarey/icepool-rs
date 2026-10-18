@@ -26,6 +26,7 @@ import {
   mixtureOf,
   native,
   registerDealClass,
+  registerTupleExpressionClass,
   tupleIndex,
   type TupleNode,
 } from "./multiset.js";
@@ -173,13 +174,16 @@ export class Deck extends Replayable implements Iterable<Outcome> {
         () => call("deal", { deck: this, hand_size: handSize }),
       );
     }
-    if (Array.isArray(handSize)) {
+    // A str is an iterable of its characters; anything else not iterable raises.
+    const sizes: unknown = typeof handSize === "string" ? [...handSize] : handSize;
+    if (Array.isArray(sizes)) {
       const bridge = () => call("multi_deal", { deck: this, hand_sizes: list(handSize) });
       // `sum(hand_size * group_size ...)` starts from 0: `0 + 'a'` is a TypeError.
-      if (handSize.some((h) => typeof h === "string")) throw typeError("unsupported operand type(s) for +: 'int' and 'str'");
-      if (!handSize.every(isExactInt)) return bridge() as MultiDeal;
-      return native(null, () => this.multiDeal(handSize.flatMap((h) => [h, 1])), bridge);
+      if (sizes.some((h) => typeof h === "string")) throw typeError("unsupported operand type(s) for +: 'int' and 'str'");
+      if (!sizes.every(isExactInt)) return bridge() as MultiDeal;
+      return native(null, () => this.multiDeal(sizes.flatMap((h) => [h, 1])), bridge);
     }
+    if (isPlainValue(handSize)) throw typeError(`'${pyTypeName(handSize)}' object is not iterable`);
     return call("deal", { deck: this, hand_size: handSize }) as Deal;
   }
   /** `Deck.deal_groups(*hand_groups)` (EXPERIMENTAL in icepool): deals cards into groups of hands, where the hands
@@ -285,6 +289,38 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   xor(other: unknown): Deck { return this.counterOp("xor", other); }
+  /** `other + deck` (`__radd__`, the same as `__add__`: this deck's cards first).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).radd([3]).items(); //=> [[1, 1n], [2, 1n], [3, 1n]]
+   * ```
+   */
+  radd(other: unknown): Deck { return this.counterOp("add", other); }
+  /** `other - deck` (`__rsub__`): the other cards with this deck's removed (but not below zero of each card).
+   *
+   * @example
+   * ```ts
+   * new Deck([1]).rsub([1, 1, 2]).items(); //=> [[1, 1n], [2, 1n]]
+   * ```
+   */
+  rsub(other: unknown): Deck { return this.counterOp("rsub", other); }
+  /** `other & deck` (`__rand__`, the same as `__and__`).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).rand([2, 2]).items(); //=> [[2, 1n]]
+   * ```
+   */
+  rand(other: unknown): Deck { return this.counterOp("and", other); }
+  /** `other | deck` (`__ror__`, the same as `__or__`).
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2]).ror([2, 2]).items(); //=> [[1, 1n], [2, 2n]]
+   * ```
+   */
+  ror(other: unknown): Deck { return this.counterOp("or", other); }
   /** `deck * n`: every quantity multiplied by `n`.
    *
    * @example
@@ -673,7 +709,7 @@ export class Deck extends Replayable implements Iterable<Outcome> {
   /** `self <op> other` for a deck operator by its Python name: `Counter(other)` of a deck or die (its quantities),
    * of a Map (its values, ints), of an array or str (its elements counted), or of a multiset expression (its
    * elements, iterated). */
-  private counterOp(op: "add" | "sub" | "and" | "or" | "xor", other: unknown): Deck {
+  private counterOp(op: "add" | "sub" | "rsub" | "and" | "or" | "xor", other: unknown): Deck {
     const w = this.w;
     if (other instanceof Deck || other instanceof Die) {
       const population = other instanceof Deck ? other.population() : other;
@@ -691,7 +727,8 @@ export class Deck extends Replayable implements Iterable<Outcome> {
     const expressionResult = other instanceof MultisetExpression ? counterOfExpression(this, op, other) : undefined;
     if (expressionResult !== undefined) return expressionResult;
     if (["number", "bigint", "boolean"].includes(typeof other)) throw typeError(`'${pyTypeName(other)}' object is not iterable`);
-    const operator = { add: "+", sub: "-", and: "&", or: "|", xor: "^" }[op];
+    const operator = { add: "+", sub: "-", rsub: "-", and: "&", or: "|", xor: "^" }[op];
+    if (op === "rsub") return call("deck_op", { operator, a: list(other), b: this }) as Deck;
     return call("deck_op", { operator, a: this, b: list(other) }) as Deck;
   }
 
@@ -759,7 +796,7 @@ function counterOfExpression(deck: Deck, op: string, expr: MultisetExpression): 
     if (!(die instanceof Die) || (!bounded && die.size === 0)) return undefined;
     dice.push(die);
   }
-  const keepsDice = op === "add" || op === "or" || op === "xor";
+  const keepsDice = op === "add" || op === "rsub" || op === "or" || op === "xor";
   const w = deck.w;
   // The deck's own cards first (`counter_items(op, Counter())`), then the dice.
   const own = Deck.wrap(wasm(() => w.counterElements(op, [])));
@@ -1135,6 +1172,8 @@ registerKind("multi_deal", (h) => {
     wasm((w) => w.release(h));
   }
 });
+registerTupleExpressionClass(MultisetTupleExpression);
+
 // A tuple parameter or slice of the bridge's own tracing: only the bridge holds it.
 registerKind("tuple_expr", (h) => new MultisetTupleExpression(HANDLE, h));
 
