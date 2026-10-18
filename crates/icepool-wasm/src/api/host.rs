@@ -56,6 +56,14 @@ extern "C" {
     #[wasm_bindgen(js_namespace = __icepool_wasm_host, js_name = againDie)]
     pub(super) fn again_die(objects: Vec<JsValue>, times: &JsValue) -> Vec<JsValue>;
 
+    /// The transition function of a `TransitionCache` (js/src/functions.ts `transition`): `step(state, i)` calls
+    /// it on a state and the `i`th joint outcome of the extra arguments (see `map_tools::next` for what it
+    /// returns).
+    pub type Transition;
+
+    #[wasm_bindgen(method, structural)]
+    pub(super) fn step(this: &Transition, state: JsValue, i: u32) -> Vec<JsValue>;
+
     /// `String(x)`: a BigInt's decimal digits.
     #[wasm_bindgen(js_name = String)]
     pub(super) fn js_string(x: &JsValue) -> String;

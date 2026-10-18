@@ -13,6 +13,7 @@ mod die;
 mod error;
 mod function;
 mod host;
+mod map_tools;
 mod value;
 
 pub use die::{live_dice, BinaryOp, DieBuilder, UnaryOp, WasmDie};

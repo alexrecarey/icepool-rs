@@ -967,7 +967,23 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   timeToSum(target: Int, maxTime: Int | null = null, dnf: Int | typeof Reroll | null = null): Die {
-    return call("time_to_sum", { die: this, target, max_time: maxTime, dnf }) as Die;
+    if (pyBool(ops.le(target, 0))) return new Die([0]);
+    let time: unknown = maxTime;
+    if (time === null) {
+      const min = this.minOutcome();
+      if (pyBool(ops.le(min, 0))) {
+        throw new IcepoolError("InvalidArgument", "ValueError", "max_time must be provided if not all outcomes are positive.");
+      }
+      time = ops.floordiv(ops.sub(ops.add(target, min), 1), min);
+    }
+    const whenNotReached = dnf === null ? time : dnf;
+    // `min(total + roll, target)`: Python's `min` keeps the first of equals.
+    const step = (total: unknown, roll: unknown) => {
+      const sum = ops.add(total, roll);
+      return pyBool(ops.lt(target, sum)) ? target : sum;
+    };
+    const result = new Die([0]).mapAndTime(step as Callback<MapResult>, this, { repeat: time });
+    return result.map((total: unknown, t: unknown) => (pyBool(ops.lt(total, target)) ? whenNotReached : t) as MapResult);
   }
   /** `die.group_by(key_map, star=)`: the dice of the outcomes with the same key, by key (in order of first
    * appearance; keys equal by Python's `==`). `key` is called on each outcome (unpacked if `star`), or a Map

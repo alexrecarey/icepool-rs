@@ -317,12 +317,23 @@ const IDIOMATIC = {
     const w = typeof method === "string" && MX_EVALUATIONS.has(method) ? wallenius(data, mapping) : undefined;
     return w !== undefined && ok(w.deal(hand_size)[camel(method)]());
   },
-  pointwise: ({ args, max, spread }) => isList(args) && spread === true && ok(max === true ? ip.pointwiseMax(...args) : max === false ? ip.pointwiseMin(...args) : undefined),
-  extreme_outcome: ({ args, max, spread }) =>
-    isList(args) && spread === true && typeof max === "boolean" && ok(max ? ip.maxOutcome(...args) : ip.minOutcome(...args)),
+  // `spread`: `f(*args)`, else `f(args)` (a single argument, which the function iterates over).
+  pointwise: ({ args, max, spread }) => {
+    if (typeof max !== "boolean" || typeof spread !== "boolean" || (spread && !isList(args))) return undefined;
+    const f = max ? ip.pointwiseMax : ip.pointwiseMin;
+    return ok(spread ? f(...args) : f(args));
+  },
+  extreme_outcome: ({ args, max, spread }) => {
+    if (typeof max !== "boolean" || typeof spread !== "boolean" || (spread && !isList(args))) return undefined;
+    const f = max ? ip.maxOutcome : ip.minOutcome;
+    return ok(spread ? f(...args) : f(args));
+  },
+  consecutive: ({ args }) => isList(args) && ok(ip.consecutive(...args)),
+  sorted_union: ({ args }) => isList(args) && ok(ip.sortedUnion(...args)),
+  to_one_hot: ({ population, outcomes }) => isDie(population) && ok(population.toOneHot(outcomes)),
   harmonize_denominators: ({ dice, weights }) => isList(dice) && ok(ip.harmonizeDenominators(dice, weights)),
   format_probability_inverse: ({ probability, args }) =>
-    isList(args) && args.length === 1 && ok(ip.formatProbabilityInverse(probability, args[0])),
+    isList(args) && args.length <= 1 && ok(ip.formatProbabilityInverse(probability, ...args)),
 
   // Pools and multiset expressions.
   pool: ({ dice, times }) => isList(dice) && ok(new ip.Pool(dice, times)),

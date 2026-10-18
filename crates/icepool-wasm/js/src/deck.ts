@@ -1,6 +1,8 @@
 // Decks and deals (population/deck.py, generator/deal.py, generator/multi_deal.py, wallenius.py).
 // INTERIM (task C6): held through the bridge (rpc.ts) until they move onto typed exports.
 
+import { AgainExpression } from "./again.js";
+import { IcepoolError } from "./errors.js";
 import { list, type Callback, type Die, type MapResult } from "./die.js";
 import { KeepGenerator, type MultisetExpression } from "./multiset.js";
 import { HANDLE, Handle, call, registerKind, wrapHandle } from "./rpc.js";
@@ -43,6 +45,10 @@ export class Deck extends Handle implements Iterable<Outcome> {
    * array as long as `outcomes`. */
   constructor(outcomes: DeckOutcomes, times: Int | readonly Int[] = 1) {
     super(HANDLE, -1);
+    const keys = outcomes instanceof Map ? [...outcomes.keys()] : Array.isArray(outcomes) ? outcomes : [];
+    if (keys.some((x) => x instanceof AgainExpression)) {
+      throw new IcepoolError("InvalidArgument", "ValueError", "Again cannot be used with Decks.");
+    }
     const made =
       outcomes instanceof Map
         ? call("deck", { outcomes: List.from(outcomes.keys()), times: List.from(outcomes.values()) })

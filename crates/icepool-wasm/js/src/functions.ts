@@ -10,7 +10,8 @@ import type { MultisetExpression } from "./multiset.js";
 import { Handle, call, callWith, enc, kwargsText } from "./rpc.js";
 import { Break, Fraction, List, Reroll, Restart, Symbols, Vector, valueTruth, type Float, type Int, type Outcome } from "./values.js";
 import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
-import { wasm } from "./wasm.js";
+import { isTrap, wasm } from "./wasm.js";
+import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 
 /** Python's `isinstance(x, int)` (a bool is one). */
 const isPyInt = (x: unknown): x is Int | boolean => typeof x === "bigint" || typeof x === "boolean" || Number.isInteger(x);
@@ -262,8 +263,12 @@ export function map(f: Repl, ...rest: unknown[]): Die {
       throw new IcepoolError("Unported", "NotImplementedError", "map of multiset expressions or decks with again options");
     }
   }
-  const a = List.from(args);
   // With `repeat` Python ignores the again options.
+  if (repeat !== null) {
+    const repeated = mapRepeat(f, args, star, kwargs, repeat);
+    if (repeated !== undefined) return repeated;
+  }
+  const a = List.from(args);
   if (repeat !== null) {
     return call("map_repeat", { f, args: a, star, repeat: repeat === Infinity ? "inf" : repeat }) as Die;
   }
@@ -351,6 +356,95 @@ function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint
   }
 }
 
+/** `map(repl, *args, repeat=repeat)` on the core's `TransitionCache`: Python's checks on `repeat`, then the Markov
+ * process from `Die([first_arg])` (`Infinity` / `'inf'`: the absorbing Markov chain). `undefined` where the bridge
+ * must do it (multiset expression or deck arguments, a callable of the bridge's). */
+function mapRepeat(f: Repl, args: unknown[], star: unknown, kwargs: Record<string, unknown>, repeat: unknown): Die | undefined {
+  if (args.length === 0) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repeat cannot be used.");
+  const [first, ...extra] = args;
+  const cache = first instanceof Handle ? undefined : transitionCache(f, extra, star, kwargs);
+  if (cache === undefined) return undefined;
+  if (repeat === Infinity || repeat === "inf") return absorbingMarkovChain(cache, first)[0];
+  if (pyBool(binary("lt", repeat, 0))) throw new IcepoolError("InvalidArgument", "ValueError", "repeat cannot be negative.");
+  if (pyBool(binary("eq", repeat, 0))) return new Die([first as MapResult]);
+  const initialDie = new Die([first as MapResult]);
+  return Die.wrap(wasm((w) => w.mapRepeat(cache.transition, cache.quantities, initialDie.w, rangeRepeat(repeat))));
+}
+
+/** markov_chain.py `absorbing_markov_chain_impl(transition_cache, initial_state)`: the absorption die and the mean
+ * absorption time (`null` if a `Restart` was possible). */
+function absorbingMarkovChain(cache: TransitionCacheArgs, initial: unknown): [Die, Fraction | null] {
+  const initialDie = new Die([initial as MapResult]);
+  const [die, time] = wasm((w) => w.absorbingMarkovChain(cache.transition, cache.quantities, initialDie.w)) as [WasmDie, Fraction | null];
+  return [Die.wrap(die), time];
+}
+
+/** `range(repeat)`'s count for the core: an int (negative: none; past the core's `u32`, as many as it takes to
+ * converge), `undefined` for anything else, where Python's `range` raises `TypeError`. */
+function rangeRepeat(repeat: unknown): number | undefined {
+  if (typeof repeat === "boolean") return Number(repeat);
+  if (!isPyInt(repeat)) return undefined;
+  return Math.max(0, Math.min(Number(repeat), 2 ** 32 - 1));
+}
+
+/** What the core's `TransitionCache` takes: the transition object and the joint quantities of the extra
+ * arguments. */
+interface TransitionCacheArgs {
+  transition: { step(state: unknown, i: number): unknown[] };
+  quantities: bigint[];
+}
+
+/** map_tools `TransitionCache(repl, *extra_args, star=star, **kwargs)` for the core: `step(state, i)` calls `repl`
+ * (a function, unpacking the state if `star`; or a Map, `mapping.get(state, state)`, as common.py
+ * `transition_and_star` makes it) on the state and the `i`th joint outcome of the extra arguments, keyword
+ * arguments as a trailing options object, and tells the core what it returned. `undefined` where the bridge must
+ * do it (multiset expression or deck arguments, a callable of the bridge's). */
+function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: Record<string, unknown>): TransitionCacheArgs | undefined {
+  if (extraArgs.some((a) => a instanceof Handle)) return undefined;
+  const joint = [...jointItems(extraArgs.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]])))];
+  const hasKwargs = Object.keys(kwargs).length > 0;
+  let transition: (state: unknown, extra: unknown[]) => unknown;
+  if (f instanceof Map) {
+    if (extraArgs.length !== 0) throw new IcepoolError("InvalidArgument", "ValueError", "If a mapping is provided for repl, len(args) must be 1.");
+    transition = (state) => {
+      if (hasKwargs) throw new IcepoolError("WrongType", "TypeError", `<lambda>() got an unexpected keyword argument '${Object.keys(kwargs)[0]}'`);
+      return mappingGet(f, [state]).get(state);
+    };
+  } else if (typeof f === "function") {
+    const fn = f as (...args: unknown[]) => unknown;
+    const starred = star === null || star === undefined ? fn.length > extraArgs.length + 1 : pyBool(star);
+    transition = (state, extra) => {
+      const first = starred ? unpacked(state) : [state];
+      if (first === undefined) throw new IcepoolError("WrongType", "TypeError", "argument after * must be an iterable");
+      return hasKwargs ? fn(...first, ...extra, kwargs) : fn(...first, ...extra);
+    };
+  } else {
+    return undefined;
+  }
+  const step = (state: unknown, i: number): unknown[] => {
+    try {
+      const result = transition(state, joint[i][0]);
+      if (result === Reroll) return [true, "reroll"];
+      if (result === Restart) return [true, "restart"];
+      if (result instanceof Break) return result.outcome === null ? [true, "break"] : [true, "break", ...transitionTarget(result.outcome)];
+      return [true, "go", ...transitionTarget(result)];
+    } catch (e) {
+      // A trap below must abandon the WASM frames above it too.
+      if (isTrap(e)) throw e;
+      return [false, e];
+    }
+  };
+  return { transition: { step }, quantities: joint.map(([, q]) => q) };
+}
+
+/** Where a transition goes, for the core: `["reroll"]`, `["die", copy]` (the core takes the copy over), or
+ * `["outcome", x]`. */
+function transitionTarget(x: unknown): [string, unknown] {
+  if (x === Reroll || x === Restart) return ["reroll", null];
+  if (x instanceof Die) return ["die", x.w.copy()];
+  return ["outcome", x];
+}
+
 /** `icepool.map_and_time(repl, initial_state, *extra_args, star=None, repeat)`: repeatedly maps outcomes of the
  * state to other outcomes, while also counting time steps. This is useful for representing processes.
  *
@@ -371,7 +465,12 @@ function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint
  * ```
  */
 export function mapAndTime(f: Callback<MapResult>, initial: Operand, ...rest: unknown[]): Die {
-  const [args, { star = null, repeat = "inf" }] = opts<{ star: boolean | null; repeat: Int | "inf" }>(rest);
+  const [args, { star = null, repeat = "inf", ...kwargs }] = opts<{ star: boolean | null; repeat: Int | "inf"; [kwarg: string]: unknown }>(rest);
+  const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
+  if (cache !== undefined) {
+    const initialDie = new Die([initial]);
+    return Die.wrap(wasm((w) => w.mapAndTime(cache.transition, cache.quantities, initialDie.w, rangeRepeat(repeat))));
+  }
   return call("map_and_time", {
     f,
     initial,
@@ -395,8 +494,12 @@ export function mapAndTime(f: Callback<MapResult>, initial: Operand, ...rest: un
  * ```
  */
 export function meanTimeToAbsorb(f: Callback<MapResult>, initial: Operand, ...rest: unknown[]): Fraction {
-  const [args, { star = null }] = opts<{ star: boolean | null }>(rest);
-  return call("mean_time_to_absorb", { f, initial, args: List.from(args), star }) as Fraction;
+  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
+  const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
+  if (cache === undefined) return call("mean_time_to_absorb", { f, initial, args: List.from(args), star }) as Fraction;
+  const time = absorbingMarkovChain(cache, initial)[1];
+  if (time === null) throw new IcepoolError("NotImplementedUpstream", "NotImplementedError", "Restart not implemented for mean_time_to_absorb.");
+  return time;
 }
 
 /** `icepool.map_to_pool(f, ...args, { star })` (EXPERIMENTAL in icepool): `f`'s result for each joint outcome of

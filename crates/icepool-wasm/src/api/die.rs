@@ -708,6 +708,12 @@ impl WasmDie {
         Ok(WasmDie::new(tupleize_dice(&parts).or_throw()?))
     }
 
+    /// A new `WasmDie` of this die, for a JS callback's result the core takes over (taking it empties the JS
+    /// object, so the callback hands over a copy rather than a die of the API).
+    pub fn copy(&self) -> WasmDie {
+        WasmDie::new(self.die.clone())
+    }
+
     /// `die.mean_time_to_sum(target)`, extending this die's cache as Python's loop does.
     #[wasm_bindgen(js_name = meanTimeToSum)]
     pub fn mean_time_to_sum(&self, target: JsValue) -> JsResult<JsValue> {
