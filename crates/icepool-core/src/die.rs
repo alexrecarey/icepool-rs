@@ -940,6 +940,58 @@ impl<'a, O: OutcomeArith> SumCache<'a, O> {
     }
 }
 
+impl<O: Outcome + Copy + Into<i128>> Die<O> {
+    /// The mean number of rolls until the cumulative sum is greater or equal to `target` (Python's
+    /// `die.mean_time_to_sum(target)` for an int die), exactly. A target of 0 or less takes no rolls.
+    ///
+    /// Fails as Python raises: [`Error::InvalidArgument`] if the die has negative outcomes,
+    /// [`Error::DivisionByZero`] if it only rolls 0.
+    ///
+    /// ```
+    /// use icepool_core::Die;
+    /// // `Die([0, 1, 2]).mean_time_to_sum(5)`
+    /// assert_eq!(Die::from_iter([0, 1, 2]).mean_time_to_sum(5).unwrap().to_string(), "171/32");
+    /// ```
+    pub fn mean_time_to_sum(&self, target: i64) -> Result<crate::Ratio> {
+        use crate::Ratio;
+        // `target = max(target, 0)`; the mean time for a target of 0 is 0, the first entry of Python's cache.
+        let Ok(target) = usize::try_from(target) else {
+            return Ok(Ratio::ZERO);
+        };
+        if target == 0 {
+            return Ok(Ratio::ZERO);
+        }
+        if (*self.min_outcome()?).into() < 0 {
+            return invalid_argument("mean_time_to_sum does not handle negative outcomes.");
+        }
+        let denominator = self.denominator();
+        let zero = self.items().iter().find(|(o, _)| (*o).into() == 0);
+        let effect = &denominator - zero.map_or(Quantity::ZERO, |(_, q)| q.clone());
+        if effect.is_zero() {
+            return Err(Error::DivisionByZero(format!("Fraction({denominator}, 0)")));
+        }
+        let time_per_effect = Ratio::from_parts(denominator.into(), effect);
+        // The rolls until a nonzero outcome, then the time left after it: `time_per_effect +
+        // self.reroll([0], depth='inf').map(lambda x: self.mean_time_to_sum(i - x)).mean()`, for each target up
+        // to this one in turn (Python's `_mean_time_to_sum_cache`).
+        let rerolled = self.reroll(|&x| x.into() == 0, Depth::Infinite)?;
+        let rerolled_denominator = Ratio::from(dashu_int::IBig::from(rerolled.denominator()));
+        crate::memory::check_len::<Ratio, _>(target.checked_add(1), "mean_time_to_sum's targets")?;
+        let mut times = vec![Ratio::ZERO];
+        for i in 1..=target {
+            crate::interrupt::poll()?;
+            let mut total = Ratio::ZERO;
+            for (x, quantity) in rerolled.items() {
+                // `max(i - x, 0)`: every outcome here is positive, so this is a smaller target, already known.
+                let rest = usize::try_from(i as i128 - (*x).into()).unwrap_or(0);
+                total += &times[rest] * Ratio::from(dashu_int::IBig::from(quantity.clone()));
+            }
+            times.push(time_per_effect.clone() + total / &rerolled_denominator);
+        }
+        Ok(times.swap_remove(target))
+    }
+}
+
 /// Constructs a `Die` from a sequence of cumulative `int` quantities (`icepool.from_cumulative`).
 ///
 /// `reverse`: iff true, both of the arguments will be reversed. This allows e.g. constructing using a survival
@@ -1049,6 +1101,19 @@ mod tests {
         assert_eq!(d(6).highest_single(3).unwrap(), highest);
         let lowest = die(&[(1, 11), (2, 9), (3, 7), (4, 5), (5, 3), (6, 1)]);
         assert_eq!(d(6).lowest_single(2).unwrap(), lowest);
+    }
+
+    #[test]
+    fn mean_time_to_sum_as_python() {
+        // `d(6).mean_time_to_sum(10)`, `Die([0, 0, 3]).mean_time_to_sum(4)`, `... (-2)`
+        assert_eq!(d(6).mean_time_to_sum(10).unwrap().to_string(), "33495175/10077696");
+        let slow = Die::from_iter([0, 0, 3]);
+        assert_eq!(slow.mean_time_to_sum(4).unwrap().to_string(), "6");
+        assert_eq!(slow.mean_time_to_sum(-2).unwrap().to_string(), "0");
+        // `Die([0]).mean_time_to_sum(3)`: ZeroDivisionError; `Die([-1, 1])`: ValueError.
+        let error = |die: Die<i64>| die.mean_time_to_sum(3).unwrap_err();
+        assert_eq!(error(Die::single(0)), Error::DivisionByZero("Fraction(1, 0)".into()));
+        assert!(matches!(error(Die::from_iter([-1, 1])), Error::InvalidArgument(_)));
     }
 
     #[test]
