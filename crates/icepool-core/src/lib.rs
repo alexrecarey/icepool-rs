@@ -26,7 +26,8 @@ pub use function::{d, z};
 pub use int::Int;
 pub use multi_deal::MultiDeal;
 pub use order::Order;
-pub use outcome::{Outcome, OutcomeArith, OutcomeOrder};
+pub use outcome::{Outcome, OutcomeArith, OutcomeOrder, ToRatio};
+pub use population::Comparison;
 pub use pool::Pool;
 pub use value::Value;
 
@@ -44,6 +45,7 @@ mod multi_deal;
 mod order;
 mod outcome;
 mod pool;
+mod statistics;
 
 // Internals the language bindings (icepool-py, icepool-wasm) and the program runner (icepool-harness) still reach
 // directly. They are not part of the public API: hidden from the documentation, and to become `pub(crate)` once

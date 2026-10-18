@@ -1,24 +1,86 @@
-//! The scalar and joint statistics of `Die<Value>` (population/base.py: `mean` to `entropy`, the
-//! Kolmogorov-Smirnov and Cramér-von Mises statistics, `marginals`, `covariance` and `correlation`). They do
-//! arithmetic on the outcomes, so they are written with Python's own operators and builtins (`sum`, `len`,
-//! `math.log`...): a `Fraction` where Python gives one, floats rounded exactly as CPython rounds them, and
-//! Python's exceptions. The rest of the population methods live in `crate::population`.
+//! `PyStatistics`: the probabilities, quantiles and statistics of `Die<Value>` (population/base.py: `probability`
+//! to `quantile`, `mean` to `entropy`, the Kolmogorov-Smirnov and Cramér-von Mises statistics, `covariance` and
+//! `correlation`). They do arithmetic on the outcomes, so they are written with Python's own operators and
+//! builtins (`sum`, `math.log`...): a `Fraction` where Python gives one, floats rounded exactly as CPython rounds
+//! them, and Python's exceptions. The typed, exact statistics are in `crate::statistics`; what only needs the order
+//! of the outcomes is generic, in `crate::population`.
 
+use dashu_int::IBig;
 use dashu_ratio::RBig;
 
 use crate::error::{Error, Result};
 use crate::function::sorted_union;
-use crate::population::{check_public_attr, int, Comparison};
-use crate::value::builtins::{
-    getattr, getitem, math_log, math_sqrt, py_len, py_sum, try_fraction, Index,
-};
-use crate::value::{BinOp, UnOp};
-use crate::{Die, Value};
+use crate::population::{bisect, int, Comparison};
+use crate::value::builtins::{getitem, math_log, math_sqrt, py_sum, try_fraction, Index};
+use crate::value::{BinOp, PyDie, UnOp};
+use crate::{Die, Quantity, Value};
 
-impl Die<Value> {
+/// The statistics of population/base.py for `Die<Value>`, with Python's types: a `Fraction` where Python gives one,
+/// a `float` for float outcomes, `percent` probabilities, and Python's exceptions. The typed, exact versions are
+/// inherent methods of `Die<O: Outcome + ToRatio>` (`mean`, `variance`, `probability`, ...): Rust picks the
+/// inherent method for a typed die and this trait's for a `Die<Value>`.
+pub trait PyStatistics {
     /// `try_fraction(sum(outcome * quantity ...), denominator)`: a `Fraction` for rational outcomes, a `float`
     /// for float ones.
-    pub fn mean(&self) -> Result<Value> {
+    fn mean(&self) -> Result<Value>;
+
+    /// This is the population variance, not the sample variance.
+    fn variance(&self) -> Result<Value>;
+
+    /// `math.sqrt(self.variance())`.
+    fn standard_deviation(&self) -> Result<Value>;
+
+    /// `sum(p * (outcome - mean)**k ...) / sd**k`.
+    fn standardized_moment(&self, k: &Value) -> Result<Value>;
+
+    /// `standardized_moment(3)`.
+    fn skewness(&self) -> Result<Value>;
+
+    /// `standardized_moment(4) - 3.0`.
+    fn excess_kurtosis(&self) -> Result<Value>;
+
+    /// The entropy of a random sample from this population: `-sum(p * math.log(p, base) for p in
+    /// self.probabilities() if p > 0.0)`. An empty die sums nothing (the int `0`, and `base` is never looked at).
+    fn entropy(&self, base: &Value) -> Result<Value>;
+
+    /// Kolmogorov–Smirnov statistic. The maximum absolute difference between CDFs.
+    fn kolmogorov_smirnov(&self, other: &Die<Value>) -> Result<Value>;
+
+    /// Cramér-von Mises statistic. The sum-of-squares difference between CDFs.
+    fn cramer_von_mises(&self, other: &Die<Value>) -> Result<Value>;
+
+    /// `try_fraction(sum((outcome[i] - mean_i) * (outcome[j] - mean_j) * quantity ...), denominator)`, the means
+    /// those of `marginals[i]` and `marginals[j]`.
+    fn covariance(&self, i: &Index, j: &Index) -> Result<Value>;
+
+    /// `covariance(i, j) / (sd_i * sd_j)`.
+    fn correlation(&self, i: &Index, j: &Index) -> Result<Value>;
+
+    /// The total probability of outcomes fitting a comparison: a `Fraction`, or with `percent` a percentage
+    /// (`result * 100.0`, a `float`).
+    fn probability(&self, comparison: Comparison, outcome: &Value, percent: bool) -> Result<Value>;
+
+    /// The total probabilities fitting the comparison for each outcome in sorted order (`'<='` gives the CDF).
+    /// With `percent`, each is `100.0 * x`.
+    fn probabilities(&self, comparison: Comparison, percent: bool) -> Result<Vec<Value>>;
+
+    /// The probability of the outcomes `which` selected: `100.0 * numerator / denominator` with `percent`, else
+    /// `Fraction(numerator, denominator)`.
+    fn probability_where(&self, selected: &[bool], percent: bool) -> Result<Value>;
+
+    /// The outcome `n / d` of the way through the CDF, taking the lesser in case of a tie.
+    fn quantile_low(&self, n: &Value, d: &Value) -> Result<Value>;
+
+    /// The outcome `n / d` of the way through the CDF, taking the greater in case of a tie.
+    fn quantile_high(&self, n: &Value, d: &Value) -> Result<Value>;
+
+    /// The outcome `n / d` of the way through the CDF, taking the mean in case of a tie. This will fail if the
+    /// outcomes do not support addition and division.
+    fn quantile(&self, n: &Value, d: &Value) -> Result<Value>;
+}
+
+impl PyStatistics for Die<Value> {
+    fn mean(&self) -> Result<Value> {
         let total = py_sum(
             self.items()
                 .iter()
@@ -28,8 +90,7 @@ impl Die<Value> {
         try_fraction(&total, &self.den())
     }
 
-    /// This is the population variance, not the sample variance.
-    pub fn variance(&self) -> Result<Value> {
+    fn variance(&self) -> Result<Value> {
         let mean = self.mean()?;
         let squares = py_sum(
             self.items()
@@ -41,13 +102,11 @@ impl Die<Value> {
         mean_of_squares.binary(BinOp::Sub, &mean.binary(BinOp::Mul, &mean)?)
     }
 
-    /// `math.sqrt(self.variance())`.
-    pub fn standard_deviation(&self) -> Result<Value> {
+    fn standard_deviation(&self) -> Result<Value> {
         math_sqrt(&self.variance()?)
     }
 
-    /// `sum(p * (outcome - mean)**k ...) / sd**k`.
-    pub fn standardized_moment(&self, k: &Value) -> Result<Value> {
+    fn standardized_moment(&self, k: &Value) -> Result<Value> {
         let sd = self.standard_deviation()?;
         let mean = self.mean()?;
         let probabilities = self.probabilities(Comparison::Eq, false)?;
@@ -63,20 +122,16 @@ impl Die<Value> {
         ev.binary(BinOp::TrueDiv, &sd.binary(BinOp::Pow, k)?)
     }
 
-    /// `standardized_moment(3)`.
-    pub fn skewness(&self) -> Result<Value> {
+    fn skewness(&self) -> Result<Value> {
         self.standardized_moment(&Value::from(3))
     }
 
-    /// `standardized_moment(4) - 3.0`.
-    pub fn excess_kurtosis(&self) -> Result<Value> {
+    fn excess_kurtosis(&self) -> Result<Value> {
         self.standardized_moment(&Value::from(4))?
             .binary(BinOp::Sub, &Value::Float(3.0))
     }
 
-    /// The entropy of a random sample from this population: `-sum(p * math.log(p, base) for p in
-    /// self.probabilities() if p > 0.0)`. An empty die sums nothing (the int `0`, and `base` is never looked at).
-    pub fn entropy(&self, base: &Value) -> Result<Value> {
+    fn entropy(&self, base: &Value) -> Result<Value> {
         let zero = Value::Float(0.0);
         let terms = self
             .probabilities(Comparison::Eq, false)?
@@ -93,8 +148,7 @@ impl Die<Value> {
         py_sum(terms, Value::from(0))?.unary(UnOp::Neg)
     }
 
-    /// Kolmogorov–Smirnov statistic. The maximum absolute difference between CDFs.
-    pub fn kolmogorov_smirnov(&self, other: &Die<Value>) -> Result<Value> {
+    fn kolmogorov_smirnov(&self, other: &Die<Value>) -> Result<Value> {
         let mut max: Option<Value> = None;
         for d in self.cdf_differences(other)? {
             let d = d?.unary(UnOp::Abs)?;
@@ -107,51 +161,14 @@ impl Die<Value> {
         max.ok_or_else(|| Error::InvalidArgument("max() iterable argument is empty".into()))
     }
 
-    /// Cramér-von Mises statistic. The sum-of-squares difference between CDFs.
-    pub fn cramer_von_mises(&self, other: &Die<Value>) -> Result<Value> {
+    fn cramer_von_mises(&self, other: &Die<Value>) -> Result<Value> {
         let squares = self
             .cdf_differences(other)?
             .map(|d| d?.binary(BinOp::Pow, &Value::from(2)));
         py_sum(squares, Value::Fraction(RBig::ZERO))
     }
 
-    /// `self.probability('<=', o) - other.probability('<=', o)` for each `o` in `sorted_union(self, other)`.
-    fn cdf_differences<'a>(
-        &'a self,
-        other: &'a Die<Value>,
-    ) -> Result<impl Iterator<Item = Result<Value>> + 'a> {
-        let outcomes = sorted_union([self.outcomes(), other.outcomes()])?;
-        Ok(outcomes.into_iter().map(move |o| {
-            self.probability(Comparison::Le, &o, false)?
-                .binary(BinOp::Sub, &other.probability(Comparison::Le, &o, false)?)
-        }))
-    }
-
-    /// `marginals[index]`: the `[]` operator applied to each outcome (`_unary_operator(operator.getitem, dims)`).
-    pub fn marginal(&self, index: &Index) -> Result<Die<Value>> {
-        self.unary_operator(|o| getitem(o, index))
-    }
-
-    /// `marginals.<name>` (`_Marginals.__getattr__`): `getattr(outcome, name)` applied to each outcome. Private
-    /// names are refused before any outcome is looked at (`check_public_attr`).
-    pub fn marginal_attr(&self, name: &str) -> Result<Die<Value>> {
-        check_public_attr(name)?;
-        self.unary_operator(|o| getattr(o, name))
-    }
-
-    /// `len(marginals)`: the minimum `len()` of all outcomes (`ValueError` for an empty die).
-    pub fn marginals_len(&self) -> Result<usize> {
-        let mut min: Option<usize> = None;
-        for o in self.outcomes() {
-            let n = py_len(o)?;
-            min = Some(min.map_or(n, |m| m.min(n)));
-        }
-        min.ok_or_else(|| Error::InvalidArgument("min() iterable argument is empty".into()))
-    }
-
-    /// `try_fraction(sum((outcome[i] - mean_i) * (outcome[j] - mean_j) * quantity ...), denominator)`, the means
-    /// those of `marginals[i]` and `marginals[j]`.
-    pub fn covariance(&self, i: &Index, j: &Index) -> Result<Value> {
+    fn covariance(&self, i: &Index, j: &Index) -> Result<Value> {
         let mean_i = self.marginal(i)?.mean()?;
         let mean_j = self.marginal(j)?.mean()?;
         let total = py_sum(
@@ -166,11 +183,107 @@ impl Die<Value> {
         try_fraction(&total, &self.den())
     }
 
-    /// `covariance(i, j) / (sd_i * sd_j)`.
-    pub fn correlation(&self, i: &Index, j: &Index) -> Result<Value> {
+    fn correlation(&self, i: &Index, j: &Index) -> Result<Value> {
         let sd_i = self.marginal(i)?.standard_deviation()?;
         let sd_j = self.marginal(j)?.standard_deviation()?;
         self.covariance(i, j)?
             .binary(BinOp::TrueDiv, &sd_i.binary(BinOp::Mul, &sd_j)?)
+    }
+
+    fn probability(&self, comparison: Comparison, outcome: &Value, percent: bool) -> Result<Value> {
+        let result = self.fraction(self.try_quantity(comparison, outcome)?)?;
+        if percent {
+            result.binary(BinOp::Mul, &Value::Float(100.0))
+        } else {
+            Ok(result)
+        }
+    }
+
+    fn probabilities(&self, comparison: Comparison, percent: bool) -> Result<Vec<Value>> {
+        self.quantities_by(comparison)
+            .into_iter()
+            .map(|q| {
+                let x = self.fraction(q)?;
+                if percent {
+                    Value::Float(100.0).binary(BinOp::Mul, &x)
+                } else {
+                    Ok(x)
+                }
+            })
+            .collect()
+    }
+
+    fn probability_where(&self, selected: &[bool], percent: bool) -> Result<Value> {
+        let numerator = int(&self.quantity_where(selected));
+        if percent {
+            Value::Float(100.0)
+                .binary(BinOp::Mul, &numerator)?
+                .binary(BinOp::TrueDiv, &Value::Int(self.den()))
+        } else {
+            try_fraction(&numerator, &self.den())
+        }
+    }
+
+    fn quantile_low(&self, n: &Value, d: &Value) -> Result<Value> {
+        let cdf = self.quantities_by(Comparison::Le);
+        // (n * self.denominator() + d - 1) // d
+        let target = n
+            .binary(BinOp::Mul, &Value::Int(self.den()))?
+            .binary(BinOp::Add, d)?
+            .binary(BinOp::Sub, &Value::from(1))?
+            .binary(BinOp::FloorDiv, d)?;
+        let index = bisect(&cdf, |q| int(q).binary(BinOp::Lt, &target)?.truthy())?;
+        self.outcome_at(index)
+    }
+
+    fn quantile_high(&self, n: &Value, d: &Value) -> Result<Value> {
+        let cdf = self.quantities_by(Comparison::Le);
+        // n * self.denominator() // d
+        let target = n
+            .binary(BinOp::Mul, &Value::Int(self.den()))?
+            .binary(BinOp::FloorDiv, d)?;
+        let index = bisect(&cdf, |q| -> Result<bool> {
+            Ok(!target.binary(BinOp::Lt, &int(q))?.truthy()?)
+        })?;
+        self.outcome_at(index)
+    }
+
+    fn quantile(&self, n: &Value, d: &Value) -> Result<Value> {
+        let low = self.quantile_low(n, d)?;
+        let high = self.quantile_high(n, d)?;
+        low.binary(BinOp::Add, &high)?
+            .binary(BinOp::TrueDiv, &Value::from(2))
+    }
+}
+
+impl Die<Value> {
+    /// `self.probability('<=', o) - other.probability('<=', o)` for each `o` in `sorted_union(self, other)`.
+    fn cdf_differences<'a>(
+        &'a self,
+        other: &'a Die<Value>,
+    ) -> Result<impl Iterator<Item = Result<Value>> + 'a> {
+        let outcomes = sorted_union([self.outcomes(), other.outcomes()])?;
+        Ok(outcomes.into_iter().map(move |o| {
+            self.probability(Comparison::Le, &o, false)?
+                .binary(BinOp::Sub, &other.probability(Comparison::Le, &o, false)?)
+        }))
+    }
+
+    /// The denominator as a Python `int`.
+    pub(crate) fn den(&self) -> IBig {
+        self.denominator().into()
+    }
+
+    /// `Fraction(quantity, self.denominator())`: `ZeroDivisionError` for an empty die.
+    fn fraction(&self, quantity: Quantity) -> Result<Value> {
+        try_fraction(&int(&quantity), &self.den())
+    }
+
+    /// `self.outcomes()[index]`, or the max outcome past the end (`IndexError` if there is none).
+    fn outcome_at(&self, index: usize) -> Result<Value> {
+        match self.items().get(index) {
+            Some((o, _)) => Ok(o.clone()),
+            None => self.max_outcome().cloned(),
+        }
     }
 }

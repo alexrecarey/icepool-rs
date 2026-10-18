@@ -5,12 +5,13 @@
 //! The `Population` methods a deck shares with a die (statistics, the mapping protocol, formatting) run on the
 //! deck's cards as a die (`population`), as in the Python facade (crates/icepool-py/src/deck.rs).
 
+use icepool_core::value::PyDie;
 use std::borrow::Cow;
 
 use dashu_int::IBig;
 use icepool_core::creation_args::DieArg;
 use icepool_core::value::format::{format as format_population, Formatted};
-use icepool_core::population::Data;
+use icepool_core::value::Data;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{Counter, CounterOp, Num};
 use icepool_core::{Deal, Deck, Die, Error, MultiDeal, Quantity, Value};

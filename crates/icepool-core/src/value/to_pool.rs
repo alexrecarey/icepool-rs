@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::expand::tupleize_dice;
 use crate::map_tools::{map_repeat, TransitionCache};
 use crate::Mapped;
-use crate::value::{BinOp, Vector};
+use crate::value::{BinOp, PyDie, Vector};
 use crate::{Die, DieArg, Quantity, Value};
 
 fn int(i: impl Into<IBig>) -> Value {

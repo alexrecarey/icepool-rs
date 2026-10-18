@@ -2,6 +2,7 @@
 //! `pointwise_max/min`, `min/max_outcome`, `consecutive`, `sorted_union`, `harmonize_denominators`, `from_rv`),
 //! map_tools/function.py `reduce` / `accumulate`, and wallenius.py. Nodes in harness/grammar/function.py.
 
+use icepool_core::value::PyDie;
 use std::sync::Arc;
 
 use dashu_int::IBig;

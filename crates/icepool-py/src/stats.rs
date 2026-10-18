@@ -5,7 +5,9 @@
 //! outcomes themselves; methods that make a new population return the `dict` items Python passes to `Die(...)`
 //! (or `None` where Python returns the population itself).
 
-use icepool_core::population::{Comparison, Data};
+use icepool_core::value::{PyDie, PyStatistics};
+use icepool_core::population::Comparison;
+use icepool_core::value::Data;
 use icepool_core::value::builtins::Index;
 use icepool_core::{Error, Value};
 use pyo3::prelude::*;

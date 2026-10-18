@@ -46,10 +46,12 @@ use crate::host::HostRef;
 
 /// Python's `collections.Counter`, as `Deck` arithmetic uses it.
 pub use crate::deck::{Counter, CounterOp};
+pub use die::{Data, PyDie};
 pub use matmul::matmul_dice;
 pub use number::{int_to_f64, ratio_to_f64, Num};
 pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;
+pub use statistics::PyStatistics;
 pub use symbols::Symbols;
 pub use vector::{VecOp, Vector};
 

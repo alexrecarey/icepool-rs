@@ -1,34 +1,35 @@
-//! Port of icepool `population/base.py`: quantities and probabilities (with comparators), `nearest`, quantiles,
-//! `group_by`, and quantity management.
+//! Port of icepool `population/base.py`, the part that only needs the order of the outcomes: quantities (with
+//! comparators), `nearest`, modes and `group_by`, generic over `OutcomeOrder`.
 //!
-//! What only needs the order of the outcomes is generic over `OutcomeOrder`. Probabilities and quantiles are
-//! written for `Value`, as Python's `Fraction`s; the statistics, which do arithmetic on the outcomes with Python's
-//! own builtins, are in `value/statistics.rs`.
-//!
-//! Methods that make a new population (`multiply_quantities`, `pad_to_denominator`, ...) return the `dict` Python
-//! passes to `Die(...)`, as `(outcome, quantity)` pairs in insertion order, or `None` where Python returns `self`:
-//! the quantities may be any Python number, and `Die(dict)`'s checks belong to the caller (the program layer or
-//! the facade).
+//! The exact probabilities and statistics of typed dice are in `crate::statistics`; those of `Die<Value>` with
+//! Python's types (`Fraction` or `float`, `percent`), the quantiles and the quantity management are the
+//! extension traits `value::PyStatistics` and `value::PyDie`. Methods that make a new population
+//! (`multiply_quantities`, `pad_to_denominator`, ...) return the `dict` Python passes to `Die(...)`
+//! (`value::Data`), or `None` where Python returns `self`: the quantities may be any Python number, and
+//! `Die(dict)`'s checks belong to the caller (the program layer or the facade).
 
 use std::hash::Hash;
 
-use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 
 use crate::error::{invalid_argument, Error, Result};
 use crate::outcome::{infallible, ErrInto, Outcome, OutcomeOrder};
-use crate::value::builtins::try_fraction;
-use crate::value::{BinOp, UnOp};
 use crate::{Die, Quantity, Value};
 
 /// The comparisons `quantity`, `quantities`, `probability`, `probabilities` and `nearest` accept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Comparison {
+    /// `'=='`
     Eq,
+    /// `'!='`
     Ne,
+    /// `'<='`
     Le,
+    /// `'<'`
     Lt,
+    /// `'>='`
     Ge,
+    /// `'>'`
     Gt,
 }
 
@@ -56,7 +57,7 @@ fn invalid<T>(c: &Value) -> Result<T> {
 
 /// `bisect`'s binary search: the first index whose element does not `go_right`, probing midpoints as CPython's
 /// `_bisect` does (the comparisons may raise, and may not be a consistent order).
-fn bisect<T, E>(
+pub(crate) fn bisect<T, E>(
     a: &[T],
     go_right: impl Fn(&T) -> std::result::Result<bool, E>,
 ) -> std::result::Result<usize, E> {
@@ -75,15 +76,6 @@ fn bisect<T, E>(
 /// A quantity as a Python `int`.
 pub(crate) fn int(q: &Quantity) -> Value {
     Value::Int(q.clone().into())
-}
-
-/// `data[outcome] = quantity` in a `dict`'s items: an existing key keeps its place (and its spelling), a new one
-/// goes last.
-fn set_item(data: &mut Data, position: Option<usize>, outcome: &Value, quantity: Value) {
-    match position {
-        Some(i) => data[i].1 = quantity,
-        None => data.push((outcome.clone(), quantity)),
-    }
 }
 
 impl<O: OutcomeOrder> Die<O> {
@@ -216,6 +208,17 @@ impl<O: OutcomeOrder> Die<O> {
             .collect()
     }
 
+    /// `self.outcomes()[bisect.bisect_right(self.quantities('<='), r)]`: the outcome `Population.sample` picks for
+    /// `r = random.randrange(self.denominator())` (the draw stays with the caller, whose generator it is).
+    /// `IndexError` for an `r` beyond the denominator.
+    pub fn sample_at(&self, r: &Quantity) -> Result<O> {
+        let index = self.quantities_le().partition_point(|q| q <= r);
+        match self.items().get(index) {
+            Some((outcome, _)) => Ok(outcome.clone()),
+            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
+        }
+    }
+
     /// `group_by(key_map)` given each outcome's key: for each distinct key (by `==`, in order of first
     /// appearance), the die of the outcomes with that key (`Die(dict)`, so zero quantities drop out).
     pub fn group_by<K: Clone + Eq + Hash>(&self, keys: Vec<K>) -> Result<Vec<(K, Die<O>)>> {
@@ -252,298 +255,6 @@ impl<O: Outcome> Die<O> {
     }
 }
 
-/// A population's `dict` for `Die(...)`: `(outcome, quantity)` pairs in insertion order.
-pub type Data = Vec<(Value, Value)>;
-
-impl Die<Value> {
-    pub(crate) fn den(&self) -> IBig {
-        self.denominator().into()
-    }
-
-    /// `Fraction(quantity, self.denominator())`: `ZeroDivisionError` for an empty die.
-    fn fraction(&self, quantity: Quantity) -> Result<Value> {
-        try_fraction(&int(&quantity), &self.den())
-    }
-
-    /// The total probability of outcomes fitting a comparison: a `Fraction`, or with `percent` a percentage
-    /// (`result * 100.0`, a `float`).
-    pub fn probability(
-        &self,
-        comparison: Comparison,
-        outcome: &Value,
-        percent: bool,
-    ) -> Result<Value> {
-        let result = self.fraction(self.try_quantity(comparison, outcome)?)?;
-        if percent {
-            result.binary(BinOp::Mul, &Value::Float(100.0))
-        } else {
-            Ok(result)
-        }
-    }
-
-    /// The total probabilities fitting the comparison for each outcome in sorted order (`'<='` gives the CDF).
-    /// With `percent`, each is `100.0 * x`.
-    pub fn probabilities(&self, comparison: Comparison, percent: bool) -> Result<Vec<Value>> {
-        self.quantities_by(comparison)
-            .into_iter()
-            .map(|q| {
-                let x = self.fraction(q)?;
-                if percent {
-                    Value::Float(100.0).binary(BinOp::Mul, &x)
-                } else {
-                    Ok(x)
-                }
-            })
-            .collect()
-    }
-
-    /// The probability of the outcomes `which` selected: `100.0 * numerator / denominator` with `percent`, else
-    /// `Fraction(numerator, denominator)`.
-    pub fn probability_where(&self, selected: &[bool], percent: bool) -> Result<Value> {
-        let numerator = int(&self.quantity_where(selected));
-        if percent {
-            Value::Float(100.0)
-                .binary(BinOp::Mul, &numerator)?
-                .binary(BinOp::TrueDiv, &Value::Int(self.den()))
-        } else {
-            try_fraction(&numerator, &self.den())
-        }
-    }
-
-    /// The outcome `n / d` of the way through the CDF, taking the lesser in case of a tie.
-    pub fn quantile_low(&self, n: &Value, d: &Value) -> Result<Value> {
-        let cdf = self.quantities_by(Comparison::Le);
-        // (n * self.denominator() + d - 1) // d
-        let target = n
-            .binary(BinOp::Mul, &Value::Int(self.den()))?
-            .binary(BinOp::Add, d)?
-            .binary(BinOp::Sub, &Value::from(1))?
-            .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| int(q).binary(BinOp::Lt, &target)?.truthy())?;
-        self.outcome_at(index)
-    }
-
-    /// The outcome `n / d` of the way through the CDF, taking the greater in case of a tie.
-    pub fn quantile_high(&self, n: &Value, d: &Value) -> Result<Value> {
-        let cdf = self.quantities_by(Comparison::Le);
-        // n * self.denominator() // d
-        let target = n
-            .binary(BinOp::Mul, &Value::Int(self.den()))?
-            .binary(BinOp::FloorDiv, d)?;
-        let index = bisect(&cdf, |q| -> Result<bool> {
-            Ok(!target.binary(BinOp::Lt, &int(q))?.truthy()?)
-        })?;
-        self.outcome_at(index)
-    }
-
-    /// `self.outcomes()[index]`, or the max outcome past the end (`IndexError` if there is none).
-    fn outcome_at(&self, index: usize) -> Result<Value> {
-        match self.items().get(index) {
-            Some((o, _)) => Ok(o.clone()),
-            None => self.max_outcome().cloned(),
-        }
-    }
-
-    /// The outcome `n / d` of the way through the CDF, taking the mean in case of a tie. This will fail if the
-    /// outcomes do not support addition and division.
-    pub fn quantile(&self, n: &Value, d: &Value) -> Result<Value> {
-        let low = self.quantile_low(n, d)?;
-        let high = self.quantile_high(n, d)?;
-        low.binary(BinOp::Add, &high)?
-            .binary(BinOp::TrueDiv, &Value::from(2))
-    }
-
-    /// Each `(outcome, f(quantity))`, zero quantities included.
-    fn map_quantities(&self, f: impl Fn(Value) -> Result<Value>) -> Result<Data> {
-        self.items()
-            .iter()
-            .map(|(o, q)| Ok((o.clone(), f(int(q))?)))
-            .collect()
-    }
-
-    /// Multiplies all quantities by an integer (`None`: `scale == 1`, Python returns the population itself).
-    pub fn multiply_quantities(&self, scale: &Value) -> Result<Option<Data>> {
-        if *scale == Value::from(1) {
-            return Ok(None);
-        }
-        self.map_quantities(|q| q.binary(BinOp::Mul, scale))
-            .map(Some)
-    }
-
-    /// Divides all quantities by an integer, rounding down; resulting zero quantities are dropped (only those at
-    /// least `divisor` are kept). `None`: `divisor == 0`, Python returns the population itself.
-    pub fn divide_quantities(&self, divisor: &Value) -> Result<Option<Data>> {
-        if *divisor == Value::from(0) {
-            return Ok(None);
-        }
-        let mut data = Data::new();
-        for (o, q) in self.items() {
-            let q = int(q);
-            if q.binary(BinOp::Ge, divisor)?.truthy()? {
-                data.push((o.clone(), q.binary(BinOp::FloorDiv, divisor)?));
-            }
-        }
-        Ok(Some(data))
-    }
-
-    /// Modulus of all quantities with an integer.
-    pub fn modulo_quantities(&self, divisor: &Value) -> Result<Data> {
-        self.map_quantities(|q| q.binary(BinOp::Mod, divisor))
-    }
-
-    /// Changes the denominator to a target number by changing the quantity of a specified outcome. If that
-    /// quantity becomes zero, the outcome is removed (`del data[outcome]`: `KeyError` if it was not there);
-    /// `ValueError` if it would have to be negative.
-    pub fn pad_to_denominator(&self, denominator: &Value, outcome: &Value) -> Result<Data> {
-        let adjustment = denominator.binary(BinOp::Sub, &Value::Int(self.den()))?;
-        let mut data = self.map_quantities(Ok)?;
-        let position = data.iter().position(|(o, _)| o == outcome);
-        let current = position.map_or(Value::from(0), |i| data[i].1.clone());
-        let new_quantity = current.binary(BinOp::Add, &adjustment)?;
-        if new_quantity.binary(BinOp::Gt, &Value::from(0))?.truthy()? {
-            match position {
-                Some(i) => data[i].1 = new_quantity,
-                None => data.push((outcome.clone(), new_quantity)),
-            }
-        } else if new_quantity == Value::from(0) {
-            match position {
-                Some(i) => {
-                    data.remove(i);
-                }
-                None => return Err(Error::MissingKey(format!("{outcome}"))),
-            }
-        } else {
-            return invalid_argument(format!(
-                "Padding to denominator of {denominator} would require a negative quantity of \
-                 {new_quantity} for {outcome}"
-            ));
-        }
-        Ok(data)
-    }
-
-    /// `Population.append(outcome, quantity)` up to `self._new_type(data)`: the items of `data = Counter(self)`
-    /// after `data[outcome] = max(data[outcome] + quantity, 0)`, an outcome not there yet added last (as the
-    /// `dict` does). `quantity` may be negative, which removes quantity (but not below zero); it is any Python
-    /// number, and `Die(data)` / `Deck(data)` (the caller's) drops the zero quantities.
-    pub fn append(&self, outcome: &Value, quantity: &Value) -> Result<Data> {
-        let mut data = self.map_quantities(Ok)?;
-        // `data[outcome]`: a `Counter` gives 0 for a missing key.
-        let position = data.iter().position(|(o, _)| o == outcome);
-        let current = position.map_or(Value::from(0), |i| data[i].1.clone());
-        let mut new_quantity = current.binary(BinOp::Add, quantity)?;
-        // `max(x, 0)` keeps `x` unless `0 > x`.
-        if Value::from(0).binary(BinOp::Gt, &new_quantity)?.truthy()? {
-            new_quantity = Value::from(0);
-        }
-        set_item(&mut data, position, outcome, new_quantity);
-        Ok(data)
-    }
-
-    /// `Population.remove(outcome, quantity)` up to `self._new_type(data)`. Without a quantity all of that
-    /// outcome is removed (`data[outcome] = 0`); with one, it is `self.append(outcome, -quantity)`, so a negative
-    /// quantity adds instead.
-    pub fn remove(&self, outcome: &Value, quantity: Option<&Value>) -> Result<Data> {
-        match quantity {
-            Some(q) => self.append(outcome, &q.unary(UnOp::Neg)?),
-            None => {
-                let mut data = self.map_quantities(Ok)?;
-                let position = data.iter().position(|(o, _)| o == outcome);
-                set_item(&mut data, position, outcome, Value::from(0));
-                Ok(data)
-            }
-        }
-    }
-
-    /// `Population.to_one_hot(outcomes)` given, for each outcome of this population, `outcomes.index(outcome)` if
-    /// `outcome in outcomes` (else `None`; the caller asks its sequence, whose `in` and `index` are its own) and
-    /// `len(outcomes)`: each outcome becomes a `Vector` of `len` bools, `True` at that index, and equal vectors
-    /// add up their quantities (`data[Vector(value)] += quantity`). The index is a Python list index: a negative
-    /// one counts from the end, and one out of range is `IndexError`. The caller builds `Die(data)` /
-    /// `Deck(data)` of the result (its keys are distinct; zero quantities drop out there).
-    pub fn one_hot_items(
-        &self,
-        len: usize,
-        positions: &[Option<i64>],
-    ) -> Result<Vec<(Value, Quantity)>> {
-        let mut data: Vec<(Value, Quantity)> = Vec::new();
-        let mut index: FxHashMap<Value, usize> = FxHashMap::default();
-        for ((_, quantity), position) in self.items().iter().zip(positions) {
-            // `[False] * len(outcomes)`: `len` may be that of a huge sequence (`range(2**40)`).
-            let mut value =
-                crate::memory::try_repeat(Value::Bool(false), Some(len), "[False] * len")?;
-            if let Some(i) = *position {
-                let i = if i < 0 { i + len as i64 } else { i };
-                match usize::try_from(i).ok().filter(|&i| i < len) {
-                    Some(i) => value[i] = Value::Bool(true),
-                    None => {
-                        return Err(Error::IndexOutOfRange(
-                            "list assignment index out of range".into(),
-                        ))
-                    }
-                }
-            }
-            let key = Value::Vector(crate::value::Vector::new(value));
-            match index.get(&key) {
-                Some(&i) => data[i].1 += quantity,
-                None => {
-                    index.insert(key.clone(), data.len());
-                    data.push((key, quantity.clone()));
-                }
-            }
-        }
-        Ok(data)
-    }
-
-    /// Multiplies all quantities to reach the target denominator; `ValueError` if this cannot be achieved using
-    /// an integer scaling.
-    pub fn multiply_to_denominator(&self, denominator: &Value) -> Result<Option<Data>> {
-        let den = Value::Int(self.den());
-        if denominator.binary(BinOp::Mod, &den)?.truthy()? {
-            return invalid_argument(
-                "Target denominator is not an integer factor of the current denominator.",
-            );
-        }
-        self.multiply_quantities(&denominator.binary(BinOp::FloorDiv, &den)?)
-    }
-
-    /// `self.outcomes()[bisect.bisect_right(self.quantities('<='), r)]`: the outcome `Population.sample` picks for
-    /// `r = random.randrange(self.denominator())` (the draw stays with the caller, whose generator it is).
-    pub fn sample_at(&self, r: &Quantity) -> Result<Value> {
-        let index = self.quantities_le().partition_point(|q| q <= r);
-        match self.items().get(index) {
-            Some((outcome, _)) => Ok(outcome.clone()),
-            None => Err(Error::IndexOutOfRange("tuple index out of range".into())),
-        }
-    }
-
-    /// `self.hash_key <op> other.hash_key` for `<`, `<=`, `>`, `>=`: `(Die, tuple(items))` compared as Python
-    /// compares tuples. The classes are the same object, so it comes down to the items: the first `(outcome,
-    /// quantity)` pair that differs (by `==`) decides, by `op` on the outcomes if those differ (which may raise),
-    /// else on the quantities; if one is a prefix of the other, by `op` on the lengths. Like Python's tuple
-    /// comparison, it returns what the deciding comparison returned: not a bool for vector outcomes.
-    pub fn hash_key_compare(&self, other: &Die<Value>, op: BinOp) -> Result<Value> {
-        fn cmp<T: PartialOrd>(op: BinOp, a: T, b: T) -> bool {
-            match op {
-                BinOp::Lt => a < b,
-                BinOp::Le => a <= b,
-                BinOp::Gt => a > b,
-                _ => a >= b,
-            }
-        }
-        for ((oa, qa), (ob, qb)) in self.items().iter().zip(other.items()) {
-            // Python's tuple comparison skips items that are `==` (or identical, which dict equality stands in
-            // for): a `Symbols` with only zero counts is `== ()`, though it is no dict key equal to it.
-            if oa != ob && !oa.eq_op(ob, false)?.truthy()? {
-                return oa.binary(op, ob);
-            }
-            if qa != qb {
-                return Ok(Value::Bool(cmp(op, qa, qb)));
-            }
-        }
-        Ok(Value::Bool(cmp(op, self.len(), other.len())))
-    }
-}
-
 /// The guard of `_Marginals.__getattr__` and `_GroupBy.__getattr__`: `if key[0] == '_': raise AttributeError(key)`
 /// (and `key[0]` of an empty name raises IndexError).
 pub fn check_public_attr(name: &str) -> Result<()> {
@@ -557,6 +268,7 @@ pub fn check_public_attr(name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::{BinOp, PyDie, PyStatistics};
 
     fn one_hot(positions: &[Option<i64>]) -> Result<Vec<(Value, Quantity)>> {
         let die = Die::from_dict(

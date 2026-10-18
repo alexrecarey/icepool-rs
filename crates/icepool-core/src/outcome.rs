@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::error::{Error, Result};
-use crate::Int;
+use crate::{Int, Ratio};
 
 mod sealed {
     /// `OutcomeOrder` has exactly two implementations: every `Ord` type and `Value`.
@@ -239,6 +239,44 @@ macro_rules! integer_arith {
 }
 
 integer_arith!(i8, i16, i32, i64, i128, isize);
+
+/// An outcome with an exact rational value: what the typed statistics (`Die::mean`, `Die::variance`) compute
+/// with. Python's `int` dice (and `bool`, an `int` subclass) give `Fraction`s for these, which is what [`Ratio`]
+/// is.
+///
+/// ```
+/// use icepool_core::{Ratio, ToRatio};
+/// assert_eq!(3i64.to_ratio(), Ratio::from(3));
+/// assert_eq!(true.to_ratio(), Ratio::from(1));
+/// ```
+pub trait ToRatio {
+    /// The outcome as an exact fraction.
+    fn to_ratio(&self) -> Ratio;
+}
+
+macro_rules! integer_to_ratio {
+    ($($t:ty),*) => {$(
+        impl ToRatio for $t {
+            fn to_ratio(&self) -> Ratio {
+                Ratio::from(*self)
+            }
+        }
+    )*};
+}
+
+integer_to_ratio!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+
+impl ToRatio for bool {
+    fn to_ratio(&self) -> Ratio {
+        Ratio::from(u8::from(*self))
+    }
+}
+
+impl ToRatio for Ratio {
+    fn to_ratio(&self) -> Ratio {
+        self.clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -23,6 +23,7 @@ mod stats;
 mod to_pool;
 mod weightless;
 
+use icepool_core::value::PyDie;
 use dashu_int::{IBig, UBig};
 use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
 use pyo3::exceptions::{

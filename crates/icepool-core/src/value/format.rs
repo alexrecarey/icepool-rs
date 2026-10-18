@@ -10,7 +10,7 @@ use crate::population::Comparison;
 use crate::value::builtins::{float_ceil, getitem, math_log10, to_float, Index};
 use crate::value::pystr::{format_float, py_str, FloatFormat};
 use crate::host::LenKind;
-use crate::value::BinOp;
+use crate::value::{BinOp, PyStatistics};
 use crate::{Die, Value};
 
 /// One column of a col_spec.
