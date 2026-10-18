@@ -219,7 +219,7 @@ impl WasmDeck {
             "mod" => cards.modulo_quantities(&n).map(Some),
             _ => return Err(Error::InvalidArgument(format!("no quantity operator {op}"))).or_throw(),
         };
-        self.from_data(data.or_throw()?)
+        self.new_or_self(data.or_throw()?)
     }
 
     /// `deck.pad_to_denominator(denominator, outcome)`.
@@ -227,13 +227,13 @@ impl WasmDeck {
     pub fn pad_to_denominator(&self, denominator: JsValue, outcome: JsValue) -> JsResult<WasmDeck> {
         let (denominator, outcome) = (value_from_js(&denominator).or_throw()?, value_from_js(&outcome).or_throw()?);
         let data = self.deck.population().pad_to_denominator(&denominator, &outcome).or_throw()?;
-        self.from_data(Some(data))
+        self.new_or_self(Some(data))
     }
 
     /// `deck.append(outcome, quantity)`.
     pub fn append(&self, outcome: JsValue, quantity: JsValue) -> JsResult<WasmDeck> {
         let data = self.deck.population().append(&key(&outcome)?, &value_from_js(&quantity).or_throw()?).or_throw()?;
-        self.from_data(Some(data))
+        self.new_or_self(Some(data))
     }
 
     /// `deck.remove(outcome, quantity)`: `null` removes all of it.
@@ -243,7 +243,7 @@ impl WasmDeck {
             q => Some(q),
         };
         let data = self.deck.population().remove(&key(&outcome)?, quantity.as_ref()).or_throw()?;
-        self.from_data(Some(data))
+        self.new_or_self(Some(data))
     }
 
     /// `deck.split(which)` once the TypeScript has selected the outcomes (one flag per outcome): `[selected,
@@ -327,7 +327,7 @@ impl WasmDeck {
     }
 
     /// `Deck(data)`, or this deck itself where Python returns `self` (`None` data).
-    fn from_data(&self, data: Option<Data>) -> JsResult<WasmDeck> {
+    fn new_or_self(&self, data: Option<Data>) -> JsResult<WasmDeck> {
         match data {
             None => Ok(self.copy()),
             Some(data) => Ok(WasmDeck { deck: deck_from_data(data).or_throw()? }),
