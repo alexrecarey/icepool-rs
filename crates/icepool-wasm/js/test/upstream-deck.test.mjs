@@ -6,8 +6,8 @@ import { ip, assertDieEquals, pyEq } from "./upstream.mjs";
 const { MultisetEvaluator, Deck } = ip;
 const range = (n) => Array.from({ length: n }, (_, i) => i);
 
-/** Python's `deck == other`: a Deck compares as the Mapping of its outcomes to quantities. */
-const assertDeckEquals = (actual, expected) => assert.deepEqual(actual.items(), expected.items());
+/** Python's `assert deck == other` (`Deck.__eq__`, `deck.eq` here). */
+const assertDeckEquals = (actual, expected) => assert.ok(actual.eq(expected), `${actual.repr()} != ${expected.repr()}`);
 
 class TrivialEvaluator extends MultisetEvaluator {
   nextState(state, order, outcome, ...counts) {

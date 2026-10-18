@@ -27,6 +27,7 @@ import {
   native,
   registerDeckClasses,
   tupleIndex,
+  tupleLen,
   type TupleNode,
 } from "./multiset.js";
 import { HANDLE, Handle, call, registerKind } from "./rpc.js";
@@ -978,7 +979,7 @@ export class Deal extends KeepGenerator {
  * hands.hand(1).sum().mean().toString(); //=> "4"
  * ```
  */
-export class MultisetTupleExpression extends Replayable {
+export class MultisetTupleExpression extends Replayable implements Iterable<MultisetExpression> {
   /** The native form of this expression; `undefined` for one only the bridge holds. @internal */
   declare node?: TupleNode;
 
@@ -1009,6 +1010,29 @@ export class MultisetTupleExpression extends Replayable {
     super.free();
   }
 
+  /** `len(x)`: the number of hands.
+   *
+   * @example
+   * ```ts
+   * new Deck([1, 2, 3], 4).deal([1, 2, 3]).slice(1).length; //=> 2
+   * ```
+   */
+  get length(): number {
+    const n = tupleLen(this);
+    if (n === undefined) throw new TypeError("icepool: the length of a tuple expression the bridge made");
+    return n;
+  }
+  /** Iterates over the hands (Python's `iter(x)`), so `const [a, b] = hands` unpacks two of them.
+   *
+   * @example
+   * ```ts
+   * const [a, b] = new Deck([1, 2, 3, 4]).deal([1, 3]);
+   * b.size().items(); //=> [[3, 4n]]
+   * ```
+   */
+  *[Symbol.iterator](): Iterator<MultisetExpression> {
+    for (let i = 0; i < this.length; i++) yield this.hand(i);
+  }
   /** `x[index]`: one hand, as a multiset expression.
    *
    * @example

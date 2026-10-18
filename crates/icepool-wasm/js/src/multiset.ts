@@ -1592,8 +1592,8 @@ export function registerDeckClasses(classes: typeof deckClasses): void {
   Object.assign(deckClasses, classes);
 }
 
-/** `len()` of a native multiset tuple expression; `undefined` for one only the bridge holds. */
-function tupleLen(x: TupleExpressionLike): number | undefined {
+/** `len()` of a native multiset tuple expression; `undefined` for one only the bridge holds. @internal */
+export function tupleLen(x: TupleExpressionLike): number | undefined {
   const node = x.node;
   switch (node?.kind) {
     case "multiDeal":
