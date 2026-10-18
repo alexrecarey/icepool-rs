@@ -124,6 +124,13 @@ pub enum Value {
 
 impl Value {
     /// Python's `type(x).__name__`, for error messages.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert_eq!(Value::from(1).type_name(), "int");
+    /// assert_eq!(Value::Vector(Vector::new(vec![])).type_name(), "Vector");
+    /// ```
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::None => "NoneType",
@@ -141,6 +148,13 @@ impl Value {
     }
 
     /// The numeric view of `bool`, `int`, `float` and `Fraction`; `None` for everything else.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `True` is the int 1, and hashes as `1.0` does.
+    /// assert_eq!(Value::Bool(true).as_num().unwrap().py_hash(), Value::Float(1.0).as_num().unwrap().py_hash());
+    /// assert!(Value::str("1").as_num().is_none());
+    /// ```
     pub fn as_num(&self) -> Option<Num<'_>> {
         match self {
             Value::Bool(b) => Some(Num::Int(std::borrow::Cow::Owned(IBig::from(*b as u8)))),
@@ -152,16 +166,35 @@ impl Value {
     }
 
     /// The `str` `s`.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// assert!(matches!(Value::str("a"), Value::Str(s) if &*s == "a"));
+    /// ```
     pub fn str(s: &str) -> Value {
         Value::Str(Arc::from(s))
     }
 
     /// The `tuple` of `items`.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// assert_eq!(Value::tuple(vec![Value::from(1)]).to_string(), "(1,)");
+    /// ```
     pub fn tuple(items: Vec<Value>) -> Value {
         Value::Tuple(Arc::from(items))
     }
 
     /// Python's `bool(x)`, which raises for a `Vector` that is not the result of a comparison.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert!(!Value::tuple(vec![]).truthy().unwrap());
+    /// assert!(Value::Float(0.5).truthy().unwrap());
+    /// // `bool(Vector((1, 2)))` raises TypeError: it is not the result of a comparison.
+    /// assert!(Value::Vector(Vector::new(vec![Value::from(1), Value::from(2)])).truthy().is_err());
+    /// ```
     pub fn truthy(&self) -> Result<bool> {
         Ok(match self {
             Value::None => false,
@@ -184,6 +217,15 @@ impl Value {
     ///
     /// This is also where an outcome nested too deep raises `RecursionError` (`recursion.rs`): a die never holds
     /// one, so the infallible recursions on its outcomes (`==`, `hash`) stay shallow.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert!(Value::tuple(vec![Value::from(1)]).check_hashable().is_ok());
+    /// // `hash((VectorWithTruthOnly(True),))` raises ValueError.
+    /// let truth_only = Value::Vector(Vector::truth_only(Value::Bool(true)));
+    /// assert!(Value::tuple(vec![truth_only]).check_hashable().is_err());
+    /// ```
     pub fn check_hashable(&self) -> Result<()> {
         match self {
             Value::Vector(v) => {
@@ -202,6 +244,17 @@ impl Value {
     /// (`PyObject_RichCompare(v, w, Py_EQ)`, which for a `Vector` or `Symbols` is its own `__eq__`: `Symbols('ab')
     /// == ('a', 'b')`, so those tuple elements do not decide). Elements equal as dict keys are equal for Python too
     /// (which also stands in for its identity shortcut), so only the others ask `py_eq`, which may raise.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    /// let (a, b) = ([1, 2, 3].map(Value::from), [1, 5, 0].map(Value::from));
+    /// assert_eq!(Value::first_difference(&a, &b).unwrap(), Some((&a[1], &b[1])));
+    /// // `Symbols('ab') == ('a', 'b')`, so `(Symbols('ab'),)` and `(('a', 'b'),)` have no difference.
+    /// let s = [Value::Symbols(Symbols::parse("ab").unwrap())];
+    /// let t = [Value::tuple(vec![Value::str("a"), Value::str("b")])];
+    /// assert_eq!(Value::first_difference(&s, &t).unwrap(), None);
+    /// ```
     pub fn first_difference<'a>(
         a: &'a [Value],
         b: &'a [Value],
@@ -215,11 +268,26 @@ impl Value {
     }
 
     /// Whether this is a `Vector` or `Symbols`, whose operators follow their own classes (`ops::collection_binary`).
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert!(Value::Vector(Vector::new(vec![])).is_collection());
+    /// assert!(!Value::tuple(vec![]).is_collection());
+    /// ```
     pub fn is_collection(&self) -> bool {
         matches!(self, Value::Vector(_) | Value::Symbols(_))
     }
 
     /// Python's `max(a, b)`: `b` only if `b > a`, so the first of equal values wins.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `max(1, True)` is `1`: equal, so the first wins.
+    /// assert!(matches!(Value::py_max(Value::from(1), Value::Bool(true)).unwrap(), Value::Int(_)));
+    /// // `max(1, 'a')` raises TypeError.
+    /// assert!(Value::py_max(Value::from(1), Value::str("a")).is_err());
+    /// ```
     pub fn py_max(a: Value, b: Value) -> crate::Result<Value> {
         Ok(if ops::compare(BinOp::Gt, &b, &a)? {
             b
@@ -229,6 +297,13 @@ impl Value {
     }
 
     /// Python's `min(a, b)`: `b` only if `b < a`.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `min(True, 1)` is `True`.
+    /// assert!(matches!(Value::py_min(Value::Bool(true), Value::from(1)).unwrap(), Value::Bool(true)));
+    /// assert_eq!(Value::py_min(Value::Float(2.5), Value::from(2)).unwrap(), Value::from(2));
+    /// ```
     pub fn py_min(a: Value, b: Value) -> crate::Result<Value> {
         Ok(if ops::compare(BinOp::Lt, &b, &a)? {
             b

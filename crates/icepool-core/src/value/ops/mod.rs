@@ -86,6 +86,11 @@ pub enum BinOp {
 
 impl BinOp {
     /// The operator as Python writes it (`+`, `//`, `<=`, ...).
+    ///
+    /// ```
+    /// use icepool_core::value::BinOp;
+    /// assert_eq!(BinOp::FloorDiv.symbol(), "//");
+    /// ```
     pub fn symbol(self) -> &'static str {
         use BinOp::*;
         match self {
@@ -110,6 +115,12 @@ impl BinOp {
 
     /// For a comparison, the reflected one Python falls back to when the left operand returns `NotImplemented`:
     /// `a < b` becomes `b > a`. Arithmetic operators reflect to `__radd__` etc., which keep the operand order.
+    ///
+    /// ```
+    /// use icepool_core::value::BinOp;
+    /// assert_eq!(BinOp::Lt.reflected_comparison(), Some(BinOp::Gt));
+    /// assert_eq!(BinOp::Add.reflected_comparison(), None);
+    /// ```
     pub fn reflected_comparison(self) -> Option<BinOp> {
         use BinOp::*;
         match self {
@@ -223,6 +234,18 @@ fn too_large<T>() -> Result<T> {
 
 impl Value {
     /// Python's `operator.<op>(self, other)` on two outcomes.
+    ///
+    /// ```
+    /// use icepool_core::value::BinOp;
+    /// use icepool_core::{Error, Value};
+    /// // `7 // 2` is `3`, `7 / 2` is `3.5`, `True & True` is `True`.
+    /// assert_eq!(Value::from(7).binary(BinOp::FloorDiv, &Value::from(2)).unwrap().to_string(), "3");
+    /// assert_eq!(Value::from(7).binary(BinOp::TrueDiv, &Value::from(2)).unwrap().to_string(), "3.5");
+    /// assert_eq!(Value::Bool(true).binary(BinOp::And, &Value::Bool(true)).unwrap().to_string(), "True");
+    /// // `1 / 0` raises ZeroDivisionError.
+    /// let err = Value::from(1).binary(BinOp::TrueDiv, &Value::from(0)).unwrap_err();
+    /// assert!(matches!(err, Error::DivisionByZero(_)));
+    /// ```
     pub fn binary(&self, op: BinOp, other: &Value) -> Result<Value> {
         use BinOp::*;
         if let Some(h) = crate::host::host_of(self, other) {
@@ -274,6 +297,16 @@ impl Value {
     }
 
     /// Python's `-x`, `+x`, `~x`, `abs(x)`, `math.trunc(x)`, `math.floor(x)`, `math.ceil(x)`.
+    ///
+    /// ```
+    /// use icepool_core::value::UnOp;
+    /// use icepool_core::Value;
+    /// // `-True` is `-1` and `~True` is `-2`: ints; `math.floor(-3.5)` is `-4`.
+    /// assert_eq!(Value::Bool(true).unary(UnOp::Neg).unwrap().to_string(), "-1");
+    /// assert_eq!(Value::Bool(true).unary(UnOp::Invert).unwrap().to_string(), "-2");
+    /// assert_eq!(Value::Float(-3.5).unary(UnOp::Floor).unwrap().to_string(), "-4");
+    /// assert!(Value::str("a").unary(UnOp::Neg).is_err()); // TypeError
+    /// ```
     pub fn unary(&self, op: UnOp) -> Result<Value> {
         use UnOp::*;
         let bad = || {
@@ -332,6 +365,14 @@ impl Value {
     }
 
     /// Python's `round(self, ndigits)`; `ndigits` is `None` or an int.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `round(2.5)` is `2` (half to even), `round(2.675, 2)` is `2.67` (the float is just below 2.675).
+    /// assert_eq!(Value::Float(2.5).round(&Value::None).unwrap().to_string(), "2");
+    /// assert_eq!(Value::Float(2.675).round(&Value::from(2)).unwrap().to_string(), "2.67");
+    /// assert_eq!(Value::from(1234).round(&Value::from(-2)).unwrap().to_string(), "1200");
+    /// ```
     pub fn round(&self, ndigits: &Value) -> Result<Value> {
         let nd = match ndigits {
             Value::None => None,
@@ -434,6 +475,16 @@ impl Value {
     /// Python's `operator.eq(self, other)` (`operator.ne` if `ne`): a bool, except that a `Vector` compares
     /// elementwise. `Symbols` converts the other operand (so `Symbols('ab') == 'ab'`), and when it cannot, Python
     /// falls back to identity: unequal.
+    ///
+    /// ```
+    /// use icepool_core::value::{Symbols, Vector};
+    /// use icepool_core::Value;
+    /// // `Vector((1, 2)) != 1` is `Vector((False, True))`; `Symbols('ab') == 'ab'` is `True`.
+    /// let v = Value::Vector(Vector::new(vec![Value::from(1), Value::from(2)]));
+    /// assert_eq!(v.eq_op(&Value::from(1), true).unwrap().to_string(), "Vector((False, True))");
+    /// let s = Value::Symbols(Symbols::parse("ab").unwrap());
+    /// assert_eq!(s.eq_op(&Value::str("ab"), false).unwrap().to_string(), "True");
+    /// ```
     pub fn eq_op(&self, other: &Value, ne: bool) -> Result<Value> {
         use super::VecOp;
         if crate::host::host_of(self, other).is_some()

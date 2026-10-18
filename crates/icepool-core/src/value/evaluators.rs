@@ -46,6 +46,13 @@ use crate::Int;
 /// ```
 pub trait IntoValue {
     /// The value as Python spells it.
+    ///
+    /// ```
+    /// use icepool_core::value::evaluators::IntoValue;
+    /// use icepool_core::Int;
+    /// // `(Int, bool, Option)` is the tuple `(3, False, None)`.
+    /// assert_eq!((Int::from(3), false, None::<i64>).into_value().to_string(), "(3, False, None)");
+    /// ```
     fn into_value(self) -> Value;
 }
 
@@ -174,6 +181,14 @@ pub enum PyState<S> {
 
 impl<S: Clone + IntoValue> PyState<S> {
     /// The state as Python spells it.
+    ///
+    /// ```
+    /// use icepool_core::value::evaluators::PyState;
+    /// use icepool_core::{Int, Value};
+    /// // A typed `Option<Int>` state of `None` is Python's `None`.
+    /// assert_eq!(PyState::<Option<Int>>::Typed(None).value(), Value::None);
+    /// assert_eq!(PyState::<Option<Int>>::Typed(Some(Int::from(2))).value(), Value::from(2));
+    /// ```
     pub fn value(&self) -> Value {
         match self {
             PyState::Typed(s) => s.clone().into_value(),
@@ -230,6 +245,22 @@ pub trait TupleCounts: MultisetEvaluator<Value> {
     /// `initial_state` when some size may be a tuple. Python passes a tuple size on like any other; only keep and
     /// lexi read their sizes (and override this), so by default a tuple size reaches `initial_state` as `None`,
     /// unread. (No built-in `final_outcome` reads its sizes.)
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::evaluator::keep::KeepEvaluator;
+    /// use icepool_core::evaluator::{Count, Order};
+    /// use icepool_core::value::evaluators::TupleCounts;
+    /// use icepool_core::Int;
+    ///
+    /// let tuple_size = [Some(Count::Tuple(Arc::from([Int::from(1), Int::from(2)])))];
+    /// // `keep(-1)` popping in ascending order counts from the size: `(1, 2) + -1 + 1` raises TypeError.
+    /// let highest = KeepEvaluator { index: Some(Int::from(-1)) };
+    /// assert!(highest.initial_state_tuples(Order::Ascending, &[], &tuple_size).is_err());
+    /// // `keep(0)` never reads it.
+    /// let lowest = KeepEvaluator { index: Some(Int::from(0)) };
+    /// assert!(lowest.initial_state_tuples(Order::Ascending, &[], &tuple_size).is_ok());
+    /// ```
     fn initial_state_tuples(
         &self,
         order: Order,
@@ -241,6 +272,22 @@ pub trait TupleCounts: MultisetEvaluator<Value> {
 
     /// `next_state` when some count is a tuple (or the state is already Python's), every count as the Python
     /// value it is (`int` or `tuple` of `int`s). The default says `Unsupported`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::LargestCountEvaluator;
+    /// use icepool_core::evaluator::Order;
+    /// use icepool_core::value::evaluators::{PyState, TupleCounts};
+    /// use icepool_core::Value;
+    ///
+    /// // `largest_count`'s `max(state or count, count)`: tuple counts compare lexicographically.
+    /// let pair = |a, b| [Value::tuple(vec![Value::from(a), Value::from(b)])];
+    /// let step = |state: &PyState<_>, count: &[Value]| {
+    ///     LargestCountEvaluator.next_state_tuples(state, Order::Ascending, &Value::from(1), count)
+    /// };
+    /// let state = step(&PyState::Typed(None), &pair(1, 2)).unwrap().unwrap();
+    /// let state = step(&state, &pair(0, 5));
+    /// assert_eq!(state.unwrap().unwrap().value().to_string(), "(1, 2)");
+    /// ```
     fn next_state_tuples(
         &self,
         _state: &PyState<Self::State>,
@@ -252,6 +299,18 @@ pub trait TupleCounts: MultisetEvaluator<Value> {
     }
 
     /// `final_outcome` of a Python state `next_state_tuples` produced.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::poker::LargestCountEvaluator;
+    /// use icepool_core::evaluator::Final;
+    /// use icepool_core::value::evaluators::TupleCounts;
+    /// use icepool_core::Value;
+    ///
+    /// // The largest count is the final outcome, a tuple; a state of `None` is Python's `None`.
+    /// let state = Value::tuple(vec![Value::from(1), Value::from(2)]);
+    /// assert!(matches!(LargestCountEvaluator.final_outcome_tuples(&state).unwrap(), Final::Outcome(s) if s == state));
+    /// assert!(matches!(LargestCountEvaluator.final_outcome_tuples(&Value::None).unwrap(), Final::None));
+    /// ```
     fn final_outcome_tuples(&self, _state: &Value) -> Result<Final<Value>> {
         Err(tuple_unsupported())
     }

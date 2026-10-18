@@ -62,6 +62,17 @@ pub trait PyDie {
     /// respectively. As in icepool, the three comparison dice are made in the order `<`, `==`, `>` (so the first
     /// that raises decides the error), and each contributes the quantity of its `True` outcome if it has one
     /// (`if True in lt: data[-1] = lt[True]`, a dict lookup, so an outcome equal to `True` such as `1` counts).
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |die: Die<Value>| die.items().iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.cmp(d2)`.
+    /// let d2: Die<Value> = try_d(2).unwrap();
+    /// assert_eq!(show(d3.cmp_die(&d2).unwrap()), ["-1: 1", "0: 2", "1: 3"]);
+    /// ```
     fn cmp_die(&self, other: &Die<Value>) -> Result<Die<Value>>;
 
     /// `Die.mean_time_to_sum(target)`: the mean number of rolls until the cumulative sum is greater or equal to
@@ -73,6 +84,19 @@ pub trait PyDie {
     /// the rolls until a nonzero outcome, then the time left after it. Python's recursive call finds every
     /// smaller target in the cache; outcomes that are not ints get there as floats or Fractions, which index a
     /// list with `TypeError`, as here.
+    ///
+    /// ```
+    /// use icepool_core::value::builtins::fraction;
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// // `d4.mean_time_to_sum(3)` is `Fraction(25, 16)`; the cache then holds the targets 0 to 3.
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// let mut cache = vec![Value::Fraction(fraction(&Value::from(0)).unwrap())];
+    /// assert_eq!(d4.mean_time_to_sum(&mut cache, &Value::from(3)).unwrap().to_string(), "Fraction(25, 16)");
+    /// assert_eq!(cache.len(), 4);
+    /// ```
     fn mean_time_to_sum(
         &self,
         cache: &mut Vec<crate::Value>,
@@ -83,32 +107,111 @@ pub trait PyDie {
     ///
     /// Note that for `float`s, +0.0, -0.0, and nan all become 0. Each outcome is compared with its own zero,
     /// `x * 0` (`Die._sign`), so a tuple compares with `()` and a str with `''`.
+    ///
+    /// ```
+    /// use icepool_core::value::BinOp;
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |die: Die<Value>| die.items().iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `(d3 - 2).sign()`.
+    /// let shifted = d3.unary_operator(|x| x.binary(BinOp::Sub, &Value::from(2))).unwrap();
+    /// assert_eq!(show(shifted.sign().unwrap()), ["-1: 1", "0: 1", "1: 1"]);
+    /// ```
     fn sign(&self) -> Result<Die<Value>>;
 
     /// Multiplies all quantities by an integer (`None`: `scale == 1`, Python returns the population itself).
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.multiply_quantities(2)`; `d3.multiply_quantities(1) is d3`.
+    /// assert_eq!(show(d3.multiply_quantities(&Value::from(2)).unwrap().unwrap()), ["1: 2", "2: 2", "3: 2"]);
+    /// assert!(d3.multiply_quantities(&Value::from(1)).unwrap().is_none());
+    /// ```
     fn multiply_quantities(&self, scale: &Value) -> Result<Option<Data>>;
 
     /// Divides all quantities by an integer, rounding down; resulting zero quantities are dropped (only those at
     /// least `divisor` are kept). `None`: `divisor == 0`, Python returns the population itself.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `Die({1: 3, 2: 5, 3: 1}).divide_quantities(2)`: the 1 of outcome 3 rounds down to 0 and drops out.
+    /// let die = Die::from_dict([(1, 3u8), (2, 5), (3, 1)].map(|(o, q)| (Value::from(o), q.into())).into()).unwrap();
+    /// assert_eq!(show(die.divide_quantities(&Value::from(2)).unwrap().unwrap()), ["1: 1", "2: 2"]);
+    /// ```
     fn divide_quantities(&self, divisor: &Value) -> Result<Option<Data>>;
 
     /// Modulus of all quantities with an integer.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `Die({1: 3, 2: 5}).modulo_quantities(2)`.
+    /// let die = Die::from_dict([(1, 3u8), (2, 5)].map(|(o, q)| (Value::from(o), q.into())).into()).unwrap();
+    /// assert_eq!(show(die.modulo_quantities(&Value::from(2)).unwrap()), ["1: 1", "2: 1"]);
+    /// ```
     fn modulo_quantities(&self, divisor: &Value) -> Result<Data>;
 
     /// Changes the denominator to a target number by changing the quantity of a specified outcome. If that
     /// quantity becomes zero, the outcome is removed (`del data[outcome]`: `KeyError` if it was not there);
     /// `ValueError` if it would have to be negative.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.pad_to_denominator(5, 3)`; `d3.pad_to_denominator(2, 3)` removes the 3; `d3.pad_to_denominator(1, 3)`
+    /// // raises ValueError.
+    /// assert_eq!(show(d3.pad_to_denominator(&Value::from(5), &Value::from(3)).unwrap()), ["1: 1", "2: 1", "3: 3"]);
+    /// assert_eq!(show(d3.pad_to_denominator(&Value::from(2), &Value::from(3)).unwrap()), ["1: 1", "2: 1"]);
+    /// assert!(d3.pad_to_denominator(&Value::from(1), &Value::from(3)).is_err());
+    /// ```
     fn pad_to_denominator(&self, denominator: &Value, outcome: &Value) -> Result<Data>;
 
     /// `Population.append(outcome, quantity)` up to `self._new_type(data)`: the items of `data = Counter(self)`
     /// after `data[outcome] = max(data[outcome] + quantity, 0)`, an outcome not there yet added last (as the
     /// `dict` does). `quantity` may be negative, which removes quantity (but not below zero); it is any Python
     /// number, and `Die(data)` / `Deck(data)` (the caller's) drops the zero quantities.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.append(2, -5)`: quantities stop at zero (`Die(...)` then drops the outcome).
+    /// assert_eq!(show(d3.append(&Value::from(2), &Value::from(-5)).unwrap()), ["1: 1", "2: 0", "3: 1"]);
+    /// ```
     fn append(&self, outcome: &Value, quantity: &Value) -> Result<Data>;
 
     /// `Population.remove(outcome, quantity)` up to `self._new_type(data)`. Without a quantity all of that
     /// outcome is removed (`data[outcome] = 0`); with one, it is `self.append(outcome, -quantity)`, so a negative
     /// quantity adds instead.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.remove(2)` and `d3.remove(2, -1)`.
+    /// assert_eq!(show(d3.remove(&Value::from(2), None).unwrap()), ["1: 1", "2: 0", "3: 1"]);
+    /// assert_eq!(show(d3.remove(&Value::from(2), Some(&Value::from(-1))).unwrap()), ["1: 1", "2: 2", "3: 1"]);
+    /// ```
     fn remove(&self, outcome: &Value, quantity: Option<&Value>) -> Result<Data>;
 
     /// `Population.to_one_hot(outcomes)` given, for each outcome of this population, `outcomes.index(outcome)` if
@@ -117,6 +220,20 @@ pub trait PyDie {
     /// add up their quantities (`data[Vector(value)] += quantity`). The index is a Python list index: a negative
     /// one counts from the end, and one out of range is `IndexError`. The caller builds `Die(data)` /
     /// `Deck(data)` of the result (its keys are distinct; zero quantities drop out there).
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// // `d3.to_one_hot([3, 1, 2])`: 1 is at index 1, 2 at index 2, 3 at index 0.
+    /// let items = d3.one_hot_items(3, &[Some(1), Some(2), Some(0)]).unwrap();
+    /// let shown: Vec<String> = items.iter().map(|(o, q)| format!("{o}: {q}")).collect();
+    /// assert_eq!(
+    ///     shown,
+    ///     ["Vector((False, True, False)): 1", "Vector((False, False, True)): 1", "Vector((True, False, False)): 1"]
+    /// );
+    /// ```
     fn one_hot_items(
         &self,
         len: usize,
@@ -125,6 +242,17 @@ pub trait PyDie {
 
     /// Multiplies all quantities to reach the target denominator; `ValueError` if this cannot be achieved using
     /// an integer scaling.
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |data: Vec<(Value, Value)>| data.iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.multiply_to_denominator(6)`; `d3.multiply_to_denominator(4)` raises ValueError.
+    /// assert_eq!(show(d3.multiply_to_denominator(&Value::from(6)).unwrap().unwrap()), ["1: 2", "2: 2", "3: 2"]);
+    /// assert!(d3.multiply_to_denominator(&Value::from(4)).is_err());
+    /// ```
     fn multiply_to_denominator(&self, denominator: &Value) -> Result<Option<Data>>;
 
     /// `self.hash_key <op> other.hash_key` for `<`, `<=`, `>`, `>=`: `(Die, tuple(items))` compared as Python
@@ -132,16 +260,71 @@ pub trait PyDie {
     /// quantity)` pair that differs (by `==`) decides, by `op` on the outcomes if those differ (which may raise),
     /// else on the quantities; if one is a prefix of the other, by `op` on the lengths. Like Python's tuple
     /// comparison, it returns what the deciding comparison returned: not a bool for vector outcomes.
+    ///
+    /// ```
+    /// use icepool_core::value::BinOp;
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// // `d3.hash_key < d4.hash_key`: `d3`'s items are a prefix of `d4`'s.
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// assert_eq!(d3.hash_key_compare(&d4, BinOp::Lt).unwrap(), Value::Bool(true));
+    /// // `d3.hash_key > Die([1, 2, 2]).hash_key` is `False`: `(2, 1)` against `(2, 2)` decides.
+    /// let other = Die::from_dict(vec![(Value::from(1), 1u8.into()), (Value::from(2), 2u8.into())]).unwrap();
+    /// assert_eq!(d3.hash_key_compare(&other, BinOp::Gt).unwrap(), Value::Bool(false));
+    /// ```
     fn hash_key_compare(&self, other: &Die<Value>, op: BinOp) -> Result<Value>;
 
     /// `marginals[index]`: the `[]` operator applied to each outcome (`_unary_operator(operator.getitem, dims)`).
+    ///
+    /// ```
+    /// use icepool_core::value::builtins::Index;
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |die: Die<Value>| die.items().iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `Die([(1, 10), (2, 20)]).marginals[1]`.
+    /// let pair = |a, b| (Value::tuple(vec![Value::from(a), Value::from(b)]), 1u8.into());
+    /// let die = Die::from_dict(vec![pair(1, 10), pair(2, 20)]).unwrap();
+    /// assert_eq!(show(die.marginal(&Index::Item(Value::from(1))).unwrap()), ["10: 1", "20: 1"]);
+    /// // `d3.marginals[0]` raises TypeError: an int is not subscriptable.
+    /// assert!(d3.marginal(&Index::Item(Value::from(0))).is_err());
+    /// ```
     fn marginal(&self, index: &Index) -> Result<Die<Value>>;
 
     /// `marginals.<name>` (`_Marginals.__getattr__`): `getattr(outcome, name)` applied to each outcome. Private
     /// names are refused before any outcome is looked at (`check_public_attr`).
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// let show = |die: Die<Value>| die.items().iter().map(|(o, q)| format!("{o}: {q}")).collect::<Vec<_>>();
+    /// // `d3.marginals.denominator` is a die of 1s; `d3.marginals._x` raises AttributeError.
+    /// assert_eq!(show(d3.marginal_attr("denominator").unwrap()), ["1: 3"]);
+    /// assert!(d3.marginal_attr("_x").is_err());
+    /// ```
     fn marginal_attr(&self, name: &str) -> Result<Die<Value>>;
 
     /// `len(marginals)`: the minimum `len()` of all outcomes (`ValueError` for an empty die).
+    ///
+    /// ```
+    /// use icepool_core::value::PyDie;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d3: Die<Value> = try_d(3).unwrap();
+    /// // `len(Die([(1, 2), (3,)]).marginals)` is 1, the shortest outcome; `len(d3.marginals)` raises TypeError.
+    /// let die = Die::from_dict(vec![
+    ///     (Value::tuple(vec![Value::from(1), Value::from(2)]), 1u8.into()),
+    ///     (Value::tuple(vec![Value::from(3)]), 1u8.into()),
+    /// ])
+    /// .unwrap();
+    /// assert_eq!(die.marginals_len().unwrap(), 1);
+    /// assert!(d3.marginals_len().is_err());
+    /// ```
     fn marginals_len(&self) -> Result<usize>;
 }
 

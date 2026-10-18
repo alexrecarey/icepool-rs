@@ -62,6 +62,14 @@ pub enum VecOp {
 
 impl VecOp {
     /// Python's `op(x, y)` on two elements.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, VecOp};
+    /// use icepool_core::Value;
+    /// // `operator.lt(1, 'a')` raises TypeError; `operator.eq(1, 'a')` is `False`.
+    /// assert!(VecOp::Bin(BinOp::Lt).apply(&Value::from(1), &Value::str("a")).is_err());
+    /// assert_eq!(VecOp::Eq(false).apply(&Value::from(1), &Value::str("a")).unwrap(), Value::Bool(false));
+    /// ```
     pub fn apply(self, x: &Value, y: &Value) -> Result<Value> {
         match self {
             VecOp::Bin(op) => x.binary(op, y),
@@ -79,6 +87,12 @@ impl VecOp {
 
 impl Vector {
     /// The vector of `items`.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert_eq!(Value::Vector(Vector::new(vec![Value::from(1)])).to_string(), "Vector((1,))");
+    /// ```
     pub fn new(items: Vec<Value>) -> Self {
         Vector {
             data: Some(Arc::from(items)),
@@ -94,6 +108,13 @@ impl Vector {
     }
 
     /// `VectorWithTruthOnly(truth_value)`.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// let v = Vector::truth_only(Value::Bool(true));
+    /// assert!(v.truthy().unwrap() && v.data().is_err());
+    /// ```
     pub fn truth_only(truth: Value) -> Self {
         Vector {
             data: None,
@@ -102,16 +123,45 @@ impl Vector {
     }
 
     /// Whether this is a `VectorWithTruthOnly`: the result of a comparison, which has a truth value but no data.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, VecOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `Vector((1, 2)) < Vector((1, 2, 0))` is `VectorWithTruthOnly(True)`: the lengths differ.
+    /// let longer = Value::Vector(Vector::new(vec![Value::from(1), Value::from(2), Value::from(0)]));
+    /// let Value::Vector(lt) = v.binary(VecOp::Bin(BinOp::Lt), &longer).unwrap() else { unreachable!() };
+    /// assert!(lt.is_truth_only() && !v.is_truth_only());
+    /// ```
     pub fn is_truth_only(&self) -> bool {
         self.data.is_none()
     }
 
     /// `self._data`, which raises for a `VectorWithTruthOnly`. Everything but `bool()` and `repr()` reads it.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// assert_eq!(**v.data().unwrap(), [Value::from(1), Value::from(2)]);
+    /// // `VectorWithTruthOnly(True)._data` raises ValueError.
+    /// assert!(Vector::truth_only(Value::Bool(true)).data().is_err());
+    /// ```
     pub fn data(&self) -> Result<&Arc<[Value]>> {
         self.data.as_ref().ok_or_else(truth_only_error)
     }
 
     /// `bool(self)`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, VecOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `bool(Vector((1, 2)) < Vector((1, 3)))` is `True` (by `(1, 2) < (1, 3)`); `bool(Vector((1, 2)))` raises.
+    /// let other = Value::Vector(Vector::new(vec![Value::from(1), Value::from(3)]));
+    /// assert!(v.binary(VecOp::Bin(BinOp::Lt), &other).unwrap().truthy().unwrap());
+    /// assert!(v.truthy().is_err());
+    /// ```
     pub fn truthy(&self) -> Result<bool> {
         match self.truth.as_deref() {
             None => Err(Error::WrongType(
@@ -127,6 +177,13 @@ impl Vector {
     }
 
     /// `type(self).__qualname__`.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// assert_eq!(Vector::new(vec![]).type_name(), "Vector");
+    /// assert_eq!(Vector::truth_only(Value::Bool(false)).type_name(), "VectorWithTruthOnly");
+    /// ```
     pub fn type_name(&self) -> &'static str {
         if self.data.is_some() {
             "Vector"
@@ -136,6 +193,14 @@ impl Vector {
     }
 
     /// `Vector.unary_operator`: elementwise. (`round` goes through `map`.)
+    ///
+    /// ```
+    /// use icepool_core::value::{UnOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `-Vector((1, 2))` is `Vector((-1, -2))`.
+    /// assert_eq!(v.unary(UnOp::Neg).unwrap().to_string(), "Vector((-1, -2))");
+    /// ```
     pub fn unary(&self, op: UnOp) -> Result<Value> {
         // `__neg__` and `unary_operator`.
         let _frames = frames(2)?;
@@ -143,6 +208,13 @@ impl Vector {
     }
 
     /// `Vector(f(x) for x in self)`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// assert_eq!(v.map(|x| x.binary(BinOp::Mul, &Value::from(10))).unwrap().to_string(), "Vector((10, 20))");
+    /// ```
     pub fn map(&self, f: impl Fn(&Value) -> Result<Value>) -> Result<Value> {
         let data = self.data()?;
         // `Vector.__init__` and the generator expression.
@@ -153,6 +225,17 @@ impl Vector {
 
     /// `Vector.binary_operator(other, op)` with `self` on the left, for the standard operators: the comparators
     /// give the result a truth value (for a non-vector: `False` for `==`, `True` for `!=`, none for the orderings).
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, VecOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `Vector((1, 2)) + Vector((10, 20))` is `Vector((11, 22))`; `Vector((1, 2)) + Vector((1,))` raises IndexError.
+    /// let tens = Value::Vector(Vector::new(vec![Value::from(10), Value::from(20)]));
+    /// assert_eq!(v.binary(VecOp::Bin(BinOp::Add), &tens).unwrap().to_string(), "Vector((11, 22))");
+    /// let one = Value::Vector(Vector::new(vec![Value::from(1)]));
+    /// assert!(v.binary(VecOp::Bin(BinOp::Add), &one).is_err());
+    /// ```
     pub fn binary(&self, op: VecOp, other: &Value) -> Result<Value> {
         let compare_non_vector = match op {
             VecOp::Eq(ne) => Some(Value::Bool(ne)),
@@ -174,6 +257,18 @@ impl Vector {
     /// `other`. Both must have the same length. Otherwise the other operand is broadcast to each element of `self`.
     /// For a comparison (`compare_for_truth`), the result also has a truth value based on lexicographic ordering:
     /// `op(self._data, other._data)`, computed first.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `Vector((1, 2)).binary_operator(Vector((1, 3)), operator.lt, compare_for_truth=True)`:
+    /// // `Vector((False, True))`, whose truth value is `(1, 2) < (1, 3)`.
+    /// let other = Value::Vector(Vector::new(vec![Value::from(1), Value::from(3)]));
+    /// let lt = v.binary_operator(&other, |x, y| x.binary(BinOp::Lt, y), true, None).unwrap();
+    /// assert_eq!(lt.to_string(), "Vector((False, True))");
+    /// assert!(lt.truthy().unwrap());
+    /// ```
     pub fn binary_operator(
         &self,
         other: &Value,
@@ -222,6 +317,15 @@ impl Vector {
     /// `Vector.reverse_binary_operator(other, op)`: `op(other, x)` for each element. Two vectors always use the
     /// left one's `binary_operator` in Python's dispatch; called directly, they must have the same length.
     /// Comparisons never get here from an operator: Python reflects `x < v` to `v > x`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `Vector((1, 2)).reverse_binary_operator(10, operator.sub)` is `Vector((9, 8))`.
+    /// let r = v.reverse_binary_operator(&Value::from(10), |x, y| x.binary(BinOp::Sub, y)).unwrap();
+    /// assert_eq!(r.to_string(), "Vector((9, 8))");
+    /// ```
     pub fn reverse_binary_operator(
         &self,
         other: &Value,
@@ -249,6 +353,14 @@ impl Vector {
     }
 
     /// `other <op> self` for a standard arithmetic operator.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `3 - Vector((1, 2))` is `Vector((2, 1))`.
+    /// assert_eq!(v.reverse_binary(BinOp::Sub, &Value::from(3)).unwrap().to_string(), "Vector((2, 1))");
+    /// ```
     pub fn reverse_binary(&self, op: BinOp, other: &Value) -> Result<Value> {
         // `__radd__` and `reverse_binary_operator`.
         let _frames = frames(2)?;
@@ -256,17 +368,43 @@ impl Vector {
     }
 
     /// `self._truth_value`.
+    ///
+    /// ```
+    /// use icepool_core::value::{VecOp, Vector};
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// // `Vector((1, 2))._truth_value` is `None`; `(Vector((1, 2)) == 1)._truth_value` is `False`.
+    /// assert!(v.truth().is_none());
+    /// let Value::Vector(eq) = v.binary(VecOp::Eq(false), &Value::from(1)).unwrap() else { unreachable!() };
+    /// assert_eq!(eq.truth(), Some(&Value::Bool(false)));
+    /// ```
     pub fn truth(&self) -> Option<&Value> {
         self.truth.as_deref()
     }
 
     /// A vector as the facade holds it: its elements and truth value.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// let v = Vector::from_parts(vec![Value::from(1)], Some(Value::Bool(true)));
+    /// assert!(v.truthy().unwrap() && !v.is_truth_only());
+    /// ```
     pub fn from_parts(items: Vec<Value>, truth: Option<Value>) -> Self {
         Vector::with_truth(items, truth)
     }
 
     /// Python's `repr()` / `str()` (the same for a vector: `str(tuple)` shows its elements' reprs).
     /// `elem` is `repr` of an element; `str` of the truth value of a `VectorWithTruthOnly` is `str_of`.
+    ///
+    /// ```
+    /// use icepool_core::value::Vector;
+    /// use icepool_core::Value;
+    /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
+    /// let repr = |x: &Value| Ok(x.to_string());
+    /// assert_eq!(v.repr_with(repr, repr).unwrap(), "Vector((1, 2))");
+    /// assert_eq!(Vector::truth_only(Value::Bool(true)).repr_with(repr, repr).unwrap(), "VectorWithTruthOnly(True)");
+    /// ```
     pub fn repr_with(
         &self,
         elem: impl Fn(&Value) -> Result<String>,

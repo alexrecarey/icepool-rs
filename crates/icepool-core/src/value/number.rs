@@ -50,6 +50,16 @@ impl Num<'_> {
     /// NaN hashes by object identity in Python. It is never equal to anything, so any hash is consistent with
     /// `==`; a fresh one per call keeps NaN keys from all landing in one bucket, as identity hashing does in
     /// Python (sums of dice with NaN outcomes make many NaN outcomes, which a constant made quadratic).
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// use icepool_core::value::builtins::fraction;
+    /// // `hash(1.5) == hash(Fraction(3, 2)) == 1152921504606846977`; `hash(-1)` is -2 (-1 is CPython's error code).
+    /// let three_halves = Value::Fraction(fraction(&Value::from(3)).unwrap() / fraction(&Value::from(2)).unwrap());
+    /// assert_eq!(three_halves.as_num().unwrap().py_hash(), 1152921504606846977);
+    /// assert_eq!(Value::Float(1.5).as_num().unwrap().py_hash(), 1152921504606846977);
+    /// assert_eq!(Value::from(-1).as_num().unwrap().py_hash(), -2);
+    /// ```
     pub fn py_hash(&self) -> i64 {
         let h = match self {
             // Fast path for machine-sized ints: `hash(n)` is `n` reduced modulo P, keeping the sign.

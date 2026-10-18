@@ -94,6 +94,16 @@ impl Data {
 impl Symbols {
     /// `Symbols(symbols)` for a string. Negative symbols follow a minus sign, optionally surrounded by whitespace:
     /// `a - b` has one positive a and one negative b.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// assert_eq!(Value::Symbols(Symbols::parse("ab - c").unwrap()).to_string(), "Symbols('ab - c')");
+    /// // `Symbols('a-b-c')` and `Symbols('a_')` raise ValueError.
+    /// assert!(Symbols::parse("a-b-c").is_err());
+    /// assert!(Symbols::parse("a_").is_err());
+    /// ```
     pub fn parse(s: &str) -> Result<Symbols> {
         // re.split(r'\s*-\s*', symbols): whitespace next to a dash goes with it.
         let mut parts = s.split('-').collect::<Vec<_>>();
@@ -141,6 +151,16 @@ impl Symbols {
     }
 
     /// `Symbols(x)` for any value: a string, a mapping (another `Symbols`), or an iterable of characters.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// // `Symbols(('b', 'a', 'b'))` is `Symbols('abb')`; `Symbols(3)` raises TypeError.
+    /// let t = Value::tuple(vec![Value::str("b"), Value::str("a"), Value::str("b")]);
+    /// assert_eq!(Symbols::convert(&t).unwrap().py_str().unwrap(), "abb");
+    /// assert!(Symbols::convert(&Value::from(3)).is_err());
+    /// ```
     pub fn convert(x: &Value) -> Result<Symbols> {
         match x {
             Value::Str(s) => Self::parse(s),
@@ -153,12 +173,32 @@ impl Symbols {
     }
 
     /// The constructor's iterable branch: `data[s] += 1` for each element, then the keys are checked.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// // The keys are sorted: `Symbols(['b', 'a', 'b'])` holds `a` first.
+    /// let s = Symbols::from_elements(&[Value::str("b"), Value::str("a"), Value::str("b")]).unwrap();
+    /// assert_eq!(s.items(), [('a', Value::from(1)), ('b', Value::from(2))]);
+    /// ```
     pub fn from_elements(items: &[Value]) -> Result<Symbols> {
         Self::from_mapping(counter(items.iter().cloned())?)
     }
 
     /// The constructor's mapping branch (`defaultdict(int, symbols)`, which keeps the mapping's order): each key is
     /// checked to be a single character, in insertion order, so the first bad key decides the exception.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// // `Symbols({'b': 2, 'a': 1})` is `Symbols('abb')`; `Symbols({'ab': 1})` raises ValueError.
+    /// let mapping = vec![(Value::str("b"), Value::from(2)), (Value::str("a"), Value::from(1))];
+    /// let s = Symbols::from_mapping(mapping).unwrap();
+    /// assert_eq!(s.py_str().unwrap(), "abb");
+    /// assert!(Symbols::from_mapping(vec![(Value::str("ab"), Value::from(1))]).is_err());
+    /// ```
     pub fn from_mapping(items: Vec<(Value, Value)>) -> Result<Symbols> {
         let mut data = Vec::with_capacity(items.len());
         for (k, n) in items {
@@ -180,6 +220,16 @@ impl Symbols {
     }
 
     /// `Symbols._new_raw` of these items, in this order.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// // Unlike the constructor, the order is kept as given.
+    /// let s = Symbols::raw(vec![('b', Value::from(1)), ('a', Value::from(2))]);
+    /// assert_eq!(s.items()[0].0, 'b');
+    /// assert_eq!(s.py_str().unwrap(), "aab");
+    /// ```
     pub fn raw(items: Vec<(char, Value)>) -> Symbols {
         Symbols {
             data: Arc::from(items),
@@ -187,21 +237,55 @@ impl Symbols {
     }
 
     /// Every `(symbol, count)` in insertion order.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// assert_eq!(s.items(), [('a', Value::from(2)), ('b', Value::from(1))]);
+    /// ```
     pub fn items(&self) -> &[(char, Value)] {
         &self.data
     }
 
     /// `len(self)`: the number of keys, zero counts included.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// // `len(Symbols('aab') - 'aab')` is 2: both keys stay, with zero counts.
+    /// let s = Symbols::parse("aab").unwrap();
+    /// let Some(Ok(Value::Symbols(diff))) = s.binary(BinOp::Sub, &Value::str("aab")) else { unreachable!() };
+    /// assert_eq!((s.len(), diff.len()), (2, 2));
+    /// ```
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Whether there are no symbols.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// assert!(Symbols::parse("").unwrap().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
     /// `self[c]` for a single character: `self._data.get(c, 0)`.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// assert_eq!(s.count('a'), Value::from(2));
+    /// assert_eq!(s.count('z'), Value::from(0));
+    /// ```
     pub fn count(&self, c: char) -> Value {
         self.data
             .iter()
@@ -211,6 +295,18 @@ impl Symbols {
 
     /// `self[key]`: the count of a single character as an `int`; for any other string, a `Symbols` with only those
     /// characters (in the key's order, without sorting), dropping the rest.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s['a']` is 2; `s['ca']` is `Symbols('aa')`, keeping `c` with count 0.
+    /// assert_eq!(s.getitem("a"), Value::from(2));
+    /// let Value::Symbols(sub) = s.getitem("ca") else { unreachable!() };
+    /// assert_eq!(sub.items(), [('c', Value::from(0)), ('a', Value::from(2))]);
+    /// assert_eq!(sub.py_str().unwrap(), "aa");
+    /// ```
     pub fn getitem(&self, key: &str) -> Value {
         let mut chars = key.chars();
         match (chars.next(), chars.next()) {
@@ -231,6 +327,23 @@ impl Symbols {
 
     /// `self + other`, `self - other`, `self & other`, `self | other`, `self ^ other` (the reflected forms of `+`,
     /// `&`, `|`, `^` are the same methods). `None` is `NotImplemented`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// let op = |op, other: &str| s.binary(op, &Value::str(other)).unwrap().unwrap().to_string();
+    /// // `s - 'abc'`, `s & 'bc'`, `s | 'bbb'`, `s ^ 'abbb'`, `s // 'ab'`.
+    /// assert_eq!(op(BinOp::Sub, "abc"), "Symbols('a - c')");
+    /// assert_eq!(op(BinOp::And, "bc"), "Symbols('b')");
+    /// assert_eq!(op(BinOp::Or, "bbb"), "Symbols('aabbb')");
+    /// assert_eq!(op(BinOp::Xor, "abbb"), "Symbols('abb')");
+    /// assert_eq!(op(BinOp::FloorDiv, "ab"), "1");
+    /// // `s * 2` repeats; `s * 'a'` is `NotImplemented`.
+    /// assert_eq!(s.binary(BinOp::Mul, &Value::from(2)).unwrap().unwrap().to_string(), "Symbols('aaaabb')");
+    /// assert!(s.binary(BinOp::Mul, &Value::str("a")).is_none());
+    /// ```
     pub fn binary(&self, op: BinOp, other: &Value) -> Option<Result<Value>> {
         let elementwise = |init: Data, f: &dyn Fn(&Value, &Value) -> Result<Value>| {
             let mut data = init;
@@ -284,6 +397,16 @@ impl Symbols {
     }
 
     /// `other <op> self` where `other` is not a `Symbols` and declined. `None` is `NotImplemented`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `'abc' - s` is `Symbols('c - a')`; `'aaaabb' // s` is 2.
+    /// assert_eq!(s.reverse_binary(BinOp::Sub, &Value::str("abc")).unwrap().unwrap().to_string(), "Symbols('c - a')");
+    /// assert_eq!(s.reverse_binary(BinOp::FloorDiv, &Value::str("aaaabb")).unwrap().unwrap(), Value::from(2));
+    /// ```
     pub fn reverse_binary(&self, op: BinOp, other: &Value) -> Option<Result<Value>> {
         match op {
             // __radd__ = __add__, __rand__ = __and__, ... (the result starts from self's keys).
@@ -305,6 +428,16 @@ impl Symbols {
     }
 
     /// `Symbols(...)` of every count mapped.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s.multiply_counts(3)`.
+    /// let tripled = s.map_counts(|n| n.binary(BinOp::Mul, &Value::from(3))).unwrap();
+    /// assert_eq!(tripled.to_string(), "Symbols('aaaaaabbb')");
+    /// ```
     pub fn map_counts(&self, f: impl Fn(&Value) -> Result<Value>) -> Result<Value> {
         let items = self
             .items()
@@ -315,6 +448,16 @@ impl Symbols {
     }
 
     /// `__lt__` / `__gt__`: the counts of each character in alphabetical order; the first difference decides.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// // `Symbols('ab') < Symbols('b')` is `False`: `a` comes first, and 1 > 0 decides.
+    /// let (ab, b) = (Symbols::parse("ab").unwrap(), Symbols::parse("b").unwrap());
+    /// assert!(!ab.lexicographic(BinOp::Lt, &b).unwrap());
+    /// assert!(b.lexicographic(BinOp::Lt, &ab).unwrap());
+    /// ```
     pub fn lexicographic(&self, op: BinOp, other: &Symbols) -> Result<bool> {
         let mut keys: Vec<char> = self
             .items()
@@ -342,6 +485,16 @@ impl Symbols {
     }
 
     /// `all(self[s] <op> other[s] for s in itertools.chain(self, other))`.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s <= 'aabc'`: a subset.
+    /// assert!(s.all_counts(&Symbols::parse("aabc").unwrap(), BinOp::Le).unwrap());
+    /// assert!(!s.all_counts(&Symbols::parse("ab").unwrap(), BinOp::Le).unwrap());
+    /// ```
     pub fn all_counts(&self, other: &Symbols, op: BinOp) -> Result<bool> {
         for (k, _) in self.items().iter().chain(other.items()) {
             if !self.count(*k).binary(op, &other.count(*k))?.truthy()? {
@@ -353,6 +506,16 @@ impl Symbols {
 
     /// `self == other` (`!=` if `ne`); `None` is `NotImplemented`, which Python returns when `Symbols(other)` raises
     /// `TypeError` or `ValueError`.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s == 'aba'` is `True`; `s == 3` is `NotImplemented` (then `False` by identity).
+    /// assert!(s.eq_op(&Value::str("aba"), false).unwrap().unwrap());
+    /// assert!(s.eq_op(&Value::from(3), false).is_none());
+    /// ```
     pub fn eq_op(&self, other: &Value, ne: bool) -> Option<Result<bool>> {
         let o = match Symbols::convert(other) {
             Ok(o) => o,
@@ -369,6 +532,18 @@ impl Symbols {
     }
 
     /// `count_subset(divisor, empty_divisor=...)`: the number of times the divisor is contained in this multiset.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s.count_subset('ab')` is 1; `s.count_subset('', empty_divisor=7)` is 7; `s.count_subset('')` raises
+    /// // ZeroDivisionError.
+    /// assert_eq!(s.count_subset(&Value::str("ab"), None).unwrap(), Value::from(1));
+    /// assert_eq!(s.count_subset(&Value::str(""), Some(&Value::from(7))).unwrap(), Value::from(7));
+    /// assert!(s.count_subset(&Value::str(""), None).is_err());
+    /// ```
     pub fn count_subset(&self, divisor: &Value, empty_divisor: Option<&Value>) -> Result<Value> {
         // A non-mapping divisor is counted with `Counter`, which takes any hashable elements.
         let counted: Vec<(Value, Value)> = match divisor {
@@ -387,6 +562,16 @@ impl Symbols {
     }
 
     /// `count_subset` of a mapping divisor given as its items (e.g. a die: `symbols // die` is `count_subset`).
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s.count_subset({'a': 1})`: two `a`s hold one each.
+    /// let counted = vec![(Value::str("a"), Value::from(1))];
+    /// assert_eq!(s.count_subset_items(counted, None).unwrap(), Value::from(2));
+    /// ```
     pub fn count_subset_items(
         &self,
         counted: Vec<(Value, Value)>,
@@ -415,11 +600,31 @@ impl Symbols {
     }
 
     /// `divide_counts(other)`: every count `// other`, for any `other` (the method does not check it is an int).
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // `s.divide_counts(2)`: `b`'s count becomes 0.
+    /// assert_eq!(s.divide_counts(&Value::from(2)).unwrap().to_string(), "Symbols('a')");
+    /// ```
     pub fn divide_counts(&self, other: &Value) -> Result<Value> {
         self.map_counts(|n| n.binary(BinOp::FloorDiv, other))
     }
 
     /// Unary `+` (drop the counts that are not positive) and `-`; other unary operators are not defined.
+    ///
+    /// ```
+    /// use icepool_core::value::{Symbols, UnOp};
+    /// use icepool_core::Value;
+    ///
+    /// // `+Symbols('a - b')` is `Symbols('a')`; `-Symbols('aab')` is `Symbols('-aab')`; `~` is not defined.
+    /// let s = Symbols::parse("a - b").unwrap();
+    /// assert_eq!(s.unary(UnOp::Pos).unwrap().unwrap().to_string(), "Symbols('a')");
+    /// assert_eq!(Symbols::parse("aab").unwrap().unary(UnOp::Neg).unwrap().unwrap().to_string(), "Symbols('-aab')");
+    /// assert!(s.unary(UnOp::Invert).is_none());
+    /// ```
     pub fn unary(&self, op: UnOp) -> Option<Result<Value>> {
         Some(match op {
             UnOp::Pos => (|| {
@@ -437,6 +642,14 @@ impl Symbols {
     }
 
     /// `has_negative_counts()`.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// assert!(Symbols::parse("a-b").unwrap().has_negative_counts().unwrap());
+    /// assert!(!Symbols::parse("ab").unwrap().has_negative_counts().unwrap());
+    /// ```
     pub fn has_negative_counts(&self) -> Result<bool> {
         for (_, n) in self.items() {
             if n.binary(BinOp::Lt, &int(0))?.truthy()? {
@@ -447,11 +660,30 @@ impl Symbols {
     }
 
     /// `size()`: the total number of elements, `sum(self._data.values())`.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// // `Symbols('aab').size()` is 3; `Symbols('a-b').size()` is 0.
+    /// assert_eq!(Symbols::parse("aab").unwrap().size().unwrap(), Value::from(3));
+    /// assert_eq!(Symbols::parse("a-b").unwrap().size().unwrap(), Value::from(0));
+    /// ```
     pub fn size(&self) -> Result<Value> {
         super::builtins::py_sum(self.items().iter().map(|(_, n)| Ok(n.clone())), int(0))
     }
 
     /// `isdisjoint(other)`: whether any positive elements are in common.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// let s = Symbols::parse("aab").unwrap();
+    /// // As in icepool: `True` when they share a positive element.
+    /// assert!(s.isdisjoint(&Value::str("bc")).unwrap());
+    /// assert!(!s.isdisjoint(&Value::str("c")).unwrap());
+    /// ```
     pub fn isdisjoint(&self, other: &Value) -> Result<bool> {
         let o = Symbols::convert(other)?;
         for (c, n) in self.items() {
@@ -467,6 +699,14 @@ impl Symbols {
 
     /// `str(self)`: all symbols in unary form (i.e. including duplicates) in ascending order; negative elements are
     /// listed following a ` - ` sign.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// assert_eq!(Symbols::parse("ab - c").unwrap().py_str().unwrap(), "ab - c");
+    /// assert_eq!(Symbols::parse("-c").unwrap().py_str().unwrap(), "-c");
+    /// ```
     pub fn py_str(&self) -> Result<String> {
         let mut keys: Vec<&(char, Value)> = self.items().iter().collect();
         keys.sort_by_key(|(c, _)| *c);
@@ -490,11 +730,29 @@ impl Symbols {
     }
 
     /// `repr(self)`: `Symbols('<str(self)>')`, the quotes not escaped.
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    ///
+    /// assert_eq!(Symbols::parse("ba").unwrap().py_repr().unwrap(), "Symbols('ab')");
+    /// ```
     pub fn py_repr(&self) -> Result<String> {
         Ok(format!("Symbols('{}')", self.py_str()?))
     }
 
     /// The nonzero counts in key order: what `==` and the hash depend on.
+    ///
+    /// ```
+    /// use icepool_core::value::{BinOp, Symbols};
+    /// use icepool_core::Value;
+    ///
+    /// // `Symbols('aab') - 'b'` keeps `b` with count 0, which `==` and the hash ignore.
+    /// let Some(Ok(Value::Symbols(s))) = Symbols::parse("aab").unwrap().binary(BinOp::Sub, &Value::str("b")) else {
+    ///     unreachable!()
+    /// };
+    /// assert_eq!(s.nonzero_sorted(), [('a', &Value::from(2))]);
+    /// ```
     pub fn nonzero_sorted(&self) -> Vec<(char, &Value)> {
         let mut v: Vec<(char, &Value)> = self
             .items()

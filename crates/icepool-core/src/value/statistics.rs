@@ -34,60 +34,228 @@ use crate::{Die, Quantity, Value};
 pub trait PyStatistics {
     /// `try_fraction(sum(outcome * quantity ...), denominator)`: a `Fraction` for rational outcomes, a `float`
     /// for float ones.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.mean()` is `Fraction(5, 2)`; `Die([1.0, 2.0]).mean()` is `1.5`.
+    /// assert_eq!(d4.mean().unwrap().to_string(), "Fraction(5, 2)");
+    /// let floats = Die::from_dict(vec![(Value::Float(1.0), 1u8.into()), (Value::Float(2.0), 1u8.into())]).unwrap();
+    /// assert_eq!(floats.mean().unwrap().to_string(), "1.5");
+    /// ```
     fn mean(&self) -> Result<Value>;
 
     /// This is the population variance, not the sample variance.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// assert_eq!(d4.variance().unwrap().to_string(), "Fraction(5, 4)");
+    /// ```
     fn variance(&self) -> Result<Value>;
 
     /// `math.sqrt(self.variance())`.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// assert_eq!(d4.standard_deviation().unwrap().to_string(), "1.118033988749895");
+    /// ```
     fn standard_deviation(&self) -> Result<Value>;
 
     /// `sum(p * (outcome - mean)**k ...) / sd**k`.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.standardized_moment(2)` is `0.9999999999999998`: the float rounding of `variance / sd**2`.
+    /// assert_eq!(d4.standardized_moment(&Value::from(2)).unwrap().to_string(), "0.9999999999999998");
+    /// ```
     fn standardized_moment(&self, k: &Value) -> Result<Value>;
 
     /// `standardized_moment(3)`.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// assert_eq!(d4.skewness().unwrap().to_string(), "0.0");
+    /// ```
     fn skewness(&self) -> Result<Value>;
 
     /// `standardized_moment(4) - 3.0`.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// assert_eq!(d4.excess_kurtosis().unwrap().to_string(), "-1.3600000000000003");
+    /// ```
     fn excess_kurtosis(&self) -> Result<Value>;
 
     /// The entropy of a random sample from this population: `-sum(p * math.log(p, base) for p in
     /// self.probabilities() if p > 0.0)`. An empty die sums nothing (the int `0`, and `base` is never looked at).
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.entropy(2)`: two bits.
+    /// assert_eq!(d4.entropy(&Value::from(2)).unwrap().to_string(), "2.0");
+    /// ```
     fn entropy(&self, base: &Value) -> Result<Value>;
 
     /// Kolmogorov–Smirnov statistic. The maximum absolute difference between CDFs.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.kolmogorov_smirnov(d6)`.
+    /// let d6: Die<Value> = try_d(6).unwrap();
+    /// assert_eq!(d4.kolmogorov_smirnov(&d6).unwrap().to_string(), "Fraction(1, 3)");
+    /// ```
     fn kolmogorov_smirnov(&self, other: &Die<Value>) -> Result<Value>;
 
     /// Cramér-von Mises statistic. The sum-of-squares difference between CDFs.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.cramer_von_mises(d6)`.
+    /// let d6: Die<Value> = try_d(6).unwrap();
+    /// assert_eq!(d4.cramer_von_mises(&d6).unwrap().to_string(), "Fraction(17, 72)");
+    /// ```
     fn cramer_von_mises(&self, other: &Die<Value>) -> Result<Value>;
 
     /// `try_fraction(sum((outcome[i] - mean_i) * (outcome[j] - mean_j) * quantity ...), denominator)`, the means
     /// those of `marginals[i]` and `marginals[j]`.
+    ///
+    /// ```
+    /// use icepool_core::value::builtins::Index;
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `Die([(1, 1), (2, 3)]).covariance(0, 1)`.
+    /// let pair = |a, b| (Value::tuple(vec![Value::from(a), Value::from(b)]), 1u8.into());
+    /// let die = Die::from_dict(vec![pair(1, 1), pair(2, 3)]).unwrap();
+    /// let (i, j) = (Index::Item(Value::from(0)), Index::Item(Value::from(1)));
+    /// assert_eq!(die.covariance(&i, &j).unwrap().to_string(), "Fraction(1, 2)");
+    /// ```
     fn covariance(&self, i: &Index, j: &Index) -> Result<Value>;
 
     /// `covariance(i, j) / (sd_i * sd_j)`.
+    ///
+    /// ```
+    /// use icepool_core::value::builtins::Index;
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `Die([(1, 1), (2, 3)]).correlation(0, 1)`: the marginals move together.
+    /// let pair = |a, b| (Value::tuple(vec![Value::from(a), Value::from(b)]), 1u8.into());
+    /// let die = Die::from_dict(vec![pair(1, 1), pair(2, 3)]).unwrap();
+    /// let (i, j) = (Index::Item(Value::from(0)), Index::Item(Value::from(1)));
+    /// assert_eq!(die.correlation(&i, &j).unwrap().to_string(), "1.0");
+    /// ```
     fn correlation(&self, i: &Index, j: &Index) -> Result<Value>;
 
     /// The total probability of outcomes fitting a comparison: a `Fraction`, or with `percent` a percentage
     /// (`result * 100.0`, a `float`).
+    ///
+    /// ```
+    /// use icepool_core::Comparison;
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.probability('>', 2)` and `d4.probability('>', 2, percent=True)`.
+    /// assert_eq!(d4.probability(Comparison::Gt, &Value::from(2), false).unwrap().to_string(), "Fraction(1, 2)");
+    /// assert_eq!(d4.probability(Comparison::Gt, &Value::from(2), true).unwrap().to_string(), "50.0");
+    /// ```
     fn probability(&self, comparison: Comparison, outcome: &Value, percent: bool) -> Result<Value>;
 
     /// The total probabilities fitting the comparison for each outcome in sorted order (`'<='` gives the CDF).
     /// With `percent`, each is `100.0 * x`.
+    ///
+    /// ```
+    /// use icepool_core::Comparison;
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.probabilities('<=')`, the CDF.
+    /// let cdf: Vec<String> = d4.probabilities(Comparison::Le, false).unwrap().iter().map(Value::to_string).collect();
+    /// assert_eq!(cdf, ["Fraction(1, 4)", "Fraction(1, 2)", "Fraction(3, 4)", "Fraction(1, 1)"]);
+    /// ```
     fn probabilities(&self, comparison: Comparison, percent: bool) -> Result<Vec<Value>>;
 
     /// The probability of the outcomes `which` selected: `100.0 * numerator / denominator` with `percent`, else
     /// `Fraction(numerator, denominator)`.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // The probability of the even outcomes of a d4.
+    /// let even = [false, true, false, true];
+    /// assert_eq!(d4.probability_where(&even, false).unwrap().to_string(), "Fraction(1, 2)");
+    /// assert_eq!(d4.probability_where(&even, true).unwrap().to_string(), "50.0");
+    /// ```
     fn probability_where(&self, selected: &[bool], percent: bool) -> Result<Value>;
 
     /// The outcome `n / d` of the way through the CDF, taking the lesser in case of a tie.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.quantile_low(1, 2)`: half the CDF is reached exactly at 2.
+    /// assert_eq!(d4.quantile_low(&Value::from(1), &Value::from(2)).unwrap(), Value::from(2));
+    /// ```
     fn quantile_low(&self, n: &Value, d: &Value) -> Result<Value>;
 
     /// The outcome `n / d` of the way through the CDF, taking the greater in case of a tie.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.quantile_high(1, 2)`: the tie at 2 resolves upwards.
+    /// assert_eq!(d4.quantile_high(&Value::from(1), &Value::from(2)).unwrap(), Value::from(3));
+    /// ```
     fn quantile_high(&self, n: &Value, d: &Value) -> Result<Value>;
 
     /// The outcome `n / d` of the way through the CDF, taking the mean in case of a tie. This will fail if the
     /// outcomes do not support addition and division.
+    ///
+    /// ```
+    /// use icepool_core::value::PyStatistics;
+    /// use icepool_core::{try_d, Die, Value};
+    ///
+    /// let d4: Die<Value> = try_d(4).unwrap();
+    /// // `d4.quantile(1, 2)` is `2.5`; `d4.quantile(1, 3)` is `2.0`, the mean of low and high (both 2).
+    /// assert_eq!(d4.quantile(&Value::from(1), &Value::from(2)).unwrap().to_string(), "2.5");
+    /// assert_eq!(d4.quantile(&Value::from(1), &Value::from(3)).unwrap().to_string(), "2.0");
+    /// ```
     fn quantile(&self, n: &Value, d: &Value) -> Result<Value>;
 }
 

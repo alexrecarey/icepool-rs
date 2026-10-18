@@ -11,6 +11,12 @@ use crate::Int;
 
 impl Value {
     /// `Counts` rejects `None` (and, through `check_hashable`, unhashable values) as a key with `TypeError`.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// assert!(Value::from(1).py_check_key().is_ok());
+    /// assert!(Value::None.py_check_key().is_err()); // TypeError: None is not a valid key.
+    /// ```
     pub fn py_check_key(&self) -> Result<()> {
         match self {
             Value::None => wrong_type("None is not a valid key."),
@@ -19,6 +25,12 @@ impl Value {
     }
 
     /// Python's `self <= other` (`Die.clip`).
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// assert!(Value::Bool(true).py_le(&Value::from(1)).unwrap()); // `True <= 1`
+    /// assert!(Value::from(1).py_le(&Value::str("a")).is_err()); // TypeError
+    /// ```
     pub fn py_le(&self, other: &Self) -> Result<bool> {
         ops::compare(BinOp::Le, self, other)
     }
@@ -26,6 +38,15 @@ impl Value {
     /// Python's `bool(self == other)`, as a comparison of tuples asks it. `Eq` is the equality of dict keys,
     /// which also requires equal hashes: the two differ for a few types (`Symbols('a') == 'a'`, but their hashes
     /// differ).
+    ///
+    /// ```
+    /// use icepool_core::value::Symbols;
+    /// use icepool_core::Value;
+    /// // `Symbols('a') == 'a'` (though they are different dict keys), and `1 == 1.0`.
+    /// let a = Value::Symbols(Symbols::parse("a").unwrap());
+    /// assert!(a.py_eq(&Value::str("a")).unwrap() && a != Value::str("a"));
+    /// assert!(Value::from(1).py_eq(&Value::Float(1.0)).unwrap());
+    /// ```
     pub fn py_eq(&self, other: &Self) -> Result<bool> {
         if self.is_collection() || other.is_collection() {
             return self.eq_op(other, false)?.truthy();
@@ -34,16 +55,36 @@ impl Value {
     }
 
     /// Python's `self >= other`.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// assert!(!Value::Float(1.5).py_ge(&Value::from(2)).unwrap());
+    /// ```
     pub fn py_ge(&self, other: &Self) -> Result<bool> {
         ops::compare(BinOp::Ge, self, other)
     }
 
     /// Python's `self > other` (`max()`).
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `'b' > 'a'`; `(1,) > 'a'` raises TypeError.
+    /// assert!(Value::str("b").py_gt(&Value::str("a")).unwrap());
+    /// assert!(Value::tuple(vec![Value::from(1)]).py_gt(&Value::str("a")).is_err());
+    /// ```
     pub fn py_gt(&self, other: &Self) -> Result<bool> {
         ops::compare(BinOp::Gt, self, other)
     }
 
     /// Python's `self < other`. Incomparable values (an `int` and a `str`) raise `TypeError`, as in Python.
+    ///
+    /// ```
+    /// use icepool_core::Value;
+    /// // `(1, 2, 3) < (1, 5, 0)`: the first difference decides.
+    /// let (a, b) = (Value::tuple([1, 2, 3].map(Value::from).into()), Value::tuple([1, 5, 0].map(Value::from).into()));
+    /// assert!(a.py_lt(&b).unwrap());
+    /// assert!(Value::from(1).py_lt(&Value::str("a")).is_err());
+    /// ```
     pub fn py_lt(&self, other: &Self) -> Result<bool> {
         if let Some(h) = crate::host::host_of(self, other) {
             return h.compare(BinOp::Lt, self, other);
