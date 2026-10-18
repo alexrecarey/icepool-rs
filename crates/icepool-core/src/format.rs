@@ -32,21 +32,54 @@ use crate::{Deal, Deck, Die, Int, Pool, Quantity, Ratio, Value};
 /// ```
 pub trait FormatOutcome {
     /// `str(outcome)`.
+    ///
+    /// ```
+    /// use icepool_core::{FormatOutcome, Ratio};
+    /// // Python: `str('a') == 'a'`, `str(Fraction(1, 2)) == '1/2'`, `str(Fraction(4, 1)) == '4'`.
+    /// assert_eq!("a".fmt_outcome().unwrap(), "a");
+    /// assert_eq!(Ratio::from_parts(1.into(), 2u8.into()).fmt_outcome().unwrap(), "1/2");
+    /// assert_eq!(Ratio::from(4).fmt_outcome().unwrap(), "4");
+    /// ```
     fn fmt_outcome(&self) -> Result<String>;
 
     /// `repr(outcome)`: how the outcome prints inside a tuple. The same as `str` unless overridden (strs are
     /// quoted, a `Fraction` is `Fraction(n, d)`).
+    ///
+    /// ```
+    /// use icepool_core::{FormatOutcome, Ratio};
+    /// // Python: `repr('a') == "'a'"`, `repr(Fraction(1, 2)) == 'Fraction(1, 2)'`.
+    /// assert_eq!("a".repr_outcome().unwrap(), "'a'");
+    /// assert_eq!(Ratio::from_parts(1.into(), 2u8.into()).repr_outcome().unwrap(), "Fraction(1, 2)");
+    /// assert_eq!(5.repr_outcome().unwrap(), "5"); // the same as `str`
+    /// ```
     fn repr_outcome(&self) -> Result<String> {
         self.fmt_outcome()
     }
 
     /// What `len(outcome)` says for `common_outcome_length`: no length (the default), a length, or a mapping.
+    ///
+    /// ```
+    /// use icepool_core::host::LenKind;
+    /// use icepool_core::FormatOutcome;
+    /// assert_eq!((1, 2, 3).outcome_len().unwrap(), LenKind::Len(3));
+    /// assert_eq!("ab".outcome_len().unwrap(), LenKind::Len(2));
+    /// assert_eq!(7.outcome_len().unwrap(), LenKind::Unsized);
+    /// ```
     fn outcome_len(&self) -> Result<LenKind> {
         Ok(LenKind::Unsized)
     }
 
     /// `str(outcome[i])`, the `i`th `*o` column. Only asked for an `i` below some outcome's length; the default
     /// is Python's `TypeError` for an outcome without items.
+    ///
+    /// ```
+    /// use icepool_core::FormatOutcome;
+    /// // The `*o` columns of a table: `str(outcome[i])`.
+    /// assert_eq!((1, "a").fmt_part(1).unwrap(), "a");
+    /// assert_eq!("xy".fmt_part(0).unwrap(), "x");
+    /// // Python: `7[0]` raises TypeError.
+    /// assert_eq!(7.fmt_part(0).unwrap_err().to_string(), "object is not subscriptable");
+    /// ```
     fn fmt_part(&self, i: usize) -> Result<String> {
         let _ = i;
         Err(Error::WrongType("object is not subscriptable".into()))

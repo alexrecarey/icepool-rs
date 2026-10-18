@@ -29,7 +29,8 @@ use crate::{Die, Quantity};
 /// use icepool_core::value::{map_repeat, TransitionCache};
 /// use icepool_core::{d, Die, Error, Mapped, Quantity};
 /// // `d(3).map(lambda x: min(x + 1, 3), repeat=1)`
-/// let mut cache = TransitionCache::new(|&x: &i64, _| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3))), vec![Quantity::ONE]);
+/// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+/// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
 /// let result = map_repeat(&mut cache, &d(3), Some(1)).unwrap();
 /// assert_eq!(result, Die::from_weights([(2, 1u32), (3, 2)]));
 /// ```
@@ -58,6 +59,16 @@ where
     E: From<Error>,
 {
     /// A cache over `transition(state, i)`, `i` running over `extra_quantities` (one `1` for no extra arguments).
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{Die, Error, Mapped, Quantity};
+    /// // `d6.map(lambda x, y: x + y, d2)` passes one extra argument: two joint outcomes, `i` = 0 or 1.
+    /// let ys = [1, 2];
+    /// let add = |&x: &i64, i: usize| Ok::<_, Error>(Mapped::Outcome(x + ys[i]));
+    /// let mut cache = TransitionCache::new(add, vec![Quantity::ONE; 2]);
+    /// assert_eq!(cache.step_state(&10).unwrap(), Die::from_iter([Transition::Default(11), Transition::Default(12)]));
+    /// ```
     pub fn new(transition: F, extra_quantities: Vec<Quantity>) -> Self {
         TransitionCache {
             transition,
@@ -68,6 +79,16 @@ where
     }
 
     /// Whether the state is a self-loop (Python returns `TransitionType.BREAK` for one, `DEFAULT` otherwise).
+    ///
+    /// ```
+    /// use icepool_core::value::TransitionCache;
+    /// use icepool_core::{Error, Mapped, Quantity};
+    /// // Python (`TransitionCache(lambda x: min(x + 1, 3), star=False)`): `is_self_loop(3)` is BREAK, `(2)` DEFAULT.
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// assert_eq!(cache.is_self_loop(&3), Ok(true));
+    /// assert_eq!(cache.is_self_loop(&2), Ok(false));
+    /// ```
     pub fn is_self_loop(&mut self, curr_state: &S) -> std::result::Result<bool, E> {
         if let Some(&t) = self.self_loop_cache.get(curr_state) {
             return Ok(t);
@@ -118,11 +139,32 @@ where
 
     /// Returns a die whose outcomes are `(transition_type, outcome)` according to whether the states are
     /// self-loops.
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{d, Die, Error, Mapped, Quantity};
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// // Python: `{(DEFAULT, 1): 1, (DEFAULT, 2): 1, (BREAK, 3): 1}`.
+    /// let expected = Die::from_iter([Transition::Default(1), Transition::Default(2), Transition::Break(3)]);
+    /// assert_eq!(cache.self_loop_die(&d(3)).unwrap(), expected);
+    /// ```
     pub fn self_loop_die(&mut self, die: &Die<S>) -> std::result::Result<Die<S::Transition>, E> {
         self.self_loop_die_with(die, S::transition)
     }
 
     /// As `self_loop_die`, but also appends a zero time.
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{d, Die, Error, Mapped, Quantity};
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// // Python: `{(DEFAULT, 1, 0): 1, (DEFAULT, 2, 0): 1, (BREAK, 3, 0): 1}`.
+    /// let expected =
+    ///     Die::from_iter([(Transition::Default(1), 0), (Transition::Default(2), 0), (Transition::Break(3), 0)]);
+    /// assert_eq!(cache.self_loop_die_with_zero_time(&d(3)).unwrap(), expected);
+    /// ```
     pub fn self_loop_die_with_zero_time(
         &mut self,
         die: &Die<S>,
@@ -149,6 +191,17 @@ where
     /// `(transition_type, next_state)`.
     ///
     /// This only works if the input is the same as the output type.
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{Die, Error, Mapped, Quantity};
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// // Python: `step_state(1)` is `{(DEFAULT, 2): 1}`; `step_state(3)` is `{(BREAK, 3): 1}`, 3 leading only to
+    /// // itself.
+    /// assert_eq!(cache.step_state(&1).unwrap(), Die::single(Transition::Default(2)));
+    /// assert_eq!(cache.step_state(&3).unwrap(), Die::single(Transition::Break(3)));
+    /// ```
     pub fn step_state(&mut self, curr_state: &S) -> std::result::Result<Die<S::Transition>, E> {
         if let Some(die) = self.cache.get(curr_state) {
             return Ok(die.clone());
@@ -199,6 +252,17 @@ where
 
     /// Advances the `(transition_type, state)` die by one time step: the `DEFAULT` states take a step, the others
     /// stay as they are.
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{d, Die, Error, Mapped, Quantity};
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// let start = cache.self_loop_die(&d(3)).unwrap();
+    /// // Python: `{(DEFAULT, 2): 1, (BREAK, 3): 2}`.
+    /// let expected = Die::from_weights([(Transition::Default(2), 1u32), (Transition::Break(3), 2)]);
+    /// assert_eq!(cache.step_transition_die(&start).unwrap(), expected);
+    /// ```
     pub fn step_transition_die(
         &mut self,
         curr_die: &Die<S::Transition>,
@@ -218,6 +282,18 @@ where
 
     /// As `step_transition_die`, but keeps track of the break time in the last element of
     /// `(transition_type, state, time)`.
+    ///
+    /// ```
+    /// use icepool_core::value::{Transition, TransitionCache};
+    /// use icepool_core::{d, Die, Error, Mapped, Quantity};
+    /// let step = |&x: &i64, _: usize| Ok::<_, Error>(Mapped::Outcome((x + 1).min(3)));
+    /// let mut cache = TransitionCache::new(step, vec![Quantity::ONE]);
+    /// let start = cache.self_loop_die_with_zero_time(&d(3)).unwrap();
+    /// // Python: `{(DEFAULT, 2, 1): 1, (BREAK, 3, 0): 1, (BREAK, 3, 1): 1}`: 3 broke at time 0; 1 and 2 took a step.
+    /// let expected =
+    ///     Die::from_iter([(Transition::Default(2), 1), (Transition::Break(3), 0), (Transition::Break(3), 1)]);
+    /// assert_eq!(cache.step_transition_die_with_time(&start).unwrap(), expected);
+    /// ```
     pub fn step_transition_die_with_time(
         &mut self,
         curr_die: &Die<S::Timed>,

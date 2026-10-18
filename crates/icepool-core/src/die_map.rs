@@ -39,6 +39,15 @@ pub enum Mapped<P> {
 }
 
 /// What a [`Mapped::Break`] stops at.
+///
+/// ```
+/// use icepool_core::{Mapped, Target};
+/// // `Break(5)`, `Break(d(4))`, `Break(Reroll)`; going on to a target is the mapped result it names.
+/// assert_eq!(Mapped::from(Target::Outcome(5)), Mapped::Outcome(5));
+/// assert_eq!(Mapped::<i64>::from(Target::Reroll), Mapped::Reroll);
+/// let stop: Mapped<i64> = Mapped::Break(Some(Target::Die(icepool_core::d(4))));
+/// assert!(matches!(stop, Mapped::Break(Some(Target::Die(_)))));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target<P> {
     /// An outcome.
@@ -64,6 +73,16 @@ impl<P> From<Target<P>> for Mapped<P> {
 impl<P> Mapped<P> {
     /// What `Die(...)` makes of this result in a single map (`map_simple`): a `Break` is unwrapped, `Break()`
     /// being `current` (the outcome mapped), and `Restart` drops out like `Reroll`.
+    ///
+    /// ```
+    /// use icepool_core::value::DieArg;
+    /// use icepool_core::{Mapped, Target};
+    /// // A single map unwraps `Break`: `Break()` is the outcome being mapped, here 3.
+    /// assert!(matches!(Mapped::<i64>::Break(None).into_die_arg(|| 3), DieArg::Outcome(3)));
+    /// assert!(matches!(Mapped::Break(Some(Target::Outcome(7))).into_die_arg(|| 3), DieArg::Outcome(7)));
+    /// // `Restart` drops out, as `Reroll` does.
+    /// assert!(matches!(Mapped::<i64>::Restart.into_die_arg(|| 3), DieArg::Reroll));
+    /// ```
     pub fn into_die_arg(self, current: impl FnOnce() -> P) -> DieArg<P> {
         match self {
             Mapped::Outcome(p) | Mapped::Break(Some(Target::Outcome(p))) => DieArg::Outcome(p),

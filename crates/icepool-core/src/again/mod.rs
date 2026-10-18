@@ -108,6 +108,21 @@ impl<F, L: Clone> AgainExpression<F, L> {
     /// each function to its evaluated arguments, innermost first and arguments left to right, as Python does.
     ///
     /// The caller has taken the frame of the top-level `_evaluate`.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::value::{AgainArg, AgainExpression};
+    /// use icepool_core::Error;
+    /// // `Again + 10`, with `'+'` adding `i64` objects.
+    /// let again = Arc::new(AgainExpression::Again { is_additive: true });
+    /// let plus_ten: AgainExpression<char, i64> = AgainExpression::Apply {
+    ///     function: '+',
+    ///     args: vec![AgainArg::Again(again), AgainArg::Other(10)],
+    ///     is_additive: true,
+    /// };
+    /// let add = |_: &char, args: Vec<i64>| Ok::<_, Error>(args.iter().sum());
+    /// assert_eq!(plus_ten.evaluate(&3, &add, 0), Ok(13)); // `Again` replaced by 3
+    /// ```
     pub fn evaluate<E: From<Error>>(
         &self,
         die: &L,
@@ -131,6 +146,20 @@ impl<F, L: Clone> AgainExpression<F, L> {
     }
 
     /// `is_additive`: as the facade (or the dunder that built the expression) set it.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::value::{AgainArg, AgainExpression};
+    /// // Python: `(Again + 10).is_additive` is True, `(Again * 2).is_additive` False: the binding sets the flag.
+    /// let again = Arc::new(AgainExpression::Again { is_additive: true });
+    /// let times_two: AgainExpression<char, i64> = AgainExpression::Apply {
+    ///     function: '*',
+    ///     args: vec![AgainArg::Again(again.clone()), AgainArg::Other(2)],
+    ///     is_additive: false,
+    /// };
+    /// assert!(again.is_additive());
+    /// assert!(!times_two.is_additive());
+    /// ```
     pub fn is_additive(&self) -> bool {
         match self {
             AgainExpression::Again { is_additive } | AgainExpression::Apply { is_additive, .. } => {
@@ -143,6 +172,21 @@ impl<F, L: Clone> AgainExpression<F, L> {
     /// functions to `one` for each `Again` and `zero` for every other argument (so `Again + Again` is `1 + 1`, and
     /// `d6 @ Again` is `d6 @ 1`). Only works on additive expressions.
     /// The caller has taken the frame of the top-level `_again_count`.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use icepool_core::value::{AgainArg, AgainExpression};
+    /// use icepool_core::Error;
+    /// // Python: `(Again + Again + 10)._again_count() == 2`.
+    /// let again = || AgainArg::Again(Arc::new(AgainExpression::Again { is_additive: true }));
+    /// let expression: AgainExpression<char, i64> = AgainExpression::Apply {
+    ///     function: '+',
+    ///     args: vec![again(), again(), AgainArg::Other(10)],
+    ///     is_additive: true,
+    /// };
+    /// let add = |_: &char, args: Vec<i64>| Ok::<_, Error>(args.iter().sum());
+    /// assert_eq!(expression.again_count(&1, &0, &add), Ok(2));
+    /// ```
     pub fn again_count<E: From<Error>>(
         &self,
         one: &L,

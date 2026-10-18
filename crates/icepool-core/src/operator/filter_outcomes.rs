@@ -25,6 +25,26 @@ use crate::Int;
 /// ```
 pub trait OutcomePredicate<O> {
     /// `bool(func(outcome))`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, Order};
+    /// use icepool_core::expression::{Operator, OutcomeFilter, OutcomePredicate, Statelet};
+    /// use icepool_core::{Int, Result};
+    /// use std::sync::Arc;
+    ///
+    /// struct High;
+    /// impl OutcomePredicate<i64> for High {
+    ///     fn test(&self, outcome: &i64) -> Result<bool> {
+    ///         Ok(*outcome >= 5)
+    ///     }
+    /// }
+    /// // `pool.keep_outcomes(lambda x: x >= 5)` keeps the count of a 5, drops that of a 2.
+    /// let op = Operator::FilterOutcomes { filter: OutcomeFilter::Function(Arc::new(High)), invert: false };
+    /// let two = [Count::Int(Int::from(2))];
+    /// let count_at = |outcome| op.next_state(&Statelet::None, Order::Ascending, &outcome, &two).unwrap().1;
+    /// assert_eq!(count_at(5), Count::Int(Int::from(2)));
+    /// assert_eq!(count_at(2), Count::Int(Int::ZERO));
+    /// ```
     fn test(&self, outcome: &O) -> Result<bool>;
 }
 

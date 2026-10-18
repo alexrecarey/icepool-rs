@@ -145,6 +145,18 @@ impl<O> Operator<O> {
     /// slice, list or tuple, which the core does not keep). `None` for the operators without a `__str__`
     /// (`MultisetMapCounts`, the pairing and versus operators, `MultisetForceOrder`, host operators): theirs is
     /// `object.__repr__`, a memory address.
+    ///
+    /// ```
+    /// use icepool_core::expression::{KeepCountsComparison, Operator};
+    /// use icepool_core::Int;
+    /// let child = ["p".to_string()];
+    /// // Python: `str(p.unique(2))` ends in `.unique(2)`, `str(p.keep_counts('>=', 2))` in `.keep_counts('>=', 2)`.
+    /// assert_eq!(Operator::<i64>::Unique(Int::from(2)).format_str(&child, None).unwrap(), "p.unique(2)");
+    /// let keep_counts = Operator::<i64>::KeepCounts(KeepCountsComparison::Ge, Int::from(2));
+    /// assert_eq!(keep_counts.format_str(&child, None).unwrap(), "p.keep_counts('>=', 2)");
+    /// // `MultisetForceOrder` has no `__str__`.
+    /// assert_eq!(Operator::<i64>::ForceOrder(1).format_str(&child, None), None);
+    /// ```
     pub fn format_str(&self, children: &[String], keep_index: Option<&str>) -> Option<String> {
         let child = || children.first().map(String::as_str).unwrap_or_default();
         Some(match self {
@@ -288,6 +300,19 @@ impl<O: PartialEq> Operator<O> {
 
     /// `_initial_state(order, outcomes, child_sizes, source_sizes, arg_sizes)`: the initial statelet and the size
     /// of this node (`None` if not inferrable). `UnsupportedOrder` if the order is not supported.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, Order};
+    /// use icepool_core::expression::{BinaryOperator, Operator, Statelet};
+    /// use icepool_core::Int;
+    /// let size = |n: i64| Some(Count::Int(Int::from(n)));
+    /// // `a + b` of sizes 3 and 2 has size 5; `a & b` cannot know its size.
+    /// let union = Operator::<i64>::Binary(BinaryOperator::AdditiveUnion);
+    /// let sizes = [size(3), size(2)];
+    /// assert_eq!(union.initial_state(Order::Ascending, &[1, 2], &sizes).unwrap(), (Statelet::None, size(5)));
+    /// let intersection = Operator::<i64>::Binary(BinaryOperator::Intersection);
+    /// assert_eq!(intersection.initial_state(Order::Ascending, &[1, 2], &sizes).unwrap(), (Statelet::None, None));
+    /// ```
     pub fn initial_state(
         &self,
         order: Order,
@@ -355,6 +380,17 @@ impl<O: PartialEq> Operator<O> {
 
     /// `_next_state(state, order, outcome, child_counts, source_counts, arg_counts)`: the next statelet and the
     /// count produced by this node.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, Order};
+    /// use icepool_core::expression::{Operator, Statelet};
+    /// use icepool_core::Int;
+    /// let count = |n: i64| Count::Int(Int::from(n));
+    /// // `pool.unique(2)`: three of an outcome count as two.
+    /// let unique = Operator::<i64>::Unique(Int::from(2));
+    /// let unique_state = unique.next_state(&Statelet::None, Order::Ascending, &4, &[count(3)]);
+    /// assert_eq!(unique_state.unwrap(), (Statelet::None, count(2)));
+    /// ```
     pub fn next_state(
         &self,
         state: &Statelet,

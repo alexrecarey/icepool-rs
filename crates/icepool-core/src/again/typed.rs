@@ -53,6 +53,14 @@ pub struct Again<O>(Arc<AgainExpression<AgainOp, DieArg<O>>>);
 
 impl<O: Clone> Again<O> {
     /// The `Again` symbol: the die rolled again, as is.
+    ///
+    /// ```
+    /// use icepool_core::{Again, AgainEnd, Die, Quantity};
+    /// // `Die([1, 2, Again], again_depth=2)`: past the depth, `Again` is zero.
+    /// let outcomes = vec![(1.into(), Quantity::ONE), (2.into(), Quantity::ONE), (Again::new().into(), Quantity::ONE)];
+    /// let die = Die::with_again_depth(outcomes, 2, AgainEnd::Zero).unwrap();
+    /// assert_eq!(die, Die::from_weights([(0, 1u32), (1, 13), (2, 13)]));
+    /// ```
     pub fn new() -> Self {
         Again(Arc::new(AgainExpression::Again { is_additive: true }))
     }
@@ -140,6 +148,19 @@ impl<O: Clone> Neg for Again<O> {
 
 /// One of the outcomes given to [`Die::with_again_depth`], or returned by the function of [`Die::map_again`]:
 /// what Python's `Die(outcomes)` accepts there.
+///
+/// ```
+/// use icepool_core::{d, Again, AgainEnd, AgainOutcome, Die, Quantity};
+/// // `Die([1, Reroll, d(2), Again + 1], again_depth=1)`
+/// let outcomes = vec![
+///     (AgainOutcome::Outcome(1), Quantity::ONE),
+///     (AgainOutcome::Reroll, Quantity::ONE),
+///     (AgainOutcome::Die(d(2)), Quantity::ONE),
+///     (AgainOutcome::Again(Again::new() + 1), Quantity::ONE),
+/// ];
+/// let die = Die::with_again_depth(outcomes, 1, AgainEnd::Zero).unwrap();
+/// assert_eq!(die, Die::from_weights([(1, 9u32), (2, 8), (3, 1)]));
+/// ```
 #[derive(Clone, Debug)]
 pub enum AgainOutcome<O> {
     /// A plain outcome.
@@ -165,6 +186,22 @@ impl<O> From<Again<O>> for AgainOutcome<O> {
 }
 
 /// What an `Again` becomes once the depth is reached: Python's `again_end`.
+///
+/// ```
+/// use icepool_core::{Again, AgainEnd, Die, Quantity};
+/// let outcomes = || vec![(1.into(), Quantity::ONE), (2.into(), Quantity::ONE), (Again::new().into(), Quantity::ONE)];
+/// // `Die([1, 2, Again], again_depth=2, again_end=7)`
+/// let die = Die::with_again_depth(outcomes(), 2, AgainEnd::Outcome(7)).unwrap();
+/// assert_eq!(die, Die::from_weights([(1, 13u32), (2, 13), (7, 1)]));
+/// // `Die([1, 2, Again + 5], again_depth=1, again_end=Reroll)`
+/// let outcomes = vec![
+///     (1.into(), Quantity::ONE),
+///     (2.into(), Quantity::ONE),
+///     ((Again::new() + 5).into(), Quantity::ONE),
+/// ];
+/// let die = Die::with_again_depth(outcomes, 1, AgainEnd::Reroll).unwrap();
+/// assert_eq!(die, Die::from_weights([(1, 2u32), (2, 2), (6, 1), (7, 1)]));
+/// ```
 #[derive(Clone, Debug)]
 pub enum AgainEnd<O> {
     /// The default (`None`): the zero outcome of the outcomes that are not `Again` (`x * 0` of the lowest).

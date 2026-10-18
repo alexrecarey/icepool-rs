@@ -31,6 +31,28 @@ use crate::Int;
 /// ```
 pub trait CountFunction<O> {
     /// `function(outcome, *counts)`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::{Count, Order};
+    /// use icepool_core::expression::{CountFunction, Operator, Statelet};
+    /// use icepool_core::{Error, Int, Result};
+    /// use std::sync::Arc;
+    ///
+    /// /// `lambda outcome, count: count * outcome`
+    /// struct TimesOutcome;
+    /// impl CountFunction<i64> for TimesOutcome {
+    ///     fn call(&self, outcome: &i64, counts: &[Count]) -> Result<Count> {
+    ///         match &counts[0] {
+    ///             Count::Int(n) => Ok(Count::Int(n.clone() * Int::from(*outcome))),
+    ///             Count::Tuple(_) => Err(Error::WrongType("a tuple count".into())),
+    ///         }
+    ///     }
+    /// }
+    /// // `map_counts` calls it once per outcome: two 5s become ten.
+    /// let op = Operator::MapCounts(Arc::new(TimesOutcome));
+    /// let (_, count) = op.next_state(&Statelet::None, Order::Ascending, &5, &[Count::Int(Int::from(2))]).unwrap();
+    /// assert_eq!(count, Count::Int(Int::from(10)));
+    /// ```
     fn call(&self, outcome: &O, counts: &[Count]) -> Result<Count>;
 }
 
@@ -69,6 +91,13 @@ pub enum KeepCountsComparison {
 
 impl KeepCountsComparison {
     /// The constructor's reading of the `comparison` string: `ValueError` for anything but the six comparisons.
+    ///
+    /// ```
+    /// use icepool_core::expression::KeepCountsComparison;
+    /// assert_eq!(KeepCountsComparison::parse("<"), Ok(KeepCountsComparison::Lt));
+    /// // Python: `pool.keep_counts('=>', 2)` raises `ValueError('Invalid comparison =>')`.
+    /// assert_eq!(KeepCountsComparison::parse("=>").unwrap_err().to_string(), "Invalid comparison =>");
+    /// ```
     pub fn parse(comparison: &str) -> Result<Self> {
         Ok(match comparison {
             "==" => KeepCountsComparison::Eq,
@@ -86,6 +115,12 @@ impl KeepCountsComparison {
     }
 
     /// The comparison as given to the constructor (`__str__` shows it).
+    ///
+    /// ```
+    /// use icepool_core::expression::KeepCountsComparison;
+    /// assert_eq!(KeepCountsComparison::Ne.symbol(), "!=");
+    /// assert_eq!(KeepCountsComparison::parse("<=").unwrap().symbol(), "<="); // round trip
+    /// ```
     pub fn symbol(self) -> &'static str {
         match self {
             KeepCountsComparison::Eq => "==",

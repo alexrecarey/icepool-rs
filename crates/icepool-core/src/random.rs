@@ -16,6 +16,15 @@ const UPPER_MASK: u32 = 0x8000_0000;
 const LOWER_MASK: u32 = 0x7fff_ffff;
 
 /// MT19937 with CPython's seeding.
+///
+/// ```
+/// use dashu_int::{IBig, UBig};
+/// use icepool_core::random::Random;
+/// // Python: `r = random.Random(42); [r.randrange(6) for _ in range(5)] == [5, 0, 0, 5, 2]`.
+/// let mut r = Random::new(&IBig::from(42));
+/// let rolls: Vec<_> = (0..5).map(|_| r.randrange(&UBig::from(6u8)).unwrap()).collect();
+/// assert_eq!(rolls, [5u8, 0, 0, 5, 2].map(UBig::from));
+/// ```
 pub struct Random {
     state: [u32; N],
     index: usize,
@@ -33,6 +42,19 @@ impl std::fmt::Debug for Random {
 impl Random {
     /// `random.Random(a)` / `random.seed(a)` for an int `a`: the absolute value's 32-bit words, least significant
     /// first (one zero word for 0), go to `init_by_array`.
+    ///
+    /// ```
+    /// use dashu_int::{IBig, UBig};
+    /// use icepool_core::random::Random;
+    /// // Python seeds with the absolute value: `random.Random(-42)` draws as `random.Random(42)`.
+    /// let (mut a, mut b) = (Random::new(&IBig::from(-42)), Random::new(&IBig::from(42)));
+    /// let six = UBig::from(6u8);
+    /// assert_eq!(a.randrange(&six), b.randrange(&six));
+    /// // Python: `random.Random(2**70).randrange(10**30) == 587482081850853106209667941124`.
+    /// let mut big = Random::new(&(IBig::from(1) << 70));
+    /// let draw = big.randrange(&UBig::from(10u8).pow(30)).unwrap();
+    /// assert_eq!(draw.to_string(), "587482081850853106209667941124");
+    /// ```
     pub fn new(seed: &IBig) -> Random {
         let mut key = Vec::new();
         let mut rest = seed.unsigned_abs();
@@ -137,6 +159,15 @@ impl Random {
 
     /// `randrange(stop)`: `_randbelow_with_getrandbits(stop)`, which draws `stop.bit_length()` bits until the number
     /// is below `stop`. `ValueError` for an empty range.
+    ///
+    /// ```
+    /// use dashu_int::{IBig, UBig};
+    /// use icepool_core::random::Random;
+    /// let mut r = Random::new(&IBig::from(42));
+    /// assert_eq!(r.randrange(&UBig::from(6u8)), Ok(UBig::from(5u8))); // Python: 5
+    /// // Python: `randrange(0)` raises ValueError.
+    /// assert!(matches!(r.randrange(&UBig::ZERO), Err(icepool_core::Error::InvalidArgument(_))));
+    /// ```
     pub fn randrange(&mut self, stop: &UBig) -> Result<UBig> {
         if *stop == UBig::ZERO {
             return Err(Error::InvalidArgument("empty range in randrange(0)".into()));

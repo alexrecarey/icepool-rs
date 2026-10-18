@@ -37,16 +37,39 @@ enum Repr {
 
 impl Int {
     /// Zero.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert!(Int::ZERO.is_zero());
+    /// assert_eq!(Int::ZERO, Int::default());
+    /// ```
     pub const ZERO: Int = Int(Repr::Small(0));
     /// One.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert_eq!(Int::ONE + Int::ONE, Int::from(2));
+    /// ```
     pub const ONE: Int = Int(Repr::Small(1));
 
     /// `i` as an `Int`, in a `const` context.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// const THREE: Int = Int::small(3);
+    /// assert_eq!(THREE, 3);
+    /// ```
     pub const fn small(i: i64) -> Int {
         Int(Repr::Small(i))
     }
 
     /// The value as an `i64`, if it fits.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert_eq!(Int::from(-5).to_i64(), Some(-5));
+    /// assert_eq!((Int::from(i64::MIN) - Int::ONE).to_i64(), None);
+    /// ```
     pub fn to_i64(&self) -> Option<i64> {
         match self.0 {
             Repr::Small(i) => Some(i),
@@ -55,12 +78,25 @@ impl Int {
     }
 
     /// The value as a `usize`, if it fits (so not if negative).
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert_eq!(Int::from(5).to_usize(), Some(5));
+    /// assert_eq!(Int::from(-1).to_usize(), None);
+    /// ```
     pub fn to_usize(&self) -> Option<usize> {
         self.to_i64().and_then(|i| usize::try_from(i).ok())
     }
 
     /// The value as a `usize`, `usize::MAX` if it is larger and 0 if negative: for `min` with a length, where
     /// anything past the length means the same.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert_eq!(Int::from(-3).clamp_usize(), 0);
+    /// assert_eq!(Int::from(4).clamp_usize(), 4);
+    /// assert_eq!((Int::from(i64::MAX) * Int::from(4)).clamp_usize(), usize::MAX);
+    /// ```
     pub fn clamp_usize(&self) -> usize {
         if self.is_negative() {
             0
@@ -73,6 +109,15 @@ impl Int {
     /// (Python's "cannot fit 'int' into an index-sized integer", raised before looking at the sequence), and 0 for
     /// any other negative. A `u64` rather than a `usize`: Python's index-sized integer is 64 bits, also where the
     /// port's `usize` is not (wasm32), so callers bound the length before taking it as a `usize`.
+    ///
+    /// ```
+    /// use icepool_core::{Error, Int};
+    /// // Python: `[1] * -3 == []`; `[1] * 2**64` raises OverflowError.
+    /// assert_eq!(Int::from(-3).to_len("repeat"), Ok(0));
+    /// assert_eq!(Int::from(3).to_len("repeat"), Ok(3));
+    /// let huge = Int::from(i64::MAX) * Int::from(2);
+    /// assert!(matches!(huge.to_len("repeat"), Err(Error::Overflow(_))));
+    /// ```
     pub fn to_len(&self, what: &str) -> Result<u64> {
         match self.0 {
             Repr::Small(i) => Ok(u64::try_from(i).unwrap_or(0)),
@@ -83,6 +128,13 @@ impl Int {
     }
 
     /// The value as a big integer.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// let big = Int::from(i64::MAX) + Int::ONE;
+    /// assert_eq!(big.to_ibig().to_string(), "9223372036854775808");
+    /// assert_eq!(Int::from(big.to_ibig()), big); // and back
+    /// ```
     pub fn to_ibig(&self) -> IBig {
         match &self.0 {
             Repr::Small(i) => IBig::from(*i),
@@ -91,11 +143,24 @@ impl Int {
     }
 
     /// Whether this is zero.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert!(Int::ZERO.is_zero());
+    /// assert!(!Int::ONE.is_zero());
+    /// ```
     pub fn is_zero(&self) -> bool {
         matches!(self.0, Repr::Small(0))
     }
 
     /// Whether this is less than zero.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert!(Int::from(-1).is_negative());
+    /// assert!(!Int::ZERO.is_negative());
+    /// assert!((Int::from(i64::MIN) - Int::ONE).is_negative()); // big
+    /// ```
     pub fn is_negative(&self) -> bool {
         match &self.0 {
             Repr::Small(i) => *i < 0,
@@ -104,6 +169,13 @@ impl Int {
     }
 
     /// Whether this is greater than zero.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert!(Int::ONE.is_positive());
+    /// assert!(!Int::ZERO.is_positive());
+    /// assert!((Int::from(i64::MAX) + Int::ONE).is_positive()); // big
+    /// ```
     pub fn is_positive(&self) -> bool {
         match &self.0 {
             Repr::Small(i) => *i > 0,
@@ -112,6 +184,13 @@ impl Int {
     }
 
     /// The absolute value.
+    ///
+    /// ```
+    /// use icepool_core::Int;
+    /// assert_eq!(Int::from(-4).abs(), 4);
+    /// // Python: `abs(-2**63) == 9223372036854775808`, past `i64`.
+    /// assert_eq!(Int::from(i64::MIN).abs().to_string(), "9223372036854775808");
+    /// ```
     pub fn abs(&self) -> Int {
         if self.is_negative() {
             -self
@@ -122,6 +201,14 @@ impl Int {
 
     /// Python's `divmod(self, other)`: the quotient rounds toward minus infinity, the remainder takes the
     /// divisor's sign. `ZeroDivisionError` for 0.
+    ///
+    /// ```
+    /// use icepool_core::{Error, Int};
+    /// // Python: `divmod(-7, 2) == (-4, 1)`, `divmod(7, -2) == (-4, -1)`.
+    /// assert_eq!(Int::from(-7).floor_divmod(&Int::from(2)), Ok((Int::from(-4), Int::from(1))));
+    /// assert_eq!(Int::from(7).floor_divmod(&Int::from(-2)), Ok((Int::from(-4), Int::from(-1))));
+    /// assert!(matches!(Int::ONE.floor_divmod(&Int::ZERO), Err(Error::DivisionByZero(_))));
+    /// ```
     pub fn floor_divmod(&self, other: &Int) -> Result<(Int, Int)> {
         if other.is_zero() {
             return Err(Error::DivisionByZero(

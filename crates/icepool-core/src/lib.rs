@@ -68,7 +68,22 @@ mod weightless;
 
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`
 /// stores values up to 128 bits inline, so the common small quantity never allocates.
+///
+/// ```
+/// use icepool_core::{d, Quantity};
+/// // Python: `(d(6) + d(6)).denominator() == 36`.
+/// assert_eq!((d(6) + d(6)).denominator(), Quantity::from(36u8));
+/// // Unbounded: `d(6).pool(50)` has 6**50 rolls.
+/// assert_eq!(d(6).pool(50).denominator(), Ok(Quantity::from(6u8).pow(50)));
+/// ```
 pub type Quantity = dashu_int::UBig;
 
 /// Exact fractions: means and probabilities of typed dice (Python's `Fraction`).
+///
+/// ```
+/// use icepool_core::{d, Ratio};
+/// // Python: `(d(6) + d(6)).mean() == 7`, `d(6).mean() == Fraction(7, 2)`.
+/// assert_eq!((d(6) + d(6)).mean(), Ratio::from(7));
+/// assert_eq!(d(6).mean(), Ratio::from_parts(7.into(), 2u8.into()));
+/// ```
 pub type Ratio = dashu_ratio::RBig;

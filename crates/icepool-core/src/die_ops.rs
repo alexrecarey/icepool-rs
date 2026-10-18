@@ -24,6 +24,16 @@ use crate::Quantity;
 /// ```
 pub trait IntoDie<O> {
     /// The die this operand stands for.
+    ///
+    /// ```
+    /// use icepool_core::{d, Die, IntoDie};
+    /// // What a die's operator does with its right operand: `d(6) + 1` is `d(6) + Die([1])`.
+    /// fn plus<R: IntoDie<i64>>(die: &Die<i64>, other: R) -> Die<i64> {
+    ///     die + other.into_die()
+    /// }
+    /// assert_eq!(plus(&d(6), 1), d(6) + 1);
+    /// assert_eq!(plus(&d(6), d(6)), d(6) + d(6));
+    /// ```
     fn into_die(self) -> Die<O>;
 }
 

@@ -104,6 +104,13 @@ impl Error {
     /// Whether this is an operand or argument of the wrong kind ([`Error::WrongType`], [`Error::Incomparable`],
     /// [`Error::Unhashable`]): what Python raises as one exception type (`TypeError`), so what icepool's
     /// `except TypeError` catches where the port copies one (returning `NotImplemented`, trying a fallback).
+    ///
+    /// ```
+    /// use icepool_core::Error;
+    /// assert!(Error::WrongType("bad operand".into()).is_wrong_kind());
+    /// assert!(Error::Unhashable { type_name: "list" }.is_wrong_kind());
+    /// assert!(!Error::InvalidArgument("sides must be at least 1.".into()).is_wrong_kind());
+    /// ```
     pub fn is_wrong_kind(&self) -> bool {
         matches!(
             self,
@@ -145,6 +152,15 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// The result of a fallible operation of the core.
+///
+/// ```
+/// use icepool_core::{try_d, Error, Result};
+/// fn sides(n: i64) -> Result<usize> {
+///     Ok(try_d::<i64>(n)?.len())
+/// }
+/// assert_eq!(sides(6), Ok(6));
+/// assert!(matches!(sides(0), Err(Error::InvalidArgument(_))));
+/// ```
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub(crate) fn wrong_type<T>(msg: impl Into<String>) -> Result<T> {

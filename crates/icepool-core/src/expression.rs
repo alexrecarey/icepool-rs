@@ -119,6 +119,12 @@ pub struct CallTree<O> {
 
 impl<O> CallTree<O> {
     /// The tree of a plain evaluation: its inputs' flats, no calls.
+    ///
+    /// ```
+    /// use icepool_core::expression::{free_variable, CallTree};
+    /// let tree = CallTree::<i64>::leaf(vec![free_variable()]);
+    /// assert_eq!((tree.flats.len(), tree.calls.len()), (1, 0));
+    /// ```
     pub fn leaf(flats: Vec<Flat<O>>) -> Self {
         CallTree {
             flats,
@@ -149,6 +155,13 @@ pub enum CountTree<C> {
 
 impl<C> CountTree<C> {
     /// The counts of a call without calls (a plain evaluator's arguments).
+    ///
+    /// ```
+    /// use icepool_core::expression::CountTree;
+    /// assert_eq!(CountTree::Leaf(vec![3]).leaf().unwrap(), &[3]);
+    /// let nested = CountTree::Calls(vec![CountTree::Leaf(vec![3])]);
+    /// assert!(nested.leaf().is_err());
+    /// ```
     pub fn leaf(&self) -> Result<&[C]> {
         match self {
             CountTree::Leaf(c) => Ok(c),
@@ -159,6 +172,13 @@ impl<C> CountTree<C> {
     }
 
     /// The subtrees of a call with calls.
+    ///
+    /// ```
+    /// use icepool_core::expression::CountTree;
+    /// let nested = CountTree::Calls(vec![CountTree::Leaf(vec![1]), CountTree::Leaf(vec![2])]);
+    /// assert_eq!(nested.calls().len(), 2);
+    /// assert!(CountTree::Leaf(vec![1]).calls().is_empty());
+    /// ```
     pub fn calls(&self) -> &[CountTree<C>] {
         match self {
             CountTree::Calls(c) => c,

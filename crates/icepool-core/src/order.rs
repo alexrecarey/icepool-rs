@@ -32,6 +32,14 @@ pub enum Order {
 
 impl Order {
     /// `Order(value)`: `None` where Python raises `ValueError`.
+    ///
+    /// ```
+    /// use icepool_core::Order;
+    /// // Python: `Order(1) is Order.Ascending`; `Order(2)` raises ValueError.
+    /// assert_eq!(Order::from_int(1), Some(Order::Ascending));
+    /// assert_eq!(Order::from_int(0), Some(Order::Any));
+    /// assert_eq!(Order::from_int(2), None);
+    /// ```
     pub fn from_int(value: i64) -> Option<Order> {
         match value {
             1 => Some(Order::Ascending),
@@ -42,16 +50,34 @@ impl Order {
     }
 
     /// `order > 0`.
+    ///
+    /// ```
+    /// use icepool_core::Order;
+    /// assert!(Order::Ascending.is_ascending());
+    /// // `Any` pops like `Descending`.
+    /// assert!(!Order::Any.is_ascending());
+    /// assert!(!Order::Descending.is_ascending());
+    /// ```
     pub fn is_ascending(self) -> bool {
         self == Order::Ascending
     }
 
     /// `order.value`.
+    ///
+    /// ```
+    /// use icepool_core::Order;
+    /// assert_eq!([Order::Ascending, Order::Descending, Order::Any].map(Order::value), [1, -1, 0]);
+    /// ```
     pub fn value(self) -> i64 {
         self as i64
     }
 
     /// The name, as Python's `Order.name`.
+    ///
+    /// ```
+    /// use icepool_core::Order;
+    /// assert_eq!(Order::Descending.name(), "Descending");
+    /// ```
     pub fn name(self) -> &'static str {
         match self {
             Order::Ascending => "Ascending",
@@ -100,6 +126,13 @@ pub enum OrderReason {
 
 impl OrderReason {
     /// `OrderReason(value)`: `None` for a value it does not have.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::OrderReason;
+    /// // Python: `OrderReason(4) is OrderReason.Mandatory`.
+    /// assert_eq!(OrderReason::from_int(4), Some(OrderReason::Mandatory));
+    /// assert_eq!(OrderReason::from_int(5), None);
+    /// ```
     pub fn from_int(value: i64) -> Option<OrderReason> {
         Some(match value {
             0 => OrderReason::NoPreference,
@@ -122,6 +155,11 @@ impl OrderReason {
     }
 
     /// The name, as Python's `OrderReason.name`.
+    ///
+    /// ```
+    /// use icepool_core::evaluator::OrderReason;
+    /// assert_eq!(OrderReason::KeepSkip.name(), "KeepSkip");
+    /// ```
     pub fn name(self) -> &'static str {
         match self {
             OrderReason::NoPreference => "NoPreference",

@@ -32,6 +32,12 @@ pub enum BinaryOperator {
 
 impl BinaryOperator {
     /// `symbol()`: how `__str__` joins the children.
+    ///
+    /// ```
+    /// use icepool_core::expression::BinaryOperator;
+    /// assert_eq!(BinaryOperator::Intersection.symbol(), "&");
+    /// assert_eq!(BinaryOperator::SymmetricDifference.symbol(), "^");
+    /// ```
     pub fn symbol(self) -> &'static str {
         match self {
             BinaryOperator::Intersection => "&",
