@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use icepool_core::again::{self, Again, AgainArg, StepOutcome};
+use icepool_core::again::{self, AgainExpression, AgainArg, StepOutcome};
 use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -55,14 +55,14 @@ fn arg(x: &Bound<'_, PyAny>, cls: &Bound<'_, PyType>) -> PyResult<Arg> {
     let is_additive = x.getattr("is_additive")?.is_truthy()?;
     // No function: the expression represents the again roll directly.
     if function.is_none() {
-        return Ok(AgainArg::Again(Arc::new(Again::Again { is_additive })));
+        return Ok(AgainArg::Again(Arc::new(AgainExpression::Again { is_additive })));
     }
     let args = x
         .getattr("_args")?
         .try_iter()?
         .map(|a| arg(&a?, cls))
         .collect::<PyResult<_>>()?;
-    Ok(AgainArg::Again(Arc::new(Again::Apply {
+    Ok(AgainArg::Again(Arc::new(AgainExpression::Apply {
         function: function.unbind(),
         args,
         is_additive,

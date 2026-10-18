@@ -329,7 +329,7 @@ fn reroll(
             ))
         }
     };
-    RsDie::wrap(py, die.reroll(&mask, depth))
+    RsDie::wrap(py, die.reroll_where(&mask, depth.map_or(icepool_core::Depth::Infinite, icepool_core::Depth::Finite)))
 }
 
 /// `Population.split` for a die, with the selection as one flag per outcome: `(selected, the rest)`.

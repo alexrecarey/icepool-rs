@@ -12,7 +12,7 @@ use dashu_int::IBig;
 use super::map::{select, the_die};
 use super::ops::{self, new_die, wrong_type};
 use super::{raise, PErr, PValue};
-use icepool_core::again::{Again, AgainArg, StepOutcome};
+use icepool_core::again::{AgainExpression, AgainArg, StepOutcome};
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::Error;
 use icepool_core::{Die, DieArg, Quantity, Value};
@@ -41,7 +41,7 @@ impl AgainOp {
     }
 }
 
-pub type AgainExpr = Again<AgainOp, PValue>;
+pub type AgainExpr = AgainExpression<AgainOp, PValue>;
 
 /// An argument of an expression: `_evaluate_arg` resolves those that are themselves `Again` expressions.
 fn arg(x: PValue) -> AgainArg<AgainOp, PValue> {
@@ -74,7 +74,7 @@ pub fn apply(op: AgainOp, args: Vec<PValue>) -> Result<PValue, PErr> {
         (AgainOp::MatMul, [_, e]) => additive(e),
         _ => false,
     };
-    Ok(PValue::Again(Arc::new(Again::Apply {
+    Ok(PValue::Again(Arc::new(AgainExpression::Apply {
         function: op,
         args: args.into_iter().map(arg).collect(),
         is_additive,
@@ -106,7 +106,7 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
         (PValue::Again(x), PValue::Again(y)) => hash_key_eq(x, y)? != ne,
         _ => ne,
     };
-    Ok(PValue::Again(Arc::new(Again::Apply {
+    Ok(PValue::Again(Arc::new(AgainExpression::Apply {
         function: AgainOp::Eq { ne, truth },
         args: vec![arg(this), arg(other)],
         is_additive: false,
@@ -116,7 +116,7 @@ pub fn eq(a: PValue, b: PValue, ne: bool) -> Result<PValue, PErr> {
 /// `bool(expr)`: only an expression from `==` or `!=` has a truth value.
 pub fn truth_value(x: &AgainExpr) -> Result<bool, PErr> {
     match x {
-        Again::Apply {
+        AgainExpression::Apply {
             function: AgainOp::Eq { truth, .. },
             ..
         } => Ok(*truth),
@@ -137,14 +137,14 @@ pub(super) fn hash_key_eq(x: &AgainExpr, y: &AgainExpr) -> Result<bool, PErr> {
     let _level = icepool_core::value::recursion::level()?;
     match (x, y) {
         // `_func` is `None` and `_args` is `()` for both.
-        (Again::Again { .. }, Again::Again { .. }) => Ok(true),
+        (AgainExpression::Again { .. }, AgainExpression::Again { .. }) => Ok(true),
         (
-            Again::Apply {
+            AgainExpression::Apply {
                 function: f,
                 args: a,
                 ..
             },
-            Again::Apply {
+            AgainExpression::Apply {
                 function: g,
                 args: b,
                 ..
@@ -370,7 +370,7 @@ pub fn explode(
             ops::binary(
                 BinOp::Add,
                 outcome,
-                PValue::Again(Arc::new(Again::Again { is_additive: true })),
+                PValue::Again(Arc::new(AgainExpression::Again { is_additive: true })),
             )?
         } else {
             outcome

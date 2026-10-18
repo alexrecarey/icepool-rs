@@ -15,7 +15,7 @@ use icepool_core::creation_args::DieArg;
 use icepool_core::expand::iter_cartesian_product;
 use icepool_core::value::builtins::py_len;
 use icepool_core::Error;
-use icepool_core::{Die, Quantity, Value};
+use icepool_core::{Depth, Die, Quantity, Value};
 
 /// What `repl` is: `transition_and_star` accepts a callable or a mapping.
 enum Repl<'a> {
@@ -390,7 +390,7 @@ pub fn reroll(
             .collect(),
     };
     let depth = depth_arg(&depth)?;
-    Ok(PValue::Die(die.reroll(&mask, depth)?))
+    Ok(PValue::Die(die.reroll_where(&mask, depth.map_or(Depth::Infinite, Depth::Finite))?))
 }
 
 /// `die.split(which, star=star)`: a tuple of the die of selected outcomes and the die of the rest.

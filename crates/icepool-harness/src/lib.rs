@@ -171,8 +171,8 @@ pub fn check_nesting(v: &PValue) -> Result<(), PErr> {
     fn again(a: &again::AgainExpr) -> Result<(), PErr> {
         let _level = level()?;
         match a {
-            icepool_core::again::Again::Again { .. } => Ok(()),
-            icepool_core::again::Again::Apply { args, .. } => {
+            icepool_core::again::AgainExpression::Again { .. } => Ok(()),
+            icepool_core::again::AgainExpression::Apply { args, .. } => {
                 args.iter().try_for_each(|arg| match arg {
                     icepool_core::again::AgainArg::Again(a) => again(a),
                     icepool_core::again::AgainArg::Other(x) => check_nesting(x),

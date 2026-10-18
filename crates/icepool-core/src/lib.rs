@@ -17,7 +17,8 @@ pub mod value;
 
 pub use deal::Deal;
 pub use deck::Deck;
-pub use die::Die;
+pub use die::{Depth, Die};
+pub use die_map::{Mapped, Target};
 pub use die_ops::IntoDie;
 pub use error::{Error, Result};
 pub use function::{d, z};
@@ -32,6 +33,7 @@ pub use value::Value;
 mod deal;
 mod deck;
 mod die;
+mod die_map;
 mod die_ops;
 mod error;
 mod int;

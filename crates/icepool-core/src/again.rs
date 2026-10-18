@@ -43,7 +43,7 @@ fn descend<T, E: From<Error>>(
 
 /// An expression indicating that the die should be rolled again (`AgainExpression`).
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum Again<F, L> {
+pub enum AgainExpression<F, L> {
     /// An expression without a function: represents the again roll directly. The `Again` symbol is
     /// `AgainExpression(is_additive=True)`; one made by hand as `AgainExpression()` is not additive, and count mode
     /// rejects it like any other non-additive expression (only the top-level flag is ever checked).
@@ -59,14 +59,14 @@ pub enum Again<F, L> {
     },
 }
 
-/// One argument of an `Again::Apply`: another expression, or any other object, passed as-is.
+/// One argument of an `AgainExpression::Apply`: another expression, or any other object, passed as-is.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum AgainArg<F, L> {
-    Again(Arc<Again<F, L>>),
+    Again(Arc<AgainExpression<F, L>>),
     Other(L),
 }
 
-impl<F, L: Clone> Again<F, L> {
+impl<F, L: Clone> AgainExpression<F, L> {
     /// `_evaluate`: recursively replaces the `Again` placeholders with the provided die (or other object), applying
     /// each function to its evaluated arguments, innermost first and arguments left to right, as Python does.
     ///
@@ -78,8 +78,8 @@ impl<F, L: Clone> Again<F, L> {
         call_frames: usize,
     ) -> std::result::Result<L, E> {
         match self {
-            Again::Again { .. } => Ok(die.clone()),
-            Again::Apply { function, args, .. } => {
+            AgainExpression::Again { .. } => Ok(die.clone()),
+            AgainExpression::Apply { function, args, .. } => {
                 let args = args
                     .iter()
                     .map(|arg| match arg {
@@ -96,7 +96,9 @@ impl<F, L: Clone> Again<F, L> {
     /// `is_additive`: as the facade (or the dunder that built the expression) set it.
     pub fn is_additive(&self) -> bool {
         match self {
-            Again::Again { is_additive } | Again::Apply { is_additive, .. } => *is_additive,
+            AgainExpression::Again { is_additive } | AgainExpression::Apply { is_additive, .. } => {
+                *is_additive
+            }
         }
     }
 
@@ -111,8 +113,8 @@ impl<F, L: Clone> Again<F, L> {
         apply: &impl Fn(&F, Vec<L>) -> std::result::Result<L, E>,
     ) -> std::result::Result<L, E> {
         match self {
-            Again::Again { .. } => Ok(one.clone()),
-            Again::Apply { function, args, .. } => {
+            AgainExpression::Again { .. } => Ok(one.clone()),
+            AgainExpression::Apply { function, args, .. } => {
                 let args = args
                     .iter()
                     .map(|arg| match arg {

@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use icepool_core::again::{self, Again, AgainArg, StepOutcome};
+use icepool_core::again::{self, AgainExpression, AgainArg, StepOutcome};
 use icepool_core::value::recursion::level;
 use icepool_core::Error;
 use wasm_bindgen::prelude::*;
@@ -51,10 +51,10 @@ fn arg(x: JsValue) -> Result<Arg, HostErr> {
     let is_additive = is_additive.as_bool().unwrap_or(false);
     // No function: the expression represents the again roll directly.
     if function.is_null() {
-        return Ok(AgainArg::Again(Arc::new(Again::Again { is_additive })));
+        return Ok(AgainArg::Again(Arc::new(AgainExpression::Again { is_additive })));
     }
     let args = host::array_from(args).into_iter().map(arg).collect::<Result<_, _>>()?;
-    Ok(AgainArg::Again(Arc::new(Again::Apply { function: function.clone(), args, is_additive })))
+    Ok(AgainArg::Again(Arc::new(AgainExpression::Apply { function: function.clone(), args, is_additive })))
 }
 
 fn args(outcomes: Vec<JsValue>) -> Result<Vec<Arg>, HostErr> {

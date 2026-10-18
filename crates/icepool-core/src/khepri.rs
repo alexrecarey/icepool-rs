@@ -19,7 +19,7 @@ use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 use serde_json::{json, Map, Value as Json};
 
-use crate::again::{evaluate_agains_using_depth, Again, AgainArg};
+use crate::again::{evaluate_agains_using_depth, AgainArg, AgainExpression};
 use crate::counts::Counts;
 use crate::evaluator::{evaluate, Final, MultisetEvaluator};
 use crate::keep_tuple::{highest_slice, KeepIndex};
@@ -461,13 +461,13 @@ fn explode(die: &Die<i64>, which: i64, depth: u64, end: i64) -> Result<Die<i64>>
     if depth == 0 {
         return Ok(die.clone());
     }
-    let again = Arc::new(Again::<AddOp, DieArg<i64>>::Again { is_additive: true });
+    let again = Arc::new(AgainExpression::<AddOp, DieArg<i64>>::Again { is_additive: true });
     let (objects, times): (Vec<_>, Vec<_>) = die
         .items()
         .iter()
         .map(|(o, q)| {
             let object = if *o == which {
-                AgainArg::Again(Arc::new(Again::Apply {
+                AgainArg::Again(Arc::new(AgainExpression::Apply {
                     function: AddOp,
                     args: vec![
                         AgainArg::Other(DieArg::Outcome(*o)),

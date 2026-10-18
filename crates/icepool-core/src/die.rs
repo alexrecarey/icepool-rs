@@ -12,6 +12,21 @@ use crate::error::{invalid_argument, Error, Result};
 use crate::outcome::{infallible, ErrInto, Outcome, OutcomeArith, OutcomeOrder};
 use crate::Quantity;
 
+/// How many times [`Die::reroll`] (and [`Die::filter`]) may reroll: Python's `depth=` argument.
+///
+/// ```
+/// use icepool_core::{d, Depth, Die};
+/// // `d(6).reroll([1], depth='inf')`: a 1 never stays.
+/// assert_eq!(d(6).reroll(|&x| x == 1, Depth::Infinite).unwrap(), Die::from(2..=6));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Depth {
+    /// At most this many rerolls (Python's int `depth`); the outcome after the last one stays, whatever it is.
+    Finite(u32),
+    /// As many rerolls as it takes (Python's `'inf'`): the rerolled outcomes drop out.
+    Infinite,
+}
+
 /// A die: a finite distribution of outcomes, each with an integer quantity (Python's `Die`).
 ///
 /// Dice are immutable; methods return new dice. Cloning is cheap (the items are shared).
@@ -462,29 +477,30 @@ impl<O: OutcomeOrder> Die<O> {
         from_cumulative(self.outcomes().cloned().collect(), cumulative, false).err_into()
     }
 
-    /// Rerolls the outcomes selected by `reroll` (one flag per outcome, as `items()`).
+    /// Rerolls the outcomes selected by `reroll` (one flag per outcome, as `items()`). [`Die::reroll`] selects
+    /// with a function instead.
     ///
-    /// `depth` is the maximum number of times to reroll; `None` (Python's `'inf'`) rerolls an unlimited number of
-    /// times. If the reroll would never terminate, the result has no outcomes. The facade computes the selection
-    /// (`_select_outcomes`, or `{self.min_outcome()}` when no outcomes are given) and checks that `depth` is not
-    /// negative.
+    /// `depth` is the maximum number of times to reroll; [`Depth::Infinite`] (Python's `'inf'`) rerolls an
+    /// unlimited number of times. If the reroll would never terminate, the result has no outcomes. The facade
+    /// computes the selection (`_select_outcomes`, or `{self.min_outcome()}` when no outcomes are given) and checks
+    /// that `depth` is not negative.
     ///
     /// ```
-    /// use icepool_core::{d, Die};
+    /// use icepool_core::{d, Depth, Die};
     /// let ones = [true, false, false, false, false, false];
     /// // Python's `d(6).reroll([1], depth=1)`: a 1 is rerolled once and may come up again.
     /// let once = Die::from_weights([(1, 1u32), (2, 7), (3, 7), (4, 7), (5, 7), (6, 7)]);
-    /// assert_eq!(d(6).reroll(&ones, Some(1)).unwrap(), once);
-    /// assert_eq!(d(6).reroll(&ones, None).unwrap(), Die::from(2..=6));
+    /// assert_eq!(d(6).reroll_where(&ones, Depth::Finite(1)).unwrap(), once);
+    /// assert_eq!(d(6).reroll_where(&ones, Depth::Infinite).unwrap(), Die::from(2..=6));
     /// ```
-    pub fn reroll(&self, reroll: &[bool], depth: Option<u32>) -> Result<Self> {
+    pub fn reroll_where(&self, reroll: &[bool], depth: Depth) -> Result<Self> {
         let items = self.items().iter().zip(reroll);
         let data = match depth {
-            None => items
+            Depth::Infinite => items
                 .filter(|(_, &r)| !r)
                 .map(|((o, q), _)| (o.clone(), q.clone()))
                 .collect(),
-            Some(depth) => {
+            Depth::Finite(depth) => {
                 let total_reroll_quantity: Quantity =
                     items.clone().filter(|(_, &r)| r).map(|((_, q), _)| q).sum();
                 let denominator = self.denominator();
@@ -969,7 +985,7 @@ fn bisect<O, E>(
 mod tests {
     use crate::error::Error;
     use crate::population::Comparison;
-    use crate::{d, Die, Quantity};
+    use crate::{d, Depth, Die, Quantity};
 
     /// The typed API on `Die<i64>` answers comparisons with plain values, as the `Value` path does with `Ok`.
     #[test]
@@ -1040,11 +1056,17 @@ mod tests {
         let low = [true, true, false, false, false, false];
         // `d(6).reroll([1, 2], depth=1)`
         let once = die(&[(1, 2), (2, 2), (3, 8), (4, 8), (5, 8), (6, 8)]);
-        assert_eq!(d(6).reroll(&low, Some(1)).unwrap(), once);
+        assert_eq!(d(6).reroll_where(&low, Depth::Finite(1)).unwrap(), once);
         // `d(6).reroll([1, 2], depth='inf')`
-        assert_eq!(d(6).reroll(&low, None).unwrap(), Die::from(3..=6));
+        assert_eq!(
+            d(6).reroll_where(&low, Depth::Infinite).unwrap(),
+            Die::from(3..=6)
+        );
         // Rerolling every outcome forever never stops: no outcomes.
-        assert!(d(6).reroll(&[true; 6], None).unwrap().is_empty());
+        assert!(d(6)
+            .reroll_where(&[true; 6], Depth::Infinite)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

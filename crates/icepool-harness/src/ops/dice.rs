@@ -31,7 +31,7 @@ pub(super) fn call<'a>(op: &str, args: Args<'a>) -> Dispatch<'a> {
         "Again" => args.with([], |[]| {
             // `icepool.Again = AgainExpression(is_additive=True)`.
             Ok(PValue::Again(std::sync::Arc::new(
-                icepool_core::again::Again::Again { is_additive: true },
+                icepool_core::again::AgainExpression::Again { is_additive: true },
             )))
         }),
         "again" => args.with(["outcomes", "depth", "end"], |[outcomes, depth, end]| {

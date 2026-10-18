@@ -392,7 +392,7 @@ impl WasmDie {
     /// `die.reroll(...)` once the selection is known: the selected outcomes are rerolled up to `depth` times
     /// (`undefined`: until they stop coming up).
     pub fn reroll(&self, mask: Vec<u8>, depth: Option<u32>) -> JsResult<WasmDie> {
-        Ok(WasmDie::new(self.die.reroll(&flags(&mask), depth).or_throw()?))
+        Ok(WasmDie::new(self.die.reroll_where(&flags(&mask), depth.map_or(icepool_core::Depth::Infinite, icepool_core::Depth::Finite)).or_throw()?))
     }
 
     /// `die.split(...)` once the selection is known: `[selected, rest]`.

@@ -97,12 +97,12 @@ impl Die<crate::Value> {
             }
         };
         // `self.reroll([0], depth='inf')`: the outcomes `in [0]` (`==`, as a list compares) are rerolled.
-        let rerolled = self.reroll(
+        let rerolled = self.reroll_where(
             &self
                 .outcomes()
                 .map(|o| o.eq_op(&zero, false)?.truthy())
                 .collect::<Result<Vec<_>>>()?,
-            None,
+            crate::Depth::Infinite,
         )?;
         let mut result = None;
         for i in cache.len()..stop {
