@@ -146,25 +146,20 @@ impl<O: Outcome> Die<O> {
          -> Result<KeepGenerator<O>> {
             let rerolls_ran_out = rerollable - rerolled;
             let not_rerollable = count(rolls)? - rerolls_ran_out - rerolled_to_rerollable;
-            let die_pool = |die: &Die<O>, n: i64| -> Result<KeepGenerator<O>> {
-                Ok(Pool::new(vec![(die.clone(), dice(n))])?.into())
-            };
-            let common = die_pool(&rerollable_die, rerolled_to_rerollable)?
-                .additive_union(&die_pool(&not_rerollable_die, not_rerollable)?)?;
+            // `die.pool(n)`.
+            let die_pool = |die: &Die<O>, n: i64| Pool::new(vec![(die.clone(), dice(n))]);
+            let common = KeepGenerator::from(die_pool(&rerollable_die, rerolled_to_rerollable)?)
+                .additive_union(&die_pool(&not_rerollable_die, not_rerollable)?.into())?;
             let ran_out = dice(rerolls_ran_out);
-            let all_rerollable = || die_pool(&rerollable_die, rerollable);
-            Ok(match mode {
-                RerollMode::Random => {
-                    common.additive_union(&die_pool(&rerollable_die, rerolls_ran_out)?)?
+            let rerolled_dice = match mode {
+                RerollMode::Random => die_pool(&rerollable_die, rerolls_ran_out)?,
+                RerollMode::Low => die_pool(&rerollable_die, rerollable)?.highest(ran_out),
+                RerollMode::High => die_pool(&rerollable_die, rerollable)?.lowest(ran_out),
+                RerollMode::Drop => {
+                    return Ok(die_pool(&not_rerollable_die, not_rerollable)?.into())
                 }
-                RerollMode::Low => {
-                    common.additive_union(&pool(all_rerollable()?).highest(ran_out).into())?
-                }
-                RerollMode::High => {
-                    common.additive_union(&pool(all_rerollable()?).lowest(ran_out).into())?
-                }
-                RerollMode::Drop => die_pool(&not_rerollable_die, not_rerollable)?,
-            })
+            };
+            common.additive_union(&rerolled_dice.into())
         };
         // `pool_composition.map_to_pool(make_pool, star=True)`.
         let inners = pool_composition
@@ -186,14 +181,6 @@ fn count(n: usize) -> Result<i64> {
 /// A count computed from the compositions, which are never negative.
 fn dice(n: i64) -> usize {
     usize::try_from(n).expect("reroll_to_pool counts are not negative")
-}
-
-/// The pool `die.pool(n)` made of a keep generator that is known to be one.
-fn pool<O: Outcome>(generator: KeepGenerator<O>) -> Pool<O> {
-    match generator {
-        KeepGenerator::Pool(pool) => pool,
-        KeepGenerator::CompoundKeep(_) => unreachable!("die.pool(n) is a pool"),
-    }
 }
 
 /// `Pool([die] * count + ...)`: a die put in zero times is left out, outcomes and all.
