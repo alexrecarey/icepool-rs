@@ -6,7 +6,7 @@ use crate::evaluate::implicit_convert;
 use crate::ops::{py_iter, wrong_type};
 use crate::{raise, PErr, PValue};
 use icepool_core::evaluator::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
-use icepool_core::operator::{BinaryOperator, KeepCountsComparison, MultisetKeepIndex, Operator};
+use icepool_core::expression::{BinaryOperator, KeepCountsComparison, MultisetKeepIndex, Operator};
 use icepool_core::Error;
 use icepool_core::{Int, Value};
 use std::sync::Arc;

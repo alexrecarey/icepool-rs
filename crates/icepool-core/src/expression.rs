@@ -21,7 +21,11 @@
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
-use crate::operator::{Operator, Statelet};
+pub use crate::operator::{Operator, Statelet};
+// For language bindings: the operator nodes a binding builds expressions of (operator/*.py).
+pub use crate::operator::{
+    BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, OutcomeFilter, OutcomePredicate,
+};
 use crate::order::Order;
 use crate::pool::Count;
 use crate::value::builtins::{getitem, Index};

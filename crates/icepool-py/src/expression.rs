@@ -10,15 +10,15 @@
 
 use std::sync::Arc;
 
-use icepool_core::compound_keep::{CompoundKeep, CompoundKeepSource};
+use icepool_core::evaluator::{CompoundKeep, CompoundKeepSource};
 use icepool_core::evaluator::{Count, MultisetSource};
 use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::expression::{Dungeonlet, Flat};
-use icepool_core::operator::{
+use icepool_core::expression::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator,
     OutcomeFilter, OutcomePredicate,
 };
-use icepool_core::ownership::{Owners, Traverse};
+use icepool_core::host::{Owners, Traverse};
 use icepool_core::value::builtins::Index;
 use icepool_core::value::recursion::level;
 use icepool_core::{Error, Int, Value};
@@ -224,7 +224,7 @@ impl RsCompoundKeep {
     /// `KeepGenerator.keep` for a keep tuple without negative counts (the facade checks), short of evaluating
     /// the result for an `int` index.
     fn keep(&self, index: &Bound<'_, PyAny>) -> PyResult<RsCompoundKeep> {
-        let keep_tuple = icepool_core::keep_tuple::keep(&self.keep_tuple, &keep_index(index)?)
+        let keep_tuple = icepool_core::evaluator::keep_tuple_keep(&self.keep_tuple, &keep_index(index)?)
             .map_err(to_py_err)?;
         Ok(self.with_keep_counts(index.py(), keep_tuple))
     }
@@ -232,7 +232,7 @@ impl RsCompoundKeep {
     /// `KeepGenerator.multiply_counts`.
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsCompoundKeep> {
         let keep_tuple =
-            icepool_core::keep_tuple::multiply_counts(&self.keep_tuple, &exact_count(constant)?);
+            icepool_core::evaluator::multiply_counts(&self.keep_tuple, &exact_count(constant)?);
         Ok(self.with_keep_counts(constant.py(), keep_tuple))
     }
 

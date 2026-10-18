@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 mod typed;
-pub use typed::{Again, AgainEnd, AgainOp, AgainOutcome};
+pub use typed::{Again, AgainEnd, AgainOutcome};
 
 use crate::creation_args::DieArg;
 use crate::error::{Error, Result};

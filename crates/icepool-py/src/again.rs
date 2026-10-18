@@ -10,8 +10,9 @@
 
 use std::sync::Arc;
 
-use icepool_core::again::{self, AgainExpression, AgainArg, StepOutcome};
-use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
+use icepool_core::value::{self, AgainArg, AgainExpression, StepOutcome};
+use icepool_core::{Die as CoreDie, Error, Quantity, Value};
+use icepool_core::value::DieArg;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
@@ -107,7 +108,7 @@ pub fn evaluate_agains_using_depth<'py>(
     // `again_end is icepool.Reroll`: every expression becomes `Reroll` at the innermost level.
     let again_end = (!again_end.is(&reroll)).then(|| Arc::new(again_end.unbind()));
     let run = |depth: u64| {
-        again::evaluate_agains_using_depth(
+        value::evaluate_agains_using_depth(
             &outcomes,
             depth,
             again_end.as_ref(),
@@ -145,7 +146,7 @@ pub fn evaluate_agains_using_count<'py>(
     let icepool = py.import("icepool")?;
     let tupleize = icepool.getattr("tupleize")?;
     let int = |i: i64| -> PyResult<Obj> { Ok(Arc::new(i.into_pyobject(py)?.into_any().unbind())) };
-    let step_objects = again::step_outcomes(
+    let step_objects = value::step_outcomes(
         &outcomes,
         &Arc::new(zero.clone().unbind()),
         &int(1)?,
@@ -179,7 +180,7 @@ pub fn evaluate_agains_using_count<'py>(
         let n = CoreDie::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
         Ok::<_, HostErr>(matmul_core(py, n, die)?)
     };
-    let result = again::evaluate_agains_using_count(
+    let result = value::evaluate_agains_using_count(
         &step_die,
         not_again_die,
         &from_py(&zero)?,

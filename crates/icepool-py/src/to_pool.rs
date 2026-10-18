@@ -8,9 +8,9 @@
 //! `itertools.product` order) and the `REROLL_TYPES` check, and the core's count / composition dice (with `n @
 //! die` as the facade's `Die.__rmatmul__` computes it).
 
-use icepool_core::expand::iter_cartesian_product;
-use icepool_core::value::to_pool;
-use icepool_core::{Die as CoreDie, DieArg, Quantity, Value};
+use icepool_core::value::{self, iter_cartesian_product};
+use icepool_core::{Die as CoreDie, Quantity, Value};
+use icepool_core::value::DieArg;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
@@ -78,7 +78,7 @@ pub fn explode_counts(
     rolls: &Bound<'_, PyAny>,
     depth: i64,
 ) -> PyResult<RsDie> {
-    let die = to_pool::explode_counts(
+    let die = value::explode_counts(
         &quantity(die_den)?,
         &quantity(explode_den)?,
         &quantity(not_explode_den)?,
@@ -101,7 +101,7 @@ pub fn reroll_composition(
     max_rerolls: &Bound<'_, PyAny>,
     depth: &Bound<'_, PyAny>,
 ) -> PyResult<RsDie> {
-    let die = to_pool::reroll_composition(
+    let die = value::reroll_composition(
         &quantity(die_den)?,
         &quantity(rerollable_den)?,
         &from_py(rolls)?,

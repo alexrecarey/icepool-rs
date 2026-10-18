@@ -12,13 +12,9 @@ pub mod builtins;
 mod complex;
 mod die;
 pub mod evaluators;
-// Value-layer internals the bindings and the runner reach directly, hidden as in `lib.rs`.
-#[doc(hidden)]
-pub mod expand;
-#[doc(hidden)]
-pub mod format;
-#[doc(hidden)]
-pub mod function;
+pub(crate) mod expand;
+pub(crate) mod format;
+pub(crate) mod function;
 mod map_state;
 mod matmul;
 mod number;
@@ -30,8 +26,7 @@ mod repr;
 pub mod sort;
 mod statistics;
 mod symbols;
-#[doc(hidden)]
-pub mod to_pool;
+pub(crate) mod to_pool;
 mod vector;
 
 use crate::ownership::{Owners, Traverse};
@@ -56,6 +51,36 @@ pub use repr::float_repr;
 pub use statistics::PyStatistics;
 pub use symbols::Symbols;
 pub use vector::{VecOp, Vector};
+
+// For language bindings (and the program runner): the pieces icepool's Python methods are assembled from. A binding
+// keeps Python's argument juggling (its own types, keyword arguments, callbacks) and calls these for the work. The
+// generic ones work on typed dice too; by icepool file:
+// creation_args.py, collection/counts.py
+pub use crate::counts::{Counts, OrderedMerge};
+pub use crate::creation_args::{expand_args_for_die, DieArg};
+// population/again.py
+pub use crate::again::{
+    evaluate_agains_using_count, evaluate_agains_using_depth, step_outcomes, AgainArg, AgainExpression, StepOutcome,
+};
+// expand.py
+pub use crate::expand::{iter_cartesian_product, product_size};
+pub use expand::{cartesian_product_items, tupleize_dice, vectorize_dice};
+// population/format.py
+pub use crate::format::{common_outcome_length, format as format_population, Formatted};
+pub use format::format_probability_inverse;
+// function.py, math.py
+pub use crate::function::{pointwise, sorted_union};
+pub use function::{coin_data, consecutive, one_hot, weighted_lcm};
+// population/keep.py
+pub use crate::keep::{highest_single, lowest_single};
+// map_tools, markov_chain.py
+pub use crate::map_tools::{absorbing_markov_chain, map_and_time, map_repeat, MapState, Transition, TransitionCache};
+// Die.explode_to_pool, Die.reroll_to_pool
+pub use to_pool::{explode_counts, reroll_composition};
+// population/base.py
+pub use crate::population::check_public_attr;
+// Allocations sized by user input: Python's MemoryError instead of an abort.
+pub use crate::memory::{check_len, try_collect, try_repeat};
 
 /// An outcome with Python's semantics: the dynamic outcome type of the language bindings. Its comparisons and
 /// operators are Python's and may raise.

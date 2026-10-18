@@ -9,7 +9,7 @@
 //! TypeScript holds the outcomes, the core their joint quantities). New states are discovered incrementally, as
 //! the transition function returns them.
 
-use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::value::{self, TransitionCache};
 use icepool_core::{Mapped, Target};
 use icepool_core::{Error, Quantity, Value};
 use wasm_bindgen::convert::TryFromJsValue;
@@ -100,7 +100,7 @@ pub fn map_repeat(
     repeat: Option<u32>,
 ) -> JsResult<WasmDie> {
     let die = with_cache(transition, extra_quantities, |cache| {
-        map_tools::map_repeat(cache, &initial_die.die, repeat.map(u64::from))
+        value::map_repeat(cache, &initial_die.die, repeat.map(u64::from))
     })?;
     Ok(WasmDie::new(die))
 }
@@ -115,7 +115,7 @@ pub fn map_and_time(
     repeat: Option<u32>,
 ) -> JsResult<WasmDie> {
     let die = with_cache(transition, extra_quantities, |cache| {
-        map_tools::map_and_time(cache, &initial_die.die, repeat.map(u64::from))
+        value::map_and_time(cache, &initial_die.die, repeat.map(u64::from))
     })?;
     Ok(WasmDie::new(die))
 }
@@ -130,7 +130,7 @@ pub fn absorbing_markov_chain(
     initial_die: &WasmDie,
 ) -> JsResult<Vec<JsValue>> {
     let (die, time) = with_cache(transition, extra_quantities, |cache| {
-        map_tools::absorbing_markov_chain(cache, &initial_die.die)
+        value::absorbing_markov_chain(cache, &initial_die.die)
     })?;
     let time = match time {
         Some(t) => value_to_js(&Value::Fraction(t)).or_throw()?,

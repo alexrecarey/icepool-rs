@@ -21,3 +21,8 @@ pub(crate) use object::host_of;
 pub use object::{HostError, HostObject, HostRef, LenKind};
 pub use operator::HostOperator;
 pub use source::{HostSource, HostSourceObject};
+
+// The host's side of two more core services: its cycle collector, which asks a core value which host objects it
+// alone owns, and its interrupt check (Ctrl-C), which the core's long loops poll.
+pub use crate::interrupt::set_check as set_interrupt_check;
+pub use crate::ownership::{owned_hosts, Owners, Traverse};

@@ -154,9 +154,10 @@ impl<T: Traverse> Traverse for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::creation_args::DieArg;
     use crate::host::{HostObject, HostRef};
     use crate::value::{BinOp, UnOp};
-    use crate::{Die, DieArg, Quantity, Result, Value};
+    use crate::{Die, Quantity, Result, Value};
 
     #[derive(Debug)]
     struct Obj(u32);

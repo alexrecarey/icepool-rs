@@ -17,12 +17,12 @@ use dashu_int::IBig;
 use rustc_hash::FxHashMap;
 use serde_json::{json, Map, Value as Json};
 
-use icepool_core::counts::Counts;
-use icepool_core::evaluator::{evaluate, Final, MultisetEvaluator, MultisetSource};
-use icepool_core::keep_tuple::{highest_slice, KeepIndex};
-use icepool_core::value::ratio_to_f64;
+use icepool_core::evaluator::{
+    evaluate, highest_slice, Final, KeepIndex, MultisetEvaluator, MultisetSource,
+};
+use icepool_core::value::{ratio_to_f64, Counts, DieArg};
 use icepool_core::{
-    d, AgainEnd, Die, DieArg, Error, Int, Order, OutcomeArith, OutcomeOrder, Pool, Quantity,
+    d, AgainEnd, Die, Error, Int, Order, OutcomeArith, OutcomeOrder, Pool, Quantity,
     Result, Value,
 };
 

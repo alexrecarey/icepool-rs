@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use dashu_ratio::RBig;
 
+use crate::error::{Error, Result};
 use crate::value::builtins::Index;
 use crate::value::{BinOp, UnOp, Value};
-use crate::error::{Error, Result};
 
 /// What the core needs from a host object. `a` and `b` are the full operands in Python's order; at least one of
 /// them is this host object.
@@ -127,8 +127,9 @@ pub(crate) fn host_of<'a>(a: &'a Value, b: &'a Value) -> Option<&'a HostRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::creation_args::DieArg;
     use crate::outcome::OutcomeOrder;
-    use crate::{Die, DieArg, Quantity};
+    use crate::{Die, Quantity};
 
     /// A host "number" that sorts in reverse and adds like an int, and whose `-` raises (a host exception).
     #[derive(Debug)]

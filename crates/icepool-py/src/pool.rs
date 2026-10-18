@@ -11,7 +11,7 @@ use std::sync::Arc;
 use dashu_int::IBig;
 use icepool_core::evaluator::PoolSource;
 use icepool_core::evaluator::{Order, OrderReason};
-use icepool_core::keep_tuple::{self, KeepIndex, Slice};
+use icepool_core::evaluator::{keep_tuple_keep, multiply_counts, KeepIndex, Slice};
 use icepool_core::{Int, Pool, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
 use pyo3::prelude::*;
@@ -235,13 +235,13 @@ impl RsPool {
     /// the result for an `int` index (the facade does that).
     fn keep(&self, index: &Bound<'_, PyAny>) -> PyResult<RsPool> {
         let keep_tuple =
-            keep_tuple::keep(&self.keep_tuple, &keep_index(index)?).map_err(to_py_err)?;
+            keep_tuple_keep(&self.keep_tuple, &keep_index(index)?).map_err(to_py_err)?;
         Ok(self.with_keep_tuple(index.py(), keep_tuple))
     }
 
     /// `KeepGenerator.multiply_counts`: every count multiplied by an int (`-pool` is `-1 * pool`).
     fn multiply_counts(&self, constant: &Bound<'_, PyAny>) -> PyResult<RsPool> {
-        let keep_tuple = keep_tuple::multiply_counts(&self.keep_tuple, &exact_count(constant)?);
+        let keep_tuple = multiply_counts(&self.keep_tuple, &exact_count(constant)?);
         Ok(self.with_keep_tuple(constant.py(), keep_tuple))
     }
 

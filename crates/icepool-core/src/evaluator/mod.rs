@@ -38,6 +38,13 @@ pub use crate::deal::DealSource;
 pub use crate::multi_deal::{HandGroup, MultiDealSource};
 pub use crate::order::{Order, OrderReason};
 pub use crate::pool::{Count, MultisetSource, PoolSource, Popped, SourcePopped};
+// For language bindings: the sources of the other generators, and a keep generator's keep tuple (generator/keep.py,
+// population/keep.py), which a binding's pool or compound keep holds and hands to its source.
+pub use crate::compound_keep::{CompoundKeep, CompoundKeepSource};
+pub use crate::keep_tuple::{
+    highest_slice, keep as keep_tuple_keep, list_len, lowest_slice, middle_slice, multiply_counts, KeepIndex, Slice, Tie,
+};
+pub use crate::weightless::WeightlessSource;
 use crate::Int;
 use crate::Quantity;
 

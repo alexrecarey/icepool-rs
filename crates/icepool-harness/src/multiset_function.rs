@@ -24,9 +24,7 @@ use icepool_core::evaluator::multiset_function::{Call, DynEvaluator, Erased, Mul
 use icepool_core::evaluator::MultisetSource;
 use icepool_core::evaluator::{evaluate_call_tree, Final, MultisetEvaluator};
 use icepool_core::expression::CallTree;
-use icepool_core::Error;
-use icepool_core::Int;
-use icepool_core::Order;
+use icepool_core::{Error, Int, Order};
 use icepool_core::{Quantity, Value};
 
 /// An evaluator called in a function body, type-erased, with final outcomes as program values.
@@ -327,7 +325,7 @@ fn tupleize(finals: Vec<Final<PValue>>) -> icepool_core::Result<Final<PValue>> {
     if items.iter().any(|x| matches!(x, PValue::Die(_))) {
         let die = super::map::tupleize(items).map_err(core_error)?;
         return match die {
-            icepool_core::DieArg::Die(d) => Ok(Final::Outcome(PValue::Die(d))),
+            icepool_core::value::DieArg::Die(d) => Ok(Final::Outcome(PValue::Die(d))),
             _ => Err(Error::Unported("tupleize".into())),
         };
     }

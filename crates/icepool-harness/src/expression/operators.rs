@@ -8,15 +8,11 @@ use crate::evaluate::implicit_convert;
 use crate::ops::{py_iter, unhashable_list, wrong_type};
 use crate::pool::KeepGen;
 use crate::{raise, PErr, PValue};
-use icepool_core::compound_keep::CompoundKeep;
-use icepool_core::evaluator::Count;
+use icepool_core::evaluator::{CompoundKeep, Count};
 use icepool_core::expression::{count_value, value_count};
-use icepool_core::operator::{
-    BinaryOperator, CountFunction, KeepCountsComparison, Operator, OutcomeFilter, OutcomePredicate,
-};
+use icepool_core::expression::{BinaryOperator, CountFunction, KeepCountsComparison, Operator, OutcomeFilter, OutcomePredicate};
 use icepool_core::value::BinOp;
-use icepool_core::Error;
-use icepool_core::Pool;
+use icepool_core::{Error, Pool};
 use icepool_core::{Int, Value};
 use std::sync::Arc;
 
@@ -35,7 +31,7 @@ fn keep_generator_additive_union(args: Vec<MExpr>) -> Result<MExpr, PErr> {
             .map(|g| g.source())
             .collect::<Result<Vec<_>, _>>()?;
         // `(1, ) * sum(generator.keep_size() for generator in generators)`
-        let len = icepool_core::keep_tuple::list_len(&size)?;
+        let len = icepool_core::evaluator::list_len(&size)?;
         return Ok(MExpr::Gen(KeepGen::Compound(CompoundKeep::new(
             sources,
             vec![Int::ONE; len],

@@ -10,7 +10,8 @@ use std::collections::HashSet;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::recursion::{set_frame_budget, MAX_DEPTH};
 use icepool_core::value::{BinOp, UnOp, Vector};
-use icepool_core::{Die, DieArg, Error, Quantity, Value};
+use icepool_core::{Die, Error, Quantity, Value};
+use icepool_core::value::DieArg;
 
 const STACK: usize = 8 << 20;
 

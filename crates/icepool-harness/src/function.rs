@@ -13,10 +13,8 @@ use super::map::{die_of, the_die};
 use super::ops::{binary, d, py_iter, to_die, unhashable_list, weights_die, wrong_type};
 use super::statistics::new_or_self;
 use super::{raise, PErr, PValue};
-use icepool_core::function;
 use icepool_core::value::PyDie;
 use icepool_core::value::builtins::{fraction, limit_denominator, py_min_max};
-use icepool_core::value::function as value_function;
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::Error;
 use icepool_core::{Die, Quantity, Value};
@@ -47,7 +45,7 @@ pub fn z(sides: PValue) -> Result<PValue, PErr> {
     };
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
-    Ok(PValue::Die(function::try_z(sides)?))
+    Ok(PValue::Die(icepool_core::try_z(sides)?))
 }
 
 /// Python's `int(s)` for a str: optional whitespace, sign, then decimal digits with single underscores between
@@ -131,7 +129,7 @@ pub fn coin(n: PValue, d: PValue, max_denominator: PValue) -> Result<PValue, PEr
         n = Value::Int(f.numerator().clone());
         d = Value::Int(IBig::from(f.denominator().clone()));
     }
-    let (keys, quantities): (Vec<_>, Vec<_>) = value_function::coin_data(&n, &d)?
+    let (keys, quantities): (Vec<_>, Vec<_>) = icepool_core::value::coin_data(&n, &d)?
         .into_iter()
         .map(|(k, q)| (PValue::Value(k), PValue::Value(q)))
         .unzip();
@@ -169,7 +167,7 @@ pub fn die_stochastic_round(die: PValue, max_denominator: PValue) -> Result<PVal
 
 /// `icepool.one_hot(sides)`.
 pub fn one_hot(sides: PValue) -> Result<PValue, PErr> {
-    Ok(PValue::Die(value_function::one_hot(&value(sides)?)?))
+    Ok(PValue::Die(icepool_core::value::one_hot(&value(sides)?)?))
 }
 
 /// `harmonize_denominators(dice, weights)`: the dice (single outcomes become dice) with their quantities scaled
@@ -185,7 +183,7 @@ pub(super) fn harmonize(dice: PValue, weights: PValue) -> Result<Vec<Die<Value>>
         w => values(py_iter(w)?)?,
     };
     let denominators: Vec<Quantity> = dice.iter().map(Die::denominator).collect();
-    let scale_factors = value_function::weighted_lcm(&denominators, &weights, &weights)?;
+    let scale_factors = icepool_core::value::weighted_lcm(&denominators, &weights, &weights)?;
     dice.into_iter()
         .zip(scale_factors)
         .map(|(die, scale)| {
@@ -222,7 +220,7 @@ pub fn pointwise(args: PValue, max: PValue, spread: PValue) -> Result<PValue, PE
         args
     };
     let dice = harmonize(args, PValue::Value(Value::None))?;
-    Ok(PValue::Die(function::pointwise(&dice, max)?))
+    Ok(PValue::Die(icepool_core::value::pointwise(&dice, max)?))
 }
 
 /// `_iter_outcomes(*args)`: a single argument is iterated instead; each population yields its outcomes, anything
@@ -269,7 +267,7 @@ fn chain(args: PValue) -> Result<Vec<Value>, PErr> {
 /// is nothing). The arguments are lists here, so both chains see the same elements.
 pub fn consecutive(args: PValue) -> Result<PValue, PErr> {
     let all = chain(args)?;
-    Ok(PValue::Value(value_function::consecutive(all.clone(), all)?))
+    Ok(PValue::Value(icepool_core::value::consecutive(all.clone(), all)?))
 }
 
 /// `icepool.sorted_union(*args)`: merge sets into a sorted sequence.
@@ -289,7 +287,7 @@ pub fn sorted_union(args: PValue) -> Result<PValue, PErr> {
         }
         sets.push(set);
     }
-    Ok(PValue::Value(Value::tuple(function::sorted_union(
+    Ok(PValue::Value(Value::tuple(icepool_core::value::sorted_union(
         sets.iter().map(|s| s.iter()),
     )?)))
 }

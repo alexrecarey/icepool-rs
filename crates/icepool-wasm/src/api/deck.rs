@@ -8,9 +8,8 @@
 use std::borrow::Cow;
 
 use dashu_int::IBig;
-use icepool_core::creation_args::DieArg;
-use icepool_core::value::PyDie;
-use icepool_core::format::{format as format_population, Formatted};
+use icepool_core::value::{DieArg, PyDie};
+use icepool_core::value::{format_population, Formatted};
 use icepool_core::value::Data;
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{Counter, CounterOp, Num};

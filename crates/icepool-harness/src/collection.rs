@@ -49,7 +49,7 @@ pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
         PValue::Value(Value::Bool(b)) => b as usize,
         PValue::Value(Value::Int(i)) if i < IBig::ZERO => 0,
         // Python's tuple of `rolls` dice: `MemoryError` past what memory holds.
-        PValue::Value(Value::Int(i)) => icepool_core::memory::check_len::<PValue, _>(
+        PValue::Value(Value::Int(i)) => icepool_core::value::check_len::<PValue, _>(
             Some(u64::try_from(&i).unwrap_or(u64::MAX)),
             "die.sequence(rolls)",
         )?,
@@ -61,7 +61,7 @@ pub fn die_sequence(die: PValue, rolls: PValue) -> Result<PValue, PErr> {
         }
         _ => return wrong_type("object cannot be interpreted as an integer"),
     };
-    let dice = icepool_core::memory::try_repeat(die, Some(rolls), "die.sequence(rolls)")?;
+    let dice = icepool_core::value::try_repeat(die, Some(rolls), "die.sequence(rolls)")?;
     cartesian_product(PValue::List(dice), true)
 }
 
@@ -107,7 +107,7 @@ pub fn cartesian_product(args: PValue, tuple: bool) -> Result<PValue, PErr> {
         return Ok(PValue::Value(outcome_type(values(args)?)));
     };
     let parts = cartesian_parts(args)?;
-    let data = icepool_core::value::expand::cartesian_product_items(&parts, outcome_type)?;
+    let data = icepool_core::value::cartesian_product_items(&parts, outcome_type)?;
     Ok(if is_deck {
         PValue::Deck(icepool_core::Deck::from_dict(data)?)
     } else {
@@ -132,10 +132,10 @@ fn cartesian_parts(args: Vec<PValue>) -> Result<Vec<Vec<(Value, Quantity)>>, PEr
 /// `tuple(icepool.iter_cartesian_product(*args))`: `(outcomes, quantity)` pairs, one per joint outcome.
 pub fn iter_cartesian_product(args: PValue) -> Result<PValue, PErr> {
     let parts = cartesian_parts(py_iter(args)?)?;
-    let size = icepool_core::expand::product_size(&parts);
-    Ok(PValue::tuple(icepool_core::memory::try_collect(
+    let size = icepool_core::value::product_size(&parts);
+    Ok(PValue::tuple(icepool_core::value::try_collect(
         size,
-        icepool_core::expand::iter_cartesian_product(&parts).map(|(outcomes, quantity)| {
+        icepool_core::value::iter_cartesian_product(&parts).map(|(outcomes, quantity)| {
             PValue::Value(Value::tuple(vec![
                 Value::tuple(outcomes),
                 Value::Int(quantity.into()),

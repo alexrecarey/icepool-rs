@@ -30,7 +30,7 @@ use icepool_core::evaluator::poker::{
 use icepool_core::evaluator::{evaluate_expressions, top_level_depth_check, MultisetEvaluator, MultisetSource, Order};
 use icepool_core::expression::{count_value, value_count, Dungeonlet, Flat};
 use icepool_core::host::HostError;
-use icepool_core::operator::{
+use icepool_core::expression::{
     BinaryOperator, CountFunction, KeepCountsComparison, MultisetKeepIndex, Operator, OutcomeFilter,
     OutcomePredicate,
 };
@@ -38,8 +38,9 @@ use icepool_core::evaluator::Count;
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::value::recursion::level;
-use icepool_core::weightless::WeightlessSource;
-use icepool_core::{Die, DieArg, Error, Int, Quantity, Value};
+use icepool_core::evaluator::WeightlessSource;
+use icepool_core::{Die, Error, Int, Quantity, Value};
+use icepool_core::value::DieArg;
 use wasm_bindgen::prelude::*;
 
 use super::convert::{int_from_js, value_from_js, value_to_js};

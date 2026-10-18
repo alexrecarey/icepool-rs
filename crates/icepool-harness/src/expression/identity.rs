@@ -3,7 +3,7 @@
 use super::MExpr;
 use crate::pool::KeepGen;
 use crate::PErr;
-use icepool_core::operator::{Operator, OutcomeFilter};
+use icepool_core::expression::{Operator, OutcomeFilter};
 use icepool_core::Value;
 use std::sync::Arc;
 

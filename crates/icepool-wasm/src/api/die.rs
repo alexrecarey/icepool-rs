@@ -5,17 +5,16 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 
 use dashu_int::IBig;
-use icepool_core::format::{common_outcome_length, format as format_population, Formatted};
-use icepool_core::population::Comparison;
+use icepool_core::value::{common_outcome_length, format_population, Formatted};
 use icepool_core::value::Data;
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::{PyDie, PyStatistics};
 use icepool_core::value::{matmul_dice, BinOp, Num, UnOp};
-use icepool_core::value::expand::tupleize_dice;
-use icepool_core::memory;
+use icepool_core::value::{check_len, try_repeat, tupleize_dice};
 use icepool_core::random::Random;
-use icepool_core::{function, DieArg, Die, Error, Quantity, Value};
+use icepool_core::{try_d, try_z, Comparison, Die, Error, Quantity, Value};
+use icepool_core::value::DieArg;
 use wasm_bindgen::prelude::*;
 
 use super::convert::{int_from_js, quantity_to_js, value_from_js, value_to_js, values_to_js};
@@ -272,14 +271,14 @@ impl WasmDie {
         let sides = int_from_js(&sides, "sides").or_throw()?;
         // Beyond i64 Python would run out of memory long before finishing.
         let sides = i64::try_from(sides).map_err(|_| Error::Overflow("sides too large".into())).or_throw()?;
-        Ok(WasmDie::new(function::try_d(sides).or_throw()?))
+        Ok(WasmDie::new(try_d(sides).or_throw()?))
     }
 
     /// `icepool.z(sides)`.
     pub fn z(sides: JsValue) -> JsResult<WasmDie> {
         let sides = int_from_js(&sides, "sides").or_throw()?;
         let sides = i64::try_from(sides).map_err(|_| Error::Overflow("sides too large".into())).or_throw()?;
-        Ok(WasmDie::new(function::try_z(sides).or_throw()?))
+        Ok(WasmDie::new(try_z(sides).or_throw()?))
     }
 
     /// `Die([outcome])`.
@@ -697,7 +696,7 @@ impl WasmDie {
             let n = Die::new(vec![DieArg::Outcome(n.clone())], vec![Quantity::ONE])?;
             matmul_dice(&n, die)
         };
-        let die = icepool_core::again::evaluate_agains_using_count(
+        let die = icepool_core::value::evaluate_agains_using_count(
             &step_die.die,
             &not_again_die.die,
             &value(&zero)?,
@@ -714,8 +713,8 @@ impl WasmDie {
     pub fn sequence(&self, rolls: JsValue) -> JsResult<WasmDie> {
         let rolls = int_from_js(&rolls, "rolls").or_throw()?;
         let what = "die.sequence(rolls)";
-        let n = memory::check_len::<Die<Value>, _>(Some(u64::try_from(&rolls).unwrap_or(u64::MAX)), what).or_throw()?;
-        let parts = memory::try_repeat(self.die.items().to_vec(), Some(n), what).or_throw()?;
+        let n = check_len::<Die<Value>, _>(Some(u64::try_from(&rolls).unwrap_or(u64::MAX)), what).or_throw()?;
+        let parts = try_repeat(self.die.items().to_vec(), Some(n), what).or_throw()?;
         Ok(WasmDie::new(tupleize_dice(&parts).or_throw()?))
     }
 

@@ -10,12 +10,13 @@
 
 use dashu_int::IBig;
 
+use crate::creation_args::DieArg;
 use crate::error::Error;
-use crate::value::expand::tupleize_dice;
 use crate::map_tools::{map_repeat, TransitionCache};
-use crate::Mapped;
+use crate::value::expand::tupleize_dice;
 use crate::value::{BinOp, PyDie, Vector};
-use crate::{Die, DieArg, Quantity, Value};
+use crate::Mapped;
+use crate::{Die, Quantity, Value};
 
 fn int(i: impl Into<IBig>) -> Value {
     Value::Int(i.into())

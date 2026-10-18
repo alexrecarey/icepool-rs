@@ -1,7 +1,7 @@
 //! `icepool.Again` in the program layer (population/again.py): building `AgainExpression`s with Python's
 //! operators, `Die(..., again_depth=, again_count=, again_end=)` in both modes, and `Die.explode`.
 //!
-//! The expression itself is the core's closed enum (`icepool_core::again::Again`), over this layer's operations and
+//! The expression itself is the core's closed enum (`icepool_core::Again`), over this layer's operations and
 //! objects; evaluating it calls back into the same Python operator dispatch as the operator nodes (`ops::binary`),
 //! so `6 + Again` with `Again` replaced by a die is exactly `6 + die`.
 
@@ -12,10 +12,11 @@ use dashu_int::IBig;
 use super::map::{select, the_die};
 use super::ops::{self, new_die, wrong_type};
 use super::{raise, PErr, PValue};
-use icepool_core::again::{AgainExpression, AgainArg, StepOutcome};
+use icepool_core::value::{AgainExpression, AgainArg, StepOutcome};
 use icepool_core::value::{BinOp, UnOp};
 use icepool_core::Error;
-use icepool_core::{Die, DieArg, Quantity, Value};
+use icepool_core::{Die, Quantity, Value};
+use icepool_core::value::DieArg;
 
 /// The functions an `AgainExpression` can apply: Python's `operator.add` & co.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,7 +267,7 @@ pub fn evaluate_agains_using_depth(
         end => Some(end),
     };
     let outcomes: Vec<_> = objects.into_iter().map(arg).collect();
-    icepool_core::again::evaluate_agains_using_depth(
+    icepool_core::value::evaluate_agains_using_depth(
         &outcomes,
         again_depth,
         again_end.as_ref(),
@@ -301,7 +302,7 @@ pub fn evaluate_agains_using_count(
     };
     let int = |i: i64| PValue::Value(Value::from(IBig::from(i)));
     let outcomes: Vec<_> = objects.into_iter().map(arg).collect();
-    let step_objects = icepool_core::again::step_outcomes(
+    let step_objects = icepool_core::value::step_outcomes(
         &outcomes,
         &PValue::Value(zero.clone()),
         &int(1),
@@ -326,7 +327,7 @@ pub fn evaluate_agains_using_count(
         icepool_core::value::matmul_dice(&n, die)
     };
     Ok(PValue::Die(
-        icepool_core::again::evaluate_agains_using_count(
+        icepool_core::value::evaluate_agains_using_count(
             &step_die,
             &not_again_die,
             &zero,

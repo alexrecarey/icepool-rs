@@ -7,11 +7,7 @@ use super::collection::attribute_error;
 use super::ops::{missing_attribute, py_iter, to_die, wrong_type};
 use super::{PErr, PValue};
 use icepool_core::random::Random;
-use icepool_core::value::PyDie;
-use icepool_core::format::{
-    common_outcome_length as outcome_length, format as format_population, Formatted,
-};
-use icepool_core::value::BinOp;
+use icepool_core::value::{PyDie, common_outcome_length as outcome_length, format_population, Formatted, BinOp};
 use icepool_core::{Die, Error, Quantity, Value};
 
 /// A die argument with Python's `type(die).__name__`.
@@ -63,7 +59,7 @@ pub fn format_probability_inverse(probability: PValue, args: PValue) -> Result<P
         }
     };
     Ok(PValue::Value(Value::str(
-        &icepool_core::value::format::format_probability_inverse(&p, &int_start)?,
+        &icepool_core::value::format_probability_inverse(&p, &int_start)?,
     )))
 }
 

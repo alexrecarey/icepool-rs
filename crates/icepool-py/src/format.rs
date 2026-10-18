@@ -5,8 +5,7 @@
 //! seeds it), and writing CSV through Python's `csv` module when `format` is given writer arguments.
 
 use icepool_core::value::PyDie;
-use icepool_core::format::{self as core_format, Formatted};
-use icepool_core::value::format as value_format;
+use icepool_core::value::{self, Formatted};
 use icepool_core::host::LenKind;
 use icepool_core::value::BinOp;
 use pyo3::prelude::*;
@@ -26,7 +25,7 @@ pub fn format<'py>(
     format_spec: &str,
     csv_table: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
-    match core_format::format(&die.get().die, type_name, format_spec, csv_table)
+    match value::format_population(&die.get().die, type_name, format_spec, csv_table)
         .map_err(to_py_err)?
     {
         Formatted::Text(s) => Ok(PyString::new(py, &s).into_any()),
@@ -40,14 +39,14 @@ pub fn format_probability_inverse(
     probability: &Bound<'_, PyAny>,
     int_start: &Bound<'_, PyAny>,
 ) -> PyResult<String> {
-    value_format::format_probability_inverse(&from_py(probability)?, &from_py(int_start)?)
+    value::format_probability_inverse(&from_py(probability)?, &from_py(int_start)?)
         .map_err(to_py_err)
 }
 
 /// `Population.common_outcome_length()`.
 #[pyfunction]
 pub fn common_outcome_length(die: &Bound<'_, RsDie>) -> PyResult<Option<usize>> {
-    core_format::common_outcome_length(&die.get().die).map_err(to_py_err)
+    value::common_outcome_length(&die.get().die).map_err(to_py_err)
 }
 
 /// The outcome `Population.sample` picks for `r = random.randrange(self.denominator())`.

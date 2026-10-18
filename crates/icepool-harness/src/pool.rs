@@ -16,16 +16,14 @@ use super::ops::{
     unhashable_list, wrong_type,
 };
 use super::{raise, PErr, PValue};
-use icepool_core::compound_keep::CompoundKeep;
+use icepool_core::evaluator::CompoundKeep;
 use icepool_core::evaluator::basic::SumEvaluator;
 use icepool_core::evaluator::keep::KeepEvaluator;
-use icepool_core::evaluator::MultisetSource;
-use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
-use icepool_core::operator::MultisetKeepIndex;
+use icepool_core::evaluator::{MultisetSource, highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
+use icepool_core::expression::MultisetKeepIndex;
 use icepool_core::value::evaluators::PyEvaluator;
 use icepool_core::value::{BinOp, UnOp};
-use icepool_core::Error;
-use icepool_core::Order;
+use icepool_core::{Error, Order};
 use icepool_core::{Deal, Die, Int, Pool, Value};
 
 /// `pool.sum()`.
@@ -289,7 +287,7 @@ pub fn standard_pool(z: bool, die_sizes: PValue, mapping: bool) -> Result<PValue
                 None => return wrong_type("can't multiply sequence by non-int"),
             };
             // Python's `MemoryError` for a list no memory holds (the pool size limit comes after).
-            let n = icepool_core::memory::check_len::<PValue, _>(
+            let n = icepool_core::value::check_len::<PValue, _>(
                 (list.len() as u64).checked_add(n),
                 "d_pool(die_sizes)",
             )? - list.len();
@@ -823,10 +821,10 @@ fn sum_slice(args: Vec<PValue>, index: Slice) -> Result<PValue, PErr> {
         return sum(dice);
     }
     if start == 0 && stop == 1 {
-        return Ok(PValue::Die(icepool_core::keep::lowest_single(&dice)?));
+        return Ok(PValue::Die(icepool_core::value::lowest_single(&dice)?));
     }
     if start == len - 1 && stop == len {
-        return Ok(PValue::Die(icepool_core::keep::highest_single(&dice)?));
+        return Ok(PValue::Die(icepool_core::value::highest_single(&dice)?));
     }
     // Use pool.
     pool_sum(

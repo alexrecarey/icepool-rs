@@ -7,7 +7,7 @@
 //! and comparisons call back into Python: the core never decides how a host object behaves. (A `Symbols` whose
 //! keys are not all single characters, which only `symbols[tuple]` makes, is a host object too.)
 
-use icepool_core::ownership::{owned_hosts, Traverse};
+use icepool_core::host::{owned_hosts, Traverse};
 use pyo3::gc::PyVisit;
 use pyo3::PyTraverseError;
 use std::any::Any;

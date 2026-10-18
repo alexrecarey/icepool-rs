@@ -8,7 +8,7 @@ use crate::map;
 use crate::{raise, Args, PErr, PValue};
 use dashu_int::IBig;
 use dashu_ratio::RBig;
-use icepool_core::creation_args::DieArg;
+use icepool_core::value::DieArg;
 use icepool_core::value::{BinOp, Num};
 use icepool_core::Error;
 use icepool_core::{Die, Quantity, Value};
@@ -31,7 +31,7 @@ pub(super) fn call<'a>(op: &str, args: Args<'a>) -> Dispatch<'a> {
         "Again" => args.with([], |[]| {
             // `icepool.Again = AgainExpression(is_additive=True)`.
             Ok(PValue::Again(std::sync::Arc::new(
-                icepool_core::again::AgainExpression::Again { is_additive: true },
+                icepool_core::value::AgainExpression::Again { is_additive: true },
             )))
         }),
         "again" => args.with(["outcomes", "depth", "end"], |[outcomes, depth, end]| {
@@ -72,7 +72,7 @@ pub(crate) fn d(sides: PValue) -> Result<PValue, PErr> {
     // Beyond i64 Python would run out of memory long before finishing.
     let sides =
         i64::try_from(sides).map_err(|_| PErr::Raise(Error::Overflow("sides too large".into())))?;
-    Ok(PValue::Die(icepool_core::function::try_d(sides)?))
+    Ok(PValue::Die(icepool_core::try_d(sides)?))
 }
 
 /// Python's `iter(x)` over a program value: a list, a tuple's elements, a str's characters, a die's outcomes.

@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use icepool_core::again::{self, AgainExpression, AgainArg, StepOutcome};
+use icepool_core::value::{self, AgainArg, AgainExpression, StepOutcome};
 use icepool_core::value::recursion::level;
 use icepool_core::Error;
 use wasm_bindgen::prelude::*;
@@ -82,7 +82,7 @@ pub fn evaluate_agains_using_depth(
     let run = || {
         let outcomes = args(outcomes)?;
         let times = JsValue::from(times);
-        again::evaluate_agains_using_depth(
+        value::evaluate_agains_using_depth(
             &outcomes,
             u64::from(again_depth),
             (!end_is_reroll).then_some(&again_end),
@@ -103,7 +103,7 @@ pub fn again_step_outcomes(outcomes: Vec<JsValue>, zero: JsValue) -> JsResult<Ve
     let int = |i: i32| JsValue::from_f64(f64::from(i));
     let run = || {
         let outcomes = args(outcomes)?;
-        again::step_outcomes(&outcomes, &zero, &int(1), &int(0), apply, |step| {
+        value::step_outcomes(&outcomes, &zero, &int(1), &int(0), apply, |step| {
             Ok(JsValue::from(match step {
                 StepOutcome::NotAgain => vec![zero.clone(), int(1), int(-1)],
                 StepOutcome::Again { flat, count } => {

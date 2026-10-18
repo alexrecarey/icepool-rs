@@ -7,10 +7,10 @@
 //! Multiset expressions over these stay TypeScript objects; `evaluate.rs` turns them into the core's tree when one
 //! is evaluated.
 
-use icepool_core::compound_keep::CompoundKeep;
+use icepool_core::evaluator::CompoundKeep;
 use icepool_core::evaluator::lexi::{compute_lexi_tuple, compute_lexi_tuple_with_zero_right_first};
 use icepool_core::evaluator::MultisetSource;
-use icepool_core::keep_tuple::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
+use icepool_core::evaluator::{highest_slice, lowest_slice, middle_slice, KeepIndex, Slice, Tie};
 use icepool_core::value::pystr::py_repr;
 use icepool_core::value::recursion::level;
 use icepool_core::{Deal, Die, Error, Int, Pool, Value};
@@ -204,7 +204,7 @@ impl WasmGenerator {
     /// additive union of keep generators without negative keeps.
     pub fn compound(generators: Vec<WasmGenerator>) -> JsResult<WasmGenerator> {
         let size: Int = generators.iter().map(|g| g.g.keep_size()).sum();
-        let len = icepool_core::keep_tuple::list_len(&size).or_throw()?;
+        let len = icepool_core::evaluator::list_len(&size).or_throw()?;
         let sources = generators.iter().map(|g| g.g.source()).collect::<icepool_core::Result<_>>().or_throw()?;
         Ok(WasmGenerator { g: Generator::Compound(CompoundKeep::new(sources, vec![Int::ONE; len])) })
     }

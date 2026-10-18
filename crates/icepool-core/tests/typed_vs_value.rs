@@ -13,7 +13,7 @@ use icepool_core::evaluator::poker::{
     AllCountsEvaluator, LargestCountEvaluator, LargestStraightEvaluator,
 };
 use icepool_core::evaluator::{self, Final, MultisetEvaluator, MultisetSource, Order};
-use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::value::TransitionCache;
 use icepool_core::value::evaluators::IntoValue;
 use icepool_core::value::{matmul_dice, BinOp, UnOp};
 use icepool_core::{AgainEnd, Depth, Die, Int, Mapped, Outcome, Pool, Quantity, Result, Value};
@@ -445,14 +445,14 @@ fn repeated_maps_agree_with_value_states() {
             Ok(Mapped::Outcome(Value::py_min(next, Value::from(cap))?))
         };
         let value_cache = || TransitionCache::new(value_step, vec![Quantity::ONE]);
-        let value = map_tools::map_repeat(&mut value_cache(), &to_value(&die), Some(repeat));
+        let value = icepool_core::value::map_repeat(&mut value_cache(), &to_value(&die), Some(repeat));
         assert_same(
             &die.map_repeat(typed_step, repeat).unwrap(),
             &value.unwrap(),
             &case,
         );
         let (value, time) =
-            map_tools::absorbing_markov_chain(&mut value_cache(), &to_value(&die)).unwrap();
+            icepool_core::value::absorbing_markov_chain(&mut value_cache(), &to_value(&die)).unwrap();
         assert_same(&die.map_to_absorption(typed_step).unwrap(), &value, &case);
         assert_eq!(
             die.mean_time_to_absorb(typed_step).unwrap(),
@@ -462,7 +462,7 @@ fn repeated_maps_agree_with_value_states() {
         // `map_and_time`: typed `(state, time)` pairs against Python's tuples.
         let typed = die.map_and_time(typed_step, repeat).unwrap();
         let value =
-            map_tools::map_and_time(&mut value_cache(), &to_value(&die), Some(repeat)).unwrap();
+            icepool_core::value::map_and_time(&mut value_cache(), &to_value(&die), Some(repeat)).unwrap();
         let typed: Vec<_> = typed
             .items()
             .iter()
@@ -545,7 +545,7 @@ fn statistics_agree_with_python_statistics() {
 
 #[test]
 fn tupleize_agrees_with_value_tupleize() {
-    use icepool_core::value::expand::tupleize_dice;
+    use icepool_core::value::tupleize_dice;
     for_cases(14, |rng, case| {
         let (a, b) = (rng.die(-2, 3), rng.die(0, 2).ge(1));
         let value_items = |die: &Die<Value>| die.items().to_vec();

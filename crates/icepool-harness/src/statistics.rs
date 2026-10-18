@@ -8,8 +8,8 @@ use super::catalogue::{truthy, Func};
 use super::map::{call, select, star_arg, the_die, the_population};
 use super::ops::{missing_attribute, py_iter, unhashable_list, weights_die, wrong_type, Key};
 use super::{raise, PErr, PValue};
-use icepool_core::population::{check_public_attr, Comparison};
-use icepool_core::value::Data;
+use icepool_core::value::{check_public_attr, Data};
+use icepool_core::Comparison;
 use icepool_core::value::builtins::{getattr, getitem, Index};
 use icepool_core::value::{PyDie, PyStatistics};
 use icepool_core::{Die, Error, Value};
@@ -170,7 +170,7 @@ pub fn cdf_distance(a: PValue, b: PValue, stat: PValue) -> Result<PValue, PErr> 
     let b = match b {
         b @ (PValue::Value(_) | PValue::List(_) | PValue::Tuple(_)) => {
             let other = py_iter(b)?.into_iter().map(value).collect::<Result<Vec<_>, _>>()?;
-            let union = icepool_core::function::sorted_union([a.outcomes().collect::<Vec<_>>(), other.iter().collect()])?;
+            let union = icepool_core::value::sorted_union([a.outcomes().collect::<Vec<_>>(), other.iter().collect()])?;
             if union.is_empty() {
                 return if ks {
                     raise(Error::InvalidArgument("max() iterable argument is empty".into()))

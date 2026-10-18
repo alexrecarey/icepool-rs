@@ -10,8 +10,7 @@ use super::ops::{binary, d, dict_items, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::value::BinOp;
-use icepool_core::Error;
-use icepool_core::Value;
+use icepool_core::{Error, Value};
 
 #[derive(Debug)]
 pub enum Func {
@@ -437,8 +436,8 @@ impl Func {
                 } else {
                     let step = icepool_core::Die::new(
                         vec![
-                            icepool_core::DieArg::Outcome(Value::from(-1)),
-                            icepool_core::DieArg::Outcome(Value::from(1)),
+                            icepool_core::value::DieArg::Outcome(Value::from(-1)),
+                            icepool_core::value::DieArg::Outcome(Value::from(1)),
                         ],
                         vec![icepool_core::Quantity::ONE, icepool_core::Quantity::ONE],
                     )?;

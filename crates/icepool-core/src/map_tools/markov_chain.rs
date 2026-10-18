@@ -25,10 +25,11 @@ use rustc_hash::FxHashMap;
 
 use super::core_impl::TransitionCache;
 use super::state::{MapState, Transition};
+use crate::creation_args::DieArg;
 use crate::die_map::Mapped;
 use crate::error::Error;
 use crate::outcome::ErrInto;
-use crate::{Die, DieArg, Quantity};
+use crate::{Die, Quantity};
 
 /// A row of the matrix, as `SparseVector`: column -> non-zero entry. Columns are transient state indices, plus
 /// `visit` (`SpecialValue.Visit`) for the starting vector.

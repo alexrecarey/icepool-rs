@@ -6,7 +6,7 @@ use crate::PErr;
 use icepool_core::evaluator::MultisetSource;
 use icepool_core::expression::{Dungeonlet, Flat};
 use icepool_core::value::builtins::Index;
-use icepool_core::weightless::WeightlessSource;
+use icepool_core::evaluator::WeightlessSource;
 use icepool_core::{Quantity, Value};
 
 /// One way to prepare an expression: its dungeonlets, the sources of its free variables, and the weight.

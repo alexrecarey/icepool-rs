@@ -23,7 +23,7 @@ pub use die_map::{Mapped, Target};
 pub use die_ops::IntoDie;
 pub use error::{Error, Result};
 pub use format::FormatOutcome;
-pub use function::{d, z};
+pub use function::{d, try_d, try_z, z};
 pub use int::Int;
 pub use multi_deal::MultiDeal;
 pub use order::Order;
@@ -32,61 +32,38 @@ pub use population::Comparison;
 pub use pool::Pool;
 pub use value::Value;
 
-// Internals of the typed core.
+// Internals: everything else is reached through the re-exports above and in `evaluator`, `expression`, `host`
+// and `value` (whose binding-only items say so).
+mod again;
+mod compound_keep;
+mod counts;
+mod creation_args;
 mod deal;
 mod deck;
 mod die;
 mod die_map;
 mod die_ops;
 mod error;
+mod expand;
+mod format;
+mod function;
 mod int;
+mod interrupt;
+mod keep;
+mod keep_tuple;
 mod lexi;
+mod map_tools;
 mod math;
+mod memory;
 mod multi_deal;
+mod operator;
 mod order;
 mod outcome;
+mod ownership;
 mod pool;
+mod population;
 mod statistics;
-
-// Internals the language bindings (icepool-py, icepool-wasm) and the program runner (icepool-harness) still reach
-// directly. They are not part of the public API: hidden from the documentation, and to become `pub(crate)` once
-// the bindings and the runner go through deliberate APIs in `value` (tasks C3b, C3d).
-#[doc(hidden)]
-pub mod again;
-#[doc(hidden)]
-pub mod compound_keep;
-#[doc(hidden)]
-pub mod counts;
-#[doc(hidden)]
-pub mod creation_args;
-#[doc(hidden)]
-pub mod expand;
-#[doc(hidden)]
-pub mod format;
-#[doc(hidden)]
-pub mod function;
-#[doc(hidden)]
-pub mod interrupt;
-#[doc(hidden)]
-pub mod keep;
-#[doc(hidden)]
-pub mod keep_tuple;
-#[doc(hidden)]
-pub mod map_tools;
-#[doc(hidden)]
-pub mod memory;
-#[doc(hidden)]
-pub mod operator;
-#[doc(hidden)]
-pub mod ownership;
-#[doc(hidden)]
-pub mod population;
-#[doc(hidden)]
-pub mod weightless;
-#[doc(hidden)]
-pub use creation_args::DieArg;
-#[doc(hidden)]
-pub use outcome::infallible;
+mod weightless;
 
 /// Quantities are unbounded non-negative integers: khepri's heavy case reaches 258-bit denominators. dashu's `UBig`
 /// stores values up to 128 bits inline, so the common small quantity never allocates.

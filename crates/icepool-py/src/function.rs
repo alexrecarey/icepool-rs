@@ -4,8 +4,8 @@
 
 use dashu_int::UBig;
 use icepool_core::value::builtins::py_min_max;
-use icepool_core::value::function as value_function;
-use icepool_core::{function, Quantity, Value};
+use icepool_core::value;
+use icepool_core::{Quantity, Value};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 
@@ -30,7 +30,7 @@ pub fn weighted_lcm<'py>(
         .map(|d| Ok(UBig::try_from(int_from_py(d)?).expect("a denominator is not negative")))
         .collect::<PyResult<Vec<Quantity>>>()?;
     let scales =
-        value_function::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?)
+        value::weighted_lcm(&denominators, &values(&weights)?, &values(&weights_again)?)
             .map_err(to_py_err)?;
     PyList::new(
         py,
@@ -45,7 +45,7 @@ pub fn weighted_lcm<'py>(
 #[pyfunction]
 pub fn pointwise(py: Python<'_>, dice: Vec<Bound<'_, RsDie>>, max: bool) -> PyResult<RsDie> {
     let dice: Vec<_> = dice.iter().map(|d| d.get().die.clone()).collect();
-    RsDie::wrap(py, function::pointwise(&dice, max))
+    RsDie::wrap(py, value::pointwise(&dice, max))
 }
 
 /// The `dict` items of `coin(n, d)` once a non-int numerator has become a Fraction's numerator and denominator.
@@ -55,7 +55,7 @@ pub fn coin_data<'py>(
     n: &Bound<'py, PyAny>,
     d: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyList>> {
-    let data = value_function::coin_data(&from_py(n)?, &from_py(d)?).map_err(to_py_err)?;
+    let data = value::coin_data(&from_py(n)?, &from_py(d)?).map_err(to_py_err)?;
     PyList::new(
         py,
         data.iter()
@@ -86,7 +86,7 @@ pub fn consecutive<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     to_py(
         py,
-        &value_function::consecutive(values(&first)?, values(&second)?).map_err(to_py_err)?,
+        &value::consecutive(values(&first)?, values(&second)?).map_err(to_py_err)?,
     )
 }
 
@@ -100,7 +100,7 @@ pub fn sorted_union<'py>(
         .iter()
         .map(|a| values(a))
         .collect::<PyResult<Vec<_>>>()?;
-    let union = function::sorted_union(sets.iter().map(|s| s.iter())).map_err(to_py_err)?;
+    let union = value::sorted_union(sets.iter().map(|s| s.iter())).map_err(to_py_err)?;
     PyTuple::new(
         py,
         union
@@ -113,5 +113,5 @@ pub fn sorted_union<'py>(
 /// `one_hot(sides)`.
 #[pyfunction]
 pub fn one_hot(py: Python<'_>, sides: &Bound<'_, PyAny>) -> PyResult<RsDie> {
-    RsDie::wrap(py, value_function::one_hot(&from_py(sides)?))
+    RsDie::wrap(py, value::one_hot(&from_py(sides)?))
 }

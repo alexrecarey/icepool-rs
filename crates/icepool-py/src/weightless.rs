@@ -4,7 +4,7 @@
 
 use icepool_core::evaluator::{Count, MultisetSource};
 use icepool_core::evaluator::{Order, OrderReason};
-use icepool_core::weightless::WeightlessSource;
+use icepool_core::evaluator::WeightlessSource;
 use icepool_core::Value;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;

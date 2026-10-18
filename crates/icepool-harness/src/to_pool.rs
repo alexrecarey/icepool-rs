@@ -13,9 +13,10 @@ use super::map::{arg_items, call, select, star_arg, the_die};
 use super::ops::wrong_type;
 use super::pool::{die_pool, pool, pool_highest_lowest, KeepGen};
 use super::{raise, PErr, PValue};
-use icepool_core::expand::iter_cartesian_product;
+use icepool_core::value::iter_cartesian_product;
 use icepool_core::Error;
-use icepool_core::{Die, DieArg, Pool, Quantity, Value};
+use icepool_core::{Die, Pool, Quantity, Value};
+use icepool_core::value::DieArg;
 
 /// `n @ die` with a Python int (or bool) `n`: `Die([n]) @ die` (`Die.__rmatmul__`).
 fn rmatmul(n: &Value, die: &Die<Value>) -> Result<Die<Value>, PErr> {
@@ -190,7 +191,7 @@ pub fn explode_to_pool(
             ))
         }
     };
-    let count_die = icepool_core::value::to_pool::explode_counts(
+    let count_die = icepool_core::value::explode_counts(
         &d.denominator(),
         &explode.denominator(),
         &not_explode.denominator(),
@@ -244,7 +245,7 @@ pub fn reroll_to_pool(
     } else {
         value_arg(&depth, "reroll_to_pool depth")?
     };
-    let pool_composition = icepool_core::value::to_pool::reroll_composition(
+    let pool_composition = icepool_core::value::reroll_composition(
         &d.denominator(),
         &rerollable_die.denominator(),
         &rolls,

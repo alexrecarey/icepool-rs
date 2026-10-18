@@ -19,10 +19,11 @@ pub use state::{MapState, Transition};
 use core_impl::owned;
 
 use crate::counts::OrderedMerge;
+use crate::creation_args::DieArg;
 use crate::die_map::Mapped;
 use crate::error::{Error, Result};
 use crate::outcome::ErrInto;
-use crate::{Die, DieArg, Quantity, Ratio};
+use crate::{Die, Quantity, Ratio};
 
 /// `map(repl, first_arg, *extra_args, repeat=repeat)` for a positive int `repeat`, from `initial_die =
 /// Die([first_arg])`: the result of a Markov process, stopping early once the entire state distribution has

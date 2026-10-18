@@ -10,8 +10,7 @@ use super::expression::as_expression;
 use super::map::{arg_items, call, die_of, expand_arg, star_arg, the_die};
 use super::ops::{new_die, unhashable_list, wrong_type};
 use super::{raise, PErr, PValue};
-use icepool_core::expand::iter_cartesian_product;
-use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::value::{iter_cartesian_product, TransitionCache};
 use icepool_core::{Mapped, Target};
 use icepool_core::value::BinOp;
 use icepool_core::Error;
@@ -153,7 +152,7 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
         // Infinite repeat.
         let initial_die = die_of_one(first_arg)?;
         let (die, _) = with_cache(transition, |cache| {
-            map_tools::absorbing_markov_chain(cache, &initial_die)
+            icepool_core::value::absorbing_markov_chain(cache, &initial_die)
         })?;
         return Ok(PValue::Die(die));
     }
@@ -169,7 +168,7 @@ pub fn map_repeat(f: PValue, args: PValue, star: PValue, repeat: PValue) -> Resu
     }
     let initial_die = die_of_one(first_arg)?;
     let die = with_cache(transition, |cache| {
-        map_tools::map_repeat(cache, &initial_die, range_count(&repeat))
+        icepool_core::value::map_repeat(cache, &initial_die, range_count(&repeat))
     })?;
     Ok(PValue::Die(die))
 }
@@ -194,7 +193,7 @@ pub fn map_and_time(
     let transition = transition_cache(&f, extra_args, &star)?;
     let initial_die = die_of_one(initial_state)?;
     let die = with_cache(transition, |cache| {
-        map_tools::map_and_time(cache, &initial_die, range_count(&repeat))
+        icepool_core::value::map_and_time(cache, &initial_die, range_count(&repeat))
     })?;
     Ok(PValue::Die(die))
 }
@@ -215,7 +214,7 @@ pub fn mean_time_to_absorb(
     // `absorbing_markov_chain_impl` makes `Die([initial_state])` itself.
     let initial_die = die_of_one(initial_state)?;
     let (_, time) = with_cache(transition, |cache| {
-        map_tools::absorbing_markov_chain(cache, &initial_die)
+        icepool_core::value::absorbing_markov_chain(cache, &initial_die)
     })?;
     match time {
         Some(time) => Ok(PValue::Value(Value::Fraction(time))),
@@ -286,10 +285,10 @@ pub fn time_to_sum(
     let step: &mut TransitionFn<'_> = &mut step;
     let mut cache = TransitionCache::new(step, rolls.iter().map(|(_, q)| q.clone()).collect());
     let initial = Die::new(
-        vec![icepool_core::DieArg::Outcome(int(0))],
+        vec![icepool_core::value::DieArg::Outcome(int(0))],
         vec![Quantity::ONE],
     )?;
-    let result = map_tools::map_and_time(&mut cache, &initial, range_count(&max_time))?;
+    let result = icepool_core::value::map_and_time(&mut cache, &initial, range_count(&max_time))?;
     // `result.map(get_time)`: `dnf if total < target else time`, star inferred.
     let mut states = Vec::with_capacity(result.len());
     let mut quantities = Vec::with_capacity(result.len());

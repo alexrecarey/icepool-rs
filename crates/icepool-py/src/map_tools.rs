@@ -9,8 +9,7 @@
 //! unpacked if `star`, `**kwargs` passed as they are. New states are discovered incrementally, as the callable
 //! returns them.
 
-use icepool_core::expand::iter_cartesian_product;
-use icepool_core::map_tools::{self, TransitionCache};
+use icepool_core::value::{self, iter_cartesian_product, TransitionCache};
 use icepool_core::{Mapped, Target};
 use icepool_core::{Quantity, Value};
 use pyo3::prelude::*;
@@ -127,7 +126,7 @@ pub fn map_repeat<'py>(
 ) -> PyResult<RsDie> {
     let repeat = range_count(repeat)?;
     let die = with_cache(py, transition, star, extra_args, kwargs, |cache| {
-        map_tools::map_repeat(cache, &initial_die.get().die, repeat)
+        value::map_repeat(cache, &initial_die.get().die, repeat)
     })?;
     RsDie::wrap(py, Ok(die))
 }
@@ -146,7 +145,7 @@ pub fn map_and_time<'py>(
 ) -> PyResult<RsDie> {
     let repeat = range_count(repeat)?;
     let die = with_cache(py, transition, star, extra_args, kwargs, |cache| {
-        map_tools::map_and_time(cache, &initial_die.get().die, repeat)
+        value::map_and_time(cache, &initial_die.get().die, repeat)
     })?;
     RsDie::wrap(py, Ok(die))
 }
@@ -165,7 +164,7 @@ pub fn absorbing_markov_chain<'py>(
     initial_die: &Bound<'py, RsDie>,
 ) -> PyResult<(RsDie, Bound<'py, PyAny>)> {
     let (die, time) = with_cache(py, transition, star, extra_args, kwargs, |cache| {
-        map_tools::absorbing_markov_chain(cache, &initial_die.get().die)
+        value::absorbing_markov_chain(cache, &initial_die.get().die)
     })?;
     let time = match time {
         Some(t) => to_py(py, &Value::Fraction(t))?,

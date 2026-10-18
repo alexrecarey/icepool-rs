@@ -14,10 +14,11 @@
 use rustc_hash::FxHashMap;
 
 use super::state::{MapState, Transition};
+use crate::creation_args::DieArg;
 use crate::die_map::{Mapped, Target};
 use crate::error::{Error, Result};
 use crate::outcome::ErrInto;
-use crate::{Die, DieArg, Quantity};
+use crate::{Die, Quantity};
 
 /// Helper class for caching a transition function for `map(repeat)`.
 pub struct TransitionCache<S: MapState, F> {

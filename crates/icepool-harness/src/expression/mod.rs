@@ -17,7 +17,7 @@ use std::sync::Arc;
 use super::ops::{missing_attribute, wrong_type};
 use super::pool::KeepGen;
 use super::{PErr, PValue};
-use icepool_core::operator::Operator;
+use icepool_core::expression::Operator;
 use icepool_core::value::builtins::{getitem, Index};
 use icepool_core::{MultiDeal, Quantity, Value};
 

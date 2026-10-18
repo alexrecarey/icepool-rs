@@ -25,7 +25,8 @@ mod weightless;
 
 use dashu_int::{IBig, UBig};
 use icepool_core::value::PyDie;
-use icepool_core::{Die as CoreDie, DieArg, Error, Quantity, Value};
+use icepool_core::{Die as CoreDie, Error, Quantity, Value};
+use icepool_core::value::DieArg;
 use pyo3::exceptions::{
     PyNotImplementedError, PyOverflowError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
@@ -115,7 +116,7 @@ fn die_arg(arg: &Bound<'_, PyAny>) -> PyResult<DieArg<Value>> {
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             DieArg::Die(CoreDie::from_counts(
-                icepool_core::counts::Counts::new(items).map_err(to_py_err)?,
+                icepool_core::value::Counts::new(items).map_err(to_py_err)?,
             ))
         }
     })
@@ -170,7 +171,7 @@ fn expand_args_for_die(
     }
     // `Die::new` returns a single die with weight 1 as-is; `Die.__new__` handled that case already (comparing
     // `times[0] == 1` as Python does), so only the merge is left.
-    let counts = icepool_core::creation_args::expand_args_for_die(&args, &weights);
+    let counts = icepool_core::value::expand_args_for_die(&args, &weights);
     RsDie::wrap(py, counts.map(CoreDie::from_counts))
 }
 
@@ -182,7 +183,7 @@ fn from_counts_items(items: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>) -> PyResu
         .map(|(o, q)| Ok((from_py(o)?, quantity(q)?)))
         .collect::<PyResult<Vec<_>>>()?;
     Ok(RsDie {
-        die: CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items)),
+        die: CoreDie::from_counts(icepool_core::value::Counts::from_sorted(items)),
     })
 }
 
@@ -401,7 +402,7 @@ pub(crate) fn matmul_core(
                 Ok((o, q.clone()))
             })
             .collect::<PyResult<Vec<_>>>()?;
-        n = CoreDie::from_counts(icepool_core::counts::Counts::from_sorted(items));
+        n = CoreDie::from_counts(icepool_core::value::Counts::from_sorted(items));
     }
     // Pure Rust from here (but for host outcomes, which take the GIL back per operation): other threads go on.
     py.detach(|| icepool_core::value::matmul_dice(&n, die)).map_err(to_py_err)
@@ -487,9 +488,9 @@ fn keep_single(py: Python<'_>, dice: Vec<Bound<'_, RsDie>>, highest: bool) -> Py
         )));
     }
     let result = if highest {
-        icepool_core::keep::highest_single(&dice)
+        icepool_core::value::highest_single(&dice)
     } else {
-        icepool_core::keep::lowest_single(&dice)
+        icepool_core::value::lowest_single(&dice)
     };
     RsDie::wrap(py, result)
 }
@@ -522,7 +523,7 @@ fn sign(py: Python<'_>, die: &Bound<'_, RsDie>) -> PyResult<RsDie> {
 fn icepool_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     icepool_core::value::recursion::set_frame_budget(convert::frame_budget);
     // Ctrl-C during a long computation (`icepool_core::interrupt`).
-    icepool_core::interrupt::set_check(convert::check_signals);
+    icepool_core::host::set_interrupt_check(convert::check_signals);
     // PyO3 guards every entry point with `catch_unwind`: a panic in the core (a bug) unwinds to it and is raised as
     // `PanicException`, a `BaseException` as Rust intends (not something to handle and carry on from, but the core's
     // thread-local state is given back on the way: `recursion::Level`).

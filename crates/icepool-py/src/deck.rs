@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use dashu_int::IBig;
-use icepool_core::creation_args::DieArg;
+use icepool_core::value::DieArg;
 use icepool_core::evaluator::DealSource;
 use icepool_core::evaluator::{Order, OrderReason};
 use icepool_core::value::{Counter, CounterOp};
@@ -108,7 +108,7 @@ pub fn deck_from_counts_items(
         .map(|(o, q)| Ok((from_py(o)?, quantity(q)?)))
         .collect::<PyResult<Vec<_>>>()?;
     Ok(RsDeck {
-        deck: Deck::from_counts(icepool_core::counts::Counts::from_sorted(items)),
+        deck: Deck::from_counts(icepool_core::value::Counts::from_sorted(items)),
     })
 }
 

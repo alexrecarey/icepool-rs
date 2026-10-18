@@ -11,8 +11,7 @@ use super::catalogue::{py_eq, truthy, Func};
 use super::expression::as_expression;
 use super::ops::{die_arg, missing_attribute, py_iter, wrong_type, Key};
 use super::{raise, PErr, PValue};
-use icepool_core::creation_args::DieArg;
-use icepool_core::expand::iter_cartesian_product;
+use icepool_core::value::{DieArg, iter_cartesian_product};
 use icepool_core::value::builtins::py_len;
 use icepool_core::Error;
 use icepool_core::{Depth, Die, Quantity, Value};
@@ -235,7 +234,7 @@ pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
             }
         });
     }
-    Ok(DieArg::Die(icepool_core::value::expand::tupleize_dice(&parts)?))
+    Ok(DieArg::Die(icepool_core::value::tupleize_dice(&parts)?))
 }
 
 pub(super) fn the_die(die: PValue) -> Result<Die<Value>, PErr> {
