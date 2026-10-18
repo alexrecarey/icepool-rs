@@ -1,0 +1,223 @@
+# CI: what harness/core/gate.sh checks, split into jobs that run in parallel.
+#
+#   rust        build, every Rust test (the fixture suite included: it needs no Python icepool), clippy, rustdoc
+#   js          the JS suite: every fixture through the TypeScript API, the API and upstream tests, type checks
+#   production  scripts/check-production.sh: the wheel and the npm package contain no test code
+#   oracle      the checks against Python icepool: fixtures re-checked by the oracle, fixed-seed fuzz runs, and
+#               upstream's test suite through the Python facade
+#
+# The gate's fresh-seed fuzz runs and the long gate (big fuzz, WASM runs, mutants) stay with the loop: CI keeps to
+# what gives the same answer on every run.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The oracle's Python. Some results depend on the Python version (DIVERGENCES.md: Deck and Symbols set
+  # operations raise before 3.14), so every job uses the one the fixtures were made with.
+  PYTHON_VERSION: "3.13"
+  UV_PYTHON: "3.13"
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup installs the toolchain rust-toolchain.toml names (stable, clippy, rustfmt, the wasm32 target).
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      # icepool-py (PyO3) is a workspace member: building and testing it links libpython.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --release --workspace
+
+      # Unit tests, doctests, typed-vs-Value property tests, and crates/icepool-harness/tests/fixtures.rs, which runs
+      # every fixture (fixtures/**/*.jsonl, computed by the oracle) through the native program runner.
+      - name: cargo test
+        run: cargo test --release --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --release --workspace -- -D warnings
+
+      - name: rustdoc (no warnings)
+        run: cargo doc --no-deps -p icepool-core
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      # node >= 22: the documentation examples run through node's module.stripTypeScriptTypes.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/icepool-wasm/js/package-lock.json
+
+      # typescript and typedoc (devDependencies): build.sh takes tsc from js/node_modules.
+      - name: npm ci
+        run: npm ci
+        working-directory: crates/icepool-wasm/js
+
+      # Builds with the test-only `runner` and `khepri` features, then runs js/test/*.test.mjs and the type checks.
+      # Floats under WASM may differ from Python's by 2 ULP (DIVERGENCES.md), as the long gate allows.
+      - name: JS suite
+        run: crates/icepool-wasm/js/build.sh --test
+        env:
+          ICEPOOL_FLOAT_ULPS: "2"
+
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      # check-production.sh needs cargo, uv (it runs `uv run maturin build`), maturin, wasm-pack, node, npm, unzip,
+      # tar and nm; the runner image has the last three.
+      - uses: astral-sh/setup-uv@v6
+
+      - name: maturin
+        run: pip install 'maturin>=1.5,<2'
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/icepool-wasm/js/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+        working-directory: crates/icepool-wasm/js
+
+      - name: production builds contain no test code
+        run: scripts/check-production.sh
+
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: icepool-rs
+    env:
+      ICEPOOL_ORACLE: ${{ github.workspace }}/icepool-oracle
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: icepool-rs
+
+      # oracle.lock's first field is the oracle's commit, on alexrecarey/icepool's fix/multiset-bugs branch
+      # (upstream v2.2.2 + 3 fixes).
+      - name: Read oracle.lock
+        id: lock
+        run: echo "commit=$(cut -d' ' -f1 oracle.lock)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the oracle
+        uses: actions/checkout@v4
+        with:
+          repository: alexrecarey/icepool
+          ref: ${{ steps.lock.outputs.commit }}
+          path: icepool-oracle
+          persist-credentials: false
+
+      # As the gate's first step: the checkout is exactly the pinned commit, with no local changes.
+      - name: Oracle pinned and clean
+        run: |
+          want="$(cut -d' ' -f1 oracle.lock)"
+          have="$(git -C "$ICEPOOL_ORACLE" rev-parse HEAD)"
+          [ "$want" = "$have" ] || { echo "oracle at $have, oracle.lock says $want"; exit 1; }
+          [ -z "$(git -C "$ICEPOOL_ORACLE" status --porcelain)" ] || { echo "oracle checkout has local changes"; exit 1; }
+
+      - name: Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: icepool-rs
+
+      - uses: astral-sh/setup-uv@v6
+
+      # upstream_suite.sh builds the extension into .venv with `uv run maturin develop`.
+      - name: maturin
+        run: pip install 'maturin>=1.5,<2'
+
+      - name: Harness environment
+        run: uv sync
+
+      # The harness runs the port as target/release/icepool-run.
+      - name: cargo build
+        run: cargo build --release --workspace
+
+      - name: grammar status complete
+        run: uv run python -m harness.core.tool ops > /dev/null
+
+      # Every fixture through the port, and 5% of them recomputed by the oracle (fixtures must still be its answers).
+      - name: fixtures (port) + 5% oracle re-check
+        run: uv run python -m harness.core.tool fixtures verify --oracle-sample 0.05
+
+      - name: "fuzz: fixed seed"
+        run: uv run python -m harness.core.tool fuzz --seed 1 --count 2000
+
+      - name: "khepri sweep: fixed seed"
+        run: uv run python -m harness.core.tool fuzz --ops khepri --seed 7 --count 150
+
+      # Upstream's own tests, unmodified, through python/icepool with ICEPOOL_BACKEND=rust. Every test in
+      # baselines/upstream-pass.txt must pass.
+      - name: upstream test suite through the facade
+        run: harness/core/upstream_suite.sh fast
+
+      - name: Keep the harness reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-out
+          path: icepool-rs/harness-out/
+          if-no-files-found: ignore

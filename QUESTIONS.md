@@ -140,3 +140,101 @@ docs/design/library-architecture.md are now out of date, and I cannot edit docs/
 
 The runner still reaches core's `#[doc(hidden)] pub mod`s, as the bindings do; task C3d (after C3b) moves it onto
 deliberate APIs.
+
+## C8: MODULE-MAP.md belongs in docs/ (docs/ is protected)
+
+C8 asks for `docs/MODULE-MAP.md`: every upstream module -> the Rust, Python facade, PyO3, TypeScript and WASM files
+that port it, with a status and the oracle commit. `docs/` is protected, so it is at the root as `MODULE-MAP.md`
+(as FACADE-AUDIT.md went to the root). Please move it:
+
+```bash
+git mv MODULE-MAP.md docs/MODULE-MAP.md
+sed -i 's|^DEFAULT_MAP = os.path.join(ROOT, "MODULE-MAP.md")|DEFAULT_MAP = os.path.join(ROOT, "docs", "MODULE-MAP.md")|' scripts/upstream_changes.py
+sed -i 's|(MODULE-MAP.md)|(docs/MODULE-MAP.md)|g' README.md
+sed -i 's|(\.\./MODULE-MAP.md)|(../docs/MODULE-MAP.md)|' python/README.md
+```
+
+and drop the paragraph in its header that says it waits for the move. Its links to sibling files (DIVERGENCES.md,
+FACADE-AUDIT.md, QUESTIONS.md) are plain names, not links, so nothing else breaks. Once it is in docs/ the guard
+protects it, so updating it (each re-pin of the oracle, each new module) becomes the loop owner's job, or the map
+should go to an unprotected place instead (see the next entry).
+
+## C8: proposed layout for the loop's files at the repo root
+
+Today the root mixes the library with the loop's machinery and records: `PROGRESS.md`, `tasks.json`,
+`QUESTIONS.md`, `NOTES.md`, `FACADE-AUDIT.md`, `harness-reports/`, `harness-out/` (gitignored), `loop/`,
+`baselines/`, plus `.loop/` (gitignored scratch). A visitor sees the loop before the library. Proposal, nothing
+moved yet:
+
+| Today | Proposed | Why |
+|---|---|---|
+| `loop/` (scripts, prompts, `state.json`) | `loop/` (unchanged) | the loop's machinery, protected |
+| `PROGRESS.md` | `loop/PROGRESS.md` | written only by loop.sh; protected either way, and `loop` is |
+| `baselines/` | `loop/baselines/` | written only by loop.sh (upstream-pass.txt); protected, and `loop` is |
+| `tasks.json` | `dev/tasks.json` | agents add tasks, so it cannot sit under the protected `loop/` |
+| `QUESTIONS.md` | `dev/QUESTIONS.md` | agents append |
+| `NOTES.md` | `dev/NOTES.md` | agents write it every iteration; the root `AGENTS.md` keeps pointing at it |
+| `harness-reports/` | `dev/reports/` | oracle_coverage.py's output, agent-maintained |
+| `harness-out/` (gitignored) | `.loop/out/` | one gitignored scratch directory per worktree instead of two |
+| `FACADE-AUDIT.md`, `MODULE-MAP.md` | `docs/` | library documentation (but see below) |
+| `DIVERGENCES.md` | stays at the root | user-facing (README, python/DIFFERENCES.md link it) and appended by agents |
+
+The root would then show `README.md`, `AGENTS.md`/`CLAUDE.md` (agents look for them there), `DIVERGENCES.md`, the
+Cargo/uv/toolchain files, `oracle.lock`, and the directories `crates/ python/ docs/ scripts/ fixtures/ harness/
+loop/ dev/`. (`dev/` is a placeholder name; `work/` or `records/` would do.)
+
+One decision first: `docs/` is protected as a whole, but FACADE-AUDIT.md and MODULE-MAP.md must change whenever the
+facade or a module does. Either protect only the loop's own documents (`docs/ANALYSIS.md`, `docs/LOOP-PLAN.md`,
+`docs/semantics.md`, `docs/design/`, `docs/reviews/`) and let agents edit the rest of `docs/`, or keep those two in
+`dev/` instead.
+
+What each consumer would need to change:
+
+- **harness/core/guard.sh**: the `PROTECTED` list (`PROGRESS.md` and `baselines` disappear from it, being under
+  `loop`; `docs` narrowed if decided above); the Python block reads `tasks.json` at both revisions: make it
+  `dev/tasks.json` (for the commit that moves it, read the old path at BASE, or the removed-task check sees an
+  empty list at BASE and passes vacuously).
+- **harness/core/gate.sh**: every `harness-out` in the mutants step -> `.loop/out`.
+- **harness/core/upstream_suite.sh**: `harness-out` (output, junit XML, pass list) -> `.loop/out`;
+  `baselines/upstream-pass.txt` -> `loop/baselines/upstream-pass.txt`.
+- **harness/core/tool.py**: `OUT = os.path.join(ROOT, "harness-out")` and its usage text -> `.loop/out`.
+- **loop/loop.sh**: `commit_main`'s `git add -A tasks.json loop/state.json PROGRESS.md baselines`; the merge step's
+  `PROGRESS.md` (three places), `$WT/harness-out/upstream-pass.txt` and `baselines/upstream-pass.txt`; the long
+  gate's `harness-out/mutants.out/missed.txt` and the task text quoting it; `git clean ... -e harness-out` (no
+  longer needed once it is inside the excluded `.loop`).
+- **loop/tasks.py**: `TASKS = "tasks.json"` and its docstring.
+- **loop/prompts/implement.md** (and review.md if it names them): the paths of PROGRESS.md, NOTES.md, tasks.json.
+- **AGENTS.md**: the layout table and "How to do a task" (paths of tasks.json, PROGRESS.md, NOTES.md,
+  QUESTIONS.md, DIVERGENCES.md, baselines).
+- **Unprotected, an agent can do them in the same change**: `.gitignore` (`harness-out/` -> nothing, `.loop/` is
+  there), `harness/tools/oracle_coverage.py`'s default `--out`, README.md's layout table, python/README.md,
+  `.github/workflows/ci.yml` (the `harness-out` artifact path), scripts/upstream_changes.py (map path), NOTES.md's
+  own references.
+- tasks.json details and PROGRESS.md entries name the old paths; leave them, they are history.
+
+## C8: the design doc and AGENTS.md against what exists now (both protected)
+
+docs/design/library-architecture.md, in the sections C8 reads (and a few around them):
+
+1. **Section 5** lists `crates/icepool-khepri/`: it does not exist yet (task C2f); khepri's engine is
+   `crates/icepool-core/src/khepri.rs` behind core's non-default `khepri` feature. Its "Interim, until ... fixtures.rs
+   moves" paragraph and the `icepool-core/runner` feature are pre-C5b (as the C5b entry above says).
+2. **Section 6, "Migration"**: C6g no longer removes the bridge; C6g was split and C6l does it (after C6h-C6k).
+3. **Section 7**: true now, except that the JS package's README and guide say `npm install icepool-wasm` and the
+   package is not published; python/DIFFERENCES.md exists (written by hand from DIVERGENCES.md, NOTES.md and
+   FACADE-AUDIT.md, not generated); the `RUSTDOCFLAGS=-D warnings cargo doc` check now runs in
+   `.github/workflows/ci.yml` (it passes today).
+4. **Section 8, "What ships"**: the wheel is the extension alone; the facade in the wheel and `ICEPOOL_BACKEND`
+   defaulting to `rust` there are task C5c. Check 1 says "without the `runner` feature": now "without `khepri`, and
+   no icepool-harness" (with the npm package's interim exception until C6l). Check 3 describes `npm pack --dry-run
+   --json`; the script runs `js/build.sh --dev`, `npm pack` and lists the tarball. Check 4's exports list also
+   forbids `calculate`.
+5. **Section 9.8**: MODULE-MAP is at the root (first entry above), there is now `scripts/upstream_changes.py` and
+   `.github/workflows/ci.yml`; the files to split are `crates/icepool-harness/src/ops.rs` and `expression.rs` (the
+   runner left core's `program/` in C5b) and `crates/icepool-core/src/value/ops.rs`, split into `ops/`,
+   `expression/` and `value/ops/` directories.
+
+**AGENTS.md** (= CLAUDE.md) "Layout" still says the runner is core's `program/` with `src/bin/icepool-run.rs`, and
+that `crates/icepool-core/tests/fixtures.rs` is protected; both moved to `crates/icepool-harness/` (the guard
+protects `crates/icepool-harness/tests/fixtures.rs`). Its "How to do a task" step 3 says "Wire it into
+`program/`": now `crates/icepool-harness/src/`.

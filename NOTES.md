@@ -5,6 +5,27 @@ turns out wrong. Newest decisions at the top of each section.
 
 ## Decisions
 
+- **Presentation (C8, design section 7 and 9.8).** README.md (the project, the three bindings with checked
+  snippets, parity story, layout, commands); MODULE-MAP.md at the root (docs/ is protected; QUESTIONS.md asks to
+  move it): one row per upstream `src/icepool/*.py` with core / facade / PyO3 / TS / wasm files and status. Keep
+  the row shape (first cell a backticked upstream path): `scripts/upstream_changes.py OLD NEW` parses it to list
+  what upstream changed between two refs and what to revisit (stdlib only; never fetches; the oracle checkout has
+  tags only up to v0.25.4, commit `33e7e650` is v2.2.2). python/README.md and python/DIFFERENCES.md (what differs
+  on the Rust backend; when C5c sets `python-source`, keep these two out of the wheel). `.github/workflows/ci.yml`:
+  rust (build, test with every fixture, clippy, rustdoc -D warnings), js (`build.sh --test`), production
+  (check-production.sh), oracle (oracle checked out from alexrecarey/icepool at oracle.lock's commit; fixtures 5%
+  re-check, fixed-seed fuzz and khepri, upstream suite). It has not run on GitHub yet: the first run may need
+  fixes (private oracle repo access, `rustup toolchain install` with no argument, Python pinned to 3.13).
+  - The oversized files are directories now, all pure moves: icepool-harness `ops/` (one node table per grammar
+    area; `ops::call` asks each in turn, a table returns `Err(args)` for a node that is not its own; arms use
+    `Args::with(names, |[..]| ...)`; `operators` stays last, its fallback is any `operator` function name),
+    `expression/` (tree + conversions in mod.rs; operators, keep, mixture, identity, prepare, format), and core
+    `value/ops/` (dispatch in mod.rs; integer, float, fraction, sequence). Add a node to the table of its grammar
+    file's area.
+  - Found while documenting, not fixed: on the Python side `n @ die` is history-dependent (after `500 @ d6` the
+    oracle answers `1000 @ d6`; the Rust backend raises NotImplementedError), and on a fresh process `1000 @ die`
+    gives NotImplementedError rather than the RecursionError DIVERGENCES.md K4 describes (that comes at `2000`).
+
 - **Rust tests of the typed core (C7, design section 9.7).** Plain `cargo test -p icepool-core` needs no Python.
   - `crates/icepool-core/tests/typed_vs_value.rs`: property tests, each typed `Die<i64>` path (operators,
     comparisons, `sum_rolls`, `map`, clip/truncate/quantities, `Pool::evaluate` with keeps, `highest/lowest_single`)
@@ -1372,8 +1393,8 @@ turns out wrong. Newest decisions at the top of each section.
   `operator.<op>(a, b)`, so reflected operators and `NotImplemented` work); a tuple holding one compares natively
   until the differing element. `Error::Host(HostError)` carries the Python exception through the core unchanged
   (a custom exception class survives). Hash: the host's own hash fed like a number's, so an `IntEnum` merges with
-  an equal int; a `StrEnum` / namedtuple does NOT merge with an equal str / plain tuple as Python's dict would
-  (Rust hashes str/tuple its own way). Program results never contain a host value.
+  an equal int (C8, 2026-10-18: a `StrEnum` / namedtuple now merges with an equal str / plain tuple too, as in
+  Python; this note used to say it did not). Program results never contain a host value.
 - **`icepool_rs` (crates/icepool-py)**, pyo3 0.29 (no `extension-module` feature: workspace build/test/clippy
   link fine). `convert.rs`: exact `bool/int/float/Fraction/str/tuple/None` become native values, everything else
   (subclasses, `complex`, user classes; Vector/Symbols are native since S5a) a `PyHost` (hash taken on entry: unhashable raises
