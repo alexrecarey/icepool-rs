@@ -435,7 +435,9 @@ export class Deck extends Replayable implements Iterable<Outcome> {
    * ```
    */
   toOneHot(outcomes: readonly Outcome[] | null = null): Deck {
-    return call("to_one_hot", { population: this, outcomes: list(outcomes) }) as Deck;
+    // `Population.to_one_hot`: the die of the cards' one-hot Vectors, as a deck (`self._new_type(data)`).
+    const items = this.population().toOneHot(outcomes).items();
+    return new Deck(items.map(([o]) => o), items.map(([, q]) => q));
   }
   // Python's Deck defines these with `functools.reduce(..., initial=self)`, which raises TypeError before Python 3.14
   // (the oracle's Python); kept for parity.

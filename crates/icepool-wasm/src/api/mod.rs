@@ -19,6 +19,7 @@ mod host;
 mod map_tools;
 mod multiset;
 mod multiset_function;
+mod to_pool;
 mod value;
 
 pub use deck::{WasmDeck, WasmMultiDeal};

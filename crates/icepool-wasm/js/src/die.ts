@@ -6,8 +6,10 @@ import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 import { Again, AgainExpression, evaluateAgainsUsingCount, evaluateAgainsUsingDepth } from "./again.js";
 import { diePool, isDeck, isMultisetExpression, type MultisetExpression, type Pool } from "./multiset.js";
 import { IcepoolError } from "./errors.js";
+import { dieHighestLowest, dieKeep, dieKeepSlice, dieMiddle } from "./keep.js";
+import { dieMapToPool, explodeToPool, rerollToPool } from "./to-pool.js";
 import { ENCODE, Handle, call, registerKind } from "./rpc.js";
-import { dieMapToPool, map, mapAndTimeNamed, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
+import { map, mapAndTimeNamed, mappingGet, meanTimeToAbsorb, ops, sortedUnion, stochasticRound, tupleize } from "./functions.js";
 import {
   Break,
   Complex,
@@ -189,9 +191,6 @@ export const list = <T>(xs: T): T => (xs instanceof List ? xs : Array.isArray(xs
 
 const isInt = (x: unknown): x is Int => typeof x === "bigint" || Number.isInteger(x);
 
-/** `Infinity` as Python's `'inf'` (a depth or a count without a limit). */
-const inf = <T>(x: T): T | "inf" => (x === Infinity ? "inf" : x);
-
 /** `implicit_convert_to_die(x)`: a die as it is, `Reroll` the empty die, anything else `Die([x])` (a tuple holding
  * dice is a die of tuples). `undefined` for a pool, deck or multiset expression, whose own operators Python calls
  * (still the bridge's: tasks C6j, C6l). */
@@ -276,8 +275,8 @@ export function unpack(x: unknown): unknown[] {
   throw new IcepoolError("WrongType", "TypeError", `Value after * must be an iterable, not ${pyTypeName(x)}`);
 }
 
-/** Python's `len(x)` of a sequence or a mapping (`TypeError` for anything else). */
-function pyLen(x: unknown): number {
+/** Python's `len(x)` of a sequence or a mapping (`TypeError` for anything else). @internal */
+export function pyLen(x: unknown): number {
   if (typeof x === "string") return [...x].length;
   if (Array.isArray(x)) return x.length;
   if (x instanceof Vector) return x.length;
@@ -1281,7 +1280,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   highest(rolls: Int, keep: Int | null = null, drop: Int | null = null): Die {
-    return call("die_highest", { die: this, rolls, keep, drop }) as Die;
+    return dieHighestLowest(this, true, rolls, keep, drop);
   }
   /** `Die.lowest(rolls, keep=None, drop=None)`: roll several of this die and return the lowest result, or the sum
    * of some of the lowest. The outcomes should support addition and multiplication if `keep != 1`.
@@ -1301,7 +1300,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   lowest(rolls: Int, keep: Int | null = null, drop: Int | null = null): Die {
-    return call("die_lowest", { die: this, rolls, keep, drop }) as Die;
+    return dieHighestLowest(this, false, rolls, keep, drop);
   }
   /** `Die.middle(rolls, keep=1, *, tie='error')`: roll several of this die and sum the sorted results in the
    * middle. The outcomes should support addition and multiplication if `keep != 1`.
@@ -1320,7 +1319,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   middle(rolls: Int, keep: Int = 1, { tie = "error" }: { tie?: "error" | "high" | "low" } = {}): Die {
-    return call("die_middle", { die: this, rolls, keep, tie }) as Die;
+    return dieMiddle(this, rolls, keep, tie);
   }
   /** `Die.keep(rolls, index)`: roll several of this die, sort the results and sum the selected ones.
    *
@@ -1348,7 +1347,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   keep(rolls: Int | readonly Int[], index: Int | readonly (Int | typeof Ellipsis)[] | null = null): Die {
-    return call("die_keep", { die: this, rolls, index }) as Die;
+    return dieKeep(this, rolls, index);
   }
   /** `Die.keep(rolls, slice(start, stop, step))`: roll `rolls` of this die, sort the results and sum those in the
    * slice (indices from lowest to highest; negative ones count from the highest; `null` is an omitted bound),
@@ -1362,7 +1361,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   keepSlice(rolls: Int, start: Int | null = null, stop: Int | null = null, step: Int | null = null): Die {
-    return call("die_keep_slice", { die: this, rolls, start, stop, step }) as Die;
+    return dieKeepSlice(this, rolls, start, stop, step);
   }
   /** `Die.sequence(rolls)`: the possible sequences produced by rolling this die `rolls` times, as a die of arrays
    * (Python's tuples) in the order rolled. For 0 rolls the result is `[]` itself (Python's empty
@@ -1451,7 +1450,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
    * ```
    */
   explodeToPool(rolls: Int = 1, outcomes: Which = null, { star = null, depth = 9 }: { star?: boolean | null; depth?: Int } = {}): MultisetExpression {
-    return call("explode_to_pool", { die: this, rolls, outcomes: list(outcomes), star, depth }) as MultisetExpression;
+    return explodeToPool(this, rolls, outcomes, star, depth);
   }
   /** `Die.reroll_to_pool(rolls, outcomes=None, *, max_rerolls, star=None, depth=1, mode='random')`: EXPERIMENTAL.
    * Applies a limited number of rerolls shared across a pool of `rolls` dice. Each die can only be rerolled once
@@ -1490,15 +1489,7 @@ export class Die<T extends Outcome = Outcome> implements Iterable<T>, Disposable
       mode?: "random" | "low" | "high" | "drop";
     },
   ): MultisetExpression {
-    return call("reroll_to_pool", {
-      die: this,
-      rolls,
-      outcomes: list(outcomes ?? null),
-      max_rerolls: inf(maxRerolls),
-      star,
-      depth: inf(depth),
-      mode,
-    }) as MultisetExpression;
+    return rerollToPool(this, rolls, outcomes, { maxRerolls, star, depth, mode });
   }
 
   // --- Quantities and outcomes ----------------------------------------------------------------------------------
@@ -2511,11 +2502,15 @@ class WasmDieBox {
   }
 }
 
+/** A deck's cards as a die: the mapping `expand_arg` takes a deck for. */
+const deckDie = (deck: { items(): [Outcome, bigint][] }): Die => {
+  const items = deck.items();
+  return new Die(items.map(([o]) => o), items.map(([, q]) => q));
+};
+
 /** `Die(outcomes, times, again options)` (population/die.py `Die.__new__`): a new core die, or an existing die
  * (Python returns `Die([die])` itself, and the die an Again evaluation made). */
 function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined, again: AgainOptions): WasmDieBox | Die {
-  // Pools, decks and multiset expressions among the outcomes: the bridge (they are not typed objects yet).
-  if (holdsHandle(outcomes)) return bridgeDie(outcomes, times);
   const items = itemize(outcomes, times);
   const { againCount = null, againDepth = null, againEnd = null } = again;
   if (items.outcomes.some((o) => o instanceof AgainExpression)) {
@@ -2532,10 +2527,14 @@ function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined,
   if (args.length === 1 && args[0] instanceof Die && isOne(weights[0])) return args[0];
   // `expand_args_for_die`: each argument expanded (`expand_arg`), then mixed by the core (`merge_weights_lcm`).
   const builder = wasm((w) => new w.DieBuilder());
+  // A multiset expression is an outcome no die can sort (`Counts` raises once the weights are merged); with a zero
+  // weight it is dropped first.
+  let unsortable = false;
   try {
     args.forEach((arg, i) => {
       const weight = weights[i];
-      // A tuple holding dice is the die of their Cartesian product (`tupleize`); a plain tuple stays as it is.
+      // A tuple holding dice (or decks) is the population of their Cartesian product (`tupleize`); a plain tuple
+      // stays as it is.
       const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Operand[])) : arg;
       // Python's `expand_arg` takes the `Reroll` of a tuple holding one for a population, whose `values()` then
       // raises in `merge_weights_lcm`.
@@ -2543,10 +2542,20 @@ function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined,
         throw new IcepoolError("MissingAttribute", "AttributeError", "'RerollType' object has no attribute 'values'");
       }
       if (expanded instanceof Die) wasm(() => builder.die(expanded.w, weight));
+      else if (isDeck(expanded)) wasm(() => builder.die(deckDie(expanded).w, weight));
       else if (expanded === Reroll || expanded === Restart) wasm(() => builder.reroll(weight));
-      else wasm(() => builder.outcome(expanded, weight));
+      else if (isMultisetExpression(expanded)) unsortable ||= !pyBool(ops.eq(weight, 0));
+      else if (Array.isArray(expanded) && expanded.some(isMultisetExpression)) {
+        // Python makes the die of a tuple holding a pool, which no core outcome can hold.
+        throw new IcepoolError("Unported", "NotImplementedError", "a tuple outcome holding a multiset expression");
+      } else wasm(() => builder.outcome(expanded, weight));
     });
-    return new WasmDieBox(wasm(() => builder.build()));
+    const built = wasm(() => builder.build());
+    if (unsortable) {
+      built.free();
+      throw new IcepoolError("WrongType", "TypeError", "Items do not appear to be sortable.");
+    }
+    return new WasmDieBox(built);
   } finally {
     builder.free();
   }
@@ -2648,24 +2657,6 @@ export function isOne(t: unknown): boolean {
   if (t instanceof Float) return t.value === 1;
   if (t instanceof Fraction) return t.numerator === 1n && t.denominator === 1n;
   return t === 1 || t === 1n || t === true;
-}
-
-/** Whether the outcomes hold a pool, deck or expression (directly, as a Map key, or in a tuple). */
-function holdsHandle(outcomes: DieOutcomes): boolean {
-  const holds = (x: unknown): boolean => x instanceof Handle || (Array.isArray(x) && x.some(holds));
-  if (outcomes instanceof Map) return [...outcomes.keys()].some(holds);
-  return Array.isArray(outcomes) && outcomes.some(holds);
-}
-
-/** `Die(...)` through the bridge, for outcomes holding objects the bridge still holds. */
-function bridgeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined): Die {
-  if (outcomes instanceof Map) {
-    if (times !== undefined) throw new TypeError("icepool: a Map of quantities holding pools takes no times");
-    return call("weights", { items: List.from(Array.from(outcomes, ([k, v]) => [k, v])) }) as Die;
-  }
-  const xs = list(outcomes);
-  if (times !== undefined) return call("die_times", { outcomes: xs, times: list(times) }) as Die;
-  return call("die", { outcomes: xs }) as Die;
 }
 
 /** Python's `range(n)` length: an int (negative is empty), else `TypeError`. */

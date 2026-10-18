@@ -302,11 +302,15 @@ const IDIOMATIC = {
   die_mean_time_to_absorb: ({ die, f, args, star }) => isDie(die) && isList(args) && ok(die.meanTimeToAbsorb(f, ...args, { star })),
   reduce: ({ f, dice, initial }) => ok(ip.reduce(f, dice, { initial })),
   accumulate: ({ f, dice, initial }) => ok(ip.accumulate(f, dice, { initial })),
-  highest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.highest(args, { keep, drop, default: dflt })),
-  lowest: ({ args, keep, drop, default: dflt }) => isList(args) && ok(ip.lowest(args, { keep, drop, default: dflt })),
-  middle: ({ args, keep, tie, default: dflt }) => isList(args) && ok(ip.middle(args, { keep, tie, default: dflt })),
+  // The node's `args` is Python's `arg0`: any iterable (a die iterates its outcomes), or anything else to refuse.
+  highest: ({ args, keep, drop, default: dflt }) => ok(ip.highest(args, { keep, drop, default: dflt })),
+  // The node's `args` is Python's `arg0`: any iterable (a die iterates its outcomes), or anything else to refuse.
+  lowest: ({ args, keep, drop, default: dflt }) => ok(ip.lowest(args, { keep, drop, default: dflt })),
+  middle: ({ args, keep, tie, default: dflt }) => ok(ip.middle(args, { keep, tie, default: dflt })),
   tupleize: ({ args }) => isList(args) && ok(ip.tupleize(...args)),
   vectorize: ({ args }) => isList(args) && ok(ip.vectorize(...args)),
+  // expand.py `cartesian_product(*args, outcome_type=Vector if vector else tuple)`: what tupleize / vectorize call.
+  cartesian_product: ({ args, vector }) => isList(args) && typeof vector === "boolean" && ok((vector ? ip.vectorize : ip.tupleize)(...args)),
   coin: ({ n, d, max_denominator }) => ok(ip.coin(n, d, { maxDenominator: max_denominator })),
   one_hot: ({ sides }) => ok(ip.oneHot(sides)),
   stochastic_round: ({ x, max_denominator }) => ok(ip.stochasticRound(x, { maxDenominator: max_denominator })),
@@ -338,7 +342,7 @@ const IDIOMATIC = {
   },
   consecutive: ({ args }) => isList(args) && ok(ip.consecutive(...args)),
   sorted_union: ({ args }) => isList(args) && ok(ip.sortedUnion(...args)),
-  to_one_hot: ({ population, outcomes }) => isDie(population) && ok(population.toOneHot(outcomes)),
+  to_one_hot: ({ population, outcomes }) => (isDie(population) || population instanceof ip.Deck) && ok(population.toOneHot(outcomes)),
   harmonize_denominators: ({ dice, weights }) => isList(dice) && ok(ip.harmonizeDenominators(dice, weights)),
   format_probability_inverse: ({ probability, args }) =>
     isList(args) && args.length <= 1 && ok(ip.formatProbabilityInverse(probability, ...args)),

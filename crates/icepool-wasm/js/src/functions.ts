@@ -7,11 +7,12 @@
 import { AgainExpression } from "./again.js";
 import { Die, dictItems, missingKeyword, opts, pyBool, unpack, type AgainOptions, type Callback, type DieWithTruth, type MapResult, type Operand, type PoolRepl, type Repl } from "./die.js";
 import { IcepoolError } from "./errors.js";
-import type { MultisetExpression } from "./multiset.js";
-import { Handle, call } from "./rpc.js";
-import { Break, Fraction, List, Reroll, Restart, Vector, pyTypeName, type Float, type Int, type Outcome } from "./values.js";
+import { MultisetExpression, isDeck } from "./multiset.js";
+import { Break, Fraction, Reroll, Restart, Vector, pyTypeName, type Float, type Int, type Outcome } from "./values.js";
 import { binary, matmul, round, unary, type BinaryName, type UnaryName } from "./operators.js";
 import { isTrap, wasm } from "./wasm.js";
+import { highestLowest, middleOf } from "./keep.js";
+import { mapToPool as mapToPoolOf } from "./to-pool.js";
 import type { WasmDie } from "../pkg-node/icepool_wasm.js";
 
 /** Python's `isinstance(x, int)` (a bool is one). */
@@ -262,26 +263,19 @@ export function fromRv(rv: RandomVariable, outcomes: readonly Outcome[], denomin
 export function map(f: Repl, ...rest: unknown[]): Die {
   const [args, options] = opts<{ star: boolean | null; repeat: Int; [kwarg: string]: unknown } & AgainOptions>(rest);
   const { star = null, repeat = null, againCount = null, againDepth = null, againEnd = null, ...kwargs } = options;
-  if (repeat === null) {
-    const mapped = mapSimple(f, args, star, kwargs, { againCount, againDepth, againEnd });
-    if (mapped !== undefined) return mapped;
-    if (againCount !== null || againDepth !== null || againEnd !== null) {
-      throw new IcepoolError("Unported", "NotImplementedError", "map of multiset expressions or decks with again options");
-    }
-  }
+  // Multiset expressions become the dice of their sorted tuples, before anything else.
+  args.forEach((arg, i) => { if (arg instanceof MultisetExpression) args[i] = arg.expand(); });
+  if (repeat === null) return mapSimple(f, args, star, kwargs, { againCount, againDepth, againEnd });
   // With `repeat` Python ignores the again options.
-  if (repeat !== null) {
-    const repeated = mapRepeat(f, args, star, kwargs, repeat);
-    if (repeated !== undefined) return repeated;
-  }
-  const a = List.from(args);
-  if (repeat !== null) {
-    return call("map_repeat", { f, args: a, star, repeat: repeat === Infinity ? "inf" : repeat }) as Die;
-  }
-  if (Object.keys(kwargs).length) {
-    return call("map_kw", { f, args: a, star, kwargs: List.from(Object.entries(kwargs)) }) as Die;
-  }
-  return call("map", { f, args: a, star }) as Die;
+  return mapRepeat(f, args, star, kwargs, repeat);
+}
+
+/** expand.py `iter_cartesian_product`'s `arg_items(arg)`: a die's or deck's items, the items of a multiset
+ * expression's `expand()`, else the argument itself once. @internal */
+export function cartesianItems(arg: unknown): [unknown, bigint][] {
+  if (arg instanceof Die || isDeck(arg)) return (arg as Die).items();
+  if (arg instanceof MultisetExpression) return arg.expand().items();
+  return [[arg, 1n]];
 }
 
 /** map_tools/core_impl.py `map_simple(repl, *args, star=star, **kwargs)` with the again options: `f` (a JS
@@ -290,14 +284,14 @@ export function map(f: Repl, ...rest: unknown[]): Die {
  * argument slowest; anything else is passed as it is), unpacking the first if `star` (inferred from `f.length`, as
  * Python counts parameters), and the results become `Die(results, quantities, again options)`: dice among them are
  * mixed in, `Reroll` drops out, Again expressions are rolled again, and a `Break` is unwrapped. `undefined` where
- * the bridge must do it (multiset expression or deck arguments: task C6i). */
+ */
 function mapSimple(
   f: Repl,
   args: unknown[],
   star: unknown,
   kwargs: Record<string, unknown>,
   again: AgainOptions,
-): Die | undefined {
+): Die {
   const hasKwargs = Object.keys(kwargs).length > 0;
   if (args.length === 0) {
     if (f instanceof Map) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repl must be a callable.");
@@ -306,8 +300,7 @@ function mapSimple(
     const fn = f as (...args: unknown[]) => unknown;
     return new Die([(hasKwargs ? fn(kwargs) : fn()) as MapResult]);
   }
-  if (args.some((a) => a instanceof Handle)) return undefined;
-  const items = args.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]]));
+  const items = args.map(cartesianItems);
   let transition: (xs: unknown[]) => unknown;
   let starred = false;
   if (f instanceof Map) {
@@ -349,46 +342,20 @@ export function mappingGet(mapping: Map<unknown, unknown>, outcomes: unknown[]):
 }
 
 /** common.py `transition_and_star`'s error for a `repl` that is neither a function nor a Map. */
-const notARepl = () => new IcepoolError("WrongType", "TypeError", "repl must be a callable or a mapping.");
+export const notARepl = () => new IcepoolError("WrongType", "TypeError", "repl must be a callable or a mapping.");
 
 /** The `__qualname__` of the lambda common.py `transition_and_star` makes of a Map (`mapping.get(o, o)`), which
  * takes no keyword arguments. */
-const MAPPING_LAMBDA = "transition_and_star.<locals>.<lambda>";
+export const MAPPING_LAMBDA = "transition_and_star.<locals>.<lambda>";
 
 /** Python's `TypeError` for a keyword argument the function `qualname` does not take. */
-function unexpectedKeyword(qualname: string, name: string): IcepoolError {
+export function unexpectedKeyword(qualname: string, name: string): IcepoolError {
   return new IcepoolError("WrongType", "TypeError", `${qualname}() got an unexpected keyword argument '${name}'`);
-}
-
-/** `repl` with Python's `**kwargs` bound, for where the bridge calls it (it takes none): a function gets them as a
- * trailing options object on every call, as {@link map} gives them, and the `star` it is called with is inferred
- * from the unbound function's `length` (`nArgs` the arguments it takes before them), as `map` does, since the bound
- * one has no parameters. A Map (or `null`, Die.map_to_pool's identity lambda, `qualname` then) raises Python's
- * `TypeError` when it is first called, as Python's lambda does; a Map with the wrong number of arguments stays one,
- * for the `ValueError` that comes first. Unchanged without keyword arguments. */
-function bindKwargs<F>(
-  f: F,
-  nArgs: number,
-  star: unknown,
-  kwargs: Record<string, unknown>,
-  qualname = MAPPING_LAMBDA,
-): [F | ((...xs: unknown[]) => unknown), unknown] {
-  const [name] = Object.keys(kwargs);
-  if (name === undefined) return [f, star];
-  if (typeof f === "function") {
-    const fn = f as (...args: unknown[]) => unknown;
-    const starred = star === null || star === undefined ? fn.length > nArgs : pyBool(star);
-    return [(...xs: unknown[]) => fn(...xs, kwargs), starred];
-  }
-  if ((f instanceof Map && nArgs === 1) || f === null) {
-    return [() => { throw unexpectedKeyword(qualname, name); }, false];
-  }
-  return [f, star];
 }
 
 /** `itertools.product` of `[outcome, quantity]` lists: each joint outcome with the product of the quantities,
  * the last list varying fastest. */
-function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
+export function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint]> {
   if (items.length === 0) {
     yield [[], 1n];
     return;
@@ -400,13 +367,11 @@ function* jointItems(items: [unknown, bigint][][]): Generator<[unknown[], bigint
 }
 
 /** `map(repl, *args, repeat=repeat)` on the core's `TransitionCache`: Python's checks on `repeat`, then the Markov
- * process from `Die([first_arg])` (`Infinity` / `'inf'`: the absorbing Markov chain). `undefined` where the bridge
- * must do it (multiset expression or deck arguments: task C6i). */
-function mapRepeat(f: Repl, args: unknown[], star: unknown, kwargs: Record<string, unknown>, repeat: unknown): Die | undefined {
+ * process from `Die([first_arg])` (`Infinity` / `'inf'`: the absorbing Markov chain). */
+function mapRepeat(f: Repl, args: unknown[], star: unknown, kwargs: Record<string, unknown>, repeat: unknown): Die {
   if (args.length === 0) throw new IcepoolError("InvalidArgument", "ValueError", "If no arguments are given, repeat cannot be used.");
   const [first, ...extra] = args;
-  const cache = first instanceof Handle ? undefined : transitionCache(f, extra, star, kwargs);
-  if (cache === undefined) return undefined;
+  const cache = transitionCache(f, extra, star, kwargs);
   if (repeat === Infinity || repeat === "inf") return absorbingMarkovChain(cache, first)[0];
   if (pyBool(binary("lt", repeat, 0))) throw new IcepoolError("InvalidArgument", "ValueError", "repeat cannot be negative.");
   if (pyBool(binary("eq", repeat, 0))) return new Die([first as MapResult]);
@@ -440,11 +405,9 @@ interface TransitionCacheArgs {
 /** map_tools `TransitionCache(repl, *extra_args, star=star, **kwargs)` for the core: `step(state, i)` calls `repl`
  * (a function, unpacking the state if `star`; or a Map, `mapping.get(state, state)`, as common.py
  * `transition_and_star` makes it) on the state and the `i`th joint outcome of the extra arguments, keyword
- * arguments as a trailing options object, and tells the core what it returned. `undefined` where the bridge must
- * do it (multiset expression or deck arguments: task C6i). */
-function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: Record<string, unknown>): TransitionCacheArgs | undefined {
-  if (extraArgs.some((a) => a instanceof Handle)) return undefined;
-  const joint = [...jointItems(extraArgs.map((a): [unknown, bigint][] => (a instanceof Die ? a.items() : [[a, 1n]])))];
+ * arguments as a trailing options object, and tells the core what it returned. */
+function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: Record<string, unknown>): TransitionCacheArgs {
+  const joint = [...jointItems(extraArgs.map(cartesianItems))];
   const hasKwargs = Object.keys(kwargs).length > 0;
   let transition: (state: unknown, extra: unknown[]) => unknown;
   if (f instanceof Map) {
@@ -516,19 +479,9 @@ export function mapAndTime(f: Repl, initial: Operand, ...rest: unknown[]): Die {
 export function mapAndTimeNamed(fname: string, f: Repl, initial: Operand, rest: unknown[]): Die {
   const [args, options] = opts<{ star: boolean | null; repeat: Int | "inf"; [kwarg: string]: unknown }>(rest);
   const { star = null, repeat = missingKeyword(fname, "repeat"), ...kwargs } = options;
-  const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
-  if (cache !== undefined) {
-    const initialDie = new Die([initial]);
-    return Die.wrap(wasm((w) => w.mapAndTime(cache.transition, cache.quantities, initialDie.w, rangeRepeat(repeat))));
-  }
-  const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs);
-  return call("map_and_time", {
-    f: bound,
-    initial,
-    args: List.from(args),
-    star: boundStar,
-    repeat: repeat === Infinity ? "inf" : repeat,
-  }) as Die;
+  const cache = transitionCache(f, args, star, kwargs);
+  const initialDie = new Die([initial]);
+  return Die.wrap(wasm((w) => w.mapAndTime(cache.transition, cache.quantities, initialDie.w, rangeRepeat(repeat))));
 }
 
 /** `icepool.mean_time_to_absorb(repl, initial_state, *extra_args, star=None)` (EXPERIMENTAL in icepool): the mean
@@ -547,11 +500,7 @@ export function mapAndTimeNamed(fname: string, f: Repl, initial: Operand, rest: 
  */
 export function meanTimeToAbsorb(f: Repl, initial: Operand, ...rest: unknown[]): Fraction {
   const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-  const cache = initial instanceof Handle ? undefined : transitionCache(f, args, star, kwargs);
-  if (cache === undefined) {
-    const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs);
-    return call("mean_time_to_absorb", { f: bound, initial, args: List.from(args), star: boundStar }) as Fraction;
-  }
+  const cache = transitionCache(f, args, star, kwargs);
   const time = absorbingMarkovChain(cache, initial)[1];
   if (time === null) throw new IcepoolError("NotImplementedUpstream", "NotImplementedError", "Restart not implemented for mean_time_to_absorb.");
   return time;
@@ -578,17 +527,7 @@ export function meanTimeToAbsorb(f: Repl, initial: Operand, ...rest: unknown[]):
  * ```
  */
 export function mapToPool(f: PoolRepl, ...rest: unknown[]): MultisetExpression {
-  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-  const [bound, boundStar] = bindKwargs(f, args.length, star, kwargs);
-  return call("map_to_pool", { f: bound, args: List.from(args), star: boundStar }) as MultisetExpression;
-}
-
-/** `die.map_to_pool(repl, *extra_args, star=star, **kwargs)`: {@link mapToPool} of the die and the extra
- * arguments; `null` maps each outcome to itself (Python's `lambda x: x`). @internal */
-export function dieMapToPool(die: Die, f: PoolRepl | null, rest: unknown[]): MultisetExpression {
-  const [args, { star = null, ...kwargs }] = opts<{ star: boolean | null; [kwarg: string]: unknown }>(rest);
-  const [bound, boundStar] = bindKwargs(f, args.length + 1, star, kwargs, "Die.map_to_pool.<locals>.<lambda>");
-  return call("die_map_to_pool", { die, f: bound, args: List.from(args), star: boundStar }) as MultisetExpression;
+  return mapToPoolOf(f, rest);
 }
 
 /** `icepool.map_function(f, { star, ...kwargs })`: turns a function of outcomes into a function of dice, a reusable
@@ -697,15 +636,9 @@ export interface MiddleOptions {
 function keepFunction(op: "highest" | "lowest" | "middle") {
   return (...rest: unknown[]): Die => {
     const [args, o] = opts<KeepOptions & MiddleOptions>(rest);
-    // Python's `arg0` is positional-only and required (one argument is an iterable of them, which may be empty).
-    if (args.length === 0) {
-      throw new IcepoolError("WrongType", "TypeError", `${op}() missing 1 required positional argument: 'arg0'`);
-    }
-    const nul = <X>(x: X | undefined): X | null => (x === undefined ? null : x);
-    const extra = op === "middle" ? { keep: o.keep ?? 1, tie: o.tie ?? "error" } : { keep: nul(o.keep), drop: nul(o.drop) };
-    // `args = arg0` if it is the only argument (an iterable of them), else `(arg0,) + more_args`.
-    const iterable = args.length === 1 ? args[0] : List.from(args);
-    return call(op, { args: iterable, ...extra, default: nul(o.default) }) as Die;
+    // `keep=1, tie='error'` when not given (a null is Python's None).
+    if (op === "middle") return middleOf(args, o.keep === undefined ? 1 : o.keep, o.tie === undefined ? "error" : o.tie, o.default);
+    return highestLowest(op === "highest", args, o.keep, o.drop, o.default);
   };
 }
 /** `icepool.highest(*args, keep=None, drop=None, default=None)`: the highest outcome among the rolls, or the sum of
@@ -788,15 +721,39 @@ export function vectorize(...args: Operand[]): Die | Vector {
 }
 
 /** expand.py `cartesian_product(*args, outcome_type=...)`: `Reroll` (or `Restart`) if an argument is one; the
- * outcome itself (a tuple or `Vector` of the arguments) if none is a population; else the die of the joint
- * outcomes. */
+ * outcome itself (a tuple or `Vector` of the arguments) if none is a population (a die or a deck: multiset
+ * expressions are not, but expand among them); else the population of the joint outcomes, of the populations'
+ * type. */
 function cartesianProduct(args: readonly unknown[], type: "tuple" | "vector"): unknown {
-  const reroll = args.find((arg) => arg === Reroll || arg === Restart);
-  if (reroll !== undefined) return reroll;
-  // Decks and multiset expressions expand too: the bridge has those.
-  if (args.some((arg) => arg instanceof Handle)) return call(type === "tuple" ? "tupleize" : "vectorize", { args: List.from(args) });
-  if (!args.some((arg) => arg instanceof Die)) return type === "tuple" ? [...args] : new Vector(args as Outcome[]);
-  return Die.wrap(withDiceArgs(args, (built) => (type === "tuple" ? built.tupleize() : built.vectorize())));
+  let population: "die" | "deck" | undefined;
+  for (const arg of args) {
+    if (arg === Reroll || arg === Restart) return arg;
+    const kind = arg instanceof Die ? "die" : isDeck(arg) ? "deck" : undefined;
+    if (kind === undefined) continue;
+    if (population === undefined) population = kind;
+    else if (population !== kind) {
+      throw new IcepoolError(
+        "WrongType",
+        "TypeError",
+        "Arguments to vector() of type Population must all be Die or all be Deck, not a mixture of the two.",
+      );
+    }
+  }
+  if (population === undefined) return type === "tuple" ? [...args] : new Vector(args as Outcome[]);
+  if (population === "die" && !args.some((arg) => arg instanceof MultisetExpression)) {
+    return Die.wrap(withDiceArgs(args, (built) => (type === "tuple" ? built.tupleize() : built.vectorize())));
+  }
+  // `population_type({outcome_type(outcomes): quantity for outcomes, quantity in iter_cartesian_product(*args)})`.
+  const outcomes: Outcome[] = [];
+  const quantities: bigint[] = [];
+  for (const [joint, quantity] of jointItems(args.map(cartesianItems))) {
+    outcomes.push(type === "tuple" ? (joint as Outcome[]) : new Vector(joint as Outcome[]));
+    quantities.push(quantity);
+  }
+  if (population === "die") return new Die(outcomes, quantities);
+  // The deck's own class (deck.ts imports this module, so this one cannot import it).
+  const Deck = (args.find(isDeck) as object).constructor as new (outcomes: Outcome[], times: bigint[]) => unknown;
+  return new Deck(outcomes, quantities);
 }
 /** `icepool.pointwise_max(*args)`: selects the highest chance of rolling >= each outcome among the dice (naming not
  * finalized in icepool).
