@@ -3,7 +3,6 @@
 use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
-use crate::pool::Count;
 use crate::Int;
 
 /// Produces the outcome at a given sorted index (`KeepEvaluator`).
@@ -34,36 +33,6 @@ impl<O: crate::outcome::OutcomeOrder> MultisetEvaluator<O> for KeepEvaluator {
             Some(index) => -index,
         };
         Ok((None, remaining))
-    }
-
-    /// Python passes a tuple size on to `initial_state`, which reads it only to count from the other end
-    /// (`size + index + 1` / `size - index`: `TypeError` for a tuple).
-    fn initial_state_counts(
-        &self,
-        order: Order,
-        outcomes: &[O],
-        sizes: &[Option<Count>],
-    ) -> Result<Self::State> {
-        let size = match &sizes[0] {
-            Some(Count::Int(size)) => Some(size.clone()),
-            Some(Count::Tuple(_)) => {
-                if matches!(&self.index, Some(index) if (order.value() > 0) != !index.is_negative())
-                {
-                    let op = if order.value() > 0 { "+" } else { "-" };
-                    return Err(Error::WrongType(format!(
-                        "unsupported operand type(s) for {op}: 'tuple' and 'int'"
-                    )));
-                }
-                None
-            }
-            None => None,
-        };
-        self.initial_state(order, outcomes, &[size])
-    }
-
-    /// `final_outcome` does not read the size; `initial_state_counts` handles a tuple size itself.
-    fn reads_sizes(&self) -> bool {
-        false
     }
 
     fn next_state(

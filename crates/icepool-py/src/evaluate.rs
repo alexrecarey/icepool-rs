@@ -177,7 +177,7 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
         "is_disjoint_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsDisjointSet))),
         // `(tie, order, limit, limit_pad)`: the order as its `Order` value, which is all `order != self._order`
         // compares.
-        "argsort" => v.visit(ArgsortEvaluator {
+        "argsort" => v.visit(PyEvaluator(ArgsortEvaluator {
             tie: match param(0)?.extract::<String>()?.as_str() {
                 "drop" => Tie::Drop,
                 "left" => Tie::Left,
@@ -194,17 +194,17 @@ fn with_builtin<'py, V: BuiltinVisitor<'py>>(
                 pad if pad.is_none() => None,
                 pad => Some(from_py(pad)?),
             },
-        }),
-        "argsort_grouped" => v.visit(ArgsortGroupedEvaluator {
+        })),
+        "argsort_grouped" => v.visit(PyEvaluator(ArgsortGroupedEvaluator {
             order: Value::from(param(0)?.extract::<i64>()?),
             limit: param(1)?.extract()?,
-        }),
+        })),
         // `(sort_order, lexi_tuple)`: the `evaluate()` keyword arguments of `leximin` / `leximax`.
-        "lexi" => v.visit(LexiComparisonEvaluator {
+        "lexi" => v.visit(PyEvaluator(LexiComparisonEvaluator {
             sort_order: Order::from_int(param(0)?.extract()?)
                 .ok_or_else(|| PyValueError::new_err("icepool_rs: lexi needs an Order"))?,
             lexi_tuple: param(1)?.extract()?,
-        }),
+        })),
         _ => Err(PyValueError::new_err(format!(
             "icepool_rs: no built-in evaluator {name:?}"
         ))),

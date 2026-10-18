@@ -487,7 +487,7 @@ pub fn argsort(
         limit: optional_int(limit)?,
         limit_pad,
     };
-    die(evaluator, &exprs)
+    die(PyEvaluator(evaluator), &exprs)
 }
 
 /// `MultisetExpression.argsort_grouped(*args, order=, limit=)`.
@@ -497,7 +497,7 @@ pub fn argsort_grouped(args: PValue, order: PValue, limit: PValue) -> Result<PVa
         order: value(order)?,
         limit: optional_int(limit)?,
     };
-    die(evaluator, &exprs)
+    die(PyEvaluator(evaluator), &exprs)
 }
 
 /// `self, *args` of the argsort methods, each `implicit_convert_to_expression`ed.
@@ -533,10 +533,10 @@ pub fn lexi(
         compute_lexi_tuple_with_extra(&name(comparison), sort_order.value(), &name(extra))?;
     let right = implicit_convert(other)?;
     die(
-        LexiComparisonEvaluator {
+        PyEvaluator(LexiComparisonEvaluator {
             sort_order,
             lexi_tuple,
-        },
+        }),
         &[left, right],
     )
 }
@@ -855,7 +855,7 @@ pub fn builtin_evaluate(
                 }
             }
             if grouped {
-                return die(ArgsortGroupedEvaluator { order, limit }, &exprs()?);
+                return die(PyEvaluator(ArgsortGroupedEvaluator { order, limit }), &exprs()?);
             }
             let tie = match &*name {
                 "ArgsortEvaluatorDrop" => Tie::Drop,
@@ -863,12 +863,12 @@ pub fn builtin_evaluate(
                 _ => Tie::Right,
             };
             die(
-                ArgsortEvaluator {
+                PyEvaluator(ArgsortEvaluator {
                     tie,
                     order,
                     limit,
                     limit_pad,
-                },
+                }),
                 &exprs()?,
             )
         }
@@ -902,10 +902,10 @@ pub fn builtin_evaluate(
                 return unsupported();
             };
             die(
-                LexiComparisonEvaluator {
+                PyEvaluator(LexiComparisonEvaluator {
                     sort_order,
                     lexi_tuple: (a, b, c, d, e),
-                },
+                }),
                 &exprs()?,
             )
         }

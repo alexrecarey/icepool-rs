@@ -13,19 +13,22 @@ use dashu_int::IBig;
 use super::sort::{sorted, sorted_reverse};
 use super::{BinOp, Value};
 use crate::error::{Error, Result};
+use crate::evaluator::argsort::{ArgsortEvaluator, ArgsortGroupedEvaluator, RequestedOrder};
 use crate::evaluator::basic::{
     EmptyEvaluator, ExpandEvaluator, MappedSumEvaluator, ProductOfCountsEvaluator, SizeEvaluator,
     SumEvaluator, Summand,
 };
 use crate::evaluator::comparison::{step, Comparison, ComparisonEvaluator};
 use crate::evaluator::keep::KeepEvaluator;
+use crate::evaluator::lexi::{two, LexiComparisonEvaluator};
 use crate::evaluator::poker::{
     consecutive_span, AllCountsEvaluator, AllStraightsEvaluator, AllStraightsReduceCountsEvaluator,
     CountFilter, CountSubsetEvaluator, HighestOutcomeAndCountEvaluator, IntegerOutcome,
     LargestCountAndOutcomeEvaluator, LargestCountEvaluator, LargestCountWithWildEvaluator,
     LargestStraightAndOutcomeEvaluator, LargestStraightEvaluator, Truth,
 };
-use crate::evaluator::{tuple_compared_with_int, tuple_unsupported, Final, MultisetEvaluator};
+use crate::evaluator::{int_counts, tuple_unsupported, Final, MultisetEvaluator};
+use crate::expression::count_value;
 use crate::order::Order;
 use crate::pool::Count;
 use crate::Int;
@@ -160,27 +163,67 @@ impl<S: Clone + IntoValue> PyState<S> {
     }
 }
 
-/// An evaluator's `next_state` over tuple counts, as Python's arithmetic does it.
+/// A Python state produced from tuple counts, as `next_state_tuples` returns it.
+fn python<S>(state: Value) -> Result<Option<PyState<S>>> {
+    Ok(Some(PyState::Python(state)))
+}
+
+/// The `TypeError` Python raises comparing a tuple count with an `int` (`count >= 1`; `max(count, 0)` compares
+/// `0 > count`). A one-input evaluator whose `next_state` starts by such a comparison raises it for any tuple count
+/// (its one count is the tuple whenever [`TupleCounts::next_state_tuples`] is called).
+fn tuple_compared_with_int(op: &'static str) -> Error {
+    Error::Incomparable {
+        op,
+        left: "tuple",
+        right: "int",
+    }
+}
+
+/// The sizes as `int`s, a tuple size as `None`: for evaluators that do not read it.
+fn unread_tuple_sizes(sizes: &[Option<Count>]) -> Vec<Option<Int>> {
+    sizes
+        .iter()
+        .map(|s| match s {
+            Some(Count::Int(s)) => Some(s.clone()),
+            Some(Count::Tuple(_)) | None => None,
+        })
+        .collect()
+}
+
+/// A built-in evaluator over tuple counts and sizes (a `MultiDeal` input, or tuple counts passed on by operators),
+/// as Python's arithmetic runs on them.
 pub trait TupleCounts: MultisetEvaluator<Value> {
-    /// `next_state` when some count is a tuple, every count as the Python value it is (`int` or `tuple` of
-    /// `int`s). The default says `Unsupported`.
+    /// `initial_state` when some size may be a tuple. Python passes a tuple size on like any other; only keep and
+    /// lexi read their sizes (and override this), so by default a tuple size reaches `initial_state` as `None`,
+    /// unread. (No built-in `final_outcome` reads its sizes.)
+    fn initial_state_tuples(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<Self::State> {
+        self.initial_state(order, outcomes, &unread_tuple_sizes(sizes))
+    }
+
+    /// `next_state` when some count is a tuple (or the state is already Python's), every count as the Python
+    /// value it is (`int` or `tuple` of `int`s). The default says `Unsupported`.
     fn next_state_tuples(
         &self,
         _state: &PyState<Self::State>,
         _order: Order,
         _outcome: &Value,
         _counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_unsupported())
     }
 
-    /// `final_outcome` of a state `next_state_tuples` produced.
+    /// `final_outcome` of a Python state `next_state_tuples` produced.
     fn final_outcome_tuples(&self, _state: &Value) -> Result<Final<Value>> {
         Err(tuple_unsupported())
     }
 }
 
-/// A built-in evaluator as Python runs it: final outcomes as Python values, tuple counts through
+/// A built-in evaluator as Python runs it: final outcomes as Python values, tuple counts and sizes through
 /// [`TupleCounts`].
 pub struct PyEvaluator<E>(pub E);
 
@@ -203,7 +246,6 @@ where
         ))
     }
 
-    /// The evaluator's own, which may read a tuple size (`KeepEvaluator`).
     fn initial_state_counts(
         &self,
         order: Order,
@@ -211,7 +253,7 @@ where
         sizes: &[Option<Count>],
     ) -> Result<Self::State> {
         Ok(PyState::Typed(
-            self.0.initial_state_counts(order, outcomes, sizes)?,
+            self.0.initial_state_tuples(order, outcomes, sizes)?,
         ))
     }
 
@@ -230,30 +272,29 @@ where
             // Once the state is Python's, it stays Python's.
             PyState::Python(_) => {
                 let counts: Vec<Value> = counts.iter().map(Value::from).collect();
-                self.next_state_values(state, order, outcome, &counts)
+                self.0.next_state_tuples(state, order, outcome, &counts)
             }
         }
     }
 
-    fn next_state_values(
+    fn next_state_counts(
         &self,
         state: &Self::State,
         order: Order,
         outcome: &Value,
-        counts: &[Value],
+        counts: &[Count],
     ) -> Result<Option<Self::State>> {
-        Ok(self
-            .0
-            .next_state_tuples(state, order, outcome, counts)?
-            .map(PyState::Python))
+        match int_counts(counts) {
+            Some(counts) => self.next_state(state, order, outcome, &counts),
+            None => {
+                let counts: Vec<Value> = counts.iter().map(count_value).collect();
+                self.0.next_state_tuples(state, order, outcome, &counts)
+            }
+        }
     }
 
     fn extra_outcomes(&self, outcomes: &[Value]) -> Result<Vec<Value>> {
         self.0.extra_outcomes(outcomes)
-    }
-
-    fn reads_sizes(&self) -> bool {
-        self.0.reads_sizes()
     }
 
     fn final_outcome(
@@ -271,6 +312,16 @@ where
             }),
             PyState::Python(v) => self.0.final_outcome_tuples(v),
         }
+    }
+
+    fn final_outcome_counts(
+        &self,
+        state: &Self::State,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<Final<Value>> {
+        self.final_outcome(state, order, outcomes, &unread_tuple_sizes(sizes))
     }
 }
 
@@ -298,7 +349,7 @@ impl TupleCounts for HighestOutcomeAndCountEvaluator {
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int(">"))
     }
 }
@@ -312,7 +363,7 @@ impl TupleCounts for AllCountsEvaluator<Value> {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         let count = &counts[0];
         // `state = state or ()`
         let state = state.value();
@@ -321,9 +372,9 @@ impl TupleCounts for AllCountsEvaluator<Value> {
             let mut xs = state.to_vec();
             xs.push(count.clone());
             // `tuple(sorted(state, reverse=True))`
-            Ok(Some(Value::tuple(sorted_reverse(xs)?)))
+            python(Value::tuple(sorted_reverse(xs)?))
         } else {
-            Ok(Some(Value::tuple(state.to_vec())))
+            python(Value::tuple(state.to_vec()))
         }
     }
 
@@ -341,7 +392,7 @@ impl TupleCounts for LargestCountEvaluator {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         // `max(state or count, count)`
         let (state, count) = (state.value(), counts[0].clone());
         let first = if state.truthy()? {
@@ -349,7 +400,7 @@ impl TupleCounts for LargestCountEvaluator {
         } else {
             count.clone()
         };
-        Ok(Some(Value::py_max(first, count)?))
+        python(Value::py_max(first, count)?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -366,12 +417,12 @@ impl TupleCounts for LargestCountAndOutcomeEvaluator {
         _: Order,
         outcome: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         // `max(state or (count, outcome), (count, outcome))`
         let state = state.value();
         let pair = Value::tuple(vec![counts[0].clone(), outcome.clone()]);
         let first = if state.truthy()? { state } else { pair.clone() };
-        Ok(Some(Value::py_max(first, pair)?))
+        python(Value::py_max(first, pair)?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -387,17 +438,17 @@ impl TupleCounts for CountSubsetEvaluator<Value> {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         let (left, right) = (&counts[0], &counts[1]);
         let state = state.value();
         if *right == Value::from(0) {
-            return Ok(Some(state));
+            return python(state);
         }
         let current = left.binary(BinOp::FloorDiv, right)?;
-        Ok(Some(match state {
+        python(match state {
             Value::None => current,
             state => Value::py_min(state, current)?,
-        }))
+        })
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -416,7 +467,7 @@ impl TupleCounts for LargestStraightEvaluator {
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int(">="))
     }
 }
@@ -429,7 +480,7 @@ impl TupleCounts for LargestStraightAndOutcomeEvaluator {
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int(">="))
     }
 }
@@ -442,7 +493,7 @@ impl TupleCounts for AllStraightsEvaluator {
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int("<"))
     }
 }
@@ -457,7 +508,7 @@ impl<R: Fn(&Value, &Int) -> Result<Value>> TupleCounts
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int(">"))
     }
 }
@@ -470,7 +521,7 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
         order: Order,
         outcome: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         let count = &counts[0];
         let (is_wild_early, is_wild_late) = self.wilds(order, outcome)?;
         let state = state.value();
@@ -481,7 +532,7 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
             } else {
                 Value::from(0)
             };
-            return Ok(Some(Value::tuple(vec![count.clone(), total_wild_early])));
+            return python(Value::tuple(vec![count.clone(), total_wild_early]));
         };
         let (mut best, mut total_wild_early) = (best.clone(), total_wild_early.clone());
         if is_wild_late.truthy()? {
@@ -491,7 +542,7 @@ impl<S: Fn(&Value) -> Result<Value>> TupleCounts for LargestCountWithWildEvaluat
         if is_wild_early.truthy()? {
             total_wild_early = total_wild_early.binary(BinOp::Add, count)?;
         }
-        Ok(Some(Value::tuple(vec![best, total_wild_early])))
+        python(Value::tuple(vec![best, total_wild_early]))
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -522,12 +573,12 @@ impl TupleCounts for SumEvaluator {
         _: Order,
         outcome: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
-        Ok(Some(add_to_sum(
+    ) -> Result<Option<PyState<Self::State>>> {
+        python(add_to_sum(
             state.value(),
             outcome.clone(),
             &counts[0],
-        )?))
+        )?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -543,12 +594,12 @@ impl<F: Fn(&Value) -> Result<Value>> TupleCounts for MappedSumEvaluator<F, Value
         _: Order,
         outcome: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
-        Ok(Some(add_to_sum(
+    ) -> Result<Option<PyState<Self::State>>> {
+        python(add_to_sum(
             state.value(),
             (self.map)(outcome)?,
             &counts[0],
-        )?))
+        )?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -564,8 +615,8 @@ impl TupleCounts for SizeEvaluator {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
-        Ok(Some(state.value().binary(BinOp::Add, &counts[0])?))
+    ) -> Result<Option<PyState<Self::State>>> {
+        python(state.value().binary(BinOp::Add, &counts[0])?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -587,8 +638,8 @@ impl TupleCounts for ProductOfCountsEvaluator {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
-        Ok(Some(state.value().binary(BinOp::Mul, &counts[0])?))
+    ) -> Result<Option<PyState<Self::State>>> {
+        python(state.value().binary(BinOp::Mul, &counts[0])?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -604,14 +655,14 @@ impl TupleCounts for EmptyEvaluator {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         // `state and (count == 0)`
         let state = state.value();
-        Ok(Some(if state.truthy()? {
+        python(if state.truthy()? {
             Value::Bool(counts[0] == Value::from(0))
         } else {
             state
-        }))
+        })
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -627,10 +678,10 @@ impl TupleCounts for ExpandEvaluator {
         _: Order,
         outcome: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         // `(state or ()) + (outcome, ) * count`; the typed state is the tuple, `()` where Python has `None`.
         let more = Value::tuple(vec![outcome.clone()]).binary(BinOp::Mul, &counts[0])?;
-        Ok(Some(state.value().binary(BinOp::Add, &more)?))
+        python(state.value().binary(BinOp::Add, &more)?)
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {
@@ -646,14 +697,162 @@ impl TupleCounts for ExpandEvaluator {
 
 /// `max(count, 0)` of a tuple count: `TypeError`.
 impl TupleCounts for KeepEvaluator {
+    /// Python passes a tuple size on to `initial_state`, which reads it only to count from the other end
+    /// (`size + index + 1` / `size - index`: `TypeError` for a tuple).
+    fn initial_state_tuples(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<Self::State> {
+        let size = match &sizes[0] {
+            Some(Count::Int(size)) => Some(size.clone()),
+            Some(Count::Tuple(_)) => {
+                if matches!(&self.index, Some(index) if (order.value() > 0) != !index.is_negative())
+                {
+                    let op = if order.value() > 0 { "+" } else { "-" };
+                    return Err(Error::WrongType(format!(
+                        "unsupported operand type(s) for {op}: 'tuple' and 'int'"
+                    )));
+                }
+                None
+            }
+            None => None,
+        };
+        self.initial_state(order, outcomes, &[size])
+    }
+
     fn next_state_tuples(
         &self,
         _: &PyState<Self::State>,
         _: Order,
         _: &Value,
         _: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         Err(tuple_compared_with_int(">"))
+    }
+}
+
+/// `order != self._order` with whatever the caller passed as `order=`.
+impl RequestedOrder for Value {
+    fn differs_from(&self, order: Order) -> Result<bool> {
+        Value::from(order.value()).eq_op(self, true)?.truthy()
+    }
+}
+
+/// The state as it was before any tuple count: argsort and lexi have no Python state (a tuple count either
+/// raises or leaves the typed state, see their `next_state_tuples`).
+fn typed<S>(state: &PyState<S>) -> &S {
+    match state {
+        PyState::Typed(s) => s,
+        PyState::Python(_) => unreachable!("argsort and lexi states stay typed"),
+    }
+}
+
+/// Python's arithmetic on a tuple count: drop compares `count > max_count` (`TypeError`) unless the limit is
+/// reached, so it never looks at the counts; left / right take each count in turn, `min(count, limit -
+/// len(state))` (`TypeError`) or the count itself, then `append_count > 0` (`TypeError`), and may return early
+/// once the limit is reached.
+impl TupleCounts for ArgsortEvaluator<Value, Value> {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Vec<i64>>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<PyState<Vec<i64>>>> {
+        let limit = self.limit;
+        let counts = counts
+            .iter()
+            .map(|count| match count {
+                Value::Int(c) => Ok(Int::from(c)),
+                // `min(count, limit - len(state))` compares `limit - len(state) < count`.
+                _ if limit.is_some() => Err(Error::Incomparable {
+                    op: "<",
+                    left: "int",
+                    right: "tuple",
+                }),
+                _ => Err(tuple_compared_with_int(">")),
+            })
+            .collect();
+        let state = self.step(typed(state).clone(), counts)?;
+        Ok(Some(PyState::Typed(state)))
+    }
+}
+
+/// A tuple count: `any(count > 0 for count in counts)` short-circuits on an earlier positive `int` count, and then
+/// `(i, ) * count` of the tuple raises; else `count > 0` does. Both only if the limit is not reached.
+impl TupleCounts for ArgsortGroupedEvaluator<Value> {
+    fn next_state_tuples(
+        &self,
+        state: &PyState<Vec<Vec<i64>>>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<PyState<Vec<Vec<i64>>>>> {
+        if !self.below_limit(typed(state)) {
+            return Ok(Some(state.clone()));
+        }
+        let positive_before_tuple = counts
+            .iter()
+            .take_while(|count| matches!(count, Value::Int(_)))
+            .any(|count| matches!(count, Value::Int(c) if Int::from(c).is_positive()));
+        Err(if positive_before_tuple {
+            Error::WrongType("can't multiply sequence by non-int of type 'tuple'".into())
+        } else {
+            tuple_compared_with_int(">")
+        })
+    }
+}
+
+impl TupleCounts for LexiComparisonEvaluator {
+    /// Python passes tuple sizes on to `initial_state`, which reads them only in reverse order: after the `None`
+    /// check, `left_size < right_size` (`TypeError` between a tuple and an `int`) and then `right_size -
+    /// left_size` (`TypeError` between two tuples).
+    fn initial_state_tuples(
+        &self,
+        order: Order,
+        outcomes: &[Value],
+        sizes: &[Option<Count>],
+    ) -> Result<Self::State> {
+        let (left_size, right_size) = two(sizes, "initial_state")?;
+        let int = |size: Option<Count>| match size {
+            Some(Count::Int(size)) => Ok(Some(size)),
+            None => Ok(None),
+            Some(Count::Tuple(_)) => Err(()),
+        };
+        match (int(left_size), int(right_size)) {
+            (Ok(left_size), Ok(right_size)) => {
+                self.initial_state(order, outcomes, &[left_size, right_size])
+            }
+            // Forward order reads no sizes.
+            _ if order == self.sort_order => self.initial_state(order, outcomes, &[None, None]),
+            (Ok(None), _) | (_, Ok(None)) => self.initial_state(order, outcomes, &[None, None]),
+            (Err(()), Err(())) => Err(Error::WrongType(
+                "unsupported operand type(s) for -: 'tuple' and 'tuple'".into(),
+            )),
+            (left, _) => Err(Error::Incomparable {
+                op: "<",
+                left: if left.is_ok() { "int" } else { "tuple" },
+                right: if left.is_ok() { "tuple" } else { "int" },
+            }),
+        }
+    }
+
+    /// `left = max(left, 0)` of a tuple compares `0 > left`: `TypeError` (the int count, if any, is fine).
+    fn next_state_tuples(
+        &self,
+        _: &PyState<Self::State>,
+        _: Order,
+        _: &Value,
+        counts: &[Value],
+    ) -> Result<Option<PyState<Self::State>>> {
+        two(counts, "next_state")?;
+        Err(Error::Incomparable {
+            op: ">",
+            left: "int",
+            right: "tuple",
+        })
     }
 }
 
@@ -692,11 +891,11 @@ impl TupleCounts for ComparisonEvaluator {
         _: Order,
         _: &Value,
         counts: &[Value],
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<PyState<Self::State>>> {
         let this = any_all_values(self.0, &counts[0], &counts[1])?;
-        Ok(Some(
+        python(
             step(comparison_state(&state.value()), this).into_value(),
-        ))
+        )
     }
 
     fn final_outcome_tuples(&self, state: &Value) -> Result<Final<Value>> {

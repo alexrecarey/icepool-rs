@@ -540,7 +540,7 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
         "is_not_equal_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsNotEqualSet))),
         "is_disjoint_set" => v.visit(PyEvaluator(ComparisonEvaluator(Comparison::IsDisjointSet))),
         // `(tie, order, limit, limit_pad)`.
-        "argsort" => v.visit(ArgsortEvaluator {
+        "argsort" => v.visit(PyEvaluator(ArgsortEvaluator {
             tie: match text(0)?.as_str() {
                 "drop" => Tie::Drop,
                 "left" => Tie::Left,
@@ -553,14 +553,14 @@ pub(super) fn with_builtin<V: BuiltinVisitor>(name: &str, params: &[JsValue], vi
                 Value::None => None,
                 pad => Some(pad),
             },
-        }),
+        })),
         // `(order, limit)`.
-        "argsort_grouped" => v.visit(ArgsortGroupedEvaluator { order: param(0)?, limit: limit(1)? }),
+        "argsort_grouped" => v.visit(PyEvaluator(ArgsortGroupedEvaluator { order: param(0)?, limit: limit(1)? })),
         // `(max, comparison, extra)`: `leximax` (else `leximin`) with lexi.py's `compute_lexi_tuple_with_extra`.
         "lexi" => {
             let sort_order = if flag(0)? { Order::Descending } else { Order::Ascending };
             let lexi_tuple = compute_lexi_tuple_with_extra(&text(1)?, sort_order.value(), &text(2)?).or_throw()?;
-            v.visit(LexiComparisonEvaluator { sort_order, lexi_tuple })
+            v.visit(PyEvaluator(LexiComparisonEvaluator { sort_order, lexi_tuple }))
         }
         _ => Err(Error::Unported(format!("no built-in evaluator {name:?}"))).or_throw(),
     }

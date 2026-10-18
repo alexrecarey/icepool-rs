@@ -92,10 +92,6 @@ macro_rules! count_fold_evaluators {
             ) -> $crate::Result<$crate::evaluator::Final<Self::Final>> {
                 self.finish(state)
             }
-
-            fn reads_sizes(&self) -> bool {
-                false
-            }
         }
     )*};
 }

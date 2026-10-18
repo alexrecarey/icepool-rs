@@ -3,9 +3,7 @@
 use super::{Final, MultisetEvaluator};
 use crate::error::{Error, Result};
 use crate::order::Order;
-use crate::pool::Count;
 use crate::Int;
-use crate::Value;
 
 // icepool `lexi.py`'s helpers, which compute the `lexi_tuple` these evaluators (and the multiset operators) take.
 pub use crate::lexi::{
@@ -28,7 +26,7 @@ pub struct LexiComparisonEvaluator {
 type LexiState = (bool, i64, i64, Int);
 
 /// `initial_state(self, order, outcomes, left_size, right_size, ...)`: exactly two inputs.
-fn two<T: Clone>(xs: &[T], method: &str) -> Result<(T, T)> {
+pub(crate) fn two<T: Clone>(xs: &[T], method: &str) -> Result<(T, T)> {
     match xs {
         [a, b] => Ok((a.clone(), b.clone())),
         _ => Err(Error::WrongType(format!(
@@ -38,11 +36,13 @@ fn two<T: Clone>(xs: &[T], method: &str) -> Result<(T, T)> {
     }
 }
 
-impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
+/// The comparison never looks at the outcomes themselves, only at the counts: any outcome type will do.
+impl<O> MultisetEvaluator<O> for LexiComparisonEvaluator {
     type State = LexiState;
-    type Final = Value;
+    /// One of `lexi_tuple`'s elements.
+    type Final = Int;
 
-    fn initial_state(&self, order: Order, _: &[Value], sizes: &[Option<Int>]) -> Result<LexiState> {
+    fn initial_state(&self, order: Order, _: &[O], sizes: &[Option<Int>]) -> Result<LexiState> {
         let (left_size, right_size) = two(sizes, "initial_state")?;
         if order == self.sort_order {
             return Ok((true, 0, 0, Int::ZERO));
@@ -64,7 +64,7 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
         &self,
         state: &LexiState,
         _: Order,
-        _: &Value,
+        _: &O,
         counts: &[Int],
     ) -> Result<Option<LexiState>> {
         let (forward_order, mut extra, mut first, ref left_lead) = *state;
@@ -94,66 +94,13 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
         Ok(Some((forward_order, extra, first, left_lead)))
     }
 
-    /// Python passes tuple sizes (a `MultiDeal` input) on to `initial_state`, which reads them only in reverse
-    /// order: after the `None` check, `left_size < right_size` (`TypeError` between a tuple and an `int`) and then
-    /// `right_size - left_size` (`TypeError` between two tuples).
-    fn initial_state_counts(
-        &self,
-        order: Order,
-        outcomes: &[Value],
-        sizes: &[Option<Count>],
-    ) -> Result<LexiState> {
-        let (left_size, right_size) = two(sizes, "initial_state")?;
-        let int = |size: Option<Count>| match size {
-            Some(Count::Int(size)) => Ok(Some(size)),
-            None => Ok(None),
-            Some(Count::Tuple(_)) => Err(()),
-        };
-        match (int(left_size), int(right_size)) {
-            (Ok(left_size), Ok(right_size)) => {
-                self.initial_state(order, outcomes, &[left_size, right_size])
-            }
-            _ if order == self.sort_order => Ok((true, 0, 0, Int::ZERO)),
-            (Ok(None), _) | (_, Ok(None)) => self.initial_state(order, outcomes, &[None, None]),
-            (Err(()), Err(())) => Err(Error::WrongType(
-                "unsupported operand type(s) for -: 'tuple' and 'tuple'".into(),
-            )),
-            (left, _) => Err(Error::Incomparable {
-                op: "<",
-                left: if left.is_ok() { "int" } else { "tuple" },
-                right: if left.is_ok() { "tuple" } else { "int" },
-            }),
-        }
-    }
-
-    /// `final_outcome` does not read the sizes; `initial_state_counts` handles tuple sizes itself.
-    fn reads_sizes(&self) -> bool {
-        false
-    }
-
-    /// `left = max(left, 0)` of a tuple compares `0 > left`: `TypeError` (the int count, if any, is fine).
-    fn next_state_values(
-        &self,
-        _: &LexiState,
-        _: Order,
-        _: &Value,
-        counts: &[Value],
-    ) -> Result<Option<LexiState>> {
-        two(counts, "next_state")?;
-        Err(Error::Incomparable {
-            op: ">",
-            left: "int",
-            right: "tuple",
-        })
-    }
-
     fn final_outcome(
         &self,
         final_state: &LexiState,
         _: Order,
-        _: &[Value],
+        _: &[O],
         _: &[Option<Int>],
-    ) -> Result<Final<Value>> {
+    ) -> Result<Final<Int>> {
         let (_, extra, first, _) = final_state;
         let (extra, first) = (*extra, *first);
         let (left_first, left_extra, tie, right_extra, right_first) = self.lexi_tuple;
@@ -168,6 +115,6 @@ impl MultisetEvaluator<Value> for LexiComparisonEvaluator {
         } else {
             tie
         };
-        Ok(Final::Outcome(Value::from(result)))
+        Ok(Final::Outcome(Int::from(result)))
     }
 }
