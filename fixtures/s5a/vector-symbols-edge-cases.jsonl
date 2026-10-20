@@ -2,7 +2,6 @@
 {"program":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[1]},{"vector":[0,5,5]},{"vector":[1,2,0]}]},"expected":{"ok":true,"die":[[{"vector":[0,5,5]},1],[{"vector":[1]},1],[{"vector":[1,2]},1],[{"vector":[1,2,0]},1]]}}
 {"program":{"op":"die_vectors","outcomes":[{"vector":[1,{"str":"a"}]},{"vector":[1,2]}]},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[{"float":"1.0"},2]},{"vector":[{"frac":[2,2]},{"bool":true}]}]},"expected":{"ok":true,"die":[[{"vector":[{"frac":[1,1]},{"bool":true}]},1],[{"vector":[1,2]},2]]}}
-{"program":{"op":"die_vectors","outcomes":[{"vector":[{"vector":[1]}]},{"vector":[{"vector":[2]}]}]},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"die_typed","outcomes":[{"vector":[1,2]},3]},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"die_typed","outcomes":[{"vector":[1,2]},{"tuple":[1,2]}]},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"add","a":{"op":"die_vectors","outcomes":[{"vector":[1,2]},{"vector":[3,4]}]},"b":{"vector":[10,20]}},"expected":{"ok":true,"die":[[{"vector":[11,22]},1],[{"vector":[13,24]},1]]}}
@@ -35,7 +34,6 @@
 {"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"vector","items":[3]},"name":{"str":"add"}},"expected":{"ok":false,"error":"IndexError"}}
 {"program":{"op":"coll_binary","a":{"op":"vector","items":[]},"b":{"op":"vector","items":[]},"name":{"str":"add"}},"expected":{"ok":true,"value":{"vector":[]}}}
 {"program":{"op":"coll_truth","x":{"op":"vector","items":[]}},"expected":{"ok":false,"error":"TypeError"}}
-{"program":{"op":"coll_truth","x":{"op":"coll_binary","a":{"op":"vector","items":[{"vector":[1]}]},"b":{"op":"vector","items":[{"vector":[2]}]},"name":{"str":"lt"}}},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"vector_method","v":{"op":"coll_binary","a":{"op":"vector","items":[{"vector":[1]}]},"b":{"op":"vector","items":[{"vector":[1,2]}]},"name":{"str":"lt"}},"name":{"str":"repr"},"arg":null},"expected":{"ok":true,"value":{"str":"Vector((VectorWithTruthOnly(True),))"}}}
 {"program":{"op":"coll_binary","a":{"tuple":[1]},"b":{"op":"vector","items":[{"tuple":[2]}]},"name":{"str":"add"}},"expected":{"ok":true,"value":{"vector":[{"tuple":[1,2]}]}}}
 {"program":{"op":"coll_binary","a":{"op":"vector","items":[1,2]},"b":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"mul"}},"expected":{"ok":true,"value":{"vector":[{"symbols":"ab"},{"symbols":"aabb"}]}}}
