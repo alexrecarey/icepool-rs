@@ -394,8 +394,12 @@ function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iter
 `pointwise_max(d6)` is the pointwise max over `Die([1])` ... `Die([6])` (each outcome made a die by
 `harmonize_denominators`), i.e. `Die([6])`, and `pointwise_min(d6)` is `Die([1])`. The docstring says "Either an
 iterable of dice, or two or more dice as separate arguments", so this is documented, but a single die is surely
-meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest). The port copies it (program/function.rs
-`pointwise`, fixtures/s5b/function).
+meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest).
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/266 (pending merge):** a lone `Die` argument is
+wrapped as a one-element tuple. The port follows it (harness `function.rs` `pointwise`, the facade's
+`pointwise_max`/`pointwise_min`, the JS `pointwise`); new fixtures in fixtures/s5b/pointwise-single-die.jsonl. Old
+fixtures in fixtures/s5b/function.jsonl still encode the bug.
 
 Drafted upstream test:
 
