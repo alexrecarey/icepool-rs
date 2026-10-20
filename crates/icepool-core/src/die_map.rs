@@ -54,9 +54,12 @@ pub enum Target<P> {
     Outcome(P),
     /// A die of outcomes, each of which stops the process.
     Die(Die<P>),
-    /// `Break(Reroll)`. A single map drops it; under `repeat` Python fails on it (see DIVERGENCES.md: a tuple
-    /// holding `Reroll`).
+    /// `Break(Reroll)`. A single map drops it, and so does `repeat` (as plain `Reroll`; fixed upstream, see
+    /// DIVERGENCES.md).
     Reroll,
+    /// `Break(Restart)`. A single map drops it; under `repeat` Python fails on it (see DIVERGENCES.md: a tuple
+    /// holding `Reroll`).
+    Restart,
 }
 
 impl<P> From<Target<P>> for Mapped<P> {
@@ -66,6 +69,7 @@ impl<P> From<Target<P>> for Mapped<P> {
             Target::Outcome(p) => Mapped::Outcome(p),
             Target::Die(d) => Mapped::Die(d),
             Target::Reroll => Mapped::Reroll,
+            Target::Restart => Mapped::Restart,
         }
     }
 }
@@ -88,9 +92,10 @@ impl<P> Mapped<P> {
             Mapped::Outcome(p) | Mapped::Break(Some(Target::Outcome(p))) => DieArg::Outcome(p),
             Mapped::Break(None) => DieArg::Outcome(current()),
             Mapped::Die(d) | Mapped::Break(Some(Target::Die(d))) => DieArg::Die(d),
-            Mapped::Reroll | Mapped::Restart | Mapped::Break(Some(Target::Reroll)) => {
-                DieArg::Reroll
-            }
+            Mapped::Reroll
+            | Mapped::Restart
+            | Mapped::Break(Some(Target::Reroll))
+            | Mapped::Break(Some(Target::Restart)) => DieArg::Reroll,
         }
     }
 }
