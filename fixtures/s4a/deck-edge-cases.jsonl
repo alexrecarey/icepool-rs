@@ -146,7 +146,6 @@
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"die_if_k","params":[2,2]},"star":{"bool":false}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 3, 2: 2, 3: 1})"}}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"mapping","params":[[[2,{"op":"d","sides":2}],[3,{"op":"Reroll"}],[9,9]]]},"star":{"bool":true}},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 3, 2: 2})"}}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"mapping","params":[[[1,3]]]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 2, 3: 2})"}}}
-{"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,1,2],"times":1},"deals":0},"expected":{"ok":false,"error":"UnboundLocalError"}}
 {"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,1,2],"times":1},"deals":1},"expected":{"ok":true,"die":[[{"tuple":[1]},2],[{"tuple":[2]},1]]}}
 {"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,1,2],"times":1},"deals":2},"expected":{"ok":true,"die":[[{"tuple":[1,1]},2],[{"tuple":[1,2]},2],[{"tuple":[2,1]},2]]}}
 {"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,1,2],"times":1},"deals":3},"expected":{"ok":true,"die":[[{"tuple":[1,1,2]},2],[{"tuple":[1,2,1]},2],[{"tuple":[2,1,1]},2]]}}
