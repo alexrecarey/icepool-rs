@@ -409,8 +409,12 @@ def test_pointwise_max_single_die():
 
 function.py `consecutive(*args)` chains its arguments twice (`min(itertools.chain(*args), default=None)`, then
 `max(itertools.chain(*args))`), so an iterator argument is exhausted by the `min` and the `max` raises `ValueError:
-max() iterable argument is empty`. The facade copies it by materialising both chains (python/icepool/function.py);
-the program language passes lists only.
+max() iterable argument is empty`.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/267 (pending merge):** the arguments are
+materialised once before chaining. The facade follows it (python/icepool/function.py). Before the fix the facade
+copied it by materialising both chains. The program language passes lists only, so no fixture can
+cover this.
 
 Drafted upstream test:
 
