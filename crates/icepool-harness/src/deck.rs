@@ -329,8 +329,8 @@ pub fn deck_map(deck: PValue, repl: PValue, star: PValue) -> Result<PValue, PErr
 /// `deck.sequence(deals)`: the possible sequences of `deals` cards dealt one by one, as a die of tuples.
 ///
 /// Python builds them in `_sequence_cache`, starting from `Die([()])`: each step maps every sequence so far to the
-/// die of the cards left (`Die(self - curr)`) appended to it. The loop variable is the only binding of `result`,
-/// so `deals == 0` raises `UnboundLocalError` (copied, see DIVERGENCES.md).
+/// die of the cards left (`Die(self - curr)`) appended to it, and returns `_sequence_cache[deals]`: `Die([()])`
+/// for `deals == 0`.
 pub fn deck_sequence(deck: PValue, deals: PValue) -> Result<PValue, PErr> {
     let deck = the_deck(deck)?;
     let deals = match deals {
@@ -341,11 +341,6 @@ pub fn deck_sequence(deck: PValue, deals: PValue) -> Result<PValue, PErr> {
     if deals < IBig::ZERO {
         return raise(Error::InvalidArgument(
             "The number of cards dealt cannot be negative.".into(),
-        ));
-    }
-    if deals == IBig::ZERO {
-        return raise(Error::InvalidArgument(
-            "UnboundLocalError: cannot access local variable 'result'".into(),
         ));
     }
     let deals = usize::try_from(deals)
