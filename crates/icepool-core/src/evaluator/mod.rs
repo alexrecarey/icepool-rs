@@ -509,8 +509,8 @@ impl<'a, O: OutcomeOrder, E: MultisetEvaluator<O>> Dungeon<'a, O, E> {
     }
 
     /// `Room.pop`: pops the next outcome from the sources. Descending order pops from the top and ascending from
-    /// the bottom. (The room pops the min for any `order >= 0` while the sources pop the max unless `order > 0`:
-    /// with `Order.Any` they disagree, as in Python.)
+    /// the bottom. (The room pops the min for any `order >= 0` while the sources pop the max unless `order > 0`, so
+    /// `evaluate` never pops with `Order::Any`.)
     ///
     /// Returns the popped outcome, the remaining window, and every way the sources produce it.
     fn pop(
@@ -812,9 +812,14 @@ pub fn evaluate_call_tree<O: OutcomeOrder, E: MultisetEvaluator<O>>(
         .iter()
         .map(MultisetSource::order_preference)
         .collect::<Result<Vec<_>>>()?;
-    let (pop_order, pop_order_reason) = merge_order_preferences(
+    let (pop_order, pop_order_reason) = match merge_order_preferences(
         std::iter::once((Order::Descending, OrderReason::Default)).chain(preferences),
-    )?;
+    )? {
+        // Conflicting preferences cancelled out; fall back to the default. `Room::pop` and the sources would
+        // otherwise disagree on which end `Order::Any` pops from.
+        (Order::Any, _) => (Order::Descending, OrderReason::Default),
+        merged => merged,
+    };
 
     let source_outcomes = sources
         .iter()

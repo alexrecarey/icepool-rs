@@ -108,8 +108,13 @@ the next priority. Two pools whose keep tuples skip at opposite ends (`d4.pool(3
 But `Room.pop` takes the *min* outcome for any `order >= 0` (`if order < 0: ... else: outcomes[0]`), while
 `PoolSource.pop` pops its *max* unless `order > 0`. So the room offers the min outcome, every source answers "not my
 outcome" (count 0, weight 1), and the sources are never popped: `d4.pool(3)[1:].issubset(d4.pool(3)[:2])` is a die
-with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096. The
-port copies it (`evaluator/mod.rs` `Dungeon::pop`, fixtures in fixtures/k6/evaluate.jsonl). Probably `Any` should
+with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (pending merge):** `evaluate` falls back to
+`(Order.Descending, OrderReason.Default)` when the merged order is `Any`. The port follows it (`evaluator/mod.rs`
+`evaluate`, the facade's `MultisetEvaluatorBase.evaluate`); new fixtures in fixtures/k6/opposite-keep-skip.jsonl.
+The old fixtures in fixtures/k6/evaluate.jsonl still encode the bug. Before the fix: the
+port copied it (`evaluator/mod.rs` `Dungeon::pop`). Probably `Any` should
 fall back to the default order before popping.
 
 Drafted upstream test:
