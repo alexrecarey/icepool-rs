@@ -313,10 +313,10 @@ def test_tuple_index_hash_key_includes_child():
 some symbol is positive in both, the opposite of what the name and the set API mean (`{1}.isdisjoint({1})` is
 False).
 
-**Fixed upstream in alexrecarey/icepool `fix/symbols-isdisjoint` (upstream PR pending merge); the port now follows
-the fix** (core `Symbols::isdisjoint`). Until `oracle.lock` moves to a release with the fix, the old fixture lines in
-`fixtures/s5a/vector-symbols-edge-cases.jsonl` (and the pinned oracle) disagree; `fixtures/s5a/symbols-isdisjoint-fixed.jsonl`
-holds the fixed expectations.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/276 (pending merge); the port now follows
+the fix** (core `Symbols::isdisjoint`). Until `oracle.lock` moves to a release with the fix, the pinned oracle disagrees. The two
+old lines in `fixtures/s5a/vector-symbols-edge-cases.jsonl` that recorded the inverted result were retired;
+`fixtures/s5a/symbols-isdisjoint-fixed.jsonl` holds the fixed expectations.
 
 Drafted upstream test:
 

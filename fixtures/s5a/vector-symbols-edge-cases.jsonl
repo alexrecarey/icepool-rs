@@ -160,8 +160,6 @@
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"modulo_counts"},"arg":2},"expected":{"ok":true,"value":{"symbols":"b"}}}
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a - b"}},"name":{"str":"has_negative_counts"},"arg":null},"expected":{"ok":true,"value":{"bool":true}}}
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a - bb"}},"name":{"str":"size"},"arg":null},"expected":{"ok":true,"value":-1}}
-{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"bc"}},"expected":{"ok":true,"value":{"bool":true}}}
-{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"c"}},"expected":{"ok":true,"value":{"bool":false}}}
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":3},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"issubset"},"arg":{"str":"abc"}},"expected":{"ok":true,"value":{"bool":true}}}
 {"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"issuperset"},"arg":{"str":"abc"}},"expected":{"ok":true,"value":{"bool":false}}}
