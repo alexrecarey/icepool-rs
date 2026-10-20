@@ -129,6 +129,8 @@ def test_opposite_keep_skip_preferences():
 
 ### `quantities('>=')` of an empty population is `(0,)`, so `probabilities('>=')` raises (S2a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/270 (pending merge); the port now follows the fix: `()`. Old lines in s2a/statistics.jsonl (and s2b's `csv:q>=` row) are superseded by s2a/empty-quantities-ge.jsonl.** The text below describes the old behaviour.
+
 `Population.quantities('>=')` (population/base.py) is `itertools.accumulate(self.values()[:-1], operator.sub,
 initial=self.denominator())`: with no outcomes that still yields the initial `0`, so an empty die has one `'>='`
 (and one `'<'`) quantity but zero outcomes, and `probabilities('>=')` divides it by the zero denominator

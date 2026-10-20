@@ -460,7 +460,7 @@ fn gather_cols<O: OutcomeOrder + FormatOutcome>(
     Ok(result)
 }
 
-/// The rows: `zip(*cols)`, as long as the shortest column (`q>=` of an empty population has one entry).
+/// The rows: `zip(*cols)`, as long as the shortest column.
 fn make_rows<O: OutcomeOrder + FormatOutcome>(
     population: &Die<O>,
     format_tokens: &[Token],
