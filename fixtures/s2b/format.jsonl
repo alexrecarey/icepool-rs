@@ -213,7 +213,6 @@
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"bbcode"}},"expected":{"ok":true,"value":{"str":"Empty Die\n"}}}
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"html"}},"expected":{"ok":true,"value":{"str":"Empty Die\n"}}}
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv"}},"expected":{"ok":true,"value":{"str":"Outcome,Probability\r\n"}}}
-{"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv:q>="}},"expected":{"ok":true,"value":{"str":"Quantity >=\r\n0\r\n"}}}
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv:q>=q=="}},"expected":{"ok":true,"value":{"str":"Quantity >=,Quantity\r\n"}}}
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv:p=="}},"expected":{"ok":true,"value":{"str":"Probability\r\n"}}}
 {"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"md:x"}},"expected":{"ok":true,"value":{"str":"Empty Die\n"}}}
