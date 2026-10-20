@@ -113,7 +113,7 @@ with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False:
 **Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (pending merge):** `evaluate` falls back to
 `(Order.Descending, OrderReason.Default)` when the merged order is `Any`. The port follows it (`evaluator/mod.rs`
 `evaluate`, the facade's `MultisetEvaluatorBase.evaluate`); new fixtures in fixtures/k6/opposite-keep-skip.jsonl.
-The old fixtures in fixtures/k6/evaluate.jsonl still encode the bug. Before the fix: the
+Old fixture lines that encoded the bug (k6/evaluate.jsonl, k6c/edge_cases.jsonl, t1d/edge-cases.jsonl) were retired. Before the fix: the
 port copied it (`evaluator/mod.rs` `Dungeon::pop`). Probably `Any` should
 fall back to the default order before popping.
 
