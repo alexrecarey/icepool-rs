@@ -33,6 +33,8 @@ one ULP of phase is many ULPs of the imaginary part (`complex(-0.000249885052903
 
 ### A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix: the tuple drops out like `Reroll`. Old fixtures k3/map-reroll-edge-cases.jsonl:48,203,210 and c6c/again-die-args-edge-cases.jsonl:13 still expect the AttributeError; k3/tuple-reroll-drops-out.jsonl has the fixed results.** The text below describes the old behaviour.
+
 `creation_args.expand_arg` sends a tuple through `cartesian_product(*arg)`, which returns `Reroll` itself if any
 element is `Reroll`. `expand_arg` then returns that `Reroll` as if it were a mapping (`if type(arg) == tuple: ...
 else: return arg`), and `merge_weights_lcm` raises `AttributeError: 'RerollType' object has no attribute 'values'`.
@@ -253,6 +255,8 @@ def test_sequence_zero_and_repeated():
 ```
 
 ### A tuple holding `Reroll` in `Deck(...)` raises `AttributeError` unless its duplicates are 0 (S4a)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix (same PR as the `Die(...)` entry). Old fixtures s4a/deck-edge-cases.jsonl:129,141 still expect the AttributeError.** The text below describes the old behaviour.
 
 Same root as the `Die(...)` entry above: `expand_arg` hands `Reroll` itself on as the subdata, and
 `merge_duplicates` calls `subdata.items()` on it, but only after `if subdup == 0: continue`. So

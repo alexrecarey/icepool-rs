@@ -843,10 +843,8 @@ function makeDeck(outcomes: DeckOutcomes, times: unknown): WasmDeck | Deck {
         const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Outcome[])) : arg;
         if (expanded instanceof Deck) builder.deck(expanded.w, time);
         else if (expanded instanceof Die) builder.die(expanded.w, time);
-        else if (expanded === Reroll || expanded === Restart) {
-          if (Array.isArray(arg)) builder.rerollTuple(time);
-          else builder.reroll(time);
-        } else builder.outcome(expanded, time);
+        else if (expanded === Reroll || expanded === Restart) builder.reroll(time);
+        else builder.outcome(expanded, time);
       });
       return builder.build();
     } finally {
