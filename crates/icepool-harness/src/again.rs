@@ -301,6 +301,17 @@ pub fn evaluate_agains_using_count(
         }
     };
     let int = |i: i64| PValue::Value(Value::from(IBig::from(i)));
+    // `make_step_outcome` makes `Reroll`, `Restart` and empty dice `Reroll` (fixed upstream, see DIVERGENCES.md):
+    // they drop out of the step die, so that roll is rerolled rather than ending a chain.
+    let (objects, times): (Vec<PValue>, Vec<Value>) = objects
+        .into_iter()
+        .zip(times)
+        .filter(|(x, _)| match x {
+            PValue::Reroll | PValue::Restart => false,
+            PValue::Die(d) => !d.is_empty(),
+            _ => true,
+        })
+        .unzip();
     let outcomes: Vec<_> = objects.into_iter().map(arg).collect();
     let step_objects = icepool_core::value::step_outcomes(
         &outcomes,
