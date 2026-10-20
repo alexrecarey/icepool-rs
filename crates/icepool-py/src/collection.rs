@@ -5,7 +5,7 @@
 //! The elementwise and multiset work runs here, on the core's `Value::Vector` / `Value::Symbols`. Python callables
 //! given to `Vector.binary_operator` / `unary_operator` are host callbacks, applied to each element as Python does.
 
-use icepool_core::value::{BinOp, Symbols, UnOp, Vector};
+use icepool_core::value::{BinOp, Lexicographic, Symbols, UnOp, Vector};
 use icepool_core::{Error, Value};
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError};
 use pyo3::prelude::*;
@@ -56,6 +56,12 @@ pub fn vector_binary_operator<'py>(
     } else {
         Some(from_py(compare_non_vector)?)
     };
+    // `_lexicographic_truth` tells `operator.eq` and `operator.ne` from any other comparison.
+    let compare_for_truth = compare_for_truth.then_some(match op {
+        ops::Binary::Eq(false, _) => Lexicographic::Eq,
+        ops::Binary::Eq(true, _) => Lexicographic::Ne,
+        _ => Lexicographic::Order,
+    });
     let result = vector(v)?.binary_operator(
         &from_py(other)?,
         |x, y| op.apply(x, y, args, kwargs),

@@ -357,6 +357,9 @@ def test_deck_multi_argument_methods():
 
 ### A die of nested vectors cannot be sorted (S5a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (pending merge); the port now follows the fix.**
+The rest of this entry describes the old behaviour.
+
 A comparison of two vectors of the same length takes its truth value from `op(self._data, other._data)`, a tuple
 comparison, and Python's tuple comparison returns the comparison of the first differing elements *as is*. For
 vectors of vectors that is again a `Vector`, so `bool()` of the outer result raises `TypeError: __bool__ should
@@ -454,6 +457,9 @@ per outcome) also raise from the stack budget, where Python continues (or crashe
 .sum()` at limit 100000 segfaults the oracle). Not a Python bug; listed so the threshold differences are known.
 
 ### Vector comparisons take exponential time in Python (R1)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (pending merge); the port now follows the fix.**
+The rest of this entry describes the old behaviour.
 
 `Vector.binary_operator` with `compare_for_truth` computes `op(self._data, other._data)` (a tuple comparison,
 recursing into the elements' own comparison operators) and then the elementwise results again, so `t == u` or
