@@ -42,7 +42,7 @@ def _gen_dz_attr(g, depth):
         try:
             if abs(int(name[1:])) > 99:
                 # Three digits: a die of up to 999 outcomes, which pooled lands in the band where Python's
-                # recursion limit is not knowable from the program (dev/NOTES.md, "Python's recursion limit").
+                # recursion limit is not knowable from the program (docs/NOTES.md, "Python's recursion limit").
                 name = name[:-1]
         except ValueError:
             pass
@@ -145,7 +145,7 @@ def _gen_pointwise(g, depth):
     spread = r.random() < 0.6
     args = _dice(g, depth, r.randint(1 if spread else 0, 3))
     if not spread and r.random() < 0.1:
-        # A single die: iterated, so its outcomes are the dice.
+        # A single die: itself (HighDiceRoller/icepool#266), which used to iterate its outcomes.
         args = g.die(min(depth, 1))
     return {"op": "pointwise", "args": args, "max": {"bool": r.random() < 0.5}, "spread": {"bool": spread}}
 
@@ -154,7 +154,7 @@ def _gen_pointwise(g, depth):
 def pointwise(args, max, spread):
     """(icepool.pointwise_max if max else icepool.pointwise_min)(*args if spread else args): the highest chance
     of rolling >= (max) or <= (min) each outcome among the dice, after harmonize_denominators. One argument is
-    the iterable of dice (a die: its outcomes)."""
+    the iterable of dice (a die: itself)."""
     f = icepool.pointwise_max if max else icepool.pointwise_min
     return f(*args) if spread else f(args)
 
