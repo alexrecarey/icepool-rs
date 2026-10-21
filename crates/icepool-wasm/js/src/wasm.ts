@@ -93,11 +93,10 @@ export function withCallbacks<T>(f: () => T): T {
   }
 }
 
-/** The exports only some builds have: Cargo features `runner` and `khepri` (the npm package has neither, so the
+/** The exports only some builds have: Cargo feature `runner` (the npm package is built without it, so the
  * generated types the package compiles against lack them). */
 interface OptionalExports {
   run?(programJson: string): string;
-  calculate?(engineInput: unknown): unknown;
 }
 
 /** The raw export `name`, which only builds with the Cargo `feature` have. */
@@ -115,44 +114,4 @@ function optional<K extends keyof OptionalExports>(name: K, feature: string): No
 export function run(programJson: string): string {
   const f = optional("run", "runner");
   return wasm(() => f(programJson));
-}
-
-/** khepri's result for one engine input (src/khepri.rs): what {@link calculate} returns.
- *
- * @example
- * ```ts
- * import type { KhepriResult } from "icepool-wasm";
- * const result: KhepriResult = { rolls: 400n, outcomes: [{ player: "active", wounds: 1, chance: 0.25 }] };
- * result.outcomes[0].chance; //=> 0.25
- * ```
- */
-export interface KhepriResult {
-  /** The denominator of the outcomes: a JS number while it is a safe integer, a BigInt beyond 2**53 (as Pyodide's
-   * `to_js` converts a Python int). */
-  rolls: number | bigint;
-  /** One entry per (player, wounds) result; `chance` is `float(Fraction(quantity, denominator))`, bit for bit. */
-  outcomes: {
-    /** The player the result is for. */
-    player: string;
-    /** The wounds dealt. */
-    wounds: number;
-    /** The probability of this result. */
-    chance: number;
-  }[];
-}
-
-/** khepri's `f2f.calculate`: the engine input object in, `{rolls, outcomes: [{player, wounds, chance}, ...]}` out.
- * Throws an `Error` where Python raises, and a `PanicException` after a trap, which leaves the instance usable.
- * Application code, not part of the library: only in builds with the `khepri` feature (khepri's own,
- * crates/icepool-wasm/build.sh). In the npm package's build it throws a plain `Error` saying so.
- *
- * @example
- * ```ts
- * // The npm package is built without the "khepri" feature.
- * calculate({}); //=> throws Error
- * ```
- */
-export function calculate(engineInput: object): KhepriResult {
-  const f = optional("calculate", "khepri");
-  return wasm(() => f(engineInput) as KhepriResult);
 }

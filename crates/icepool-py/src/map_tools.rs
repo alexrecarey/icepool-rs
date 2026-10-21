@@ -33,8 +33,10 @@ fn next(py: Python<'_>, result: &Bound<'_, PyAny>) -> PyResult<Mapped<Value>> {
     let (reroll, restart) = (icepool.getattr("Reroll")?, icepool.getattr("Restart")?);
     let die_type = icepool.getattr("Die")?;
     let target = |x: &Bound<'_, PyAny>| -> PyResult<Target<Value>> {
-        Ok(if x.is(&reroll) || x.is(&restart) {
+        Ok(if x.is(&reroll) {
             Target::Reroll
+        } else if x.is(&restart) {
+            Target::Restart
         } else if x.is_instance(&die_type)? {
             let rs = x.call_method0("_rust_die")?;
             Target::Die(rs.cast::<RsDie>()?.get().die.clone())
