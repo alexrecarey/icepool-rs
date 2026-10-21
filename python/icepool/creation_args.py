@@ -67,11 +67,6 @@ def expand_args_for_die_rust(
     subdatas = []
     # As in Python, every argument is expanded before any is merged.
     for subdata in [expand_arg(arg) for arg in args]:
-        if not isinstance(subdata, Mapping):
-            # A tuple holding `Reroll` expands to `Reroll` itself (see
-            # `cartesian_product`), which `merge_weights_lcm` then fails on.
-            raise AttributeError(
-                f"'{type(subdata).__name__}' object has no attribute 'values'")
         if isinstance(subdata, icepool.Die):
             subdatas.append((1, subdata._rust_die()))
         elif isinstance(subdata, icepool.Population):
@@ -94,16 +89,7 @@ def expand_args_for_deck_rust(
     """
     subdatas = []
     # As in Python, every argument is expanded before any is merged.
-    for subdata, subdup in zip([expand_arg(arg) for arg in args], times):
-        if not isinstance(subdata, Mapping):
-            # A tuple holding `Reroll` expands to `Reroll` itself (see
-            # `cartesian_product`), which `merge_duplicates` only reads if
-            # its dup is not zero.
-            if subdup == 0:
-                subdatas.append((2, None))
-                continue
-            raise AttributeError(
-                f"'{type(subdata).__name__}' object has no attribute 'items'")
+    for subdata in [expand_arg(arg) for arg in args]:
         if isinstance(subdata, (icepool.Die, icepool.Deck)):
             subdatas.append((1, subdata._rust_die()))
         elif isinstance(subdata, icepool.Population):
@@ -136,6 +122,9 @@ def expand_arg(
                    icepool.cartesian_product(*arg, outcome_type=tuple))
         if type(arg) == tuple:
             return {arg: 1}  # type: ignore
+        elif arg in icepool.REROLL_TYPES:
+            # The Cartesian product is Reroll if any element is.
+            return {}
         else:  # converted to Population
             return arg  # type: ignore
     else:
