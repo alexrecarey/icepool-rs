@@ -29,8 +29,9 @@ fn next(result: PValue) -> Result<Mapped<Value>, PErr> {
     let target = |x: PValue| match x {
         PValue::Value(v) => Ok(Target::Outcome(v)),
         PValue::Die(d) | PValue::DieWithTruth(d, _) => Ok(Target::Die(d)),
-        // `Break(Reroll)`, `Break(Restart)`: `(BREAK, Reroll)` cannot be expanded by `Die()`.
-        PValue::Reroll | PValue::Restart => Ok(Target::Reroll),
+        PValue::Reroll => Ok(Target::Reroll),
+        // `Break(Restart)`: `(BREAK, Restart)` cannot be expanded by `Die()`.
+        PValue::Restart => Ok(Target::Restart),
         // A list is unhashable: `curr_state in self._self_loop_cache` raises.
         PValue::List(_) => unhashable_list(),
         // Tuples holding dice stay tuples here (not tupleized), Again expressions are not evaluated: Python makes

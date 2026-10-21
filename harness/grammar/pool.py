@@ -114,7 +114,7 @@ def fresh_caches():
     evaluator instances (icepool.evaluator.sum_evaluator, keep_evaluator, ...) keep between evaluate() calls. Both
     are keyed by ==, so in a long-lived oracle process a result can come back with another program's spellings
     (1 for True). Called at the start of every node that evaluates a pool; the port caches within one evaluation
-    only (see dev/NOTES.md)."""
+    only (see docs/NOTES.md)."""
     icepool.Pool.clear_cache()
     for ev in vars(icepool.evaluator).values():
         if isinstance(ev, icepool.MultisetEvaluator) and hasattr(ev, "_cache"):
