@@ -1,0 +1,9 @@
+{"program":{"op":"quantities","die":{"op":"die","outcomes":[]},"comparison":{"str":">="}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"quantities","die":{"op":"die","outcomes":[]},"comparison":{"str":"<"}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"probabilities","die":{"op":"die","outcomes":[]},"comparison":{"str":">="},"percent":{"bool":false}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"probabilities","die":{"op":"die","outcomes":[]},"comparison":{"str":">="},"percent":{"bool":true}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"probabilities","die":{"op":"die","outcomes":[]},"comparison":{"str":"<"},"percent":{"bool":false}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"probabilities","die":{"op":"die","outcomes":[]},"comparison":{"str":"<"},"percent":{"bool":true}},"expected":{"ok":true,"value":{"tuple":[]}}}
+{"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv:q>="}},"expected":{"ok":true,"value":{"str":"Quantity >=\r\n"}}}
+{"program":{"op":"format","die":{"op":"die","outcomes":[]},"spec":{"str":"csv:q>=q=="}},"expected":{"ok":true,"value":{"str":"Quantity >=,Quantity\r\n"}}}
+{"program":{"op":"quantities","die":{"op":"d","sides":6},"comparison":{"str":">="}},"expected":{"ok":true,"value":{"tuple":[6,5,4,3,2,1]}}}
