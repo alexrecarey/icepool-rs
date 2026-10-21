@@ -275,7 +275,11 @@ def pointwise_max(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
             arguments.
     """
     if len(more_args) == 0:
-        args = arg0
+        if isinstance(arg0, icepool.Die):
+            # A single die is itself, not an iterable of its outcomes.
+            args = (arg0, )
+        else:
+            args = arg0
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)
@@ -327,7 +331,11 @@ def pointwise_min(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
             arguments.
     """
     if len(more_args) == 0:
-        args = arg0
+        if isinstance(arg0, icepool.Die):
+            # A single die is itself, not an iterable of its outcomes.
+            args = (arg0, )
+        else:
+            args = arg0
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)

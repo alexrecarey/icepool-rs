@@ -169,7 +169,7 @@ def _mixture_outcome(g, depth):
     if r < 0.45:
         return {"op": "Reroll"}
     if r < 0.6:
-        # A tuple holding dice: tupleized into a die of tuples (or, holding Reroll, raises).
+        # A tuple holding dice: tupleized into a die of tuples (or, holding Reroll, dropped).
         items = [g.die(0) if g.rng.random() < 0.6 else g.outcome() for _ in range(g.rng.randint(1, 3))]
         if g.rng.random() < 0.1:
             items.append({"op": "Reroll"})

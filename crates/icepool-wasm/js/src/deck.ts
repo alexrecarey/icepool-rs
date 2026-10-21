@@ -87,8 +87,6 @@ const pyInt = (x: Int): Int => (Number.isSafeInteger(Number(x)) ? Number(x) : x)
 export class Deck implements Iterable<Outcome>, Disposable {
   /** The core's deck; `null` once freed. */
   private declare core: WasmDeck | null;
-  /** Python's `len(self._sequence_cache) - 1`: the most cards `sequence` has dealt so far. */
-  private declare dealt: number;
 
   /** `Deck(outcomes=(), times=1)`: `times` multiplies each element of `outcomes`, one number for all of them or an
    * array as long as `outcomes`. */
@@ -100,14 +98,12 @@ export class Deck implements Iterable<Outcome>, Disposable {
     // `Deck([deck])` is the deck itself, as in Python.
     if (made instanceof Deck) return made;
     this.core = made;
-    this.dealt = 0;
   }
 
   /** Wraps a core deck. @internal */
   static wrap(core: WasmDeck): Deck {
     const deck = Object.create(Deck.prototype) as Deck;
     deck.core = core;
-    deck.dealt = 0;
     return deck;
   }
 
@@ -494,10 +490,6 @@ export class Deck implements Iterable<Outcome>, Disposable {
   /** `Deck.sequence(deals)`: every sequence of `deals` cards dealt one by one, as a die of arrays. This is
    * extremely expensive computationally: if you don't care about order, use {@link Deck.deal} instead.
    *
-   * Python caches the sequences computed so far and builds `result` only in the loop over the new ones, so asking
-   * for no more cards than already computed (`sequence(0)` included) raises its `UnboundLocalError`; this copies
-   * it.
-   *
    * @throws `IcepoolError` (`ValueError`) for a negative number of deals.
    *
    * @example
@@ -509,20 +501,10 @@ export class Deck implements Iterable<Outcome>, Disposable {
     if (!isIntArg(deals)) throw unported("non-int deals");
     const n = Number(intOf(deals));
     if (n < 0) throw valueError("The number of cards dealt cannot be negative.");
-    // `for i in range(len(self._sequence_cache), deals + 1)` is the only binding of `result`.
-    if (n <= this.dealt) {
-      throw new IcepoolError(
-        "InvalidArgument",
-        "UnboundLocalError",
-        "cannot access local variable 'result' where it is not associated with a value",
-      );
-    }
     // Beyond this the sequences could not be stored anyway.
     if (n > 16) throw unported("a very long deck sequence");
     const w = this.w;
-    const result = Die.wrap(wasm(() => w.sequence(n)));
-    this.dealt = n;
-    return result;
+    return Die.wrap(wasm(() => w.sequence(n)));
   }
   /** The `[outcome, quantity]` pairs in ascending order of outcome.
    *
@@ -843,10 +825,8 @@ function makeDeck(outcomes: DeckOutcomes, times: unknown): WasmDeck | Deck {
         const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Outcome[])) : arg;
         if (expanded instanceof Deck) builder.deck(expanded.w, time);
         else if (expanded instanceof Die) builder.die(expanded.w, time);
-        else if (expanded === Reroll || expanded === Restart) {
-          if (Array.isArray(arg)) builder.rerollTuple(time);
-          else builder.reroll(time);
-        } else builder.outcome(expanded, time);
+        else if (expanded === Reroll || expanded === Restart) builder.reroll(time);
+        else builder.outcome(expanded, time);
       });
       return builder.build();
     } finally {

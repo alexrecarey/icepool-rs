@@ -772,14 +772,14 @@ export function pointwiseMax(...dice: Die[]): Die {
   return pointwise(dice, true);
 }
 
-/** `pointwise_max(arg0, *more_args)` / `pointwise_min`: the dice (a single argument is iterated over)
- * harmonized, then the core's pointwise extreme. */
+/** `pointwise_max(arg0, *more_args)` / `pointwise_min`: the dice (a single argument is iterated over, unless it
+ * is a die, which is itself) harmonized, then the core's pointwise extreme. */
 function pointwise(dice: readonly Operand[], max: boolean): Die {
   if (dice.length === 0) {
     const name = max ? "pointwise_max" : "pointwise_min";
     throw new IcepoolError("WrongType", "TypeError", `${name}() missing 1 required positional argument: 'arg0'`);
   }
-  const harmonized = harmonizeDenominators(dice.length === 1 ? (iterable(dice[0]) as Operand[]) : dice);
+  const harmonized = harmonizeDenominators(dice.length === 1 && !(dice[0] instanceof Die) ? (iterable(dice[0]) as Operand[]) : dice);
   return Die.wrap(withDiceArgs(harmonized, (built) => built.pointwise(max)));
 }
 /** `icepool.pointwise_min(*args)`: selects the highest chance of rolling <= each outcome among the dice (naming not
