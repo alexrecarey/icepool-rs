@@ -263,6 +263,8 @@ def test_mean_time_to_absorb_expands_multisets():
 
 ### `Deck.sequence(0)` raises `UnboundLocalError` (S4a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/269 (pending merge); the port now follows the fix: `sequence(0)` is `Die([()])`. Old fixture lines expecting UnboundLocalError are superseded by s4a/deck-sequence-zero.jsonl.** The text below describes the old behaviour.
+
 `Deck.sequence(deals)` (population/deck.py) fills `_sequence_cache` in `for i in range(len(self._sequence_cache),
 deals + 1): ... result = ...; self._sequence_cache.append(result)` and returns `result`, which is only bound inside
 the loop. With `deals == 0` (the cache already holds `Die([()])`), and with any `deals` no larger than an earlier

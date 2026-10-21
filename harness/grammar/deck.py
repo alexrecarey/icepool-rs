@@ -194,8 +194,7 @@ def _small_deck(g):
 @node("deck_sequence", "die", gen=lambda g, depth: {"op": "deck_sequence", "deck": _small_deck(g),
                                                     "deals": g.rng.choice([0, 1, 1, 2, 2, 3, -1])}, weight=0.4)
 def deck_sequence(deck, deals):
-    """deck.sequence(deals): every sequence of deals cards dealt one by one, as a die of tuples (deals == 0 raises
-    UnboundLocalError: the loop never runs)."""
+    """deck.sequence(deals): every sequence of deals cards dealt one by one, as a die of tuples."""
     return deck.sequence(deals)
 
 
