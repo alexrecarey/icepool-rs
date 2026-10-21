@@ -10,7 +10,7 @@ name = "icepool_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# The library alone: no features, and neither the test-only runner (icepool-harness) nor khepri's engine.
+# The library alone: no features, and not the test-only runner (icepool-harness).
 icepool-core = { path = "../icepool-core" }
 dashu-int = "0.6"
 dashu-ratio = "0.6"

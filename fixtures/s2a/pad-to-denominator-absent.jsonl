@@ -1,0 +1,8 @@
+{"program":{"op":"pad_to_denominator","die":{"op":"d","sides":6},"denominator":6,"outcome":7},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1]]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"d","sides":6},"denominator":6,"outcome":{"str":"a"}},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1]]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"d","sides":6},"denominator":6,"outcome":null},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1]]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"die","outcomes":[]},"denominator":0,"outcome":1},"expected":{"ok":true,"die":[]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"d","sides":6},"denominator":6,"outcome":3},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1]]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"die_times","outcomes":[{"op":"weights","items":[[1,0],[2,3],[5,0]]},9],"times":[1,1]},"denominator":6,"outcome":1},"expected":{"ok":true,"die":[[2,3],[9,3]]}}
+{"program":{"op":"pad_to_denominator","die":{"op":"die_times","outcomes":[{"op":"weights","items":[[1,0],[2,3],[5,0]]},9],"times":[1,1]},"denominator":6,"outcome":7},"expected":{"ok":true,"die":[[2,3],[9,3]]}}
+{"program":{"op":"deck_pad_to_denominator","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"denominator":3,"outcome":9},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1, 2: 2})"}}}

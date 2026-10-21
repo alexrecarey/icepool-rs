@@ -460,14 +460,13 @@ fn gather_cols<O: OutcomeOrder + FormatOutcome>(
     Ok(result)
 }
 
-/// The rows: `zip(*cols)`, as long as the shortest column (`q>=` of an empty population has one entry).
+/// The rows: one per outcome, even if there are no columns.
 fn make_rows<O: OutcomeOrder + FormatOutcome>(
     population: &Die<O>,
     format_tokens: &[Token],
 ) -> Result<Vec<Vec<String>>> {
     let cols = gather_cols(population, format_tokens)?;
-    let n = cols.iter().map(Vec::len).min().unwrap_or(0);
-    Ok((0..n)
+    Ok((0..population.len())
         .map(|i| cols.iter().map(|c| c[i].clone()).collect())
         .collect())
 }
@@ -521,11 +520,10 @@ fn is_numeric_cell(cell: &str) -> Result<bool> {
     Ok(i == chars.len() || (i + 1 == chars.len() && chars[i] == '\n'))
 }
 
-/// For each column, whether it is aligned right: iff all its values are numeric. Like Python, this needs at
-/// least one row (`rows[0]`).
+/// For each column, whether it is aligned right: iff all its values are numeric.
 fn compute_alignments(rows: &[Vec<String>]) -> Result<Vec<bool>> {
     let Some(first) = rows.first() else {
-        return Err(Error::IndexOutOfRange("list index out of range".into()));
+        return Ok(vec![]);
     };
     let mut result = vec![true; first.len()];
     for row in rows {
