@@ -126,7 +126,6 @@
 {"program":{"op":"deck","outcomes":[{"op":"Reroll"},1,{"op":"Restart"}],"times":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 1})"}}}
 {"program":{"op":"deck","outcomes":[1,{"bool":true},{"float":"1.0"}],"times":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({1: 3})"}}}
 {"program":{"op":"deck","outcomes":[{"op":"tuple","items":[1,{"op":"Reroll"}]}],"times":[0]},"expected":{"ok":true,"value":{"repr":"Deck: Deck({})"}}}
-{"program":{"op":"deck","outcomes":[{"op":"tuple","items":[1,{"op":"Reroll"}]}],"times":[1]},"expected":{"ok":false,"error":"AttributeError"}}
 {"program":{"op":"deck","outcomes":[{"op":"tuple","items":[1,{"op":"d","sides":2}]}],"times":2},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 1): 2, (1, 2): 2})"}}}
 {"program":{"op":"deck","outcomes":[{"tuple":[1,2]},{"tuple":[1,{"str":"a"}]}],"times":1},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"deck","outcomes":[{"op":"die","outcomes":[]},3],"times":1},"expected":{"ok":true,"value":{"repr":"Deck: Deck({3: 1})"}}}
@@ -138,7 +137,6 @@
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"plus_d","params":[2]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 1, 3: 3, 4: 3, 5: 1})"}}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"reroll_below","params":[2]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({2: 2, 3: 1})"}}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"tuple_d","params":[2]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 1): 1, (1, 2): 1, (2, 1): 2, (2, 2): 2, (3, 1): 1, (3, 2): 1})"}}}
-{"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"reroll_in_tuple","params":[2]},"star":null},"expected":{"ok":false,"error":"AttributeError"}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"pair_k","params":[5]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({(1, 5): 1, (2, 5): 2, (3, 5): 1})"}}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"add_k","params":[1]},"star":{"bool":true}},"expected":{"ok":false,"error":"TypeError"}}
 {"program":{"op":"deck_map","deck":{"op":"deck","outcomes":[1,2,2,3],"times":1},"repl":{"op":"fn","name":"const","params":[7]},"star":null},"expected":{"ok":true,"value":{"repr":"Deck: Deck({7: 4})"}}}

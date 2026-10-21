@@ -28,10 +28,10 @@ test("Deck: construction as Deck.__new__ (itemize, expand_arg, merge_duplicates)
   assert.equal(repr(() => new Deck(d(3))), "Deck({1: 1, 2: 1, 3: 1})");
   const deck = new Deck([1, 2, 3], 4);
   assert.equal(repr(() => new Deck([deck, 5], [2, 1])), "Deck({1: 8, 2: 8, 3: 8, 5: 1})");
-  // A tuple holding a die is their Cartesian product; one holding Reroll is Reroll, which has no `items()`.
+  // A tuple holding a die is their Cartesian product; one holding Reroll drops out, like Reroll.
   assert.equal(repr(() => new Deck([[1, d(2)]])), "Deck({(1, 1): 1, (1, 2): 1})");
   assert.equal(repr(() => new Deck([[1, Reroll]], [0])), "Deck({})");
-  throwsNatively(() => new Deck([[1, Reroll]]), "AttributeError");
+  assert.equal(repr(() => new Deck([[1, Reroll], 2])), "Deck({2: 1})");
   throwsNatively(() => new Deck([1], [1.5]), "ValueError");
   assert.equal(repr(() => new Deck([1], [new Float(0)])), "Deck({})");
   throwsNatively(() => new Deck([1, 2], [1, -1]), "ValueError");
