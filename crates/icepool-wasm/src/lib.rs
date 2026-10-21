@@ -1,21 +1,20 @@
-//! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see dev/NOTES.md for the commands).
+//! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see docs/NOTES.md for the commands).
 //!
-//! The typed exports (`WasmDie`, ...) under the TypeScript API are in `api`. More entry points, each behind a
-//! feature that no production build (the npm package) turns on:
+//! The typed exports (`WasmDie`, ...) under the TypeScript API are in `api`. More entry points, behind a feature
+//! that no production build (the npm package) turns on:
 //! - feature `runner` (test-only), on the harness's program runner (icepool-harness): `run(programJson)`
 //!   (`runner.rs`), one program of the harness's JSON program language in, its JSON result out, which
 //!   `run-wasm.sh` drives so every fixture and fuzz run can go through WASM; and the JSON-op bridge (`facade.rs`:
 //!   `call`, `from_wire`, `wire_result`, ...), through which the JS fixture tests reach the nodes the TypeScript
 //!   API has no counterpart for.
-//! - `calculate(engineInput)` (feature `khepri`, `khepri.rs`): khepri's engine, the drop-in for `f2f.calculate`.
 //!
-//! Their unit tests run in every test build (`cfg(test)`), where the dev-dependencies on icepool-khepri and
-//! icepool-harness (with its default `khepri`) bring in what they need.
+//! Their unit tests run in every test build (`cfg(test)`), where the dev-dependency on icepool-harness brings in
+//! what they need.
 //!
 //! A Rust panic is a trap in WASM (no unwinding): it reaches JS as a `RuntimeError`. The panic hook installed at
 //! start-up keeps its message; the TypeScript API (js/src/wasm.ts) then calls `recover()` and throws an
-//! `IcepoolError` ("PanicException", as the Python facade raises). Call `run` / `calculate` through wasm.ts's
-//! wrappers of the same name (or recover.mjs's, as run-wasm.mjs and test-calculate.mjs do), not raw, to get that
+//! `IcepoolError` ("PanicException", as the Python facade raises). Call `run` through wasm.ts's
+//! wrapper of the same name (or recover.mjs's, as run-wasm.mjs and bench.mjs do), not raw, to get that
 //! recovery. Sizes from user input are
 //! checked before allocating (`icepool_core::value::{check_len, try_repeat}`), so huge inputs are a `MemoryError`,
 //! not a trap.
@@ -23,8 +22,6 @@
 mod api;
 #[cfg(any(test, feature = "runner"))]
 mod facade;
-#[cfg(any(test, feature = "khepri"))]
-mod khepri;
 #[cfg(any(test, feature = "runner"))]
 mod runner;
 
@@ -33,8 +30,6 @@ pub use api::{
 };
 #[cfg(any(test, feature = "runner"))]
 pub use facade::{call, die_handle, from_wire, live_handles, multiset_function, release, wire_result};
-#[cfg(any(test, feature = "khepri"))]
-pub use khepri::calculate;
 #[cfg(any(test, feature = "runner"))]
 pub use runner::{run, run_line};
 

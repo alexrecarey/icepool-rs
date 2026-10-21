@@ -27,7 +27,7 @@ checked within 2 ULP (`ICEPOOL_FLOAT_ULPS=2`). Not a Python bug, so no upstream 
 Functions that amplify rounding can exceed 2 ULP: a complex power `z ** w` with a non-real `w` computes its
 phase from `atan2` and `log`, then takes `len * sin(phase)`; when `sin(phase)` is small relative to `cos(phase)`,
 one ULP of phase is many ULPs of the imaginary part (`complex(-0.00024988505290350285, -0.5) ** complex(-5.0,
-2.5)`: 23 ULP). dev/QUESTIONS.md L202610172222 asks how the WASM checks should treat these.
+2.5)`: 23 ULP).
 
 ## Found during the port
 
@@ -217,6 +217,21 @@ Two small inconsistencies in map_tools, both copied:
   `Target::Reroll`).
 - `map` and `map_and_time` replace a `MultisetExpression` among the extra arguments by `arg.expand()`;
   `mean_time_to_absorb` passes them to `TransitionCache` unexpanded (the facade keeps that Python code as is).
+
+**Status (2026-10):**
+
+- `Break(Reroll)` is **fixed upstream in https://github.com/HighDiceRoller/icepool/pull/278 (pending
+  merge): `is_self_loop` and `step_state` treat it exactly as `Reroll`. The port now follows the fix** (core
+  `map_tools/core_impl.rs`; the new `Target::Restart` keeps `Break(Restart)` raising as before). Note that, like
+  plain `Reroll` under `repeat`, a state whose every transition is `Break(Reroll)` counts as absorbing, so the
+  drafted test below gives `Die([1])`, not an empty die; the upstream test compares with plain `Reroll` instead.
+  New fixtures: `fixtures/s3b/break-reroll-repeat-fixed.jsonl`. Old fixtures that expected the `AttributeError`
+  were retired (`s3b/markov-edge-cases.jsonl:12-13`, `s3b/unbounded-chain-raises.jsonl:5`,
+  `c2d/map-explode-again-edge-cases.jsonl:6`), and so were `s3b/unbounded-chain-raises.jsonl:1-3,6-7`, which no longer
+  terminate in the fixed Python as in the port: the `AttributeError` used to stop an unbounded chain.
+- The `mean_time_to_absorb` half is **not observable**: `iter_cartesian_product` already expands a multiset
+  argument through `MultisetExpression._items_for_cartesian_product` (`self.expand().items()`), and the facade's
+  `with_cache` uses the same `arg_items`. No change upstream or here.
 
 Drafted upstream tests:
 
