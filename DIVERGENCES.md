@@ -294,6 +294,9 @@ def test_deck_tuple_with_reroll_drops_out():
 
 ### `MultiDeal.denominator()` is not the total weight of its evaluations for three or more hands (S4b)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/273 (pending merge); the port now follows the fix.**
+The rest of this entry describes the old behaviour.
+
 `MultiDeal._denominator` (generator/multi_deal.py, also `MultiDealSource`) is `comb(deck.size(), total) *
 prod(comb(total, h) for h in hand_sizes()[1:])`. The ways to split `total` cards into hands of sizes
 `h1, h2, ..., hn` are the multinomial `total! / (h1! h2! ... hn!)` = `comb(total, h1) * comb(total - h1, h2) * ...`,
