@@ -34,10 +34,11 @@ impl From<Error> for HostErr {
 }
 
 /// Where a transition goes, as `[kind, payload]`: `"outcome"` and a value, `"die"` and a die the core takes over
-/// (a fresh `WasmDie`: taking it empties the JS object), `"reroll"` for `Reroll` or `Restart`.
+/// (a fresh `WasmDie`: taking it empties the JS object), `"reroll"` for `Reroll`, `"restart"` for `Restart`.
 fn target(kind: &JsValue, payload: JsValue) -> Result<Target<Value>, HostErr> {
     match kind.as_string().as_deref() {
         Some("reroll") => Ok(Target::Reroll),
+        Some("restart") => Ok(Target::Restart),
         Some("die") => match WasmDie::try_from_js_value(payload) {
             Ok(die) => Ok(Target::Die(die.die.clone())),
             Err(_) => Err(Error::WrongType("a transition's die is not a WasmDie".into()).into()),

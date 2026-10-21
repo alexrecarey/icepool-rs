@@ -204,7 +204,7 @@ pub fn harmonize_denominators(dice: PValue, weights: PValue) -> Result<PValue, P
 }
 
 /// `pointwise_max(*args)` / `pointwise_min(*args)` if `spread`, else `pointwise_max(args)`: with one argument it
-/// is the iterable of dice (so `pointwise_max(d6)` is over the outcomes of the d6, each its own die).
+/// is the iterable of dice, unless it is a single die, which is itself (HighDiceRoller/icepool#266).
 pub fn pointwise(args: PValue, max: PValue, spread: PValue) -> Result<PValue, PErr> {
     let max = flag(&max)?;
     let args = if flag(&spread)? {
@@ -218,6 +218,11 @@ pub fn pointwise(args: PValue, max: PValue, spread: PValue) -> Result<PValue, PE
         }
     } else {
         args
+    };
+    // A single die is itself, not an iterable of its outcomes.
+    let args = match args {
+        PValue::Die(_) => PValue::List(vec![args]),
+        args => args,
     };
     let dice = harmonize(args, PValue::Value(Value::None))?;
     Ok(PValue::Die(icepool_core::value::pointwise(&dice, max)?))

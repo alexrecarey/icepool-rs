@@ -27,11 +27,13 @@ checked within 2 ULP (`ICEPOOL_FLOAT_ULPS=2`). Not a Python bug, so no upstream 
 Functions that amplify rounding can exceed 2 ULP: a complex power `z ** w` with a non-real `w` computes its
 phase from `atan2` and `log`, then takes `len * sin(phase)`; when `sin(phase)` is small relative to `cos(phase)`,
 one ULP of phase is many ULPs of the imaginary part (`complex(-0.00024988505290350285, -0.5) ** complex(-5.0,
-2.5)`: 23 ULP). dev/QUESTIONS.md L202610172222 asks how the WASM checks should treat these.
+2.5)`: 23 ULP).
 
 ## Found during the port
 
 ### A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix: the tuple drops out like `Reroll`. Old fixture lines expecting the AttributeError (k3/map-reroll-edge-cases.jsonl:48,203,210, c6c/again-die-args-edge-cases.jsonl:13) were retired; k3/tuple-reroll-drops-out.jsonl has the fixed results.** The text below describes the old behaviour.
 
 `creation_args.expand_arg` sends a tuple through `cartesian_product(*arg)`, which returns `Reroll` itself if any
 element is `Reroll`. `expand_arg` then returns that `Reroll` as if it were a mapping (`if type(arg) == tuple: ...
@@ -89,8 +91,12 @@ def test_pool_source_cache_keeps_spelling():
 `KeepGenerator.middle` (generator/keep.py) says "If this is greater than the current keep_size, all are kept", but
 with the same parity it computes `start = (keep_size - keep) // 2`, which is negative, and `self[start:stop]` then
 counts that start from the end: `d6.pool(3).middle(5)` has keep tuple `(0, 0, 1)`, so `d6.middle(3, 5)` is the
-highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.) The
-port copies it (`keep_tuple::middle_slice`).
+highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/263 (pending merge).** The fix clamps `keep` to
+`keep_size` before the parity check (so `middle(4)` of 3 with the default `tie='error'` now keeps all rather than
+raising), and the port follows it (`keep_tuple::middle_slice`, the facade's `KeepGenerator.middle`). Fixtures from
+before the fix encode the old behaviour (see the PR); new ones are in `fixtures/k5/middle-above-size.jsonl`.
 
 Drafted upstream test:
 
@@ -108,8 +114,13 @@ the next priority. Two pools whose keep tuples skip at opposite ends (`d4.pool(3
 But `Room.pop` takes the *min* outcome for any `order >= 0` (`if order < 0: ... else: outcomes[0]`), while
 `PoolSource.pop` pops its *max* unless `order > 0`. So the room offers the min outcome, every source answers "not my
 outcome" (count 0, weight 1), and the sources are never popped: `d4.pool(3)[1:].issubset(d4.pool(3)[:2])` is a die
-with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096. The
-port copies it (`evaluator/mod.rs` `Dungeon::pop`, fixtures in fixtures/k6/evaluate.jsonl). Probably `Any` should
+with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (pending merge):** `evaluate` falls back to
+`(Order.Descending, OrderReason.Default)` when the merged order is `Any`. The port follows it (`evaluator/mod.rs`
+`evaluate`, the facade's `MultisetEvaluatorBase.evaluate`); new fixtures in fixtures/k6/opposite-keep-skip.jsonl.
+Old fixture lines that encoded the bug (k6/evaluate.jsonl, k6c/edge_cases.jsonl, t1d/edge-cases.jsonl) were retired. Before the fix: the
+port copied it (`evaluator/mod.rs` `Dungeon::pop`). Probably `Any` should
 fall back to the default order before popping.
 
 Drafted upstream test:
@@ -148,6 +159,8 @@ def test_empty_quantities_ge():
 
 ### `pad_to_denominator` raises `KeyError` for an absent outcome when nothing needs padding (S2a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/271 (pending merge); the port now follows the fix. Old KeyError lines in s2a/statistics.jsonl and s4a are superseded by s2a/pad-to-denominator-absent.jsonl.** The text below describes the old behaviour.
+
 `Population.pad_to_denominator(denominator, outcome)` deletes the outcome when its new quantity is zero (`del
 data[outcome]`), even when it was never there: `d6.pad_to_denominator(6, 7)` raises `KeyError: 7` instead of
 returning `d6` unchanged. The port copies it (`population.rs` `pad_to_denominator`).
@@ -161,6 +174,8 @@ def test_pad_to_same_denominator_absent_outcome():
 
 
 ### Formatting a die with no columns raises `IndexError` (S2b)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/272 (pending merge); the port now follows the fix: one row per outcome. Old IndexError lines in s2b/format.jsonl are superseded by s2b/format-no-columns.jsonl.** The text below describes the old behaviour.
 
 population/format.py `compute_alignments(rows)` starts with `['>'] * len(rows[0])`. When the column spec selects
 no columns (`f'{d6:md:}'`, `html:`, `bbcode:`), or `*o` unpacks outcomes of length 0 (`Die(['']).format('md:*o')`,
@@ -220,6 +235,21 @@ Two small inconsistencies in map_tools, both copied:
 - `map` and `map_and_time` replace a `MultisetExpression` among the extra arguments by `arg.expand()`;
   `mean_time_to_absorb` passes them to `TransitionCache` unexpanded (the facade keeps that Python code as is).
 
+**Status (2026-10):**
+
+- `Break(Reroll)` is **fixed upstream in https://github.com/HighDiceRoller/icepool/pull/278 (pending
+  merge): `is_self_loop` and `step_state` treat it exactly as `Reroll`. The port now follows the fix** (core
+  `map_tools/core_impl.rs`; the new `Target::Restart` keeps `Break(Restart)` raising as before). Note that, like
+  plain `Reroll` under `repeat`, a state whose every transition is `Break(Reroll)` counts as absorbing, so the
+  drafted test below gives `Die([1])`, not an empty die; the upstream test compares with plain `Reroll` instead.
+  New fixtures: `fixtures/s3b/break-reroll-repeat-fixed.jsonl`. Old fixtures that expected the `AttributeError`
+  were retired (`s3b/markov-edge-cases.jsonl:12-13`, `s3b/unbounded-chain-raises.jsonl:5`,
+  `c2d/map-explode-again-edge-cases.jsonl:6`), and so were `s3b/unbounded-chain-raises.jsonl:1-3,6-7`, which no longer
+  terminate in the fixed Python as in the port: the `AttributeError` used to stop an unbounded chain.
+- The `mean_time_to_absorb` half is **not observable**: `iter_cartesian_product` already expands a multiset
+  argument through `MultisetExpression._items_for_cartesian_product` (`self.expand().items()`), and the facade's
+  `with_cache` uses the same `arg_items`. No change upstream or here.
+
 Drafted upstream tests:
 
 ```python
@@ -236,6 +266,8 @@ def test_mean_time_to_absorb_expands_multisets():
 ```
 
 ### `Deck.sequence(0)` raises `UnboundLocalError` (S4a)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/269 (pending merge); the port now follows the fix: `sequence(0)` is `Die([()])`. Old fixture lines expecting UnboundLocalError are superseded by s4a/deck-sequence-zero.jsonl.** The text below describes the old behaviour.
 
 `Deck.sequence(deals)` (population/deck.py) fills `_sequence_cache` in `for i in range(len(self._sequence_cache),
 deals + 1): ... result = ...; self._sequence_cache.append(result)` and returns `result`, which is only bound inside
@@ -256,6 +288,8 @@ def test_sequence_zero_and_repeated():
 
 ### A tuple holding `Reroll` in `Deck(...)` raises `AttributeError` unless its duplicates are 0 (S4a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix (same PR as the `Die(...)` entry). Old fixture lines s4a/deck-edge-cases.jsonl:129,141 that expected the AttributeError were retired.** The text below describes the old behaviour.
+
 Same root as the `Die(...)` entry above: `expand_arg` hands `Reroll` itself on as the subdata, and
 `merge_duplicates` calls `subdata.items()` on it, but only after `if subdup == 0: continue`. So
 `Deck([(1, Reroll)], times=[0])` is an empty deck while `times=[1]` raises. Copied (program/deck.rs `new_deck`,
@@ -267,6 +301,9 @@ def test_deck_tuple_with_reroll_drops_out():
 ```
 
 ### `MultiDeal.denominator()` is not the total weight of its evaluations for three or more hands (S4b)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/273 (pending merge); the port now follows the fix.**
+The rest of this entry describes the old behaviour.
 
 `MultiDeal._denominator` (generator/multi_deal.py, also `MultiDealSource`) is `comb(deck.size(), total) *
 prod(comb(total, h) for h in hand_sizes()[1:])`. The ways to split `total` cards into hands of sizes
@@ -396,8 +433,12 @@ function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iter
 `pointwise_max(d6)` is the pointwise max over `Die([1])` ... `Die([6])` (each outcome made a die by
 `harmonize_denominators`), i.e. `Die([6])`, and `pointwise_min(d6)` is `Die([1])`. The docstring says "Either an
 iterable of dice, or two or more dice as separate arguments", so this is documented, but a single die is surely
-meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest). The port copies it (program/function.rs
-`pointwise`, fixtures/s5b/function).
+meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest).
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/266 (pending merge):** a lone `Die` argument is
+wrapped as a one-element tuple. The port follows it (harness `function.rs` `pointwise`, the facade's
+`pointwise_max`/`pointwise_min`, the JS `pointwise`); new fixtures in fixtures/s5b/pointwise-single-die.jsonl. Old
+fixtures in fixtures/s5b/function.jsonl still encode the bug.
 
 Drafted upstream test:
 

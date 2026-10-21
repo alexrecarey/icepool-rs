@@ -1,0 +1,8 @@
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_at","params":[3,{"op":"Reroll"}]},"args":[0,{"op":"d","sides":2}],"star":null,"repeat":4},"expected":{"ok":true,"die":[[3,5],[4,3]]}}
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_at","params":[3,{"op":"Reroll"}]},"args":[0,{"op":"d","sides":2}],"star":null,"repeat":"inf"},"expected":{"ok":false,"error":"ValueError"}}
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_at","params":[2,{"op":"Reroll"}]},"args":[{"op":"d","sides":3},{"op":"die","outcomes":[0,1]}],"star":null,"repeat":2},"expected":{"ok":true,"die":[[1,1],[2,7],[3,4]]}}
+{"program":{"op":"map_and_time","f":{"op":"fn","name":"break_at","params":[3,{"op":"Reroll"}]},"initial":0,"args":[{"op":"d","sides":2}],"star":null,"repeat":4},"expected":{"ok":true,"die":[[{"tuple":[3,2]},4],[{"tuple":[3,3]},1],[{"tuple":[4,2]},2],[{"tuple":[4,3]},1]]}}
+{"program":{"op":"mean_time_to_absorb","f":{"op":"fn","name":"break_at","params":[3,{"op":"Reroll"}]},"initial":0,"args":[{"op":"d","sides":2}],"star":null},"expected":{"ok":true,"value":{"frac":[9,4]}}}
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_k","params":[1,{"op":"Reroll"}]},"args":[{"op":"d","sides":3}],"star":null,"repeat":2},"expected":{"ok":true,"die":[[1,1],[2,1],[3,1]]}}
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_at","params":[3,{"op":"Restart"}]},"args":[0,{"op":"d","sides":2}],"star":null,"repeat":4},"expected":{"ok":false,"error":"AttributeError"}}
+{"program":{"op":"map_repeat","f":{"op":"fn","name":"break_k","params":[1,{"op":"Restart"}]},"args":[{"op":"d","sides":3}],"star":null,"repeat":2},"expected":{"ok":false,"error":"AttributeError"}}

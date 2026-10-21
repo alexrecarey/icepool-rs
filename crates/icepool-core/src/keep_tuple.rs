@@ -404,8 +404,8 @@ pub enum Tie {
 
 /// `KeepGenerator.middle` up to the slice it takes: keep `keep` of the middle of `keep_size` elements.
 ///
-/// When `keep` exceeds `keep_size` with the same parity, `start` is negative and Python's slice then counts it from
-/// the end (so not everything is kept, despite the docstring). Copied as is.
+/// Keeping more than `keep_size` keeps all of them. (Python used to compute a negative `start` here, which its
+/// slice then counted from the end; fixed upstream in https://github.com/HighDiceRoller/icepool/pull/263.)
 ///
 /// ```
 /// use icepool_core::evaluator::{middle_slice, Slice, Tie};
@@ -421,6 +421,8 @@ pub fn middle_slice(keep_size: &Int, keep: &Int, tie: Tie) -> Result<Slice> {
             "keep={keep} cannot be negative."
         )));
     }
+    // Keeping more than the current keep_size keeps all of them.
+    let keep = if keep > keep_size { keep_size } else { keep };
     let half = |x: Int| x.floor_divmod(&Int::small(2));
     let parity = |x: &Int| half(x.clone()).map(|(_, r)| r);
     let start = if parity(keep)? == parity(keep_size)? {
