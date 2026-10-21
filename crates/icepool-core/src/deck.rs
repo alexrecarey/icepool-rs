@@ -387,7 +387,7 @@ impl<O: Outcome> Deck<O> {
     /// // Python's `Deck(range(1, 6)).deal_groups((2, 1), (1, 2))`.
     /// let deal = Deck::from_iter(1..=5).deal_groups(&[(2, 1), (1, 2)]);
     /// assert_eq!(deal.hand_sizes(), [2, 1, 1]);
-    /// assert_eq!(deal.denominator().to_string(), "80");
+    /// assert_eq!(deal.denominator().to_string(), "60");
     /// ```
     pub fn deal_groups(&self, hand_groups: &[HandGroup]) -> MultiDeal<O> {
         let groups: Vec<(IBig, IBig)> = hand_groups
