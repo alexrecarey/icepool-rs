@@ -93,8 +93,8 @@ test("Deck: statistics, the mapping protocol, ==, str", () => {
 test("Deck: sequence (with Python's cache), padToDenominator, append, remove, split, zero", () => {
   const cards = new Deck(["a", "a", "b"]);
   assert.equal(repr(() => cards.sequence(2)), "Die({('a', 'a'): 2, ('a', 'b'): 2, ('b', 'a'): 2})");
-  // Python only binds `result` for sequences longer than any computed so far.
-  throwsNatively(() => cards.sequence(1), "UnboundLocalError");
+  assert.equal(repr(() => cards.sequence(1)), "Die({('a',): 2, ('b',): 1})");
+  assert.equal(repr(() => cards.sequence(0)), "Die({(): 1})");
   assert.equal(repr(() => cards.sequence(3)), "Die({('a', 'a', 'b'): 2, ('a', 'b', 'a'): 2, ('b', 'a', 'a'): 2})");
   throwsNatively(() => new Deck([1]).sequence(-1), "ValueError");
   const deck = new Deck([1, 2, 2, 3]);

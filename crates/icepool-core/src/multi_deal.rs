@@ -53,16 +53,17 @@ fn hand_count(hand_groups: &[HandGroup]) -> usize {
     hand_groups.iter().map(|&(_, g)| g).sum()
 }
 
-/// `_denominator`: `comb(deck.size(), total) * prod(comb(total, h) for h in hand_sizes()[1:])`, as icepool computes
-/// it.
+/// `_denominator`: `comb(deck.size(), total)` times the ways to split the dealt cards into hands of the given sizes,
+/// the multinomial coefficient `total! / (h1! h2! ... hn!)`.
 fn denominator<O: OutcomeOrder>(deck: &Deck<O>, hand_groups: &[HandGroup]) -> Quantity {
     let total = total_cards_dealt(hand_groups);
     let d_total = comb(&deck.size(), total);
-    let total = Quantity::from(total);
-    hand_sizes(hand_groups)
-        .iter()
-        .skip(1)
-        .fold(d_total, |acc, &h| acc * comb(&total, h))
+    let mut remaining = total;
+    hand_sizes(hand_groups).iter().fold(d_total, |acc, &h| {
+        let ways = comb(&Quantity::from(remaining), h);
+        remaining -= h;
+        acc * ways
+    })
 }
 
 /// `MultiDeal`: hands dealt from `deck`, described by an ordered tuple of hand groups.
@@ -72,7 +73,7 @@ fn denominator<O: OutcomeOrder>(deck: &Deck<O>, hand_groups: &[HandGroup]) -> Qu
 /// // Python's `MultiDeal(Deck([1, 2, 3, 4, 5]), ((2, 1), (1, 2)))`: one hand of two cards, then two of one.
 /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
 /// assert_eq!((deal.len(), deal.total_cards_dealt()), (3, 4));
-/// assert_eq!(deal.denominator().to_string(), "80");
+/// assert_eq!(deal.denominator().to_string(), "60");
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MultiDeal<O> {
@@ -221,9 +222,9 @@ impl<O: OutcomeOrder> MultiDeal<O> {
     ///
     /// ```
     /// use icepool_core::{Deck, MultiDeal};
-    /// // `comb(5, 4) * comb(4, 1) * comb(4, 1)`, as icepool computes it.
+    /// // `comb(5, 4) * comb(4, 2) * comb(2, 1) * comb(1, 1)`.
     /// let deal = MultiDeal::new(Deck::from_iter(1..=5), &[(2.into(), 1.into()), (1.into(), 2.into())]).unwrap();
-    /// assert_eq!(deal.denominator().to_string(), "80");
+    /// assert_eq!(deal.denominator().to_string(), "60");
     /// ```
     pub fn denominator(&self) -> Quantity {
         denominator(&self.deck, &self.hand_groups)

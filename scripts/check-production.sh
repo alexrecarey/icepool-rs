@@ -5,7 +5,7 @@
 # JSON-program code is in them, or if the wheel is not a usable package:
 #
 #   1. dependency graph: icepool-py and icepool-wasm (as built alone, which is how maturin and wasm-pack build them)
-#      depend on neither icepool-harness, serde_json nor icepool-khepri (khepri's engine);
+#      depend on neither icepool-harness nor serde_json;
 #   2. wheel contents: no test, fixture, harness, catalogue, run-facade or program files; both packages, `icepool`
 #      and `icepool_rs`, present; installed into a fresh venv, `import icepool` (from there, never the checkout)
 #      runs on the Rust backend with ICEPOOL_BACKEND unset;
@@ -15,7 +15,7 @@
 #   4. npm contents: no tests, fixtures, catalogue, run-wasm or bench files, and neither the test-only bridge to the
 #      program runner (js/src/rpc.ts) nor the test-only exports (js/src/internal.ts);
 #   5. the .wasm modules hold none of those strings either, and export neither `run` (test-only) nor `calculate`
-#      (khepri's), nor the JSON-op bridge's `call`, `from_wire`, `wire_result` (test-only, feature `runner`).
+#      (khepri-f2f's engine, built there, never here), nor the JSON-op bridge's `call`, `from_wire`, `wire_result` (test-only, feature `runner`).
 #
 # The npm package is checked as `js/build.sh --dev` builds it: the same wasm-bindgen output as `--pack`, without
 # wasm-opt, which only shrinks the module (and takes up to 45 s). Needs cargo, uv (maturin), wasm-pack, node, npm,
@@ -67,7 +67,7 @@ check_tree() {
   shift
   tree="$(cargo tree -p "$pkg" -e normal,features --prefix none "$@" 2>&1)" || { fail "cargo tree -p $pkg: $tree"; return; }
   echo "  $pkg: $(grep -c ' v[0-9]' <<< "$tree") normal dependency lines"
-  for pattern in 'icepool-khepri v' 'serde_json v' 'icepool-harness v'; do
+  for pattern in 'serde_json v' 'icepool-harness v'; do
     if grep -q "$pattern" <<< "$tree"; then fail "$pkg has $pattern"; fi
   done
 }

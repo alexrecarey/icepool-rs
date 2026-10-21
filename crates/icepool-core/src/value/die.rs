@@ -179,6 +179,8 @@ pub trait PyDie {
     /// assert_eq!(show(d3.pad_to_denominator(&Value::from(5), &Value::from(3)).unwrap()), ["1: 1", "2: 1", "3: 3"]);
     /// assert_eq!(show(d3.pad_to_denominator(&Value::from(2), &Value::from(3)).unwrap()), ["1: 1", "2: 1"]);
     /// assert!(d3.pad_to_denominator(&Value::from(1), &Value::from(3)).is_err());
+    /// // `d3.pad_to_denominator(3, 7)`: nothing to pad, and 7 is not there to remove.
+    /// assert_eq!(show(d3.pad_to_denominator(&Value::from(3), &Value::from(7)).unwrap()), ["1: 1", "2: 1", "3: 1"]);
     /// ```
     fn pad_to_denominator(&self, denominator: &Value, outcome: &Value) -> Result<Data>;
 
@@ -495,11 +497,9 @@ impl PyDie for Die<Value> {
                 None => data.push((outcome.clone(), new_quantity)),
             }
         } else if new_quantity == Value::from(0) {
-            match position {
-                Some(i) => {
-                    data.remove(i);
-                }
-                None => return Err(Error::MissingKey(format!("{outcome}"))),
+            // The outcome may not have been present in the first place.
+            if let Some(i) = position {
+                data.remove(i);
             }
         } else {
             return invalid_argument(format!(
