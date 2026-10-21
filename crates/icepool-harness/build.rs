@@ -1,4 +1,4 @@
-//! Ready for the fixtures test (tests/fixtures.rs, moving here from icepool-core: dev/QUESTIONS.md "D1"), which reads
+//! Ready for the fixtures test (tests/fixtures.rs), which reads
 //! files by `env!("CARGO_MANIFEST_DIR")`; the same as icepool-core's build.rs.
 //!
 //! Rebuild when the checkout moves. The loop shares one `CARGO_TARGET_DIR` between worktrees, and cargo neither

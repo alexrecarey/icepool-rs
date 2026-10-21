@@ -27,7 +27,7 @@ checked within 2 ULP (`ICEPOOL_FLOAT_ULPS=2`). Not a Python bug, so no upstream 
 Functions that amplify rounding can exceed 2 ULP: a complex power `z ** w` with a non-real `w` computes its
 phase from `atan2` and `log`, then takes `len * sin(phase)`; when `sin(phase)` is small relative to `cos(phase)`,
 one ULP of phase is many ULPs of the imaginary part (`complex(-0.00024988505290350285, -0.5) ** complex(-5.0,
-2.5)`: 23 ULP). dev/QUESTIONS.md L202610172222 asks how the WASM checks should treat these.
+2.5)`: 23 ULP).
 
 ## Found during the port
 
@@ -112,8 +112,13 @@ the next priority. Two pools whose keep tuples skip at opposite ends (`d4.pool(3
 But `Room.pop` takes the *min* outcome for any `order >= 0` (`if order < 0: ... else: outcomes[0]`), while
 `PoolSource.pop` pops its *max* unless `order > 0`. So the room offers the min outcome, every source answers "not my
 outcome" (count 0, weight 1), and the sources are never popped: `d4.pool(3)[1:].issubset(d4.pool(3)[:2])` is a die
-with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096. The
-port copies it (`evaluator/mod.rs` `Dungeon::pop`, fixtures in fixtures/k6/evaluate.jsonl). Probably `Any` should
+with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (pending merge):** `evaluate` falls back to
+`(Order.Descending, OrderReason.Default)` when the merged order is `Any`. The port follows it (`evaluator/mod.rs`
+`evaluate`, the facade's `MultisetEvaluatorBase.evaluate`); new fixtures in fixtures/k6/opposite-keep-skip.jsonl.
+Old fixture lines that encoded the bug (k6/evaluate.jsonl, k6c/edge_cases.jsonl, t1d/edge-cases.jsonl) were retired. Before the fix: the
+port copied it (`evaluator/mod.rs` `Dungeon::pop`). Probably `Any` should
 fall back to the default order before popping.
 
 Drafted upstream test:
@@ -221,6 +226,21 @@ Two small inconsistencies in map_tools, both copied:
   `Target::Reroll`).
 - `map` and `map_and_time` replace a `MultisetExpression` among the extra arguments by `arg.expand()`;
   `mean_time_to_absorb` passes them to `TransitionCache` unexpanded (the facade keeps that Python code as is).
+
+**Status (2026-10):**
+
+- `Break(Reroll)` is **fixed upstream in https://github.com/HighDiceRoller/icepool/pull/278 (pending
+  merge): `is_self_loop` and `step_state` treat it exactly as `Reroll`. The port now follows the fix** (core
+  `map_tools/core_impl.rs`; the new `Target::Restart` keeps `Break(Restart)` raising as before). Note that, like
+  plain `Reroll` under `repeat`, a state whose every transition is `Break(Reroll)` counts as absorbing, so the
+  drafted test below gives `Die([1])`, not an empty die; the upstream test compares with plain `Reroll` instead.
+  New fixtures: `fixtures/s3b/break-reroll-repeat-fixed.jsonl`. Old fixtures that expected the `AttributeError`
+  were retired (`s3b/markov-edge-cases.jsonl:12-13`, `s3b/unbounded-chain-raises.jsonl:5`,
+  `c2d/map-explode-again-edge-cases.jsonl:6`), and so were `s3b/unbounded-chain-raises.jsonl:1-3,6-7`, which no longer
+  terminate in the fixed Python as in the port: the `AttributeError` used to stop an unbounded chain.
+- The `mean_time_to_absorb` half is **not observable**: `iter_cartesian_product` already expands a multiset
+  argument through `MultisetExpression._items_for_cartesian_product` (`self.expand().items()`), and the facade's
+  `with_cache` uses the same `arg_items`. No change upstream or here.
 
 Drafted upstream tests:
 
@@ -398,8 +418,12 @@ function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iter
 `pointwise_max(d6)` is the pointwise max over `Die([1])` ... `Die([6])` (each outcome made a die by
 `harmonize_denominators`), i.e. `Die([6])`, and `pointwise_min(d6)` is `Die([1])`. The docstring says "Either an
 iterable of dice, or two or more dice as separate arguments", so this is documented, but a single die is surely
-meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest). The port copies it (program/function.rs
-`pointwise`, fixtures/s5b/function).
+meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest).
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/266 (pending merge):** a lone `Die` argument is
+wrapped as a one-element tuple. The port follows it (harness `function.rs` `pointwise`, the facade's
+`pointwise_max`/`pointwise_min`, the JS `pointwise`); new fixtures in fixtures/s5b/pointwise-single-die.jsonl. Old
+fixtures in fixtures/s5b/function.jsonl still encode the bug.
 
 Drafted upstream test:
 

@@ -16,15 +16,6 @@ dashu-base = "0.6"
 dashu-int = "0.6"
 dashu-ratio = "0.6"
 rustc-hash = "2"
-# khepri's engine, for the `khepri` node.
-icepool-khepri = { path = "../icepool-khepri", optional = true }
-
-[features]
-# The runner's `khepri` node (the khepri sweep, the khepri fixtures): on by default, so every workspace build and
-# test runs it. icepool-wasm's test-only `runner` feature turns it off unless its `khepri` feature asks for it (see
-# its Cargo.toml).
-default = ["khepri"]
-khepri = ["dep:icepool-khepri"]
 
 [[bin]]
 name = "icepool-run"
