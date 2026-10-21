@@ -169,6 +169,8 @@ def test_pad_to_same_denominator_absent_outcome():
 
 ### Formatting a die with no columns raises `IndexError` (S2b)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/272 (pending merge); the port now follows the fix: one row per outcome. Old IndexError lines in s2b/format.jsonl are superseded by s2b/format-no-columns.jsonl.** The text below describes the old behaviour.
+
 population/format.py `compute_alignments(rows)` starts with `['>'] * len(rows[0])`. When the column spec selects
 no columns (`f'{d6:md:}'`, `html:`, `bbcode:`), or `*o` unpacks outcomes of length 0 (`Die(['']).format('md:*o')`,
 `Die([()]).format('md:*o')`), `zip(*cols)` yields no rows and `rows[0]` raises `IndexError` instead of printing a
