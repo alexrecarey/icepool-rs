@@ -155,6 +155,8 @@ def test_empty_quantities_ge():
 
 ### `pad_to_denominator` raises `KeyError` for an absent outcome when nothing needs padding (S2a)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/271 (pending merge); the port now follows the fix. Old KeyError lines in s2a/statistics.jsonl and s4a are superseded by s2a/pad-to-denominator-absent.jsonl.** The text below describes the old behaviour.
+
 `Population.pad_to_denominator(denominator, outcome)` deletes the outcome when its new quantity is zero (`del
 data[outcome]`), even when it was never there: `d6.pad_to_denominator(6, 7)` raises `KeyError: 7` instead of
 returning `d6` unchanged. The port copies it (`population.rs` `pad_to_denominator`).
