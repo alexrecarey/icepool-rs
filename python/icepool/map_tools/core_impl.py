@@ -112,6 +112,10 @@ class TransitionCache(Generic[T]):
             else:
                 next_state = self._transition(curr_state, *extra_outcomes,
                                               **self._kwargs)
+            if (isinstance(next_state, Break)
+                    and next_state.outcome is icepool.Reroll):
+                # As in map without repeat, Break(Reroll) is the same as Reroll.
+                next_state = icepool.Reroll
             if next_state is icepool.Reroll:
                 # Ignored.
                 continue
@@ -181,6 +185,10 @@ class TransitionCache(Generic[T]):
             else:
                 next_state = self._transition(curr_state, *extra_outcomes,
                                               **self._kwargs)
+            if (isinstance(next_state, Break)
+                    and next_state.outcome is icepool.Reroll):
+                # As in map without repeat, Break(Reroll) is the same as Reroll.
+                next_state = icepool.Reroll
             if next_state is icepool.Reroll:
                 continue  # Pruned immediately.
             elif next_state is icepool.Restart:

@@ -106,6 +106,8 @@ where
                 }
                 // Break to the current outcome.
                 Mapped::Break(None) => continue,
+                // As in map without repeat, `Break(Reroll)` is the same as `Reroll` (fixed upstream).
+                Mapped::Break(Some(Target::Reroll)) => continue,
                 // Unwrap Break.
                 Mapped::Break(Some(next)) => next,
                 Mapped::Outcome(next) => Target::Outcome(next),
@@ -125,8 +127,9 @@ where
                     quantity == die.denominator()
                 }
                 Target::Outcome(next) => next == *curr_state,
-                // `Reroll == curr_state`.
-                Target::Reroll => false,
+                // `Restart == curr_state`.
+                Target::Restart => false,
+                Target::Reroll => unreachable!("Break(Reroll) is ignored above"),
             };
             if !stays {
                 result = false;
@@ -211,8 +214,9 @@ where
         let mut next_quantities = Vec::with_capacity(self.extra_quantities.len());
         for i in 0..self.extra_quantities.len() {
             let next = match (self.transition)(curr_state, i)? {
-                // Pruned immediately.
-                Mapped::Reroll => continue,
+                // Pruned immediately. As in map without repeat, `Break(Reroll)` is the same as `Reroll` (fixed
+                // upstream, see DIVERGENCES.md).
+                Mapped::Reroll | Mapped::Break(Some(Target::Reroll)) => continue,
                 // Will prune at end.
                 Mapped::Restart => DieArg::Outcome(S::transition(Transition::Restart)),
                 Mapped::Break(None) => {
@@ -226,9 +230,9 @@ where
                 Mapped::Break(Some(Target::Die(die))) => DieArg::Die(relabel(&die, |o| {
                     S::transition(Transition::Break(o.clone()))
                 })?),
-                // `(TransitionType.BREAK, Reroll)` is a tuple holding `Reroll`, which `Die()` cannot expand (see
+                // `(TransitionType.BREAK, Restart)` is a tuple holding `Restart`, which `Die()` cannot expand (see
                 // DIVERGENCES.md).
-                Mapped::Break(Some(Target::Reroll)) => {
+                Mapped::Break(Some(Target::Restart)) => {
                     return Err(Error::MissingAttribute(
                         "'RerollType' object has no attribute 'values'".into(),
                     )
