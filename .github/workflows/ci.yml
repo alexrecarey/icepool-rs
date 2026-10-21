@@ -6,7 +6,7 @@
 #   oracle      the checks against Python icepool: fixtures re-checked by the oracle, fixed-seed fuzz runs, and
 #               upstream's test suite through the Python facade
 #
-# The gate's fresh-seed fuzz runs and the long gate (big fuzz, WASM runs, mutants) stay with the loop: CI keeps to
+# The gate's fresh-seed fuzz runs and the long gate (big fuzz, WASM runs, mutants) run locally: CI keeps to
 # what gives the same answer on every run.
 
 name: CI
@@ -91,7 +91,7 @@ jobs:
         run: npm ci
         working-directory: crates/icepool-wasm/js
 
-      # Builds with the test-only `runner` and `khepri` features, then runs js/test/*.test.mjs and the type checks.
+      # Builds with the test-only `runner` feature, then runs js/test/*.test.mjs and the type checks.
       # Floats under WASM may differ from Python's by 2 ULP (DIVERGENCES.md), as the long gate allows.
       - name: JS suite
         run: crates/icepool-wasm/js/build.sh --test
@@ -210,7 +210,7 @@ jobs:
         run: uv run python -m harness.core.tool fuzz --ops khepri --seed 7 --count 150
 
       # Upstream's own tests, unmodified, through python/icepool with ICEPOOL_BACKEND=rust. Every test in
-      # loop/baselines/upstream-pass.txt must pass.
+      # harness/baselines/upstream-pass.txt must pass.
       - name: upstream test suite through the facade
         run: harness/core/upstream_suite.sh fast
 

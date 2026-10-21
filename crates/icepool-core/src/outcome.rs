@@ -28,7 +28,7 @@ mod sealed {
 /// fail) and for [`crate::Value`], whose order is Python's `<` and can raise. Sealed: these are the only two.
 ///
 /// `Eq` and `Hash` are the equality of dict keys: values of different types may be equal (`True == 1 == 1.0`),
-/// and `Hash` agrees with it. (Like Python, `Value`'s float NaN is not equal to itself; see dev/NOTES.md.)
+/// and `Hash` agrees with it. (Like Python, `Value`'s float NaN is not equal to itself; see docs/NOTES.md.)
 ///
 /// ```
 /// use icepool_core::{OutcomeOrder, Value};

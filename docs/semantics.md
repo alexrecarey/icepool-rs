@@ -1,7 +1,7 @@
 # Semantics the port must copy
 
 Starting points found while analysing icepool v2.2.2 (see ANALYSIS.md). **The oracle is the authority**: when this
-file and the oracle disagree, the oracle wins and this file gets corrected (via dev/NOTES.md; this file is protected).
+file and the oracle disagree, the oracle wins and this file gets corrected (via docs/NOTES.md; this file is protected).
 
 ## Identical
 
