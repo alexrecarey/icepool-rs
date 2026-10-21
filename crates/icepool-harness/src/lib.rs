@@ -17,6 +17,7 @@ mod deck;
 mod die_methods;
 mod evaluate;
 mod expression;
+pub mod f2f;
 mod format;
 mod function;
 pub mod host;
@@ -270,24 +271,13 @@ pub fn call(op: &str, args: Vec<(&str, PValue)>) -> Result<PValue, PErr> {
     ops::call(op, Args(args))
 }
 
-/// The `khepri` node: khepri-f2f's whole engine (harness/grammar/khepri.py). Its `input` is lazy: the engine
-/// input object itself, never evaluated as a program.
-#[cfg(feature = "khepri")]
+/// The `khepri` node: khepri-f2f's whole engine ([`f2f`], harness/grammar/khepri.py). Its `input` is lazy: the
+/// engine input object itself, never evaluated as a program.
 fn khepri(m: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
     match (m.len(), m.get("input")) {
-        (2, Some(input)) => Ok(PValue::Die(icepool_khepri::engine_values(
-            &icepool_khepri::Input::from_json(input)?,
-        )?)),
+        (2, Some(input)) => Ok(PValue::Die(f2f::engine_values(&f2f::Input::from_json(input)?)?)),
         _ => raise(Error::WrongType("expected arguments [\"input\"]".into())),
     }
-}
-
-/// Without the `khepri` feature the engine is not built in.
-#[cfg(not(feature = "khepri"))]
-fn khepri(_: &serde_json::Map<String, Json>) -> Result<PValue, PErr> {
-    Err(PErr::Unimplemented(
-        "the khepri node (icepool-harness's `khepri` feature)".into(),
-    ))
 }
 
 /// A node's evaluated keyword arguments.

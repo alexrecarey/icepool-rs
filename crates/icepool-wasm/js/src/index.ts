@@ -114,4 +114,3 @@ export {
   type MultisetParameter,
   type State,
 } from "./evaluator.js";
-export { calculate, type KhepriResult } from "./wasm.js";

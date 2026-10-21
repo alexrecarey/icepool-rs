@@ -98,8 +98,8 @@ Rust core modules with no upstream counterpart: `die_ops.rs` (the typed `std::op
 the dynamic outcome with Python's semantics: CPython's numeric tower, `sorted()`, `str()`/`repr()`, `complex`,
 builtins, recursion limits), `host/` (callbacks a binding implements), `interrupt.rs` (Ctrl-C), `memory.rs`
 (allocation size checks), `ownership.rs` (cycle collection support), `random.rs` (CPython's Mersenne Twister, for
-the runner and the JS `sample`). khepri's engine, application code rather than library, is its own crate,
-`crates/icepool-khepri`.
+the runner and the JS `sample`). khepri's engine, application code rather than library, is test-only: a module
+of the harness, `crates/icepool-harness/src/f2f.rs` (khepri-f2f builds its own copy for the browser).
 
 Python facade files with no upstream counterpart: `python/icepool/backend.py` (the `ICEPOOL_BACKEND` switch) and
 `python/icepool/evaluator/evaluator_rust.py` (which evaluations go to the core). PyO3: `convert.rs` (Python objects
@@ -108,7 +108,7 @@ to and from `Value`, exceptions), `ops.rs` (Python's operator functions mapped t
 TypeScript files with no upstream counterpart: `wasm.ts`, `node.ts`, `web.ts` (loading the module), `host.ts`,
 `errors.ts`, `operators.ts` (Python's operator dispatch), `internal.ts` and `rpc.ts` (test-only: the fixture tests'
 bridge to the program runner, left out of the npm package); WASM: `src/facade.rs` (that bridge, feature `runner`),
-`src/runner.rs` (test-only `run`), `src/khepri.rs` (`calculate`).
+`src/runner.rs` (test-only `run`).
 
 The test-only program runner, `crates/icepool-harness/src/`, mirrors the same upstream modules as JSON program
 nodes (see `harness/grammar/status.json` for every node and its status). How the crates fit together:
