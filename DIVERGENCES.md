@@ -350,7 +350,12 @@ def test_tuple_index_hash_key_includes_child():
 
 `Symbols.isdisjoint(other)` (collection/symbols.py) is `any(self[s] > 0 and other[s] > 0 for s in self)`: True when
 some symbol is positive in both, the opposite of what the name and the set API mean (`{1}.isdisjoint({1})` is
-False). Copied (core `Symbols::isdisjoint`).
+False).
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/276 (pending merge); the port now follows
+the fix** (core `Symbols::isdisjoint`). Until `oracle.lock` moves to a release with the fix, the pinned oracle disagrees. The two
+old lines in `fixtures/s5a/vector-symbols-edge-cases.jsonl` that recorded the inverted result were retired;
+`fixtures/s5a/symbols-isdisjoint-fixed.jsonl` holds the fixed expectations.
 
 Drafted upstream test:
 

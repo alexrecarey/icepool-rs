@@ -1,0 +1,7 @@
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"bc"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":{"str":"c"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":""}},"name":{"str":"isdisjoint"},"arg":{"str":"a"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"aab"}},"name":{"str":"isdisjoint"},"arg":{"str":"ba"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a-b"}},"name":{"str":"isdisjoint"},"arg":{"str":"b"}},"expected":{"ok":true,"value":{"bool":true}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"a-b"}},"name":{"str":"isdisjoint"},"arg":{"str":"a"}},"expected":{"ok":true,"value":{"bool":false}}}
+{"program":{"op":"symbols_method","s":{"op":"symbols","x":{"str":"ab"}},"name":{"str":"isdisjoint"},"arg":3},"expected":{"ok":false,"error":"TypeError"}}
