@@ -71,7 +71,7 @@ def _tuple_die(g, depth):
     """A die of tuples (dice inside a tuple are tupleized), sometimes of strs or plain ints.
 
     The dice inside have no NaN outcomes: tuples holding the *same* NaN object compare equal in Python (identity),
-    so their marginals merge where the port's never do (dev/NOTES.md, Gotchas)."""
+    so their marginals merge where the port's never do (docs/NOTES.md, Gotchas)."""
     r = g.rng.random()
     if r < 0.75:
         items = [_die_without_nan(g, min(depth, 1)) if g.rng.random() < 0.7 else _query(g)
