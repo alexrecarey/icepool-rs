@@ -1,5 +1,7 @@
-//! Port of khepri-f2f's Face to Face dice engine (harness/core/khepri/f2f.py, a verbatim copy of khepri-f2f's
-//! src/engine/f2f.py): d20 rolls in, wound probabilities out.
+//! Test-only: khepri-f2f's Face to Face dice engine (harness/core/khepri/f2f.py, a verbatim copy of khepri-f2f's
+//! src/engine/f2f.py) on the typed core: d20 rolls in, wound probabilities out. A heavy, real workload for the
+//! oracle comparison (the runner's `khepri` node, the khepri sweep, tests/khepri_calculate.rs): its big case
+//! reaches 258-bit denominators. Not part of the library; khepri-f2f builds its own copy for the browser.
 //!
 //! Typed and native on top of the core: the dice are `Die<i64>` (Python's bool dice from `d20 > save` are their
 //! 0/1 ints, which compare, hash and add alike), the roll is a `Die<Roll>` of `(a_crit, a_hit, b_crit, b_hit)`
@@ -549,7 +551,7 @@ pub fn calculate(p: &Input) -> Result<Calculation> {
     })
 }
 
-/// [`calculate`] with f2f.calculate's JSON shape, for the WASM build (khepri's worker): the engine input object in,
+/// [`calculate`] with f2f.calculate's JSON shape (tests/khepri_calculate.rs): the engine input object in,
 /// `{"rolls": number of distinct rolls, "outcomes": [{"player", "wounds", "chance"}, ...]}` out. `rolls` may
 /// exceed 2**53; it is written as an exact JSON integer.
 pub fn calculate_json(p: &Json) -> Result<Json> {

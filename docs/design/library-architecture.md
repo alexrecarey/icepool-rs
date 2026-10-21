@@ -8,7 +8,7 @@ code-quality findings Q1-Q10 that motivated this design), docs/MODULE-MAP.md (wh
 module) and docs/FACADE-AUDIT.md (what of the Python facade still runs in Python).
 
 **Invariants.** Parity with the oracle is absolute for the native runner and both facades: same outcomes, order,
-types, quantities, and raises. Readability over performance (AGENTS.md): every choice below is the clearer one, not
+types, quantities, and raises. Readability over performance: every choice below is the clearer one, not
 the faster one. When this document and the code disagree, the code is right and this document is out of date: fix
 it.
 
@@ -220,12 +220,11 @@ crates/
   icepool-core/     the library. Deps: dashu-*, rustc-hash. No features, no serde_json, no runner, no binary.
   icepool-py/       PyO3 extension `icepool_rs` behind python/icepool. Depends on icepool-core only.
   icepool-wasm/     wasm-bindgen exports (src/api/) under the TypeScript package in js/. Production: icepool-core
-                    only; its test-only and khepri features add the crates below.
-  icepool-khepri/   khepri's Face to Face engine (application code on the typed Die<i64>), unpublished; used by
-                    icepool-wasm's `calculate` (feature `khepri`) and the runner's `khepri` node.
+                    only; its test-only `runner` feature adds the crate below.
   icepool-harness/  test-only, unpublished: the JSON program runner (src/, nodes in ops/ and expression/), the
-                    `icepool-run` binary harness/core/tool.py drives, and tests/fixtures.rs, which runs every
-                    fixture. Depends on icepool-core, serde_json, and icepool-khepri (default feature `khepri`).
+                    `icepool-run` binary harness/core/tool.py drives, tests/fixtures.rs, which runs every
+                    fixture, and khepri's Face to Face engine (src/f2f.rs: application code on the typed Die<i64>,
+                    the runner's `khepri` node). Depends on icepool-core and serde_json.
 ```
 
 - **The runner is a client of the public API** (since C5b and C3d): it uses `icepool_core::{..., evaluator,
@@ -237,12 +236,10 @@ crates/
   `set_interrupt_check` (Ctrl-C, polled by the core's long loops). Their arguments and results are core types only.
   Callables and evaluators belong to each binding (section 2, "User evaluators"): the core never names a host
   language.
-- **Feature flags**, none default except the harness's own:
-  - `icepool-harness/khepri` (default): the runner's `khepri` node;
+- **Feature flags**, none default:
   - `icepool-wasm/runner` (test-only): the `run` export that `run-wasm.sh` drives in the long gate, and the JSON-op
     bridge (`src/facade.rs`, `call` / `from_wire` / `wire_result`) under `js/src/rpc.ts`, through which the JS fixture
-    tests reach the nodes the TypeScript API has no counterpart for (khepri, complex numbers, catalogue callables);
-  - `icepool-wasm/khepri`: the `calculate` export, for khepri's own build.
+    tests reach the nodes the TypeScript API has no counterpart for (khepri, complex numbers, catalogue callables).
 
   No feature for `Value`: it is part of the core (both bindings and the runner need it), but no generic code names
   it (section 1).
@@ -312,7 +309,7 @@ The API mapping, by example (all of `icepool/__init__.py` is covered the same wa
 - **No `any` in the public types.** `Outcome` is a union type; `Die<T extends Outcome = Outcome>` is generic so
   `d(6)` is `Die<number>` in the types.
 - **What the runner does not model raises its `NotImplementedError`** (kind `Unported`) in the API too, rather than
-  computing an answer the port has nowhere else (dev/NOTES.md, "C6l").
+  computing an answer the port has nowhere else (docs/NOTES.md, "C6l").
 - **Tests.** `js/test/fixtures.mjs` is a test-only adapter that translates every fixture program into calls of this
   public API (the few nodes with no public counterpart go through the bridge, section 5); `js/test/upstream-*.mjs`
   mirror upstream's Python tests; `api.test.mjs` checks that no public module imports the bridge. `js/build.sh
@@ -327,15 +324,16 @@ The API mapping, by example (all of `icepool/__init__.py` is covered the same wa
   `.github/workflows/ci.yml`. Provenance comments cite the Python file and function (no line numbers).
 - **Python:** upstream's documentation is the documentation: `python/icepool` keeps upstream's docstrings verbatim,
   so upstream's rendered docs apply. `python/README.md` describes the package; `python/DIFFERENCES.md` lists what
-  differs on the Rust backend, written by hand from DIVERGENCES.md, dev/NOTES.md and docs/FACADE-AUDIT.md (keep it
+  differs on the Rust backend, written by hand from DIVERGENCES.md, docs/NOTES.md and docs/FACADE-AUDIT.md (keep it
   current when one of those changes).
 - **JS/TS:** `crates/icepool-wasm/js/README.md` and the guide `js/docs/guide.md` (install, first dice, pools and
   evaluators, decks, Again/explode, custom evaluators in JS, BigInt quantities, disposing, differences from Python
   icepool), TSDoc on every exported symbol, and an API reference generated by TypeDoc (`npm run docs`). Every
   fenced `ts` example in the guide and the TSDoc is executed by `js/test/doc-examples.test.mjs`. typescript and
   typedoc are devDependencies of the JS package only. The package is not published to npm yet: build it from the
-  repository (README.md).
-- **The repository:** README.md (the project, the three bindings, the parity story, layout, commands),
+  repository (docs/DEVELOPMENT.md).
+- **The repository:** README.md (upstream icepool's README with a note on the port), docs/DEVELOPMENT.md (the three
+  bindings, the parity story, layout, commands),
   docs/MODULE-MAP.md (one row per upstream module; `scripts/upstream_changes.py OLD NEW` parses it to list what to
   revisit when upstream changes) and docs/FACADE-AUDIT.md.
 
@@ -359,7 +357,7 @@ failure, never a silent pass:
 
 1. **Dependency graph:** `cargo tree -e normal,features` of icepool-py, and of icepool-wasm for
    `wasm32-unknown-unknown`, built alone as maturin and wasm-pack build them, contains none of icepool-harness,
-   serde_json, icepool-khepri.
+   serde_json.
 2. **Wheel contents** (`scripts/build-wheel.sh`, `unzip -Z1`): no path matching tests, conftest, fixtures, harness,
    catalogue, program, run-facade, run-wasm or bench; `icepool/__init__.py`, `icepool/_wheel.py` and
    `icepool_rs/__init__.py` present. Then a smoke test: the wheel installed into a fresh venv, run with `-I` from
@@ -385,7 +383,7 @@ so every step that kept the `Value` instantiation's behaviour kept every fixture
 2. **C2, C2b-C2g: generic features.** The evaluators (`CountFold` first, with poker; then basic, keep, comparison,
    lexi, argsort), map/map_tools, explode/`Again`, to_pool/expand, statistics (`ToRatio`), formatting
    (`FormatOutcome`), typed `explode_to_pool` / `reroll_to_pool` (C2g); khepri moved into `crates/icepool-khepri`
-   (C2f).
+   (C2f), and later into the harness as test-only code (src/f2f.rs) once khepri-f2f built its own engine.
 3. **C3, C3b-C3e: public API.** `std::ops`, typed constructors, `Display`, iterators, the curated root; the bindings
    (C3b) and then the runner (C3d) moved onto deliberate public APIs; doctests (C3c, C3e).
 4. **C4: errors.** Domain variants, every site audited, the mapping moved into the bindings and the runner.

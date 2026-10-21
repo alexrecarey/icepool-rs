@@ -12,31 +12,26 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 icepool-core = { path = "../icepool-core" }
 # The program runner, test-only (feature `runner`): `run` and the JSON-op bridge the JS fixture tests use
-# (src/facade.rs under js/src/rpc.ts). Without its default `khepri` unless feature `khepri` asks for it.
-icepool-harness = { path = "../icepool-harness", default-features = false, optional = true }
-# JSON for the runner's programs and khepri's engine input (features `runner`, `khepri`).
+# (src/facade.rs under js/src/rpc.ts).
+icepool-harness = { path = "../icepool-harness", optional = true }
+# JSON for the runner's programs (feature `runner`).
 serde_json = { version = "1", features = ["arbitrary_precision"], optional = true }
 # The core's big integers and fractions, converted to and from JS BigInts (src/api/convert.rs).
 dashu-int = "0.6"
 dashu-ratio = "0.6"
-# Only wasm-bindgen itself: the few JS globals we need (JSON, BigInt, Reflect) are declared below, not via js-sys.
+# Only wasm-bindgen itself: the few JS globals we need are declared where they are used, not via js-sys.
 wasm-bindgen = "0.2"
-# khepri's engine, for `calculate` (feature `khepri`).
-icepool-khepri = { path = "../icepool-khepri", optional = true }
 
 [dev-dependencies]
-# The unit tests of `run`, the bridge and `calculate` run in every test build, whatever the features (src/lib.rs).
-icepool-khepri = { path = "../icepool-khepri" }
+# The unit tests of `run` and the bridge run in every test build, whatever the features (src/lib.rs).
 icepool-harness = { path = "../icepool-harness" }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 
 [features]
-# None default: the npm package (js/build.sh) is built without either.
+# None default: the npm package (js/build.sh) is built without it.
 # The program runner, test-only: the `run` export (run-wasm.sh drives the fixtures and the fuzzer through it) and the
 # JSON-op bridge (`call`, `from_wire`, `wire_result`, ...: the JS fixture tests, js/build.sh --test).
 runner = ["dep:icepool-harness", "dep:serde_json"]
-# The `calculate` export: khepri's engine, for khepri's own build (build.sh).
-khepri = ["dep:icepool-khepri", "dep:serde_json", "icepool-harness?/khepri"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3"]

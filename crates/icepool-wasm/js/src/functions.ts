@@ -441,10 +441,11 @@ function transitionCache(f: Repl, extraArgs: unknown[], star: unknown, kwargs: R
   return { transition: { step }, quantities: joint.map(([, q]) => q) };
 }
 
-/** Where a transition goes, for the core: `["reroll"]`, `["die", copy]` (the core takes the copy over), or
+/** Where a transition goes, for the core: `["reroll"]`, `["restart"]`, `["die", copy]` (the core takes the copy over), or
  * `["outcome", x]`. */
 function transitionTarget(x: unknown): [string, unknown] {
-  if (x === Reroll || x === Restart) return ["reroll", null];
+  if (x === Reroll) return ["reroll", null];
+  if (x === Restart) return ["restart", null];
   if (x instanceof Die) return ["die", x.w.copy()];
   return ["outcome", x];
 }

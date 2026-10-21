@@ -10,7 +10,7 @@ A node definition says what Python icepool does with the evaluated arguments, wh
 the generator: "die", "int", or any name a node introduces, e.g. "pool"), and how to generate a random instance.
 
 Node status lives in harness/grammar/status.json: {"<op>": "ported" | "pending"}. The fuzzer only generates ported
-nodes. A node may go pending -> ported, never back (guard.sh enforces it).
+nodes. A node may go pending -> ported, never back.
 """
 import json
 import os
