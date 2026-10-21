@@ -2,8 +2,15 @@ target/
 .venv/
 __pycache__/
 *.pyc
-loop/logs/
 .loop/
 dist/
 node_modules/
-.claude/worktrees/
+.claude/
+# The agent loop that built the port: its scripts, task queue, records and agent instructions stay on the
+# machine that runs it, out of the library's history.
+loop/
+dev/
+docs/LOOP-PLAN.md
+AGENTS.md
+CLAUDE.md
+harness/core/guard.sh

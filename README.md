@@ -7,9 +7,6 @@ the same integer quantities, and an error wherever Python raises one. It is buil
 that checks every result against Python icepool itself.
 
 - What and why: [docs/ANALYSIS.md](docs/ANALYSIS.md)
-- How the loop works: [docs/LOOP-PLAN.md](docs/LOOP-PLAN.md)
-- Rules for agents: [AGENTS.md](AGENTS.md)
-- Where it's at: [loop/PROGRESS.md](loop/PROGRESS.md), [dev/tasks.json](dev/tasks.json)
 
 Nothing is published yet (no crate, wheel or npm package); everything below builds from this repository.
 
@@ -121,7 +118,7 @@ repository (`$ICEPOOL_ORACLE`). Nothing decides by itself that the port is right
 - **Fuzzer**: random programs run by both the oracle and the port, compared exactly (`harness/core`); failures are
   minimised and become fixtures.
 - **Upstream's test suite**, run unmodified through the Python facade with `ICEPOOL_BACKEND=rust` (1716 passing, as
-  on the oracle; `loop/baselines/upstream-pass.txt` may only grow), and translated test by test into JS
+  on the oracle; `harness/baselines/upstream-pass.txt` may only grow), and translated test by test into JS
   (`crates/icepool-wasm/js/test/upstream-*.test.mjs`).
 - **Typed against `Value`**: property tests check that each typed `Die<i64>` path agrees with the `Value` path the
   fixtures check (`crates/icepool-core/tests/typed_vs_value.rs`).
@@ -143,13 +140,11 @@ to revisit.
 | `python/icepool/` | the Python facade: upstream's modules, switched to `icepool_rs` under `ICEPOOL_BACKEND=rust` |
 | `crates/icepool-wasm/` | wasm-bindgen exports; `js/` is the npm package (TypeScript API, docs, tests) |
 | `crates/icepool-harness/` | test only: the JSON program runner, the `icepool-run` binary, the fixture test |
-| `harness/` | the Python side of the checks: `core/` (gate, guard, comparison, fuzzer, fixture tools), `grammar/` (program nodes), `catalogue/`, `upstream_shims/` |
+| `harness/` | the Python side of the checks: `core/` (gate, comparison, fuzzer, fixture tools), `baselines/` (the upstream tests known to pass through the facade), `grammar/` (program nodes), `catalogue/`, `upstream_shims/` |
 | `fixtures/` | golden results computed by the oracle |
-| `loop/baselines/` | the upstream tests known to pass through the facade |
 | `scripts/` | `check-production.sh` (no test code in what ships), `upstream_changes.py` |
-| `docs/` | analysis, loop plan, Python semantics the port copies, the library design, reviews |
+| `docs/` | analysis, implementation notes, Python semantics the port copies, the library design, reviews |
 | `.github/workflows/` | CI |
-| `loop/`, `dev/tasks.json`, `loop/PROGRESS.md`, `dev/NOTES.md`, `dev/QUESTIONS.md` | the loop's machinery and records |
 
 ## Building and testing
 
@@ -162,7 +157,7 @@ cargo test --release --workspace          # unit tests, doctests, and every fixt
 cargo clippy --release --workspace -- -D warnings
 crates/icepool-wasm/js/build.sh --test    # the JS suite: every fixture through the TS API, API and upstream tests
 scripts/check-production.sh               # the wheel and the npm package contain no test code
-harness/core/gate.sh fast                 # everything the loop checks after each iteration (needs the oracle)
+harness/core/gate.sh fast                 # every check above plus the oracle comparisons (needs the oracle)
 ```
 
 With the oracle checked out at `$ICEPOOL_ORACLE`:
@@ -175,8 +170,8 @@ harness/core/upstream_suite.sh fast                                       # upst
 ```
 
 CI (`.github/workflows/ci.yml`) runs the fast gate's checks on every push and pull request, with the oracle checked out at
-the commit in oracle.lock; the gate's fresh-seed fuzz runs and the long gate (big fuzz runs, WASM runs, mutants)
-stay with the loop.
+the commit in oracle.lock; the gate's fresh-seed fuzz runs and the long gate (`harness/core/gate.sh long`: big fuzz runs, WASM runs,
+mutants) run locally.
 
 ## Further reading
 
@@ -186,5 +181,5 @@ stay with the loop.
 - [docs/semantics.md](docs/semantics.md): the Python semantics the port must copy
 - [DIVERGENCES.md](DIVERGENCES.md): Python behaviour copied but thought wrong
 - [FACADE-AUDIT.md](docs/FACADE-AUDIT.md): what of the Python facade still runs in Python, module by module
-- [docs/ANALYSIS.md](docs/ANALYSIS.md), [docs/LOOP-PLAN.md](docs/LOOP-PLAN.md), [AGENTS.md](AGENTS.md),
-  [dev/NOTES.md](dev/NOTES.md): the project and the loop that builds it
+- [docs/ANALYSIS.md](docs/ANALYSIS.md): what icepool is and how the port is designed
+- [docs/NOTES.md](docs/NOTES.md): implementation decisions and gotchas

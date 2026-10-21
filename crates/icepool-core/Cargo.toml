@@ -6,7 +6,7 @@ license.workspace = true
 description = "Rust port of the icepool dice probability library"
 
 [dependencies]
-# Big integers: inline storage up to 128 bits, so the common small quantity never allocates (see dev/NOTES.md).
+# Big integers: inline storage up to 128 bits, so the common small quantity never allocates (see docs/NOTES.md).
 dashu-base = "0.6"
 dashu-int = "0.6"
 dashu-ratio = "0.6"

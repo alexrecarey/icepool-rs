@@ -5,8 +5,8 @@
 # The facade is built with maturin into the harness venv. Tests come from the oracle checkout, unmodified, except
 # that shims for tests reading private internals may live in harness/upstream_shims/ (conftest.py there is loaded).
 #
-# Every test id in loop/baselines/upstream-pass.txt must pass. New passes are written to .loop/out/upstream-pass.txt;
-# the loop script merges them into the baseline on main, so the pass list only ever grows.
+# Every test id in harness/baselines/upstream-pass.txt must pass. New passes are written to .loop/out/upstream-pass.txt;
+# merge them into the baseline (sort -u) when they land, so the pass list only ever grows.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 export ICEPOOL_ORACLE="${ICEPOOL_ORACLE:-$HOME/code/alexrecarey/icepool-oracle}"
@@ -32,8 +32,8 @@ for tc in root.iter("testcase"):
 with open(".loop/out/upstream-pass.txt", "w") as f:
     f.write("".join(sorted(t + "\n" for t in passed)))
 base = set()
-if os.path.exists("loop/baselines/upstream-pass.txt"):
-    base = {l.strip() for l in open("loop/baselines/upstream-pass.txt") if l.strip()}
+if os.path.exists("harness/baselines/upstream-pass.txt"):
+    base = {l.strip() for l in open("harness/baselines/upstream-pass.txt") if l.strip()}
 lost = sorted(base - passed)
 print(f"upstream suite (rust backend): {len(passed)} passing, baseline {len(base)}, newly passing {len(passed - base)}")
 for t in lost[:20]:

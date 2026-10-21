@@ -1,4 +1,4 @@
-//! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see dev/NOTES.md for the commands).
+//! The WASM exports under the TypeScript API (js/src/), built with wasm-pack (see docs/NOTES.md for the commands).
 //!
 //! The typed exports (`WasmDie`, ...) under the TypeScript API are in `api`. More entry points, behind a feature
 //! that no production build (the npm package) turns on:
