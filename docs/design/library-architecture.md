@@ -220,12 +220,11 @@ crates/
   icepool-core/     the library. Deps: dashu-*, rustc-hash. No features, no serde_json, no runner, no binary.
   icepool-py/       PyO3 extension `icepool_rs` behind python/icepool. Depends on icepool-core only.
   icepool-wasm/     wasm-bindgen exports (src/api/) under the TypeScript package in js/. Production: icepool-core
-                    only; its test-only and khepri features add the crates below.
-  icepool-khepri/   khepri's Face to Face engine (application code on the typed Die<i64>), unpublished; used by
-                    icepool-wasm's `calculate` (feature `khepri`) and the runner's `khepri` node.
+                    only; its test-only `runner` feature adds the crate below.
   icepool-harness/  test-only, unpublished: the JSON program runner (src/, nodes in ops/ and expression/), the
-                    `icepool-run` binary harness/core/tool.py drives, and tests/fixtures.rs, which runs every
-                    fixture. Depends on icepool-core, serde_json, and icepool-khepri (default feature `khepri`).
+                    `icepool-run` binary harness/core/tool.py drives, tests/fixtures.rs, which runs every
+                    fixture, and khepri's Face to Face engine (src/f2f.rs: application code on the typed Die<i64>,
+                    the runner's `khepri` node). Depends on icepool-core and serde_json.
 ```
 
 - **The runner is a client of the public API** (since C5b and C3d): it uses `icepool_core::{..., evaluator,
@@ -237,12 +236,10 @@ crates/
   `set_interrupt_check` (Ctrl-C, polled by the core's long loops). Their arguments and results are core types only.
   Callables and evaluators belong to each binding (section 2, "User evaluators"): the core never names a host
   language.
-- **Feature flags**, none default except the harness's own:
-  - `icepool-harness/khepri` (default): the runner's `khepri` node;
+- **Feature flags**, none default:
   - `icepool-wasm/runner` (test-only): the `run` export that `run-wasm.sh` drives in the long gate, and the JSON-op
     bridge (`src/facade.rs`, `call` / `from_wire` / `wire_result`) under `js/src/rpc.ts`, through which the JS fixture
-    tests reach the nodes the TypeScript API has no counterpart for (khepri, complex numbers, catalogue callables);
-  - `icepool-wasm/khepri`: the `calculate` export, for khepri's own build.
+    tests reach the nodes the TypeScript API has no counterpart for (khepri, complex numbers, catalogue callables).
 
   No feature for `Value`: it is part of the core (both bindings and the runner need it), but no generic code names
   it (section 1).
@@ -359,7 +356,7 @@ failure, never a silent pass:
 
 1. **Dependency graph:** `cargo tree -e normal,features` of icepool-py, and of icepool-wasm for
    `wasm32-unknown-unknown`, built alone as maturin and wasm-pack build them, contains none of icepool-harness,
-   serde_json, icepool-khepri.
+   serde_json.
 2. **Wheel contents** (`scripts/build-wheel.sh`, `unzip -Z1`): no path matching tests, conftest, fixtures, harness,
    catalogue, program, run-facade, run-wasm or bench; `icepool/__init__.py`, `icepool/_wheel.py` and
    `icepool_rs/__init__.py` present. Then a smoke test: the wheel installed into a fresh venv, run with `-I` from
@@ -385,7 +382,7 @@ so every step that kept the `Value` instantiation's behaviour kept every fixture
 2. **C2, C2b-C2g: generic features.** The evaluators (`CountFold` first, with poker; then basic, keep, comparison,
    lexi, argsort), map/map_tools, explode/`Again`, to_pool/expand, statistics (`ToRatio`), formatting
    (`FormatOutcome`), typed `explode_to_pool` / `reroll_to_pool` (C2g); khepri moved into `crates/icepool-khepri`
-   (C2f).
+   (C2f), and later into the harness as test-only code (src/f2f.rs) once khepri-f2f built its own engine.
 3. **C3, C3b-C3e: public API.** `std::ops`, typed constructors, `Display`, iterators, the curated root; the bindings
    (C3b) and then the runner (C3d) moved onto deliberate public APIs; doctests (C3c, C3e).
 4. **C4: errors.** Domain variants, every site audited, the mapping moved into the bindings and the runner.

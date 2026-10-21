@@ -20,8 +20,8 @@ writing Rust, and port its explanatory comments along with the code.
 | Path | What | Who may edit |
 |---|---|---|
 | `crates/icepool-core/` | the Rust core library | you |
-| `crates/icepool-py/`, `crates/icepool-wasm/`, `crates/icepool-khepri/` | Python bindings, JS/TS bindings, khepri's engine | you |
-| `crates/icepool-harness/` | test-only: the JSON program runner + `icepool-run` binary | you |
+| `crates/icepool-py/`, `crates/icepool-wasm/` | Python bindings, JS/TS bindings | you |
+| `crates/icepool-harness/` | test-only: the JSON program runner + `icepool-run` binary, and khepri's engine (`src/f2f.rs`, the `khepri` node) | you |
 | `crates/icepool-harness/tests/fixtures.rs` | runs every fixture natively | **protected** |
 | `docs/` | library docs (module map, facade audit, design): maintain them. `docs/ANALYSIS.md`, `docs/LOOP-PLAN.md`, `docs/semantics.md`, `docs/reviews/` are **protected** | you |
 | `harness/core/` | gate, guard, comparison, fuzzer, fixture tools | **protected** |

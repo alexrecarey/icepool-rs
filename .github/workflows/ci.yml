@@ -91,7 +91,7 @@ jobs:
         run: npm ci
         working-directory: crates/icepool-wasm/js
 
-      # Builds with the test-only `runner` and `khepri` features, then runs js/test/*.test.mjs and the type checks.
+      # Builds with the test-only `runner` feature, then runs js/test/*.test.mjs and the type checks.
       # Floats under WASM may differ from Python's by 2 ULP (DIVERGENCES.md), as the long gate allows.
       - name: JS suite
         run: crates/icepool-wasm/js/build.sh --test
