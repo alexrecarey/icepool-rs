@@ -12,6 +12,11 @@ cd "$(dirname "$0")/../.."
 export ICEPOOL_ORACLE="${ICEPOOL_ORACLE:-$HOME/code/alexrecarey/icepool-oracle}"
 mkdir -p .loop/out
 
+# One maturin at a time per target directory (see scripts/build-wheel.sh).
+TARGET="${CARGO_TARGET_DIR:-$PWD/target}"
+mkdir -p "$TARGET"
+exec 8> "$TARGET/maturin.lock"
+flock 8
 uv run --quiet maturin develop --release -m crates/icepool-py/Cargo.toml > .loop/out/maturin.log 2>&1 \
   || { tail -30 .loop/out/maturin.log; exit 1; }
 
