@@ -32,6 +32,12 @@ cp "$TEMPLATE/icepool/_wheel.py" "$STAGE/python/icepool/"
 #   wheel is built by the pinned toolchain, not the machine's default;
 # - icepool-core's build script ties its fingerprint to $PWD, the checkout cargo runs for (see its build.rs): that
 #   is still $ROOT, not the staging directory, which is new on every run.
+# maturin moves the built library into <target>/maturin/ and removes it when done, so two maturin runs on one target
+# directory (two gates, or a gate and a hand-run check) delete each other's library: one at a time.
+TARGET="${CARGO_TARGET_DIR:-$ROOT/target}"
+mkdir -p "$TARGET"
+exec 8> "$TARGET/maturin.lock"
+flock 8
 TOOLCHAIN="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
 (cd "$STAGE" && PWD="$ROOT" RUSTUP_TOOLCHAIN="$TOOLCHAIN" \
   uv run --project "$ROOT" --quiet maturin build --release --out "$OUT" "$@")
