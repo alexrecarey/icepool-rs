@@ -89,8 +89,12 @@ def test_pool_source_cache_keeps_spelling():
 `KeepGenerator.middle` (generator/keep.py) says "If this is greater than the current keep_size, all are kept", but
 with the same parity it computes `start = (keep_size - keep) // 2`, which is negative, and `self[start:stop]` then
 counts that start from the end: `d6.pool(3).middle(5)` has keep tuple `(0, 0, 1)`, so `d6.middle(3, 5)` is the
-highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.) The
-port copies it (`keep_tuple::middle_slice`).
+highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.)
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/263 (pending merge).** The fix clamps `keep` to
+`keep_size` before the parity check (so `middle(4)` of 3 with the default `tie='error'` now keeps all rather than
+raising), and the port follows it (`keep_tuple::middle_slice`, the facade's `KeepGenerator.middle`). Fixtures from
+before the fix encode the old behaviour (see the PR); new ones are in `fixtures/k5/middle-above-size.jsonl`.
 
 Drafted upstream test:
 
