@@ -61,36 +61,16 @@ fn new_deck(objects: Vec<PValue>, times: &[Value]) -> Result<PValue, PErr> {
             return Ok(PValue::Deck(d.clone()));
         }
     }
-    // Every argument is expanded before any is merged. A tuple holding `Reroll` expands to `Reroll` itself
-    // (`cartesian_product`), which `merge_duplicates` only touches (`subdata.items()`: AttributeError) if its dup
-    // is not zero.
-    let mut args = Vec::with_capacity(objects.len());
-    let mut reroll_tuples = Vec::new();
-    for (i, x) in objects.into_iter().enumerate() {
-        if let PValue::Tuple(items) = &x {
-            if items
-                .iter()
-                .any(|x| matches!(x, PValue::Reroll | PValue::Restart))
-            {
-                reroll_tuples.push(i);
-                args.push(DieArg::Reroll);
-                continue;
-            }
-        }
-        args.push(die_arg(x)?);
-    }
+    // Every argument is expanded before any is merged. A tuple holding `Reroll` expands to no cards, like `Reroll`.
+    let args = objects
+        .into_iter()
+        .map(die_arg)
+        .collect::<Result<Vec<_>, _>>()?;
     let duplicates = args
         .iter()
         .zip(times)
         .map(|(a, t)| duplicate(a, t))
         .collect::<Result<Vec<_>, _>>()?;
-    if reroll_tuples.iter().any(|&i| {
-        !times[i]
-            .as_num()
-            .is_some_and(|n| n == Num::Int(Cow::Owned(IBig::ZERO)))
-    }) {
-        return missing_attribute("'RerollType' object has no attribute 'items'");
-    }
     Ok(PValue::Deck(Deck::new(&args, &duplicates)?))
 }
 
@@ -329,8 +309,8 @@ pub fn deck_map(deck: PValue, repl: PValue, star: PValue) -> Result<PValue, PErr
 /// `deck.sequence(deals)`: the possible sequences of `deals` cards dealt one by one, as a die of tuples.
 ///
 /// Python builds them in `_sequence_cache`, starting from `Die([()])`: each step maps every sequence so far to the
-/// die of the cards left (`Die(self - curr)`) appended to it. The loop variable is the only binding of `result`,
-/// so `deals == 0` raises `UnboundLocalError` (copied, see DIVERGENCES.md).
+/// die of the cards left (`Die(self - curr)`) appended to it, and returns `_sequence_cache[deals]`: `Die([()])`
+/// for `deals == 0`.
 pub fn deck_sequence(deck: PValue, deals: PValue) -> Result<PValue, PErr> {
     let deck = the_deck(deck)?;
     let deals = match deals {
@@ -341,11 +321,6 @@ pub fn deck_sequence(deck: PValue, deals: PValue) -> Result<PValue, PErr> {
     if deals < IBig::ZERO {
         return raise(Error::InvalidArgument(
             "The number of cards dealt cannot be negative.".into(),
-        ));
-    }
-    if deals == IBig::ZERO {
-        return raise(Error::InvalidArgument(
-            "UnboundLocalError: cannot access local variable 'result'".into(),
         ));
     }
     let deals = usize::try_from(deals)

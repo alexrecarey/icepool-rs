@@ -48,8 +48,8 @@ test("Die(...): Python dict keys, tuples holding dice, times", () => {
   // 1, true and 1.0 are one dict key: the first spelling, the last value.
   assert.equal(repr(() => new Die(new Map([[1, 2], [true, 3], [new ip.Float(1), 4]]))), "Die({1: 4})");
   assert.equal(repr(() => new Die([[d(2), 1]])), "Die({(1, 1): 1, (2, 1): 1})");
-  // A tuple holding Reroll: Python's expand_arg takes the Reroll for a population (DIVERGENCES.md).
-  assert.throws(() => new Die([[1, Reroll]]), pythonType("AttributeError"));
+  // A tuple holding Reroll drops out, like Reroll itself.
+  assert.equal(repr(() => new Die([[1, Reroll], 2])), "Die({2: 1})");
   assert.throws(() => new Die([1, 2], [1]), pythonType("ValueError"));
   assert.throws(() => new Die([1, 2], [1, -1]), pythonType("ValueError"));
   assert.throws(() => new Die([1], 1.5), pythonType("TypeError"));

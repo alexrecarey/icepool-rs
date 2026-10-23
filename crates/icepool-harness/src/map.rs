@@ -208,13 +208,13 @@ pub(super) fn die_of(outcomes: Vec<PValue>, times: Vec<Quantity>) -> Result<PVal
 /// If any element is a die, the result is a die of tuples, one per joint outcome. (Equal tuples, e.g. `(1,)` and `(True,)`, overwrite each other's quantity in the dict
 /// it builds, keeping the first key: `data[outcome] = quantity`, not `+=`.)
 pub fn tupleize(items: Vec<PValue>) -> Result<DieArg<Value>, PErr> {
-    // `cartesian_product` returns `Reroll` if any element is `Reroll`, but `expand_arg` then hands that on as if
-    // it were a mapping, and `merge_weights_lcm` raises AttributeError on `Reroll.values()` (see DIVERGENCES.md).
+    // `cartesian_product` returns `Reroll` if any element is `Reroll`, and `expand_arg` treats that like a bare
+    // `Reroll`: no outcomes.
     if items
         .iter()
         .any(|x| matches!(x, PValue::Reroll | PValue::Restart))
     {
-        return missing_attribute("'RerollType' object has no attribute 'values'");
+        return Ok(DieArg::Reroll);
     }
     let (dice, decks) = (
         items.iter().any(|x| matches!(x, PValue::Die(_))),

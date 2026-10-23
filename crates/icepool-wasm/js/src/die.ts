@@ -2493,11 +2493,6 @@ function makeDie(outcomes: DieOutcomes, times: Int | readonly Int[] | undefined,
       // A tuple holding dice (or decks) is the population of their Cartesian product (`tupleize`); a plain tuple
       // stays as it is.
       const expanded = Array.isArray(arg) && !(arg instanceof List) ? tupleize(...(arg as Operand[])) : arg;
-      // Python's `expand_arg` takes the `Reroll` of a tuple holding one for a population, whose `values()` then
-      // raises in `merge_weights_lcm`.
-      if (Array.isArray(arg) && (expanded === Reroll || expanded === Restart)) {
-        throw new IcepoolError("MissingAttribute", "AttributeError", "'RerollType' object has no attribute 'values'");
-      }
       if (expanded instanceof Die) wasm(() => builder.die(expanded.w, weight));
       else if (isDeck(expanded)) wasm(() => builder.die(deckDie(expanded).w, weight));
       else if (expanded === Reroll || expanded === Restart) wasm(() => builder.reroll(weight));
