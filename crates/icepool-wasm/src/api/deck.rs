@@ -34,8 +34,6 @@ pub struct WasmDeck {
 #[derive(Default)]
 pub struct DeckBuilder {
     args: Vec<(DieArg<Value>, Value)>,
-    /// Whether some argument was a tuple holding `Reroll` with a nonzero time (see `rerollTuple`).
-    reroll_tuple: bool,
 }
 
 #[wasm_bindgen]
@@ -60,28 +58,12 @@ impl DeckBuilder {
         self.push(DieArg::Die(deck.deck.population().clone()), &time)
     }
 
-    /// `Reroll` (or `Restart`): `expand_arg` makes it `{}`, no cards.
+    /// `Reroll` (or `Restart`), or a tuple holding one: `expand_arg` makes it `{}`, no cards.
     pub fn reroll(&mut self, time: JsValue) -> JsResult<()> {
         self.push(DieArg::Reroll, &time)
     }
 
-    /// A tuple holding `Reroll`: `cartesian_product` makes it `Reroll` itself, which `expand_arg` passes on as it
-    /// is (it is not in `REROLL_TYPES` by then: the check came first), so `merge_duplicates` asks it for `items()`
-    /// unless its time is zero.
-    #[wasm_bindgen(js_name = rerollTuple)]
-    pub fn reroll_tuple(&mut self, time: JsValue) -> JsResult<()> {
-        let time = value_from_js(&time).or_throw()?;
-        self.reroll_tuple |= !is_zero(&time);
-        self.args.push((DieArg::Reroll, time));
-        Ok(())
-    }
-
     pub fn build(&mut self) -> JsResult<WasmDeck> {
-        // `merge_duplicates` raises at the `Reroll` as it meets it; a non-int duplicate only raises afterwards,
-        // when `Counts` checks the merged quantities.
-        if std::mem::take(&mut self.reroll_tuple) {
-            return Err(Error::MissingAttribute("'RerollType' object has no attribute 'items'".into())).or_throw();
-        }
         let (args, times): (Vec<_>, Vec<_>) = std::mem::take(&mut self.args).into_iter().unzip();
         let duplicates =
             args.iter().zip(&times).map(|(arg, t)| duplicate(arg, t)).collect::<icepool_core::Result<Vec<_>>>();

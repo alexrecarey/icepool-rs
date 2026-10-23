@@ -1,4 +1,4 @@
-# Notes for the next iteration
+# Implementation notes: decisions and gotchas
 
 Gotchas, decisions and layout notes, written by the iterations themselves. Keep it current: fix or delete what
 turns out wrong. Newest decisions at the top of each section.

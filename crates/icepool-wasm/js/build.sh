@@ -5,7 +5,7 @@
 #
 #   js/build.sh            optimised build (wasm-opt -O3; slow under load), what `npm pack` should ship
 #   js/build.sh --dev      release code without wasm-opt (under a second once cargo has built the wasm32 target)
-#   js/build.sh --test     the --dev build with the `runner` and `khepri` features (the `run` and `calculate` exports,
+#   js/build.sh --test     the --dev build with the `runner` feature (the `run` export and the JSON-op bridge,
 #                          which the package leaves out), then the JS tests (js/test/: the fixture suite, the API
 #                          tests, the types)
 #   js/build.sh --pack     the optimised build, then `npm pack` in js/
@@ -36,7 +36,7 @@ TSC="$(tsc_path)"
 OPT=()
 FEATURES=()
 case "${1:-}" in --dev | --test | --docs) OPT=(--no-opt) ;; esac
-case "${1:-}" in --test) FEATURES=(-- --features runner,khepri) ;; esac
+case "${1:-}" in --test) FEATURES=(-- --features runner) ;; esac
 for target in nodejs web; do
   dir="$HERE/pkg-${target%js}"
   wasm-pack --quiet build "$CRATE" --release --target "$target" --out-dir "$dir" --no-pack "${OPT[@]}" "${FEATURES[@]}"

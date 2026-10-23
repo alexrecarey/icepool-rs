@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The gate. PROTECTED. The loop script runs this itself after every iteration; the agent runs it too while working.
+# The gate: every check of the port against the oracle. Green before every merge.
 #
-#   harness/core/gate.sh fast    every iteration (target: a few minutes)
-#   harness/core/gate.sh long    every 10 merges: big fuzz, full fixture re-check, khepri sweep, wasm, mutants
+#   harness/core/gate.sh fast    before every merge (target: a few minutes)
+#   harness/core/gate.sh long    now and then: big fuzz, full fixture re-check, khepri sweep, wasm, mutants
 #
 # Exit 0 = green. Any red step makes the whole gate red; every step still runs so the log shows everything.
 set -uo pipefail
@@ -56,7 +56,7 @@ else
 fi
 
 # Production builds must not ship tests, fixtures, the JSON program runner or harness code. scripts/check-production.sh
-# (written by the loop, reviewed) builds the release Python wheel and npm package and inspects their contents.
+# builds the release Python wheel and npm package and inspects their contents.
 if [ -x scripts/check-production.sh ]; then
   step "production builds contain no test code" scripts/check-production.sh
 fi
@@ -81,11 +81,11 @@ if [ "$MODE" = long ] && [ -f crates/icepool-wasm/Cargo.toml ]; then
   fi
 fi
 if [ "$MODE" = long ] && command -v cargo-mutants > /dev/null && [ -n "${MUTANTS_BASE:-}" ]; then
-  # Mutants in code changed since MUTANTS_BASE. Survivors are reported, not failed: the loop turns them into tasks.
+  # Mutants in code changed since MUTANTS_BASE. Survivors are reported, not failed.
   echo "=== mutants (since $MUTANTS_BASE)"
   mkdir -p .loop/out
   git diff "$MUTANTS_BASE" -- crates > .loop/out/mutants.diff
-  # Capped: an uncapped run once took 7.5 hours and stalled the loop. Survivors found in time still become tasks.
+  # Capped: an uncapped run once took 7.5 hours. Survivors found in time are still reported.
   timeout 90m cargo mutants --in-diff .loop/out/mutants.diff -p icepool-core --test-workspace true --timeout 300 --output .loop/out \
     > .loop/out/mutants.log 2>&1 || true
   tail -5 .loop/out/mutants.log
