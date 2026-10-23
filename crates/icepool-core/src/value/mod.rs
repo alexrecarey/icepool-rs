@@ -54,7 +54,7 @@ pub use ops::{BinOp, UnOp};
 pub use repr::float_repr;
 pub use statistics::PyStatistics;
 pub use symbols::Symbols;
-pub use vector::{VecOp, Vector};
+pub use vector::{Lexicographic, VecOp, Vector};
 
 // For language bindings (and the program runner): the pieces icepool's Python methods are assembled from. A binding
 // keeps Python's argument juggling (its own types, keyword arguments, callbacks) and calls these for the work. The
