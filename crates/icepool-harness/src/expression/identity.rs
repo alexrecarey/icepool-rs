@@ -28,10 +28,9 @@ pub(crate) fn same_expression(a: &MExpr, b: &MExpr) -> Result<bool, PErr> {
             },
         ) => (a, sa) == (b, sb),
         (MExpr::TupleParam { arg_index: a, .. }, MExpr::TupleParam { arg_index: b, .. }) => a == b,
-        // Their `hash_key` is `(type, index)`: the child is left out, so hands of different deals compare equal
-        // (DIVERGENCES.md).
-        (MExpr::TupleIndex(a), MExpr::TupleIndex(b)) => a.1 == b.1,
-        (MExpr::TupleSlice(a), MExpr::TupleSlice(b)) => a.1 == b.1,
+        // `((type, index), child.hash_key)`: hands of different deals are different expressions.
+        (MExpr::TupleIndex(a), MExpr::TupleIndex(b)) => a.1 == b.1 && same_expression(&a.0, &b.0)?,
+        (MExpr::TupleSlice(a), MExpr::TupleSlice(b)) => a.1 == b.1 && same_expression(&a.0, &b.0)?,
         // `(MultisetMixture, tuple(inners.items()))`.
         (MExpr::Mixture(a), MExpr::Mixture(b)) => {
             if a.len() != b.len() {

@@ -332,6 +332,9 @@ def test_multi_deal_denominator_three_hands():
 
 ### Hands of different multi-deals are equal expressions (S4d)
 
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/274 (pending merge); the port now follows the fix.**
+The rest of this entry describes the old behaviour.
+
 `MultisetTupleIndex.hash_key` (expression/multiset_tuple_expression.py) is `(type(self), self._index)`, and
 `MultisetTupleSlice`'s is the type and the slice bounds: the child expression is left out. `equals` (and the truth
 value of `==`, which a dict uses) compares hash keys, so `Deck([1, 2]).deal((1, 1))[0].equals(Deck([5,
