@@ -56,8 +56,13 @@ def test_tuple_with_reroll_drops_out():
 `Die._sum_all(rolls)` (population/die.py) computes `self._sum_all(rolls - 1) + self` recursively, so `Die([1000])
 @ d6` (or `1000 @ d6`) raises `RecursionError` unless the die's `_sum_cache` already holds a sum within ~980
 rolls (it persists on the die object, and `icepool.d` caches its dice, so the outcome depends on history). The
-port copies the raise for steps of 1000 or more and reports anything between 800 and 1000 as unimplemented.
-A loop over `range(max cached + 1, rolls + 1)` would fix it.
+port copied the raise for steps of 1000 or more and reported anything between 800 and 1000 as unimplemented.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/265 (pending merge):** `_sum_all` counts down
+to the largest cached sum in a loop, then adds one roll at a time, with the same results and cache contents. The
+port (whose `SumCache` was already iterative) drops its recursion check (`value/matmul.rs`); new fixtures in
+fixtures/k4/large-counts.jsonl. Still different: a count beyond i64 raises `RecursionError` in the port, where
+Python now loops until it runs out of memory; a non-integral count still recurses forever in both.
 
 Drafted upstream test:
 
