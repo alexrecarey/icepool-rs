@@ -673,16 +673,15 @@ impl Symbols {
         super::builtins::py_sum(self.items().iter().map(|(_, n)| Ok(n.clone())), int(0))
     }
 
-    /// `isdisjoint(other)`: whether any positive elements are in common.
+    /// `isdisjoint(other)`: whether no positive elements are in common.
     ///
     /// ```
     /// use icepool_core::value::Symbols;
     /// use icepool_core::Value;
     ///
     /// let s = Symbols::parse("aab").unwrap();
-    /// // As in icepool: `True` when they share a positive element.
-    /// assert!(s.isdisjoint(&Value::str("bc")).unwrap());
-    /// assert!(!s.isdisjoint(&Value::str("c")).unwrap());
+    /// assert!(!s.isdisjoint(&Value::str("bc")).unwrap());
+    /// assert!(s.isdisjoint(&Value::str("c")).unwrap());
     /// ```
     pub fn isdisjoint(&self, other: &Value) -> Result<bool> {
         let o = Symbols::convert(other)?;
@@ -690,11 +689,10 @@ impl Symbols {
             if n.binary(BinOp::Gt, &int(0))?.truthy()?
                 && o.count(*c).binary(BinOp::Gt, &int(0))?.truthy()?
             {
-                // Python's docstring says this tests disjointness; the code returns whether they *intersect*.
-                return Ok(true);
+                return Ok(false);
             }
         }
-        Ok(false)
+        Ok(true)
     }
 
     /// `str(self)`: all symbols in unary form (i.e. including duplicates) in ascending order; negative elements are

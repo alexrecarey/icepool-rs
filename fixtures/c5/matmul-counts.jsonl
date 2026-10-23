@@ -1,4 +1,3 @@
-{"program":{"op":"matmul","n":{"op":"die","outcomes":[1001]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"RecursionError"}}
 {"program":{"op":"matmul","n":{"op":"die","outcomes":[800]},"die":{"op":"die","outcomes":[0]}},"expected":{"ok":true,"die":[[0,1]]}}
 {"program":{"op":"matmul","n":{"op":"die","outcomes":[-799]},"die":{"op":"die","outcomes":[1]}},"expected":{"ok":true,"die":[[-799,1]]}}
 {"program":{"op":"matmul","n":{"op":"die","outcomes":[{"int":"99999999999999999999"}]},"die":{"op":"d","sides":2}},"expected":{"ok":false,"error":"ValueError"}}

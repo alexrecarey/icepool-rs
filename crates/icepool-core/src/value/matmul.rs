@@ -9,41 +9,6 @@ use rustc_hash::FxHashMap;
 use crate::error::{Error, Result};
 use crate::{Die, Quantity, Value};
 
-/// `Die._sum_all(k)` recurses once per roll down to the largest sum already in the die's `_sum_cache`, so a big
-/// enough step raises RecursionError (Python's limit is 1000 frames; at top level `Die([n]) @ d1` fails from about
-/// n = 985). Recursing this deep always works, whatever the caller's stack...
-const SAFE_RECURSION: u64 = 800;
-/// ...and this deep never does.
-const SURE_RECURSION_ERROR: u64 = 1000;
-
-/// Whether Python's `_sum_all` would hit the recursion limit computing these counts in order, given the cache it
-/// fills as it goes. A step between the two limits depends on the caller's stack, which the port cannot know, so
-/// it is unimplemented. (The port assumes the right die's `_sum_cache` starts empty, but it lives on the die
-/// object, and `icepool.d` caches its dice, so a Python process that summed `d(6)` before has it warm. Only a
-/// recursion past the limit can tell the difference.)
-fn check_sum_all_recursion(counts: &[(i64, Quantity)]) -> Result<()> {
-    // The largest positive roll count cached so far (1 is a base case, cached for free).
-    let mut cached = 1;
-    for (count, _) in counts {
-        let k = count.unsigned_abs();
-        if k > cached {
-            let depth = k - cached + u64::from(*count < 0);
-            if depth >= SURE_RECURSION_ERROR {
-                return Err(Error::RecursionLimit(
-                    "maximum recursion depth exceeded in _sum_all".into(),
-                ));
-            }
-            if depth > SAFE_RECURSION {
-                return Err(Error::Unported(
-                    "n @ die close to Python's recursion limit".into(),
-                ));
-            }
-            cached = k;
-        }
-    }
-    Ok(())
-}
-
 /// `n.__matmul__(die)` once both operands are dice (`Die.__matmul__` after `implicit_convert_to_die`). The
 /// counts' Python types (float counts, Fractions) matter.
 ///
@@ -64,7 +29,6 @@ pub fn matmul_dice(n: &Die<Value>, die: &Die<Value>) -> Result<Die<Value>> {
         counts.push((count, quantity.clone()));
         kinds.push(kind);
     }
-    check_sum_all_recursion(&counts)?;
     if kinds.iter().all(|k| *k == CountKind::Int) {
         return die.matmul(&counts);
     }
@@ -161,7 +125,9 @@ fn die_count(outcome: &Value) -> Result<(i64, CountKind)> {
             )))
         }
     };
-    // Beyond i64, `_sum_all` recurses past Python's limit.
+    // Beyond i64: `_sum_all` used to recurse past Python's limit here. Since it became iterative
+    // (https://github.com/HighDiceRoller/icepool/pull/265) Python grinds on until memory runs out; the port still
+    // raises (DIVERGENCES.md K4).
     let count = i64::try_from(int).map_err(|_| {
         Error::RecursionLimit("maximum recursion depth exceeded in _sum_all".into())
     })?;

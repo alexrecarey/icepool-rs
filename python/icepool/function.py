@@ -275,7 +275,11 @@ def pointwise_max(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
             arguments.
     """
     if len(more_args) == 0:
-        args = arg0
+        if isinstance(arg0, icepool.Die):
+            # A single die is itself, not an iterable of its outcomes.
+            args = (arg0, )
+        else:
+            args = arg0
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)
@@ -327,7 +331,11 @@ def pointwise_min(arg0, /, *more_args: 'icepool.Die[T]') -> 'icepool.Die[T]':
             arguments.
     """
     if len(more_args) == 0:
-        args = arg0
+        if isinstance(arg0, icepool.Die):
+            # A single die is itself, not an iterable of its outcomes.
+            args = (arg0, )
+        else:
+            args = arg0
     else:
         args = (arg0, ) + more_args
     args = harmonize_denominators(args)
@@ -392,12 +400,13 @@ def max_outcome(*args: 'Iterable[T | icepool.Population[T]] | T') -> T:
 
 def consecutive(*args: Iterable[int]) -> Sequence[int]:
     """A minimal sequence of consecutive ints covering the argument sets."""
+    # Materialize the arguments since they are chained twice.
+    args = tuple(tuple(arg) for arg in args)
     # icepool-rs: runs in the Rust core, given what each of the two chains
-    # yields (an iterator argument is exhausted by the first).
+    # yields (both the same since the arguments are materialized).
     if icepool.backend.RUST:
-        first = list(itertools.chain(*args))
-        second = list(itertools.chain(*args)) if first else []
-        return icepool.backend.RUST.consecutive(first, second)
+        items = list(itertools.chain(*args))
+        return icepool.backend.RUST.consecutive(items, items)
     start = min((x for x in itertools.chain(*args)), default=None)
     if start is None:
         return ()

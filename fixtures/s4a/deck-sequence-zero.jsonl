@@ -1,0 +1,3 @@
+{"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"deals":0},"expected":{"ok":true,"die":[[{"tuple":[]},1]]}}
+{"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[],"times":1},"deals":0},"expected":{"ok":true,"die":[[{"tuple":[]},1]]}}
+{"program":{"op":"deck_sequence","deck":{"op":"deck","outcomes":[1,2,2],"times":1},"deals":1},"expected":{"ok":true,"die":[[{"tuple":[1]},1],[{"tuple":[2]},2]]}}

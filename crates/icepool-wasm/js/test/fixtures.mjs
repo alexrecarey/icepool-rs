@@ -741,7 +741,7 @@ export function complexParts(repr) {
 }
 
 /** Two complex repr leaves whose parts are each within FLOAT_ULPS. Complex values have no wire type of their own,
- * so this goes beyond compare.py, which compares them as text (see dev/QUESTIONS.md "B9"). */
+ * so this goes beyond compare.py, which compares them as text. */
 function complexClose(a, b) {
   const [pa, pb] = [complexParts(a), complexParts(b)];
   return pa !== undefined && pb !== undefined && floatClose(pa[0], pb[0]) && floatClose(pa[1], pb[1]);

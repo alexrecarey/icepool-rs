@@ -855,14 +855,12 @@ export class Symbols {
   issuperset(other: unknown): boolean {
     return this.method("issuperset", other) as boolean;
   }
-  /** `isdisjoint(other)`: meant to be whether `this` has no positive elements in common with the other, but
-   * Python's returns whether some symbol is positive in both (the opposite), and the port copies that
-   * (DIVERGENCES.md).
+  /** `isdisjoint(other)`: whether `this` has no positive elements in common with the other.
    *
    * @example
    * ```ts
-   * new Symbols("aab").isdisjoint("bc"); //=> true
-   * new Symbols("aab").isdisjoint("cd"); //=> false
+   * new Symbols("aab").isdisjoint("bc"); //=> false
+   * new Symbols("aab").isdisjoint("cd"); //=> true
    * ```
    */
   isdisjoint(other: unknown): boolean {

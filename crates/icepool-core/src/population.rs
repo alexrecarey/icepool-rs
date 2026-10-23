@@ -96,7 +96,7 @@ impl<O: OutcomeOrder> Die<O> {
     /// Python's `quantities(comparison)`: the quantities fitting the comparison for each outcome in sorted order:
     /// `'<='` gives the CDF. ([`Die::quantities`] is the plain iterator of the typed API.)
     ///
-    /// `'>='` accumulates `values()[:-1]` downwards from the denominator, so an empty die has one: `(0,)`.
+    /// `'>='` accumulates `values()[:-1]` downwards from the denominator; an empty die has none.
     ///
     /// ```
     /// use icepool_core::{Comparison, Die, Quantity};
@@ -105,8 +105,8 @@ impl<O: OutcomeOrder> Die<O> {
     /// // Python's `die.quantities('<=')` is `(1, 3, 4)`, `'>'` gives `(3, 1, 0)`.
     /// assert_eq!(quantities(Comparison::Le), ["1", "3", "4"]);
     /// assert_eq!(quantities(Comparison::Gt), ["3", "1", "0"]);
-    /// // `Die([]).quantities('>=')` is `(0,)`.
-    /// assert_eq!(Die::<i64>::from_iter([]).quantities_by(Comparison::Ge), [Quantity::ZERO]);
+    /// // `Die([]).quantities('>=')` is `()`.
+    /// assert!(Die::<i64>::from_iter([]).quantities_by(Comparison::Ge).is_empty());
     /// ```
     pub fn quantities_by(&self, comparison: Comparison) -> Vec<Quantity> {
         let values = || self.items().iter().map(|(_, q)| q);
@@ -115,6 +115,7 @@ impl<O: OutcomeOrder> Die<O> {
         match comparison {
             Comparison::Eq => values().cloned().collect(),
             Comparison::Le => self.quantities_le(),
+            Comparison::Ge if self.is_empty() => vec![],
             Comparison::Ge => {
                 let mut out = vec![den.clone()];
                 for q in values().take(self.len().saturating_sub(1)) {
