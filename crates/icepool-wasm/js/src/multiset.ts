@@ -2221,11 +2221,13 @@ export function sameExpression(a: Input, b: Input): boolean {
   if (x.kind === "weightless" && y.kind === "weightless") return sameExpression(x.inner, y.inner);
   // `(type, arg_index, star_index)`.
   if (x.kind === "parameter" && y.kind === "parameter") return x.argIndex === y.argIndex && x.starIndex === y.starIndex;
-  // `(MultisetTupleIndex, index)` and `(MultisetTupleSlice, (start, step, stop))`: the child is left out.
-  if (x.kind === "tupleIndex" && y.kind === "tupleIndex") return keyPart(x.index) === keyPart(y.index);
+  // `((MultisetTupleIndex, index), child.hash_key)` and `((MultisetTupleSlice, (start, step, stop)), child.hash_key)`.
+  if (x.kind === "tupleIndex" && y.kind === "tupleIndex") {
+    return keyPart(x.index) === keyPart(y.index) && sameExpression(x.child, y.child);
+  }
   if (x.kind === "tupleSlice" && y.kind === "tupleSlice") {
     const [a, b] = [[...x.bounds], [...y.bounds]];
-    return wasm((w) => w.dictKeys([a, b]))[1] === 0;
+    return wasm((w) => w.dictKeys([a, b]))[1] === 0 && sameExpression(x.child, y.child);
   }
   // `(MultiDeal, deck, hand_groups)`; a tuple parameter's as any parameter's.
   if (x.kind === "multiDeal" && y.kind === "multiDeal") return wasm(() => x.md.sameKey(y.md));

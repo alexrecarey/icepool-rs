@@ -6,9 +6,9 @@
 //! otherwise. The truth value takes no part in `==` or hashing (Python hashes `(Vector, self._data)`), so when equal
 //! vectors merge in a die, the first one's truth value is kept, as in a Python dict.
 //!
-//! The truth value is whatever `op(self._data, other._data)` returned, and Python's tuple comparison returns the
-//! comparison of the first differing elements *as is*: for vectors of vectors that is a vector, not a bool, and
-//! `bool()` then raises (`__bool__ should return bool`). So a die of nested vectors does not sort.
+//! The truth value follows Python's tuple comparison (the first pair of elements that differ decides, else the
+//! lengths), converted to `bool` so that nested vectors compare, and reusing the elementwise results so that
+//! comparing nested vectors takes polynomial rather than exponential time (`lexicographic_truth`).
 //!
 //! These are Python methods in icepool, so nested vectors cost Python frames and raise `RecursionError` where
 //! Python's stack would overflow (`recursion.rs`): the operator (`__add__`) and `binary_operator`, then
@@ -77,12 +77,60 @@ impl VecOp {
         }
     }
 
-    fn is_comparison(self) -> bool {
-        matches!(
-            self,
-            VecOp::Eq(_) | VecOp::Bin(BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
-        )
+    /// For a comparison, how its truth value is decided (`Vector.binary_operator`'s `compare_for_truth`).
+    fn lexicographic(self) -> Option<Lexicographic> {
+        match self {
+            VecOp::Eq(false) => Some(Lexicographic::Eq),
+            VecOp::Eq(true) => Some(Lexicographic::Ne),
+            VecOp::Bin(BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) => Some(Lexicographic::Order),
+            VecOp::Bin(_) => None,
+        }
     }
+}
+
+/// Which comparison a truth value is for, as `_lexicographic_truth` tells them apart (`op is operator.eq`, `op is
+/// operator.ne`, anything else).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lexicographic {
+    /// `operator.eq`: `False` at the first difference.
+    Eq,
+    /// `operator.ne`: `True` at the first difference.
+    Ne,
+    /// Any other comparison: its result on the first difference, as a `bool`.
+    Order,
+}
+
+/// `_lexicographic_truth(left, right, op, elementwise)`: the truth value of `op(left._data, right._data)` as a
+/// `bool`. As Python's tuple comparison, the first pair of elements that are not identical and not equal decides,
+/// otherwise the lengths do; unlike it, the deciding comparison is converted to `bool`. Already-computed `==`
+/// results (`elementwise`) are reused, so `==` on nested vectors takes linear time.
+fn lexicographic_truth(
+    left: &[Value],
+    right: &[Value],
+    kind: Lexicographic,
+    op: &impl Fn(&Value, &Value) -> Result<Value>,
+    elementwise: Option<&[Value]>,
+) -> Result<bool> {
+    for (i, (x, y)) in left.iter().zip(right).enumerate() {
+        // Rust's `==` stands in for `x is y`, as in `Value::first_difference`.
+        if x == y {
+            continue;
+        }
+        let equal = match (kind, elementwise) {
+            (Lexicographic::Eq, Some(e)) => e[i].truthy()?,
+            _ => x.py_eq(y)?,
+        };
+        if equal {
+            continue;
+        }
+        return match (kind, elementwise) {
+            (Lexicographic::Eq, _) => Ok(false),
+            (Lexicographic::Ne, _) => Ok(true),
+            (Lexicographic::Order, Some(e)) => e[i].truthy(),
+            (Lexicographic::Order, None) => op(x, y)?.truthy(),
+        };
+    }
+    op(&Value::from(left.len() as i64), &Value::from(right.len() as i64))?.truthy()
 }
 
 impl Vector {
@@ -246,7 +294,7 @@ impl Vector {
         self.binary_operator(
             other,
             |x, y| op.apply(x, y),
-            op.is_comparison(),
+            op.lexicographic(),
             compare_non_vector,
         )
     }
@@ -255,17 +303,17 @@ impl Vector {
     ///
     /// If the other operand is also a `Vector`, the operator is applied to each pair of elements from `self` and
     /// `other`. Both must have the same length. Otherwise the other operand is broadcast to each element of `self`.
-    /// For a comparison (`compare_for_truth`), the result also has a truth value based on lexicographic ordering:
-    /// `op(self._data, other._data)`, computed first.
+    /// For a comparison (`compare_for_truth`, which says which), the result also has a truth value based on
+    /// lexicographic ordering (`lexicographic_truth`), computed after the elementwise results.
     ///
     /// ```
-    /// use icepool_core::value::{BinOp, Vector};
+    /// use icepool_core::value::{BinOp, Lexicographic, Vector};
     /// use icepool_core::Value;
     /// let v = Vector::new(vec![Value::from(1), Value::from(2)]);
     /// // `Vector((1, 2)).binary_operator(Vector((1, 3)), operator.lt, compare_for_truth=True)`:
     /// // `Vector((False, True))`, whose truth value is `(1, 2) < (1, 3)`.
     /// let other = Value::Vector(Vector::new(vec![Value::from(1), Value::from(3)]));
-    /// let lt = v.binary_operator(&other, |x, y| x.binary(BinOp::Lt, y), true, None).unwrap();
+    /// let lt = v.binary_operator(&other, |x, y| x.binary(BinOp::Lt, y), Some(Lexicographic::Order), None).unwrap();
     /// assert_eq!(lt.to_string(), "Vector((False, True))");
     /// assert!(lt.truthy().unwrap());
     /// ```
@@ -273,7 +321,7 @@ impl Vector {
         &self,
         other: &Value,
         op: impl Fn(&Value, &Value) -> Result<Value>,
-        compare_for_truth: bool,
+        compare_for_truth: Option<Lexicographic>,
         compare_non_vector: Option<Value>,
     ) -> Result<Value> {
         let data = self.data()?;
@@ -287,24 +335,28 @@ impl Vector {
             return Ok(Value::Vector(Vector::with_truth(items, compare_non_vector)));
         };
         let odata = o.data()?;
-        let truth = if compare_for_truth {
-            Some(op(
-                &Value::Tuple(data.clone()),
-                &Value::Tuple(odata.clone()),
-            )?)
-        } else {
-            None
-        };
         if data.len() == odata.len() {
-            let _frames = frames(2)?;
-            let items = data
-                .iter()
-                .zip(odata.iter())
-                .map(|(x, y)| op(x, y))
-                .collect::<Result<Vec<_>>>()?;
+            let items = {
+                // `Vector.__init__` and the generator expression.
+                let _frames = frames(2)?;
+                data.iter()
+                    .zip(odata.iter())
+                    .map(|(x, y)| op(x, y))
+                    .collect::<Result<Vec<_>>>()?
+            };
+            let truth = match compare_for_truth {
+                Some(kind) => {
+                    // `_lexicographic_truth`.
+                    let _frames = frames(1)?;
+                    Some(Value::Bool(lexicographic_truth(data, odata, kind, &op, Some(&items))?))
+                }
+                None => None,
+            };
             Ok(Value::Vector(Vector::with_truth(items, truth)))
-        } else if let Some(truth) = truth {
-            Ok(Value::Vector(Vector::truth_only(truth)))
+        } else if let Some(kind) = compare_for_truth {
+            let _frames = frames(1)?;
+            let truth = lexicographic_truth(data, odata, kind, &op, None)?;
+            Ok(Value::Vector(Vector::truth_only(Value::Bool(truth))))
         } else {
             Err(Error::IndexOutOfRange(format!(
                 "Binary operators on Vectors are only valid if both are the same length ({} vs. {}).",

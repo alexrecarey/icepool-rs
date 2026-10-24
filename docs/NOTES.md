@@ -1,4 +1,4 @@
-# Notes for the next iteration
+# Implementation notes: decisions and gotchas
 
 Gotchas, decisions and layout notes, written by the iterations themselves. Keep it current: fix or delete what
 turns out wrong. Newest decisions at the top of each section.
@@ -43,9 +43,8 @@ turns out wrong. Newest decisions at the top of each section.
     `expression/` (tree + conversions in mod.rs; operators, keep, mixture, identity, prepare, format), and core
     `value/ops/` (dispatch in mod.rs; integer, float, fraction, sequence). Add a node to the table of its grammar
     file's area.
-  - Found while documenting, not fixed: on the Python side `n @ die` is history-dependent (after `500 @ d6` the
-    oracle answers `1000 @ d6`; the Rust backend raises NotImplementedError), and on a fresh process `1000 @ die`
-    gives NotImplementedError rather than the RecursionError DIVERGENCES.md K4 describes (that comes at `2000`).
+  - `n @ die` no longer depends on history or the recursion limit: `_sum_all` is iterative upstream
+    (HighDiceRoller/icepool#265) and the port's recursion check is gone (DIVERGENCES.md K4).
 
 - **Rust tests of the typed core (C7, design section 9.7).** Plain `cargo test -p icepool-core` needs no Python.
   - `crates/icepool-core/tests/typed_vs_value.rs`: property tests, each typed `Die<i64>` path (operators,
