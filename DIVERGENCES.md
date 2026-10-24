@@ -217,8 +217,13 @@ def test_again_count_matmul():
 `evaluate_agains_using_count` leaves `Reroll` (and empty dice) out of `not_again_die`, but `make_step_outcome`
 treats every outcome that is not an `AgainExpression`, `Reroll` included, as `tupleize(zero, 1, -1)`: a terminal
 roll, later replaced by a roll of `not_again_die`. So `Die([Reroll, 2, Again + 1], again_count=2)` gives `Reroll`
-the weight of a terminal roll instead of rerolling it. In depth mode `Reroll` drops out of each level as usual. The
-port copies it.
+the weight of a terminal roll instead of rerolling it. In depth mode `Reroll` drops out of each level as usual.
+
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/277 (pending merge): `make_step_outcome`
+returns `Reroll` for `Reroll`, `Restart` and empty dice. The port now follows the fix** (core `again/typed.rs`; the
+Python, JS and harness facades leave those outcomes out of the step die). Until `oracle.lock` moves to a release
+with the fix, the pinned oracle disagrees; `fixtures/s3a/again-count-reroll-fixed.jsonl` holds the fixed
+expectations (the old lines in `s3a/again-count-edge-cases.jsonl` that recorded the bug were retired).
 
 Drafted upstream test:
 

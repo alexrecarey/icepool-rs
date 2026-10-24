@@ -1,0 +1,7 @@
+{"program":{"op":"again_count","outcomes":[{"op":"Reroll"},2,{"op":"add","a":{"op":"Again"},"b":1}],"count":2,"depth":null,"end":null},"expected":{"ok":true,"die":[[2,4],[3,3],[4,1]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"Restart"},2,{"op":"add","a":{"op":"Again"},"b":1}],"count":2,"depth":null,"end":null},"expected":{"ok":true,"die":[[2,4],[3,3],[4,1]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"die","outcomes":[{"op":"Reroll"}]},2,{"op":"add","a":{"op":"Again"},"b":1}],"count":2,"depth":null,"end":null},"expected":{"ok":true,"die":[[2,4],[3,3],[4,1]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"Reroll"},2,{"op":"add","a":{"op":"Again"},"b":1}],"count":0,"depth":null,"end":{"op":"Reroll"}},"expected":{"ok":true,"die":[[2,1],[3,1]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"Reroll"},2,{"op":"add","a":{"op":"Again"},"b":1}],"count":1,"depth":null,"end":{"op":"Restart"}},"expected":{"ok":true,"die":[[2,2],[3,1]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"Reroll"},{"op":"Reroll"},{"op":"d","sides":3},{"op":"add","a":{"op":"Again"},"b":1}],"count":3,"depth":null,"end":5},"expected":{"ok":true,"die":[[1,8],[2,12],[3,14],[4,7],[5,3],[6,1],[9,3]]}}
+{"program":{"op":"again_count","outcomes":[{"op":"Reroll"},{"op":"add","a":{"op":"Again"},"b":1}],"count":2,"depth":null,"end":null},"expected":{"ok":false,"error":"TypeError"}}

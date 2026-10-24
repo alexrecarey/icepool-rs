@@ -533,13 +533,14 @@ function againInt(x: unknown, name: string): number {
   return n;
 }
 
+/** `Reroll`, `Restart` or an empty die: left out of the not-again die and the step die alike. */
+const dropsOut = (outcome: unknown) =>
+  outcome === Reroll || outcome === Restart || (outcome instanceof Die && outcome.isEmpty());
+
 /** `compute_not_again_die(outcomes, times)`: a die of the outcomes that are not `Again` expressions (nor `Reroll`
  * or `Restart`, which an empty die equals). */
 function notAgainDie({ outcomes, times }: Items): Die {
-  const kept = outcomes.flatMap((outcome, i) => {
-    const reroll = outcome === Reroll || outcome === Restart || (outcome instanceof Die && outcome.isEmpty());
-    return reroll || outcome instanceof AgainExpression ? [] : [i];
-  });
+  const kept = outcomes.flatMap((outcome, i) => (dropsOut(outcome) || outcome instanceof AgainExpression ? [] : [i]));
   if (kept.length === 0) {
     // `icepool.Die(*zip(*filtered))` with nothing left calls `Die()`.
     throw new IcepoolError("WrongType", "TypeError", "Die.__new__() missing 1 required positional argument: 'outcomes'");
@@ -570,9 +571,12 @@ export function evaluateAgainsUsingCount(items: Items, againCount: unknown, agai
   else if (againEnd === Reroll) againEnd = notAgain;
   const restart = againEnd === Restart;
   const againEndDie = restart ? notAgain : new Die([againEnd as MapResult]);
-  // `make_step_outcome` for each outcome: add_flat, add_not_again, add_again (tupleized by `Die`).
-  const stepOutcomes = wasm((w) => w.againStepOutcomes([...items.outcomes], zero)) as MapResult[];
-  const stepDie = new Die(stepOutcomes, items.times as Int[]);
+  // `make_step_outcome` for each outcome: add_flat, add_not_again, add_again (tupleized by `Die`). It makes the
+  // outcomes that drop out `Reroll` (fixed upstream, see DIVERGENCES.md), so that roll is rerolled rather than
+  // ending a chain: here they are left out.
+  const kept = items.outcomes.flatMap((outcome, i) => (dropsOut(outcome) ? [] : [i]));
+  const stepOutcomes = wasm((w) => w.againStepOutcomes(kept.map((i) => items.outcomes[i]), zero)) as MapResult[];
+  const stepDie = new Die(stepOutcomes, kept.map((i) => items.times[i]) as Int[]);
   return Die.wrap(wasm((w) => w.WasmDie.evaluateAgainsUsingCount(stepDie.w, notAgain.w, zero, count, againEndDie.w, restart)));
 }
 

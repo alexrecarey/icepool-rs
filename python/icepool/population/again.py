@@ -283,10 +283,19 @@ def evaluate_agains_using_count(
     # expressions' functions and `icepool.tupleize` as host callbacks), the
     # `map(step, step_die, repeat=again_count + 1)` chain and `finalize` run
     # in the Rust core.
+    # (Upstream fix: `make_step_outcome` makes `Reroll`, `Restart` and empty
+    # dice `Reroll`, so they drop out of the step die; leaving them out of the
+    # outcomes given to the core is the same.)
     if icepool.backend.RUST:
+        step_items = [(outcome, quantity)
+                      for outcome, quantity in zip(outcomes, times)
+                      if not (outcome in icepool.REROLL_TYPES or
+                              (isinstance(outcome, icepool.Die)
+                               and outcome.is_empty()))]
         return icepool.Die._new_rust(
             icepool.backend.RUST.evaluate_agains_using_count(
-                list(outcomes), times, again_count, zero,
+                [outcome for outcome, _ in step_items],
+                [quantity for _, quantity in step_items], again_count, zero,
                 not_again_die._rust_die(), None if again_end is icepool.Restart
                 else again_end_die._rust_die()))
 
@@ -299,6 +308,11 @@ def evaluate_agains_using_count(
                 )
             return icepool.tupleize(outcome._evaluate(zero), 0,
                                     outcome._again_count() - 1)
+        elif outcome in icepool.REROLL_TYPES or (isinstance(
+                outcome, icepool.Die) and outcome.is_empty()):
+            # Like compute_not_again_die, drop these so the roll is rerolled
+            # rather than counted as a roll that ends the chain.
+            return icepool.Reroll
         else:
             return icepool.tupleize(zero, 1, -1)
 

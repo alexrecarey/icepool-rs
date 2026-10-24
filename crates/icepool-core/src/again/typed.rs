@@ -400,10 +400,12 @@ impl<O: Outcome + OutcomeArith> Die<O> {
             AgainEnd::Restart => None,
         };
         // `make_step_outcome`, "add_flat, add_not_again, add_again": an expression adds its value with `Again`
-        // as zero, and leaves its count of `Again`s pending (the roll itself is done); anything else ends a chain.
+        // as zero, and leaves its count of `Again`s pending (the roll itself is done); `Reroll` and an empty die
+        // drop out, so that roll is rerolled (as in `compute_not_again_die`; fixed upstream, see DIVERGENCES.md);
+        // anything else ends a chain.
         let mut steps = Vec::with_capacity(outcomes.len());
         for outcome in &outcomes {
-            steps.push(DieArg::Outcome(match outcome {
+            steps.push(match outcome {
                 AgainArg::Again(expr) => {
                     if !expr.is_additive() {
                         return Err(Error::InvalidArgument(
@@ -416,10 +418,12 @@ impl<O: Outcome + OutcomeArith> Die<O> {
                     else {
                         unreachable!("an additive typed expression of outcomes is an outcome")
                     };
-                    (flat, 0, again_count(expr) - 1)
+                    DieArg::Outcome((flat, 0, again_count(expr) - 1))
                 }
-                AgainArg::Other(_) => (zero.clone(), 1, -1),
-            }));
+                AgainArg::Other(DieArg::Reroll) => DieArg::Reroll,
+                AgainArg::Other(DieArg::Die(d)) if d.is_empty() => DieArg::Reroll,
+                AgainArg::Other(_) => DieArg::Outcome((zero.clone(), 1, -1)),
+            });
         }
         let step_die = Die::new(steps, times)?;
         let steps = step_die.items();
@@ -755,11 +759,11 @@ mod tests {
             (62, 1),
         ]);
         assert_eq!(ended.unwrap(), want);
-        // `Die([1, Reroll, 3 + Again], [1, 1, 2], again_count=1, again_end=d(2))`: `Reroll` ends a chain as a
-        // step, but is not among the outcomes rolled.
+        // `Die([1, Reroll, 3 + Again], [1, 1, 2], again_count=1, again_end=d(2))`: `Reroll` drops out of every
+        // roll (fixed upstream; it used to end a chain as a step).
         let outcomes = vec![1.into(), AgainOutcome::Reroll, (3i64 + Again::new()).into()];
         let mixed = count_mode(outcomes, &[1, 1, 2], 1, AgainEnd::Die(d(2)));
-        assert_eq!(mixed.unwrap(), die(&[(1, 4), (4, 2), (7, 1), (8, 1)]));
+        assert_eq!(mixed.unwrap(), die(&[(1, 3), (4, 2), (7, 2), (8, 2)]));
     }
 
     #[test]
