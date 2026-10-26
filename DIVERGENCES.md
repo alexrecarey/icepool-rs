@@ -1,17 +1,14 @@
 # Divergences
 
-Python icepool behaviour the port copies but which looks wrong. Each entry: what, where in icepool, a drafted
-upstream test. Alex decides what goes upstream.
+Python icepool behaviour the port copies but which looks wrong, and the places where the port is not bit-exact.
+Each entry: what, where in icepool, a drafted upstream test. Alex decides what goes upstream; the maintainer's
+replies are in [issue #1](https://github.com/alexrecarey/icepool-rs/issues/1).
 
 ## The oracle itself
 
-The oracle is pinned (oracle.lock) to alexrecarey/icepool `fix/multiset-bugs`: upstream v2.2.2, plus upstream's
-next commit (reinstating `any()` evaluation), plus three fixes Alex is sending upstream:
-- joint `@multiset_function` dropping all but the last outer preparation (evaluator/multiset_function.py)
-- `additive_union` with more than two arguments (operator/binary.py)
-- `Symbols` lookups adding missing symbols (collection/symbols.py)
-
-Those three are bugs, not semantics, so the port follows the fixed behaviour. When upstream releases them, re-pin.
+The oracle is pinned (oracle.lock) to HighDiceRoller/icepool `main`, synced into alexrecarey/icepool `main` so CI can
+check it out. It includes every fix below (merged upstream October 2026) and the three earlier ones from
+alexrecarey/icepool `fix/multiset-bugs` (HighDiceRoller/icepool#262).
 
 ## Where the port is not bit-exact
 
@@ -29,11 +26,198 @@ phase from `atan2` and `log`, then takes `len * sin(phase)`; when `sin(phase)` i
 one ULP of phase is many ULPs of the imaginary part (`complex(-0.00024988505290350285, -0.5) ** complex(-5.0,
 2.5)`: 23 ULP).
 
-## Found during the port
+
+## Open
+
+Python behaviour the port still copies.
+
+### The global `PoolSource` cache merges outcome spellings across pools (K5)
+
+**Maintainer ([issue #1](https://github.com/alexrecarey/icepool-rs/issues/1)):** keep as is; normalising `True` to `1` for all outcomes is an option if it ever gets in the way in Rust.
+
+`PoolSource._new_raw` (generator/pool.py) is a `@cache`d classmethod keyed by `(dice, outcomes, keep_tuple)`,
+compared with `==`. `True == 1`, so after any pool popped down to outcomes `(1,)`, popping a pool whose remaining
+outcomes are `(True,)` returns the cached source with `(1,)` (and likewise dice spelled `Die([1])` for
+`Die([True])`). Results then depend on what the process computed before. The port has no global cache and gives
+what a fresh process gives; the `pool_pop` node calls `icepool.Pool.clear_cache()` first so the oracle does too.
+The evaluator (K6) will meet the same thing in the outcome types of its results.
+
+Drafted upstream test:
+
+```python
+def test_pool_source_cache_keeps_spelling():
+    list(Pool([Die([1, 2])])._make_source().pop(Order.Descending, 2))
+    for source, _, _ in Pool([Die([True, 2])])._make_source().pop(Order.Descending, 2):
+        assert type(source.outcomes()[0]) is bool  # fails: the cached source has (1,)
+```
+
+
+### `d6 @ Again` is additive but every `@` raises `TypeError` in `again_count` mode (S3a)
+
+**Maintainer:** intended: `d(6) @ Again` should push d6 `Again`s onto the again_count queue, which needs `_again_count` restructured (a feature, not a fix). `Again @ 2` and `Again @ 1` need not work in again_count mode.
+
+`AgainExpression.__rmatmul__` marks `d6 @ Again` additive (upstream's own `test_is_additive` asserts it), but
+`_again_count` replaces every argument that is not an `Again` with `0` (`_again_count_arg`), so it computes
+`operator.matmul(0, 1)`: `TypeError: unsupported operand type(s) for @: 'int' and 'int'`. `2 @ Again` fails the
+same way. Presumably the non-Again argument was meant to be kept as-is (`d6 @ 1`). The port copies the TypeError.
+
+Drafted upstream test:
+
+```python
+def test_again_count_matmul():
+    result = Die([1, 2, d(2) @ Again], again_count=1)
+    expected = Die([1, 2, d(2) @ Die([1, 2])])  # or whatever again_count should give
+    assert result == expected
+```
+
+### `Symbols.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S5a)
+
+**Maintainer:** upstream will raise its required Python with the next release; then CI's `PYTHON_VERSION` moves to 3.14 and this entry goes.
+
+They are `functools.reduce(operator.add, args, initial=self)`, and `reduce` only accepts `initial` as a keyword
+from Python 3.14: on the oracle's Python (3.13) every call raises `TypeError: reduce() takes no keyword arguments`,
+even with no arguments. Copied (program/collection.rs); the facade runs the same Python, so it raises the same way.
+`reduce(operator.add, args, self)` works everywhere.
+
+Drafted upstream test:
+
+```python
+def test_symbols_multi_argument_methods():
+    assert Symbols('a').additive_union('b', 'b') == Symbols('abb')
+    assert Symbols('abc').difference('a', 'b') == Symbols('c')
+    assert Symbols('aab').intersection('ab') == Symbols('ab')
+    assert Symbols('a').union() == Symbols('a')
+```
+
+### `Deck.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S4)
+
+**Maintainer:** as for Symbols: fixed by upstream raising its required Python.
+
+The same `functools.reduce(..., initial=self)` as `Symbols`' (above), in population/deck.py: on the oracle's
+Python 3.13 every call raises `TypeError: reduce() takes no keyword arguments`. Copied (program/deck.rs
+`deck_method`); the facade runs upstream's Python here, so it raises the same way.
+
+Drafted upstream test:
+
+```python
+def test_deck_multi_argument_methods():
+    deck = Deck([1, 2, 2])
+    assert deck.additive_union([3], [3]) == Deck([1, 2, 2, 3, 3])
+    assert deck.difference([2], [1]) == Deck([2])
+    assert deck.intersection([2, 2, 3]) == Deck([2, 2])
+    assert deck.union() == deck
+```
+
+### `==` between dice of vectors of different lengths only has a truth value (S5a)
+
+**Maintainer:** intended; may later return a `bool` instead of `VectorWithTruthOnly`.
+
+`Vector((1,)) == Vector((1, 2))` is a `VectorWithTruthOnly`, whose hash raises `ValueError` (it reads `_data`), so
+the data of `Die([Vector((1,))]) == Die([Vector((1, 2))])` raises, while its truth value (`equals`) works. The port
+keeps the error for whoever reads the data (`PValue::DieWithTruthError`).
+
+Drafted upstream test:
+
+```python
+def test_die_of_vectors_eq_different_lengths():
+    result = Die([Vector((1,))]) == Vector((1, 2))
+    assert not result
+    assert result.equals(Die([False]))
+```
+
+### `d` / `z` are `@cache`d and keyed by `==`, so `z(Fraction(1))` succeeds after `z(True)` (S5)
+
+**Maintainer:** accepted as is (not worth the type-checking complexity).
+
+function.py `d(sides)` and `z(sides)` are wrapped in `functools.cache`, which looks arguments up by hash and `==`
+before the body runs. A lone `int` argument is its own key, but any other type is keyed as a one-element list, and
+`[True] == [1.0] == [Fraction(1)]` (equal hashes too). So once `z(True)` is cached, `z(1.0)` and `z(Fraction(1))`
+return that die instead of raising `TypeError('sides must be an int.')`; in a fresh process (or after only `z(1)`)
+they raise. Results then depend on what the process computed before (the fresh-seed fuzz met it: a long-lived
+oracle). The port has no cross-call cache and gives what a fresh process gives; the `d`, `z`, `dz_attr`, `d_pool`
+and `z_pool` nodes call `fresh_dz()` (harness/grammar/basic.py: `d.cache_clear()`, `z.cache_clear()`) first so the
+oracle does too (fixtures/s5/dz-cache runs the sequence in one process). The facade keeps upstream's `@cache`.
+
+Drafted upstream test:
+
+```python
+def test_d_rejects_non_int_after_cache():
+    icepool.d(True)
+    with pytest.raises(TypeError):
+        icepool.d(1.0)  # fails: returns the cached d(True)
+```
+
+### Values nested ~10000 deep raise `RecursionError` where CPython may still answer (R1)
+
+**Maintainer:** accepted as is (maximum nesting is not a goal).
+
+CPython recurses on nested tuples in C: comparison and `repr` raise `RecursionError` from its C recursion limit
+(`Py_C_RECURSION_LIMIT`, 10000 in 3.13: `t == u` for tuples nested 9998 deep, `str(Die([t]))` from 9993,
+`Die([t, u])` from 9996), and hashing has no limit at all, so `Die([t])` works for a tuple nested 100000 deep
+(and crashes the interpreter somewhere beyond). The port recurses natively and must not overflow its stack, so
+every recursion on a nested value takes a level (`value/recursion.rs`) and raises `RecursionError` past 10000
+levels *or* 6 MiB of stack (1000 levels / 512 KiB in WASM). So: anything on a tuple nested more than 10000 deep
+raises (`Die([t])`, `tupleize` chains, `map(lambda s: (s,), repeat=n)` states), and near 10000 the exact level
+differs from CPython's by a few (each CPython operation adds its own C levels; the port counts tuple levels
+only). With `sys.setrecursionlimit` raised far, Vector operators and evaluations over many outcomes (one level
+per outcome) also raise from the stack budget, where Python continues (or crashes: `Die(range(20000)).pool(1)
+.sum()` at limit 100000 segfaults the oracle). Not a Python bug; listed so the threshold differences are known.
+
+### `x in symbols` is True for anything with a `len()` (C6g)
+
+**Not reported upstream yet** (found after issue #1).
+
+`Symbols` is a `Mapping[str, int]` without its own `__contains__`, so `in` is `Mapping.__contains__`: `self[key]`,
+False only on `KeyError`. But `Symbols.__getitem__` never raises `KeyError`: a one-character key missing from the
+symbols counts 0, any other key gives a (sub-)Symbols. So `'z' in Symbols('ab')` is True, as is `(1, 2) in
+Symbols('ab')`, and `1 in Symbols('ab')` raises `TypeError` (`len(1)`). It shows wherever a Symbols is the
+collection of a selection (`die.reroll(Symbols('ab'), ...)`, `die.is_in(...)`, `to_one_hot(...)`, where
+`symbols.index` is then `symbols['index']`, a Symbols, and calling it raises `TypeError`). The port copies it
+(harness map.rs `contains`, js die.ts `memberships`).
+
+Drafted upstream test:
+
+```python
+def test_symbols_contains_only_present_symbols():
+    assert 'a' in Symbols('ab')
+    assert 'z' not in Symbols('ab')  # fails: __getitem__ returns 0 instead of raising KeyError
+```
+
+### `n @ die` with a count beyond i64 (K4, after the fix)
+
+**Not reported upstream** (a port limit, not an icepool bug).
+
+Since HighDiceRoller/icepool#265 `_sum_all` loops, so a count beyond i64 makes Python loop until it runs out of
+memory, where the port raises `RecursionError` straight away. A non-integral count still recurses forever in both.
+
+## Fixed upstream
+
+The port follows the fixed behaviour; old fixture lines that recorded the bug were retired. Each entry below keeps its original analysis.
+
+| Divergence | Upstream PR |
+|---|---|
+| A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3) | [#268](https://github.com/HighDiceRoller/icepool/pull/268) |
+| `n @ die` raises RecursionError for n above ~985 (K4) | [#265](https://github.com/HighDiceRoller/icepool/pull/265) |
+| `middle(keep)` with `keep` above the size keeps only the top roll (K5) | [#263](https://github.com/HighDiceRoller/icepool/pull/263) |
+| Sources with opposite `KeepSkip` preferences evaluate wrongly (`Order.Any` pop order) (K6) | [#264](https://github.com/HighDiceRoller/icepool/pull/264) |
+| `quantities('>=')` of an empty population is `(0,)`, so `probabilities('>=')` raises (S2a) | [#270](https://github.com/HighDiceRoller/icepool/pull/270) |
+| `pad_to_denominator` raises `KeyError` for an absent outcome when nothing needs padding (S2a) | [#271](https://github.com/HighDiceRoller/icepool/pull/271) |
+| Formatting a die with no columns raises `IndexError` (S2b) | [#272](https://github.com/HighDiceRoller/icepool/pull/272) |
+| `Reroll` and dice among `again_count` outcomes count as rolls that end the chain (S3a) | [#277](https://github.com/HighDiceRoller/icepool/pull/277) |
+| `Break(Reroll)` in `map(repeat)` raises; `mean_time_to_absorb` does not expand multiset arguments (S3b) | [#278](https://github.com/HighDiceRoller/icepool/pull/278) |
+| `Deck.sequence(0)` raises `UnboundLocalError` (S4a) | [#269](https://github.com/HighDiceRoller/icepool/pull/269) |
+| A tuple holding `Reroll` in `Deck(...)` raises `AttributeError` unless its duplicates are 0 (S4a) | [#268](https://github.com/HighDiceRoller/icepool/pull/268) |
+| `MultiDeal.denominator()` is not the total weight of its evaluations for three or more hands (S4b) | [#273](https://github.com/HighDiceRoller/icepool/pull/273) |
+| Hands of different multi-deals are equal expressions (S4d) | [#274](https://github.com/HighDiceRoller/icepool/pull/274) |
+| `Symbols.isdisjoint` returns whether the two *intersect* (S5a) | [#276](https://github.com/HighDiceRoller/icepool/pull/276) |
+| A die of nested vectors cannot be sorted (S5a) | [#275](https://github.com/HighDiceRoller/icepool/pull/275) |
+| `pointwise_max(die)` / `pointwise_min(die)` with a single die iterate its outcomes (S5b) | [#266](https://github.com/HighDiceRoller/icepool/pull/266) |
+| `consecutive(iterator)` raises ValueError (S5b) | [#267](https://github.com/HighDiceRoller/icepool/pull/267) |
+| Vector comparisons take exponential time in Python (R1) | [#275](https://github.com/HighDiceRoller/icepool/pull/275) |
 
 ### A tuple holding `Reroll` raises `AttributeError` in `Die(...)` (K3)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix: the tuple drops out like `Reroll`. Old fixture lines expecting the AttributeError (k3/map-reroll-edge-cases.jsonl:48,203,210, c6c/again-die-args-edge-cases.jsonl:13) were retired; k3/tuple-reroll-drops-out.jsonl has the fixed results.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (merged); the port now follows the fix: the tuple drops out like `Reroll`. Old fixture lines expecting the AttributeError (k3/map-reroll-edge-cases.jsonl:48,203,210, c6c/again-die-args-edge-cases.jsonl:13) were retired; k3/tuple-reroll-drops-out.jsonl has the fixed results.** The text below describes the old behaviour.
 
 `creation_args.expand_arg` sends a tuple through `cartesian_product(*arg)`, which returns `Reroll` itself if any
 element is `Reroll`. `expand_arg` then returns that `Reroll` as if it were a mapping (`if type(arg) == tuple: ...
@@ -58,7 +242,7 @@ def test_tuple_with_reroll_drops_out():
 rolls (it persists on the die object, and `icepool.d` caches its dice, so the outcome depends on history). The
 port copied the raise for steps of 1000 or more and reported anything between 800 and 1000 as unimplemented.
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/265 (pending merge):** `_sum_all` counts down
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/265 (merged):** `_sum_all` counts down
 to the largest cached sum in a loop, then adds one roll at a time, with the same results and cache contents. The
 port (whose `SumCache` was already iterative) drops its recursion check (`value/matmul.rs`); new fixtures in
 fixtures/k4/large-counts.jsonl. Still different: a count beyond i64 raises `RecursionError` in the port, where
@@ -72,25 +256,6 @@ def test_matmul_large_count():
     assert result.equals(icepool.Die([2000]))
 ```
 
-### The global `PoolSource` cache merges outcome spellings across pools (K5)
-
-`PoolSource._new_raw` (generator/pool.py) is a `@cache`d classmethod keyed by `(dice, outcomes, keep_tuple)`,
-compared with `==`. `True == 1`, so after any pool popped down to outcomes `(1,)`, popping a pool whose remaining
-outcomes are `(True,)` returns the cached source with `(1,)` (and likewise dice spelled `Die([1])` for
-`Die([True])`). Results then depend on what the process computed before. The port has no global cache and gives
-what a fresh process gives; the `pool_pop` node calls `icepool.Pool.clear_cache()` first so the oracle does too.
-The evaluator (K6) will meet the same thing in the outcome types of its results.
-
-Drafted upstream test:
-
-```python
-def test_pool_source_cache_keeps_spelling():
-    list(Pool([Die([1, 2])])._make_source().pop(Order.Descending, 2))
-    for source, _, _ in Pool([Die([True, 2])])._make_source().pop(Order.Descending, 2):
-        assert type(source.outcomes()[0]) is bool  # fails: the cached source has (1,)
-```
-
-
 ### `middle(keep)` with `keep` above the size keeps only the top roll (K5)
 
 `KeepGenerator.middle` (generator/keep.py) says "If this is greater than the current keep_size, all are kept", but
@@ -98,7 +263,7 @@ with the same parity it computes `start = (keep_size - keep) // 2`, which is neg
 counts that start from the end: `d6.pool(3).middle(5)` has keep tuple `(0, 0, 1)`, so `d6.middle(3, 5)` is the
 highest of 3d6, not 3d6. (With the other parity and a tie, `middle(4, tie='high')` on 3 dice does keep all.)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/263 (pending merge).** The fix clamps `keep` to
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/263 (merged).** The fix clamps `keep` to
 `keep_size` before the parity check (so `middle(4)` of 3 with the default `tie='error'` now keeps all rather than
 raising), and the port follows it (`keep_tuple::middle_slice`, the facade's `KeepGenerator.middle`). Fixtures from
 before the fix encode the old behaviour (see the PR); new ones are in `fixtures/k5/middle-above-size.jsonl`.
@@ -121,7 +286,7 @@ But `Room.pop` takes the *min* outcome for any `order >= 0` (`if order < 0: ... 
 outcome" (count 0, weight 1), and the sources are never popped: `d4.pool(3)[1:].issubset(d4.pool(3)[:2])` is a die
 with denominator 112 (`{False: 82, True: 30}`), where brute force gives `{False: 3786, True: 310}` over 4096.
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (pending merge):** `evaluate` falls back to
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/264 (merged):** `evaluate` falls back to
 `(Order.Descending, OrderReason.Default)` when the merged order is `Any`. The port follows it (`evaluator/mod.rs`
 `evaluate`, the facade's `MultisetEvaluatorBase.evaluate`); new fixtures in fixtures/k6/opposite-keep-skip.jsonl.
 Old fixture lines that encoded the bug (k6/evaluate.jsonl, k6c/edge_cases.jsonl, t1d/edge-cases.jsonl) were retired. Before the fix: the
@@ -145,7 +310,7 @@ def test_opposite_keep_skip_preferences():
 
 ### `quantities('>=')` of an empty population is `(0,)`, so `probabilities('>=')` raises (S2a)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/270 (pending merge); the port now follows the fix: `()`. Old lines in s2a/statistics.jsonl (and s2b's `csv:q>=` row) are superseded by s2a/empty-quantities-ge.jsonl.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/270 (merged); the port now follows the fix: `()`. Old lines in s2a/statistics.jsonl (and s2b's `csv:q>=` row) are superseded by s2a/empty-quantities-ge.jsonl.** The text below describes the old behaviour.
 
 `Population.quantities('>=')` (population/base.py) is `itertools.accumulate(self.values()[:-1], operator.sub,
 initial=self.denominator())`: with no outcomes that still yields the initial `0`, so an empty die has one `'>='`
@@ -164,7 +329,7 @@ def test_empty_quantities_ge():
 
 ### `pad_to_denominator` raises `KeyError` for an absent outcome when nothing needs padding (S2a)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/271 (pending merge); the port now follows the fix. Old KeyError lines in s2a/statistics.jsonl and s4a are superseded by s2a/pad-to-denominator-absent.jsonl.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/271 (merged); the port now follows the fix. Old KeyError lines in s2a/statistics.jsonl and s4a are superseded by s2a/pad-to-denominator-absent.jsonl.** The text below describes the old behaviour.
 
 `Population.pad_to_denominator(denominator, outcome)` deletes the outcome when its new quantity is zero (`del
 data[outcome]`), even when it was never there: `d6.pad_to_denominator(6, 7)` raises `KeyError: 7` instead of
@@ -180,7 +345,7 @@ def test_pad_to_same_denominator_absent_outcome():
 
 ### Formatting a die with no columns raises `IndexError` (S2b)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/272 (pending merge); the port now follows the fix: one row per outcome. Old IndexError lines in s2b/format.jsonl are superseded by s2b/format-no-columns.jsonl.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/272 (merged); the port now follows the fix: one row per outcome. Old IndexError lines in s2b/format.jsonl are superseded by s2b/format-no-columns.jsonl.** The text below describes the old behaviour.
 
 population/format.py `compute_alignments(rows)` starts with `['>'] * len(rows[0])`. When the column spec selects
 no columns (`f'{d6:md:}'`, `html:`, `bbcode:`), or `*o` unpacks outcomes of length 0 (`Die(['']).format('md:*o')`,
@@ -196,22 +361,6 @@ def test_format_no_columns():
     assert f'{icepool.d6:md:}' == 'Die with denominator 6\n\n|\n|\n' + '|\n' * 6 + '\n'
 ```
 
-### `d6 @ Again` is additive but every `@` raises `TypeError` in `again_count` mode (S3a)
-
-`AgainExpression.__rmatmul__` marks `d6 @ Again` additive (upstream's own `test_is_additive` asserts it), but
-`_again_count` replaces every argument that is not an `Again` with `0` (`_again_count_arg`), so it computes
-`operator.matmul(0, 1)`: `TypeError: unsupported operand type(s) for @: 'int' and 'int'`. `2 @ Again` fails the
-same way. Presumably the non-Again argument was meant to be kept as-is (`d6 @ 1`). The port copies the TypeError.
-
-Drafted upstream test:
-
-```python
-def test_again_count_matmul():
-    result = Die([1, 2, d(2) @ Again], again_count=1)
-    expected = Die([1, 2, d(2) @ Die([1, 2])])  # or whatever again_count should give
-    assert result == expected
-```
-
 ### `Reroll` and dice among `again_count` outcomes count as rolls that end the chain (S3a)
 
 `evaluate_agains_using_count` leaves `Reroll` (and empty dice) out of `not_again_die`, but `make_step_outcome`
@@ -219,7 +368,7 @@ treats every outcome that is not an `AgainExpression`, `Reroll` included, as `tu
 roll, later replaced by a roll of `not_again_die`. So `Die([Reroll, 2, Again + 1], again_count=2)` gives `Reroll`
 the weight of a terminal roll instead of rerolling it. In depth mode `Reroll` drops out of each level as usual.
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/277 (pending merge): `make_step_outcome`
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/277 (merged): `make_step_outcome`
 returns `Reroll` for `Reroll`, `Restart` and empty dice. The port now follows the fix** (core `again/typed.rs`; the
 Python, JS and harness facades leave those outcomes out of the step die). Until `oracle.lock` moves to a release
 with the fix, the pinned oracle disagrees; `fixtures/s3a/again-count-reroll-fixed.jsonl` holds the fixed
@@ -247,8 +396,7 @@ Two small inconsistencies in map_tools, both copied:
 
 **Status (2026-10):**
 
-- `Break(Reroll)` is **fixed upstream in https://github.com/HighDiceRoller/icepool/pull/278 (pending
-  merge): `is_self_loop` and `step_state` treat it exactly as `Reroll`. The port now follows the fix** (core
+- `Break(Reroll)` is **fixed upstream in https://github.com/HighDiceRoller/icepool/pull/278 (merged): `is_self_loop` and `step_state` treat it exactly as `Reroll`. The port now follows the fix** (core
   `map_tools/core_impl.rs`; the new `Target::Restart` keeps `Break(Restart)` raising as before). Note that, like
   plain `Reroll` under `repeat`, a state whose every transition is `Break(Reroll)` counts as absorbing, so the
   drafted test below gives `Die([1])`, not an empty die; the upstream test compares with plain `Reroll` instead.
@@ -277,7 +425,7 @@ def test_mean_time_to_absorb_expands_multisets():
 
 ### `Deck.sequence(0)` raises `UnboundLocalError` (S4a)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/269 (pending merge); the port now follows the fix: `sequence(0)` is `Die([()])`. Old fixture lines expecting UnboundLocalError are superseded by s4a/deck-sequence-zero.jsonl.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/269 (merged); the port now follows the fix: `sequence(0)` is `Die([()])`. Old fixture lines expecting UnboundLocalError are superseded by s4a/deck-sequence-zero.jsonl.** The text below describes the old behaviour.
 
 `Deck.sequence(deals)` (population/deck.py) fills `_sequence_cache` in `for i in range(len(self._sequence_cache),
 deals + 1): ... result = ...; self._sequence_cache.append(result)` and returns `result`, which is only bound inside
@@ -298,7 +446,7 @@ def test_sequence_zero_and_repeated():
 
 ### A tuple holding `Reroll` in `Deck(...)` raises `AttributeError` unless its duplicates are 0 (S4a)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (pending merge); the port now follows the fix (same PR as the `Die(...)` entry). Old fixture lines s4a/deck-edge-cases.jsonl:129,141 that expected the AttributeError were retired.** The text below describes the old behaviour.
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/268 (merged); the port now follows the fix (same PR as the `Die(...)` entry). Old fixture lines s4a/deck-edge-cases.jsonl:129,141 that expected the AttributeError were retired.** The text below describes the old behaviour.
 
 Same root as the `Die(...)` entry above: `expand_arg` hands `Reroll` itself on as the subdata, and
 `merge_duplicates` calls `subdata.items()` on it, but only after `if subdup == 0: continue`. So
@@ -312,7 +460,7 @@ def test_deck_tuple_with_reroll_drops_out():
 
 ### `MultiDeal.denominator()` is not the total weight of its evaluations for three or more hands (S4b)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/273 (pending merge); the port now follows the fix.**
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/273 (merged); the port now follows the fix.**
 The rest of this entry describes the old behaviour.
 
 `MultiDeal._denominator` (generator/multi_deal.py, also `MultiDealSource`) is `comb(deck.size(), total) *
@@ -337,7 +485,7 @@ def test_multi_deal_denominator_three_hands():
 
 ### Hands of different multi-deals are equal expressions (S4d)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/274 (pending merge); the port now follows the fix.**
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/274 (merged); the port now follows the fix.**
 The rest of this entry describes the old behaviour.
 
 `MultisetTupleIndex.hash_key` (expression/multiset_tuple_expression.py) is `(type(self), self._index)`, and
@@ -365,7 +513,7 @@ def test_tuple_index_hash_key_includes_child():
 some symbol is positive in both, the opposite of what the name and the set API mean (`{1}.isdisjoint({1})` is
 False).
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/276 (pending merge); the port now follows
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/276 (merged); the port now follows
 the fix** (core `Symbols::isdisjoint`). Until `oracle.lock` moves to a release with the fix, the pinned oracle disagrees. The two
 old lines in `fixtures/s5a/vector-symbols-edge-cases.jsonl` that recorded the inverted result were retired;
 `fixtures/s5a/symbols-isdisjoint-fixed.jsonl` holds the fixed expectations.
@@ -378,43 +526,9 @@ def test_symbols_isdisjoint():
     assert Symbols('ab').isdisjoint('c')
 ```
 
-### `Symbols.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S5a)
-
-They are `functools.reduce(operator.add, args, initial=self)`, and `reduce` only accepts `initial` as a keyword
-from Python 3.14: on the oracle's Python (3.13) every call raises `TypeError: reduce() takes no keyword arguments`,
-even with no arguments. Copied (program/collection.rs); the facade runs the same Python, so it raises the same way.
-`reduce(operator.add, args, self)` works everywhere.
-
-Drafted upstream test:
-
-```python
-def test_symbols_multi_argument_methods():
-    assert Symbols('a').additive_union('b', 'b') == Symbols('abb')
-    assert Symbols('abc').difference('a', 'b') == Symbols('c')
-    assert Symbols('aab').intersection('ab') == Symbols('ab')
-    assert Symbols('a').union() == Symbols('a')
-```
-
-### `Deck.additive_union`, `difference`, `intersection`, `union` always raise before Python 3.14 (S4)
-
-The same `functools.reduce(..., initial=self)` as `Symbols`' (above), in population/deck.py: on the oracle's
-Python 3.13 every call raises `TypeError: reduce() takes no keyword arguments`. Copied (program/deck.rs
-`deck_method`); the facade runs upstream's Python here, so it raises the same way.
-
-Drafted upstream test:
-
-```python
-def test_deck_multi_argument_methods():
-    deck = Deck([1, 2, 2])
-    assert deck.additive_union([3], [3]) == Deck([1, 2, 2, 3, 3])
-    assert deck.difference([2], [1]) == Deck([2])
-    assert deck.intersection([2, 2, 3]) == Deck([2, 2])
-    assert deck.union() == deck
-```
-
 ### A die of nested vectors cannot be sorted (S5a)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (pending merge); the port now follows the fix.**
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (merged); the port now follows the fix.**
 The rest of this entry describes the old behaviour.
 
 A comparison of two vectors of the same length takes its truth value from `op(self._data, other._data)`, a tuple
@@ -433,21 +547,6 @@ def test_nested_vectors_sort():
     assert die.outcomes() == (Vector((Vector((1,)),)), Vector((Vector((2,)),)))
 ```
 
-### `==` between dice of vectors of different lengths only has a truth value (S5a)
-
-`Vector((1,)) == Vector((1, 2))` is a `VectorWithTruthOnly`, whose hash raises `ValueError` (it reads `_data`), so
-the data of `Die([Vector((1,))]) == Die([Vector((1, 2))])` raises, while its truth value (`equals`) works. The port
-keeps the error for whoever reads the data (`PValue::DieWithTruthError`).
-
-Drafted upstream test:
-
-```python
-def test_die_of_vectors_eq_different_lengths():
-    result = Die([Vector((1,))]) == Vector((1, 2))
-    assert not result
-    assert result.equals(Die([False]))
-```
-
 ### `pointwise_max(die)` / `pointwise_min(die)` with a single die iterate its outcomes (S5b)
 
 function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iterable of dice, so
@@ -456,7 +555,7 @@ function.py `pointwise_max(arg0, *more_args)` treats a lone argument as the iter
 iterable of dice, or two or more dice as separate arguments", so this is documented, but a single die is surely
 meant as itself (as `icepool.lowest(d6)` / `highest(d6)` would suggest).
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/266 (pending merge):** a lone `Die` argument is
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/266 (merged):** a lone `Die` argument is
 wrapped as a one-element tuple. The port follows it (harness `function.rs` `pointwise`, the facade's
 `pointwise_max`/`pointwise_min`, the JS `pointwise`); new fixtures in fixtures/s5b/pointwise-single-die.jsonl. Old
 fixtures in fixtures/s5b/function.jsonl still encode the bug.
@@ -475,7 +574,7 @@ function.py `consecutive(*args)` chains its arguments twice (`min(itertools.chai
 `max(itertools.chain(*args))`), so an iterator argument is exhausted by the `min` and the `max` raises `ValueError:
 max() iterable argument is empty`.
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/267 (pending merge):** the arguments are
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/267 (merged):** the arguments are
 materialised once before chaining. The facade follows it (python/icepool/function.py). Before the fix the facade
 copied it by materialising both chains. The program language passes lists only, so no fixture can
 cover this.
@@ -487,43 +586,9 @@ def test_consecutive_iterator():
     assert icepool.consecutive(iter([1, 3])) == (1, 2, 3)
 ```
 
-### `d` / `z` are `@cache`d and keyed by `==`, so `z(Fraction(1))` succeeds after `z(True)` (S5)
-
-function.py `d(sides)` and `z(sides)` are wrapped in `functools.cache`, which looks arguments up by hash and `==`
-before the body runs. A lone `int` argument is its own key, but any other type is keyed as a one-element list, and
-`[True] == [1.0] == [Fraction(1)]` (equal hashes too). So once `z(True)` is cached, `z(1.0)` and `z(Fraction(1))`
-return that die instead of raising `TypeError('sides must be an int.')`; in a fresh process (or after only `z(1)`)
-they raise. Results then depend on what the process computed before (the fresh-seed fuzz met it: a long-lived
-oracle). The port has no cross-call cache and gives what a fresh process gives; the `d`, `z`, `dz_attr`, `d_pool`
-and `z_pool` nodes call `fresh_dz()` (harness/grammar/basic.py: `d.cache_clear()`, `z.cache_clear()`) first so the
-oracle does too (fixtures/s5/dz-cache runs the sequence in one process). The facade keeps upstream's `@cache`.
-
-Drafted upstream test:
-
-```python
-def test_d_rejects_non_int_after_cache():
-    icepool.d(True)
-    with pytest.raises(TypeError):
-        icepool.d(1.0)  # fails: returns the cached d(True)
-```
-
-### Values nested ~10000 deep raise `RecursionError` where CPython may still answer (R1)
-
-CPython recurses on nested tuples in C: comparison and `repr` raise `RecursionError` from its C recursion limit
-(`Py_C_RECURSION_LIMIT`, 10000 in 3.13: `t == u` for tuples nested 9998 deep, `str(Die([t]))` from 9993,
-`Die([t, u])` from 9996), and hashing has no limit at all, so `Die([t])` works for a tuple nested 100000 deep
-(and crashes the interpreter somewhere beyond). The port recurses natively and must not overflow its stack, so
-every recursion on a nested value takes a level (`value/recursion.rs`) and raises `RecursionError` past 10000
-levels *or* 6 MiB of stack (1000 levels / 512 KiB in WASM). So: anything on a tuple nested more than 10000 deep
-raises (`Die([t])`, `tupleize` chains, `map(lambda s: (s,), repeat=n)` states), and near 10000 the exact level
-differs from CPython's by a few (each CPython operation adds its own C levels; the port counts tuple levels
-only). With `sys.setrecursionlimit` raised far, Vector operators and evaluations over many outcomes (one level
-per outcome) also raise from the stack budget, where Python continues (or crashes: `Die(range(20000)).pool(1)
-.sum()` at limit 100000 segfaults the oracle). Not a Python bug; listed so the threshold differences are known.
-
 ### Vector comparisons take exponential time in Python (R1)
 
-**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (pending merge); the port now follows the fix.**
+**Fixed upstream in https://github.com/HighDiceRoller/icepool/pull/275 (merged); the port now follows the fix.**
 The rest of this entry describes the old behaviour.
 
 `Vector.binary_operator` with `compare_for_truth` computes `op(self._data, other._data)` (a tuple comparison,
@@ -541,22 +606,4 @@ def test_nested_vector_comparison_is_not_exponential():
     for _ in range(40):
         t = Vector([t])
     assert bool(t == t)  # currently ~2**40 steps
-```
-
-### `x in symbols` is True for anything with a `len()` (C6g)
-
-`Symbols` is a `Mapping[str, int]` without its own `__contains__`, so `in` is `Mapping.__contains__`: `self[key]`,
-False only on `KeyError`. But `Symbols.__getitem__` never raises `KeyError`: a one-character key missing from the
-symbols counts 0, any other key gives a (sub-)Symbols. So `'z' in Symbols('ab')` is True, as is `(1, 2) in
-Symbols('ab')`, and `1 in Symbols('ab')` raises `TypeError` (`len(1)`). It shows wherever a Symbols is the
-collection of a selection (`die.reroll(Symbols('ab'), ...)`, `die.is_in(...)`, `to_one_hot(...)`, where
-`symbols.index` is then `symbols['index']`, a Symbols, and calling it raises `TypeError`). The port copies it
-(harness map.rs `contains`, js die.ts `memberships`).
-
-Drafted upstream test:
-
-```python
-def test_symbols_contains_only_present_symbols():
-    assert 'a' in Symbols('ab')
-    assert 'z' not in Symbols('ab')  # fails: __getitem__ returns 0 instead of raising KeyError
 ```
