@@ -165,7 +165,7 @@ per outcome) also raise from the stack budget, where Python continues (or crashe
 
 ### `x in symbols` is True for anything with a `len()` (C6g)
 
-**Not reported upstream yet** (found after issue #1).
+**Reported upstream:** https://github.com/HighDiceRoller/icepool/issues/280.
 
 `Symbols` is a `Mapping[str, int]` without its own `__contains__`, so `in` is `Mapping.__contains__`: `self[key]`,
 False only on `KeyError`. But `Symbols.__getitem__` never raises `KeyError`: a one-character key missing from the
